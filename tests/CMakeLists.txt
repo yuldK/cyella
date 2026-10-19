@@ -56,7 +56,13 @@ cyella_add_source_filter(cyella_test_files "infrastructure"
     ssh_tools_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "presentation"
-    start_page_view_tests.cpp)
+    graph_geometry_tests.cpp
+    shell_controller_tests.cpp
+    shell_layout_tests.cpp
+    start_page_view_tests.cpp
+    ui_tree_perf_tests.cpp
+    view_snapshot_support.h
+    view_snapshot_tests.cpp)
 
 # 프로세스 실행기 test가 띄우는 도우미다. stdin 반향, NUL을 포함한 바이트 출력, 손자
 # 프로세스 생성처럼 실제 git으로는 흉내 내기 어려운 동작을 한다. console 앱이고 앱 코드와

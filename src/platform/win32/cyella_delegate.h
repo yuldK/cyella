@@ -7,6 +7,9 @@
 namespace cyella::win32 {
     // luil UI thread에 꽂는 cyella 훅이다. 창 사건을 앱 메시지로 바꾸기만 하고
     // 상태는 직접 고치지 않는다.
+    //
+    // OS 대화 상자(폴더 고르기)는 UI thread의 일이라 여기서 연다. element는 `app_ui_command`
+    // (`ui_command_id`)를 내고, 고른 결과는 `folder_chosen_intent`로 logic thread에 돌려준다.
     class cyella_delegate final : public luil::win32::window_delegate
     {
     public:
@@ -16,6 +19,7 @@ namespace cyella::win32 {
         {}
 
         void on_started(luil::app_host& host) override;
+        void execute_app_ui_command(luil::app_host& host, const luil::app_ui_command& command) override;
         [[nodiscard]] luil::app_message make_window_metrics_message(float width, float height, float scale) override;
 
     private:

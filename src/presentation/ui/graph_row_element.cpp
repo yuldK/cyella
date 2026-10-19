@@ -1,0 +1,443 @@
+#include "presentation/ui/graph_row_element.h"
+
+#include "presentation/ui/element_kinds.h"
+#include "presentation/ui/ui_helpers.h"
+
+#include "include/core/SkCanvas.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
+#include "include/core/SkRRect.h"
+#include "include/core/SkRect.h"
+#include "include/effects/SkDashPathEffect.h"
+
+#include <algorithm>
+#include <array>
+
+namespace cyella::ui {
+    namespace {
+        // 라벨 칩의 치수다 (논리 픽셀).
+        constexpr float label_height { 18.0f };
+        constexpr float label_padding { 6.0f };
+        constexpr float label_icon_size { 12.0f };
+        constexpr float label_gap { 4.0f };
+        constexpr float label_font_size { 11.0f };
+        constexpr float label_max_text { 140.0f };
+        constexpr float cell_padding { 8.0f };
+
+        char32_t label_glyph(const ref_label& label) noexcept
+        {
+            switch (label.kind)
+            {
+            case ref_label_kind::head:
+                return codicons::icon_target;
+            case ref_label_kind::local:
+                return label.current ? codicons::icon_check : codicons::icon_git_branch;
+            case ref_label_kind::remote:
+                return codicons::icon_cloud;
+            case ref_label_kind::tag:
+                return codicons::icon_tag;
+            case ref_label_kind::stash:
+                return codicons::icon_archive;
+            }
+            return codicons::icon_git_branch;
+        }
+
+        float text_width(const luil::draw_context& context, const ref_label& label)
+        {
+            const SkFont font { ui_font(context, label_font_size, label.current) };
+            return std::min(luil::measure_text(label.text, font), label_max_text * context.scale);
+        }
+
+        void stroke_curve(SkCanvas& canvas, const graph_curve& curve, const float left, const float top, const float scale, const SkPaint& paint)
+        {
+            SkPathBuilder builder {};
+            builder.moveTo(left + curve.start.x * scale, top + curve.start.y * scale);
+            if (curve.straight)
+                builder.lineTo(left + curve.end.x * scale, top + curve.end.y * scale);
+            else
+                builder.cubicTo(left + curve.control1.x * scale, top + curve.control1.y * scale, left + curve.control2.x * scale, top + curve.control2.y * scale, left + curve.end.x * scale,
+                    top + curve.end.y * scale);
+            canvas.drawPath(builder.detach(), paint);
+        }
+
+        SkPaint stroke_paint(const luil::ui_color color, const float width)
+        {
+            SkPaint paint { luil::solid_paint(color) };
+            paint.setAntiAlias(true);
+            paint.setStyle(SkPaint::kStroke_Style);
+            paint.setStrokeWidth(width);
+            return paint;
+        }
+
+        void dash(SkPaint& paint, const float on, const float off)
+        {
+            const std::array<SkScalar, 2> intervals { on, off };
+            paint.setPathEffect(SkDashPathEffect::Make(intervals, 0.0f));
+        }
+    } // namespace
+
+    graph_columns make_graph_columns(const std::uint16_t lane_count, const bool compact) noexcept
+    {
+        graph_columns columns {};
+        columns.compact = compact;
+        columns.refs = compact ? 120.0f : 190.0f;
+        columns.graph = std::min(graph_column_width(lane_count), graph_columns::maximum_graph);
+        return columns;
+    }
+
+    float measure_ref_label(const luil::draw_context& context, const ref_label& label)
+    {
+        const float scale { context.scale };
+        float width { label_padding * 2.0f * scale + label_icon_size * scale + label_gap * scale + text_width(context, label) };
+        if (label.also_remote)
+            width += (label_gap + label_icon_size) * scale;
+        return width;
+    }
+
+    void draw_ref_label(luil::draw_context& context, const ref_label& label, const luil::rect_f& box, const luil::ui_color lane)
+    {
+        const float scale { context.scale };
+        const luil::ui_color_palette& palette { context.palette };
+        luil::ui_color fill { luil::with_alpha(lane, 0.25f) };
+        luil::ui_color border { lane };
+        luil::ui_color text { palette.primary_foreground };
+        switch (label.kind)
+        {
+        case ref_label_kind::remote:
+            fill = luil::with_alpha(lane, 0.08f);
+            border = luil::with_alpha(lane, 0.45f);
+            text = palette.secondary_foreground;
+            break;
+        case ref_label_kind::tag:
+            fill = luil::with_alpha(lane, 0.12f);
+            border = luil::with_alpha(lane, 0.7f);
+            break;
+        case ref_label_kind::stash:
+            fill = palette.input_background;
+            border = palette.group_border;
+            text = palette.secondary_foreground;
+            break;
+        case ref_label_kind::head:
+            fill = palette.soft_button_background;
+            border = palette.accent;
+            break;
+        case ref_label_kind::local:
+            break;
+        }
+        const float radius { context.metrics.control_corner_radius * scale };
+        const SkRect shape { SkRect::MakeXYWH(box.x, box.y, box.width, box.height) };
+        SkPaint fill_paint { luil::solid_paint(fill) };
+        fill_paint.setAntiAlias(true);
+        context.canvas.drawRRect(SkRRect::MakeRectXY(shape, radius, radius), fill_paint);
+        SkPaint border_paint { stroke_paint(border, scale) };
+        // 원격에 없는 태그는 점선 테두리다.
+        if (label.local_only)
+            dash(border_paint, 3.0f * scale, 2.0f * scale);
+        context.canvas.drawRRect(SkRRect::MakeRectXY(shape.makeInset(0.5f * scale, 0.5f * scale), radius, radius), border_paint);
+
+        context.canvas.save();
+        context.canvas.clipRect(shape);
+        const SkPaint text_paint { luil::solid_paint(text) };
+        float x { box.x + label_padding * scale };
+        luil::draw_centered_glyph(context.canvas, label_glyph(label), { x, box.y, label_icon_size * scale, box.height }, icon_font(context, label_icon_size), text_paint);
+        x += (label_icon_size + label_gap) * scale;
+        const SkFont font { ui_font(context, label_font_size, label.current) };
+        const float trailing { label.also_remote ? (label_gap + label_icon_size) * scale : 0.0f };
+        const float available { box.x + box.width - label_padding * scale - trailing - x };
+        if (available > 0.0f)
+            static_cast<void>(luil::draw_text_within(context.canvas, label.text, x, box.y + luil::centered_text_baseline(font, box.height), available, font, text_paint));
+        if (label.also_remote)
+        {
+            const float cloud_x { box.x + box.width - label_padding * scale - label_icon_size * scale };
+            luil::draw_centered_glyph(
+                context.canvas, codicons::icon_cloud, { cloud_x, box.y, label_icon_size * scale, box.height }, icon_font(context, label_icon_size), luil::solid_paint(palette.secondary_foreground));
+        }
+        context.canvas.restore();
+    }
+
+    // ---------------------------------------------------------------- graph_row_element
+
+    graph_row_element::graph_row_element(std::u8string owner, graph_row_data data, graph_columns columns)
+        : ui_element { luil::ui_element_id { kind_graph_row, std::move(owner) } }
+        , data_ { std::move(data) }
+        , columns_ { columns }
+    {
+        // 누름은 목록의 행이 받는다 (고르기·커서).
+        set_hit_opaque(false);
+        access_name_ = data_.wip ? u8"WIP 변경 " + number_text(data_.wip_count) + u8"개" : data_.subject;
+        if (data_.labels.empty() == false)
+        {
+            std::u8string names {};
+            for (const ref_label& label : data_.labels)
+                names += (names.empty() ? u8"" : u8", ") + label.text;
+            access_name_ += u8" [" + names + u8"]";
+        }
+    }
+
+    void graph_row_element::arrange(const luil::arrange_context& context)
+    {
+        set_bounds(context.slot);
+    }
+
+    luil::access_info graph_row_element::accessibility() const
+    {
+        return { .role = luil::access_role::static_text, .name = access_name_ };
+    }
+
+    void graph_row_element::draw_labels(luil::draw_context& context, const luil::rect_f& cell) const
+    {
+        if (data_.labels.empty())
+            return;
+        const float scale { context.scale };
+        const float left { cell.x + cell_padding * scale };
+        const float right { cell.x + cell.width - label_padding * scale };
+        const float available { right - left };
+        if (available <= 0.0f)
+            return;
+        const float gap { label_gap * scale };
+        std::vector<float> widths {};
+        float total { 0.0f };
+        for (const ref_label& label : data_.labels)
+        {
+            widths.push_back(measure_ref_label(context, label));
+            total += widths.back() + (widths.size() > 1 ? gap : 0.0f);
+        }
+
+        std::size_t shown { data_.labels.size() };
+        float chip_width { 0.0f };
+        std::u8string chip {};
+        const SkFont chip_font { ui_font(context, label_font_size) };
+        if (total > available)
+        {
+            // 칸이 모자라면 앞에서부터 들어가는 만큼만 그리고 나머지는 "+N" 칩으로 줄인다.
+            shown = 0;
+            float used { 0.0f };
+            for (std::size_t index { 0 }; index < widths.size(); ++index)
+            {
+                const std::size_t rest { widths.size() - index - 1 };
+                const float rest_chip { rest > 0 ? luil::measure_text(u8"+" + number_text(rest), chip_font) + 10.0f * scale + gap : 0.0f };
+                const float next { used + (index > 0 ? gap : 0.0f) + widths[index] };
+                if (next + rest_chip > available && index > 0)
+                    break;
+                used = next;
+                shown = index + 1;
+            }
+            const std::size_t hidden { data_.labels.size() - shown };
+            if (hidden > 0)
+            {
+                chip = u8"+" + number_text(hidden);
+                chip_width = luil::measure_text(chip, chip_font) + 10.0f * scale;
+            }
+            total = used + (chip_width > 0.0f ? gap + chip_width : 0.0f);
+        }
+
+        const float height { label_height * scale };
+        const float top { cell.y + (cell.height - height) / 2.0f };
+        float x { std::max(right - total, left) };
+        const luil::ui_color lane { lane_color(context.palette, data_.row.color) };
+        for (std::size_t index { 0 }; index < shown; ++index)
+        {
+            const float width { std::min(widths[index], right - x - (chip_width > 0.0f ? chip_width + gap : 0.0f)) };
+            if (width <= 0.0f)
+                break;
+            draw_ref_label(context, data_.labels[index], { x, top, width, height }, lane);
+            x += width + gap;
+        }
+        if (chip_width > 0.0f)
+        {
+            const SkRect shape { SkRect::MakeXYWH(x, top, chip_width, height) };
+            const float radius { context.metrics.control_corner_radius * scale };
+            context.canvas.drawRRect(SkRRect::MakeRectXY(shape, radius, radius), luil::solid_paint(context.palette.input_background));
+            static_cast<void>(luil::draw_text_within(context.canvas, chip, x + 5.0f * scale, top + luil::centered_text_baseline(chip_font, height), chip_width - 5.0f * scale, chip_font,
+                luil::solid_paint(context.palette.secondary_foreground)));
+        }
+    }
+
+    void graph_row_element::draw_graph(luil::draw_context& context, const luil::rect_f& cell) const
+    {
+        const float scale { context.scale };
+        context.canvas.save();
+        context.canvas.clipRect(SkRect::MakeXYWH(cell.x, cell.y, cell.width, cell.height));
+        const float line_width { graph_line_width * scale };
+        for (const graph_edge& edge : data_.row.edges)
+        {
+            SkPaint paint { stroke_paint(lane_color(context.palette, edge.color), line_width) };
+            if (data_.has_wip && graph_edge_is_wip_chain(edge, data_.index, data_.wip_lane, data_.head_row_index))
+                dash(paint, 3.0f * scale, 3.0f * scale);
+            stroke_curve(context.canvas, graph_edge_curve(edge, cell.height / scale), cell.x, cell.y, scale, paint);
+        }
+
+        const float center_x { cell.x + graph_lane_x(data_.row.lane) * scale };
+        const float center_y { cell.y + cell.height / 2.0f };
+        const luil::ui_color color { lane_color(context.palette, data_.row.color) };
+        if (graph_row_needs_upward_stub(data_.row, data_.wip, data_.labels.empty() == false))
+        {
+            // 위에 아직 읽지 않은 자식이 있다는 짧은 선이다.
+            SkPaint stub { stroke_paint(luil::with_alpha(color, 0.5f), line_width) };
+            dash(stub, 2.0f * scale, 2.0f * scale);
+            context.canvas.drawLine(center_x, cell.y, center_x, center_y, stub);
+        }
+
+        if (data_.wip)
+        {
+            SkPaint fill { luil::solid_paint(context.palette.surface_background) };
+            fill.setAntiAlias(true);
+            context.canvas.drawCircle(center_x, center_y, graph_node_radius * scale, fill);
+            SkPaint ring { stroke_paint(color, line_width) };
+            dash(ring, 3.0f * scale, 2.0f * scale);
+            context.canvas.drawCircle(center_x, center_y, graph_node_radius * scale, ring);
+        }
+        else
+        {
+            if (data_.head)
+                context.canvas.drawCircle(center_x, center_y, graph_head_ring_radius * scale, stroke_paint(color, 1.5f * scale));
+            if (data_.row.is_merge)
+            {
+                // merge 커밋은 속이 빈 작은 원이다.
+                SkPaint fill { luil::solid_paint(context.palette.window_background) };
+                fill.setAntiAlias(true);
+                context.canvas.drawCircle(center_x, center_y, graph_merge_node_radius * scale, fill);
+                context.canvas.drawCircle(center_x, center_y, graph_merge_node_radius * scale, stroke_paint(color, line_width));
+            }
+            else
+            {
+                // 노드 둘레를 바탕색으로 둘러 지나가는 선과 노드를 가른다 (SVG의 바탕색 stroke).
+                SkPaint halo { luil::solid_paint(context.palette.surface_background) };
+                halo.setAntiAlias(true);
+                context.canvas.drawCircle(center_x, center_y, (graph_node_radius + 1.0f) * scale, halo);
+                SkPaint fill { luil::solid_paint(color) };
+                fill.setAntiAlias(true);
+                context.canvas.drawCircle(center_x, center_y, (graph_node_radius - 1.0f) * scale, fill);
+            }
+        }
+        context.canvas.restore();
+    }
+
+    void graph_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
+    {
+        const luil::rect_f box { bounds() };
+        const float scale { context.scale };
+        const float refs { columns_.refs * scale };
+        const float graph { columns_.graph * scale };
+        const float tail { columns_.compact ? 0.0f : (columns_.author + columns_.date) * scale };
+        const float summary { std::max(box.width - refs - graph - tail, 0.0f) };
+
+        float x { box.x };
+        draw_labels(context, { x, box.y, refs, box.height });
+        x += refs;
+        draw_graph(context, { x, box.y, graph, box.height });
+        x += graph;
+
+        const float padding { cell_padding * scale };
+        const SkFont body { ui_font(context, 12.0f) };
+        const float baseline { box.y + luil::centered_text_baseline(body, box.height) };
+        if (data_.wip)
+        {
+            const SkFont code { code_font(context, 12.0f) };
+            const float drawn = luil::draw_text_within(context.canvas, u8"// WIP", x + padding, box.y + luil::centered_text_baseline(code, box.height), summary - padding * 2.0f, code,
+                luil::solid_paint(context.palette.secondary_foreground));
+            const SkFont small { ui_font(context, 11.0f) };
+            const float count_x { x + padding + drawn + padding };
+            if (summary - (count_x - x) > 0.0f)
+                static_cast<void>(luil::draw_text_within(context.canvas, u8"변경 " + number_text(data_.wip_count) + u8"개", count_x, box.y + luil::centered_text_baseline(small, box.height),
+                    x + summary - padding - count_x, small, luil::solid_paint(context.palette.warning_accent)));
+        }
+        else if (summary > padding * 2.0f)
+            static_cast<void>(luil::draw_text_within(context.canvas, data_.subject, x + padding, baseline, summary - padding * 2.0f, body, luil::solid_paint(context.palette.primary_foreground)));
+        x += summary;
+        if (columns_.compact || data_.wip)
+            return;
+
+        const SkFont small { ui_font(context, 11.0f) };
+        const SkPaint dim { luil::solid_paint(context.palette.secondary_foreground) };
+        const float small_baseline { box.y + luil::centered_text_baseline(small, box.height) };
+        static_cast<void>(luil::draw_text_within(context.canvas, data_.author, x + padding, small_baseline, columns_.author * scale - padding * 2.0f, small, dim));
+        x += columns_.author * scale;
+        static_cast<void>(luil::draw_text_within(context.canvas, data_.date, x + padding, small_baseline, columns_.date * scale - padding * 2.0f, small, dim));
+    }
+
+    // ---------------------------------------------------------------- graph_header_element
+
+    graph_header_element::graph_header_element(const graph_columns columns)
+        : ui_element { luil::ui_element_id { kind_graph_header, u8"graph-header" } }
+        , columns_ { columns }
+    {
+        set_hit_opaque(false);
+    }
+
+    void graph_header_element::arrange(const luil::arrange_context& context)
+    {
+        set_bounds(context.slot);
+    }
+
+    void graph_header_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
+    {
+        const luil::rect_f box { bounds() };
+        const float scale { context.scale };
+        context.canvas.drawRect(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), luil::solid_paint(context.palette.surface_background));
+        context.canvas.drawRect(SkRect::MakeXYWH(box.x, box.y + box.height - scale, box.width, scale), luil::solid_paint(context.palette.divider));
+        const SkFont font { ui_font(context, 11.0f) };
+        const SkPaint dim { luil::solid_paint(context.palette.secondary_foreground) };
+        const float baseline { box.y + luil::centered_text_baseline(font, box.height) };
+        const float padding { cell_padding * scale };
+        const float tail { columns_.compact ? 0.0f : (columns_.author + columns_.date) * scale };
+        const float summary { std::max(box.width - (columns_.refs + columns_.graph) * scale - tail, 0.0f) };
+        float x { box.x };
+        const auto column = [&](const std::u8string_view title, const float width) {
+            if (width > padding * 2.0f)
+                static_cast<void>(luil::draw_text_within(context.canvas, title, x + padding, baseline, width - padding * 2.0f, font, dim));
+            x += width;
+        };
+        column(u8"브랜치/태그", columns_.refs * scale);
+        column(u8"그래프", columns_.graph * scale);
+        column(u8"커밋 메시지", summary);
+        if (columns_.compact == false)
+        {
+            column(u8"작성자", columns_.author * scale);
+            column(u8"날짜", columns_.date * scale);
+        }
+    }
+
+    // ---------------------------------------------------------------- ref_label_strip_element
+
+    ref_label_strip_element::ref_label_strip_element(std::u8string owner, std::vector<ref_label> labels, const std::uint8_t lane_color)
+        : ui_element { luil::ui_element_id { kind_label, std::move(owner) } }
+        , labels_ { std::move(labels) }
+        , lane_color_ { lane_color }
+    {
+        set_hit_opaque(false);
+    }
+
+    void ref_label_strip_element::arrange(const luil::arrange_context& context)
+    {
+        set_bounds(context.slot);
+    }
+
+    void ref_label_strip_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
+    {
+        const luil::rect_f box { bounds() };
+        const float scale { context.scale };
+        const float height { label_height * scale };
+        const float top { box.y + (box.height - height) / 2.0f };
+        float x { box.x };
+        const luil::ui_color lane { lane_color(context.palette, lane_color_) };
+        for (const ref_label& label : labels_)
+        {
+            const float width { std::min(measure_ref_label(context, label), box.x + box.width - x) };
+            if (width <= 0.0f)
+                break;
+            draw_ref_label(context, label, { x, top, width, height }, lane);
+            x += width + label_gap * scale;
+        }
+    }
+
+    luil::access_info ref_label_strip_element::accessibility() const
+    {
+        std::u8string names {};
+        for (const ref_label& label : labels_)
+            names += (names.empty() ? u8"" : u8", ") + label.text;
+        return { .role = luil::access_role::static_text, .name = names };
+    }
+} // namespace cyella::ui

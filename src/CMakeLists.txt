@@ -219,8 +219,40 @@ cyella_add_source_filter(cyella_lib_files "presentation/start_page"
     presentation/start_page_view.cpp
     presentation/start_page_view.h)
 
+# 화면 상태와 snapshot이다. snapshot builder와 배치·그래프 계산은 순수 함수라 UI 없이 test한다.
+cyella_add_source_filter(cyella_lib_files "presentation/shell"
+    presentation/build_view_snapshot.cpp
+    presentation/build_view_snapshot.h
+    presentation/frame_feedback.h
+    presentation/graph_geometry.cpp
+    presentation/graph_geometry.h
+    presentation/shell_controller.cpp
+    presentation/shell_controller.h
+    presentation/shell_layout.cpp
+    presentation/shell_layout.h
+    presentation/ui_intents.h
+    presentation/ui_state.h
+    presentation/view_snapshot.h)
+
 cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
-    presentation/ui/cyella_caption.h)
+    presentation/ui/cyella_caption.h
+    presentation/ui/cyella_policy.cpp
+    presentation/ui/cyella_policy.h
+    presentation/ui/element_kinds.h
+    presentation/ui/ui_helpers.cpp
+    presentation/ui/ui_helpers.h)
+
+# snapshot을 luil element tree로 짓는다. 판마다 파일이 하나다.
+cyella_add_source_filter(cyella_lib_files "presentation/ui/screens"
+    presentation/ui/build_ui_tree.cpp
+    presentation/ui/build_ui_tree.h
+    presentation/ui/graph_row_element.cpp
+    presentation/ui/graph_row_element.h
+    presentation/ui/list_rows.cpp
+    presentation/ui/list_rows.h
+    presentation/ui/repository_ui.cpp
+    presentation/ui/start_page_ui.cpp
+    presentation/ui/ui_parts.h)
 
 # platform/win32: Win32 어댑터와 luil 앱 조립이다. 창·렌더러·입력은 luil 안에
 # 있다. 실행 파일만 이 계층을 쓴다.

@@ -6,81 +6,41 @@
 #include "platform/win32/askpass_helper_path.h"
 #include "platform/win32/win32_file_probe.h"
 #include "platform/win32/win32_process_runner.h"
+#include "platform/win32/win32_settings_file_system.h"
 #include "platform/win32/win32_workspace_files.h"
-#include "presentation/ui/cyella_caption.h"
+#include "presentation/ui/build_ui_tree.h"
 
-#include <deque>
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 namespace cyella::win32 {
     namespace {
-        constexpr luil::ui_element_kind kind_placeholder_label { luil::application_element_kind(0) };
-
-        // 논리 픽셀(96 DPI 기준) 상수다. 그릴 때 배율을 곱한다.
+        // 논리 픽셀(96 DPI 기준) 상수다. 첫 frame은 창 크기 메시지가 오기 전이라 이 값으로 배치한다.
         constexpr float default_window_width { 1280.0f };
         constexpr float default_window_height { 720.0f };
-        constexpr float content_padding { 24.0f };
-        constexpr float placeholder_font_size { 14.0f };
-        // 확인용 글은 최근 operation 몇 개만 보인다. 화면은 presentation 계층이 그린다.
-        constexpr std::size_t debug_operation_count { 8 };
 
-        std::u8string to_u8(const std::string_view text)
+        luil::theme_preference to_luil_theme(const theme_preference theme) noexcept
         {
-            return std::u8string { text.begin(), text.end() };
-        }
-
-        std::u8string number(const std::uint64_t value)
-        {
-            return to_u8(std::to_string(value));
-        }
-
-        // 상태를 눈으로 확인하는 글이다. 세션 상태를 그대로 읽어 줄로 만든다.
-        std::vector<std::u8string> debug_lines(const git_tool_info& tool, const git_workspace* const workspace)
-        {
-            std::vector<std::u8string> lines {};
-            if (workspace == nullptr)
+            switch (theme)
             {
-                lines.push_back(u8"git: " + std::u8string { git_tool_unavailable_message(tool.availability) });
-                return lines;
+            case theme_preference::light:
+                return luil::theme_preference::light;
+            case theme_preference::dark:
+                return luil::theme_preference::dark;
+            case theme_preference::system:
+                break;
             }
-            lines.push_back(u8"git: " + tool.reported_version);
-            for (const std::string& id : workspace->repository_ids())
-            {
-                const repository_session* const session { workspace->find_session(id) };
-                if (session == nullptr)
-                    continue;
-                const repository_summary& summary { session->snapshot().summary };
-                std::u8string line { session->path() + u8"  [" + to_u8(summary.is_detached ? summary.head_sha.substr(0, 7) : summary.current_branch) + u8"]" };
-                line += u8"  +" + number(summary.ahead) + u8" -" + number(summary.behind);
-                line += u8"  changes " + number(summary.changed_file_count);
-                line += u8"  rows " + number(session->graph_rows().size());
-                if (summary.in_progress.kind != repository_operation_state::none)
-                    line += u8"  " + to_u8(repository_operation_state_name(summary.in_progress.kind)) + u8" " + number(summary.in_progress.step) + u8"/" + number(summary.in_progress.total);
-                lines.push_back(std::move(line));
-            }
-            const std::deque<operation_id>& order { workspace->operation_order() };
-            const std::size_t first { order.size() > debug_operation_count ? order.size() - debug_operation_count : 0 };
-            for (std::size_t index { first }; index < order.size(); ++index)
-            {
-                const operation_status* const status { workspace->find_operation(order[index]) };
-                if (status == nullptr)
-                    continue;
-                std::u8string line { u8"#" + number(status->id) + u8" " + to_u8(operation_kind_name(status->kind)) + u8" " + to_u8(operation_state_name(status->state)) };
-                if (status->progress.phase_text.empty() == false)
-                    line += u8"  " + status->progress.phase_text;
-                if (status->failure.has_value())
-                    line += u8"  " + to_u8(failure_kind_name(status->failure->kind)) + u8": " + status->failure->summary;
-                lines.push_back(std::move(line));
-            }
-            return lines;
+            return luil::theme_preference::system;
         }
     } // namespace
 
     cyella_driver::cyella_driver(std::u8string initial_repository)
-        : initial_repository_ { std::move(initial_repository) }
+        : cyella_driver { cyella_driver_options { .initial_repository = std::move(initial_repository), .settings_path = {} } }
+    {}
+
+    cyella_driver::cyella_driver(cyella_driver_options options)
+        : options_ { std::move(options) }
     {}
 
     cyella_driver::~cyella_driver()
@@ -93,41 +53,57 @@ namespace cyella::win32 {
     {
         process_runner_ = make_process_runner();
         files_ = make_workspace_files();
-        // git 확인은 5초 제한이 있는 한 번의 `--version`이다. logic thread라 UI는 기다리지 않는다.
-        const std::unique_ptr<file_probe> probe { make_file_probe() };
-        git_tool_ = resolve_git_tool({}, current_git_tool_environment(), *process_runner_, *probe, {});
-        if (git_tool_.usable() == false)
-            return;
-
-        // 서버는 앱 실행마다 한 번만 연다. 도우미나 서버가 없으면 askpass 없이 돌고 진단이 하나 남는다.
-        askpass_.start(locate_askpass_helper());
-        git_operation_runner_options runner_options {};
-        if (askpass_.available())
+        probe_ = make_file_probe();
+        if (options_.settings_path.empty() == false)
         {
-            runner_options.askpass_helper = askpass_.helper_path();
-            runner_options.askpass = askpass_.endpoint();
+            settings_files_ = make_settings_file_system();
+            settings_store_ = std::make_unique<json_app_settings_store>(*settings_files_);
+            settings_ = std::make_unique<app_settings_service>(*settings_store_, options_.settings_path);
+            static_cast<void>(settings_->load());
         }
-        git_workspace_options workspace_options {};
-        workspace_options.askpass = askpass_.service();
 
-        executor_ = std::make_unique<git_operation_runner>(*process_runner_, git_tool_.executable, *files_, std::move(runner_options));
-        scheduler_ = std::make_unique<task_scheduler>();
-        task_scheduler* const scheduler { scheduler_.get() };
-        operation_result_relay* const relay { &relay_ };
-        workspace_ = std::make_unique<git_workspace>(
-            *executor_, [scheduler](operation_request request) { return scheduler->submit(std::move(request)); },
-            [relay](operation_event event) { relay->post(luil::app_message { std::move(event) }); }, &registry_, workspace_options);
-        if (initial_repository_.empty() == false)
-            static_cast<void>(workspace_->open_repository(initial_repository_));
+        // git 확인은 5초 제한이 있는 한 번의 `--version`이다. logic thread라 UI는 기다리지 않는다.
+        git_tool_ = resolve_git_tool({}, current_git_tool_environment(), *process_runner_, *probe_, {});
+        shell_controller::dependencies dependencies {};
+        dependencies.settings = settings_.get();
+        dependencies.probe = probe_.get();
+        if (git_tool_.usable())
+        {
+            // 서버는 앱 실행마다 한 번만 연다. 도우미나 서버가 없으면 askpass 없이 돌고 진단이 하나 남는다.
+            askpass_.start(locate_askpass_helper());
+            git_operation_runner_options runner_options {};
+            if (askpass_.available())
+            {
+                runner_options.askpass_helper = askpass_.helper_path();
+                runner_options.askpass = askpass_.endpoint();
+            }
+            git_workspace_options workspace_options {};
+            workspace_options.askpass = askpass_.service();
+
+            executor_ = std::make_unique<git_operation_runner>(*process_runner_, git_tool_.executable, *files_, std::move(runner_options));
+            scheduler_ = std::make_unique<task_scheduler>();
+            task_scheduler* const scheduler { scheduler_.get() };
+            operation_result_relay* const relay { &relay_ };
+            workspace_ = std::make_unique<git_workspace>(
+                *executor_, [scheduler](operation_request request) { return scheduler->submit(std::move(request)); },
+                [relay](operation_event event) { relay->post(luil::app_message { std::move(event) }); }, &registry_, workspace_options);
+            dependencies.workspace = workspace_.get();
+            dependencies.git_version = git_tool_.reported_version;
+        }
+        else
+            dependencies.git_message = std::u8string { git_tool_unavailable_message(git_tool_.availability) };
+        controller_ = std::make_unique<shell_controller>(std::move(dependencies));
+        controller_->start(options_.initial_repository);
     }
 
     void cyella_driver::handle(luil::app_message message)
     {
         // relay가 결과의 정본이다. 깨우기가 아닌 메시지가 먼저 와도 쌓인 결과부터 반영한다.
         drain_relay();
-        if (message.get<relay_drain_intent>() != nullptr)
-            return;
-        handle_intent(message);
+        if (message.get<relay_drain_intent>() == nullptr && handle_backend_intent(message) == false && controller_ != nullptr)
+            static_cast<void>(controller_->handle(message));
+        if (controller_ != nullptr)
+            controller_->after_events();
     }
 
     void cyella_driver::drain_relay()
@@ -139,39 +115,41 @@ namespace cyella::win32 {
         });
     }
 
-    void cyella_driver::handle_intent(const luil::app_message& message)
+    bool cyella_driver::handle_backend_intent(const luil::app_message& message)
     {
         if (message.get<close_intent>() != nullptr)
         {
             closed_.store(true);
-            return;
+            return true;
         }
         if (const auto* const metrics { message.get<window_metrics_intent>() }; metrics != nullptr)
         {
             metrics_ = *metrics;
-            return;
+            return true;
         }
-        if (workspace_ == nullptr)
-            return;
         if (const auto* const open { message.get<open_repository_intent>() }; open != nullptr)
         {
-            static_cast<void>(workspace_->open_repository(open->path));
-            return;
+            // 탭과 최근 목록까지 함께 바뀌어야 하므로 controller가 연다.
+            if (controller_ != nullptr)
+                controller_->open_repository(open->path);
+            return true;
         }
+        if (workspace_ == nullptr)
+            return false;
         if (const auto* const close { message.get<close_repository_intent>() }; close != nullptr)
         {
             static_cast<void>(workspace_->close_repository(close->repository_id));
-            return;
+            return true;
         }
         if (const auto* const submit { message.get<submit_operation_intent>() }; submit != nullptr)
         {
             static_cast<void>(workspace_->submit(submit->repository_id, submit->operation));
-            return;
+            return true;
         }
         if (const auto* const setup { message.get<submit_setup_intent>() }; setup != nullptr)
         {
             static_cast<void>(workspace_->submit_setup(setup->operation));
-            return;
+            return true;
         }
         if (const auto* const answer { message.get<answer_input_intent>() }; answer != nullptr)
         {
@@ -180,68 +158,35 @@ namespace cyella::win32 {
             wipe_secret_text(answer->answer);
             static_cast<void>(workspace_->answer_input(answer->id, answer->prompt_id, text));
             wipe_secret_text(text);
-            return;
+            return true;
         }
         if (const auto* const close_input { message.get<cancel_input_intent>() }; close_input != nullptr)
         {
             static_cast<void>(workspace_->cancel_input(close_input->id, close_input->prompt_id));
-            return;
+            return true;
         }
         if (const auto* const cancel { message.get<cancel_operation_intent>() }; cancel != nullptr)
+        {
             static_cast<void>(workspace_->cancel(cancel->id));
+            return true;
+        }
+        return false;
     }
 
     std::shared_ptr<const luil::win32::ui_frame> cyella_driver::make_frame()
     {
-        const float scale { metrics_.scale > 0.0f ? metrics_.scale : 1.0f };
-        const float width { metrics_.width > 0.0f ? metrics_.width : default_window_width };
-        const float height { metrics_.height > 0.0f ? metrics_.height : default_window_height };
-
-        auto root { std::make_unique<luil::root_element>() };
-        root->arrange({ { 0.0f, 0.0f, width, height }, scale });
-
-        // 데스크톱은 custom caption, 모바일은 앱 바다. 높이는 논리 픽셀이라 배율을 곱한다.
-        const luil::caption_config caption_config { ui::cyella_caption() };
-        float caption_height { 0.0f };
-        if (luil::current_ui_platform().window_caption)
-        {
-            caption_height = luil::caption_element::height_for(caption_config) * scale;
-            auto caption { std::make_unique<luil::caption_element>(caption_config) };
-            caption->arrange({ { 0.0f, 0.0f, width, caption_height }, scale });
-            root->add(std::move(caption));
-        }
-        else
-        {
-            const luil::app_bar_config app_bar_config { .title = caption_config.title };
-            caption_height = luil::app_bar_element::height_for(app_bar_config) * scale;
-            auto app_bar { std::make_unique<luil::app_bar_element>(app_bar_config) };
-            app_bar->arrange({ { 0.0f, 0.0f, width, caption_height }, scale });
-            root->add(std::move(app_bar));
-        }
-
-        luil::stack_config column_config {};
-        column_config.padding = luil::edge_insets::all(content_padding);
-        auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_placeholder_label, u8"layout" }, column_config) };
-
-        std::vector<std::u8string> lines { u8"cyella" };
-        for (std::u8string& line : debug_lines(git_tool_, workspace_.get()))
-            lines.push_back(std::move(line));
-        for (std::size_t index { 0 }; index < lines.size(); ++index)
-        {
-            luil::label_config label_config {};
-            label_config.text = lines[index];
-            label_config.font_size = placeholder_font_size;
-            label_config.color = index == 0 ? luil::label_color_role::primary : luil::label_color_role::dim;
-            auto label { std::make_unique<luil::label_element>(luil::ui_element_id { kind_placeholder_label, u8"line-" + number(index) }, label_config) };
-            column->add(std::move(label), luil::label_element::height_for(label_config));
-        }
-
-        // caption 아래 나머지 영역이 내용의 slot이다.
-        column->arrange({ { 0.0f, caption_height, width, height - caption_height }, scale });
-        root->add(std::move(column));
-
         auto frame { std::make_shared<luil::win32::ui_frame>() };
-        frame->tree = std::make_shared<const luil::ui_tree>(std::move(root));
+        if (controller_ == nullptr)
+            return frame;
+        const float scale { metrics_.scale > 0.0f ? metrics_.scale : 1.0f };
+        const float width { metrics_.width > 0.0f ? metrics_.width : default_window_width * scale };
+        const float height { metrics_.height > 0.0f ? metrics_.height : default_window_height * scale };
+
+        const view_snapshot view { controller_->make_view(width, height, scale) };
+        ui::built_tree built { ui::build_ui_tree(view) };
+        controller_->apply_feedback(built.feedback);
+        frame->tree = std::move(built.tree);
+        frame->appearance.theme = to_luil_theme(view.theme);
         return frame;
     }
 

@@ -1,7 +1,9 @@
 #include "platform/win32/cyella_delegate.h"
 #include "platform/win32/cyella_driver.h"
 #include "platform/win32/utf8.h"
+#include "platform/win32/win32_app_settings_path.h"
 #include "presentation/ui/cyella_caption.h"
+#include "presentation/ui/cyella_policy.h"
 
 #include "luil/luil.h"
 #include "luil/text/fonts.h"
@@ -11,20 +13,32 @@
 #include <shellapi.h>
 
 #include <string>
+#include <string_view>
 
 namespace {
-    // 첫 명령줄 인자를 시작 저장소로 받는다. 시작 페이지 전까지 상태를 확인하는 길이다.
-    std::u8string initial_repository_argument()
+    // 명령줄이다. 위치 인자 하나는 시작할 때 여는 저장소이고, `--settings=<경로>`는 설정 파일을 바꾼다
+    // (검증할 때 사용자의 `%APPDATA%\cyella\settings.json`을 건드리지 않으려는 것이다).
+    cyella::win32::cyella_driver_options command_line_options()
     {
+        cyella::win32::cyella_driver_options options {};
         int count { 0 };
         LPWSTR* const arguments { ::CommandLineToArgvW(::GetCommandLineW(), &count) };
-        if (arguments == nullptr)
-            return {};
-        std::u8string path {};
-        if (count > 1)
-            path = cyella::win32::utf16_to_utf8(arguments[1]).value.value_or(std::u8string {});
-        ::LocalFree(arguments);
-        return path;
+        if (arguments != nullptr)
+        {
+            constexpr std::u8string_view settings_prefix { u8"--settings=" };
+            for (int index { 1 }; index < count; ++index)
+            {
+                const std::u8string argument { cyella::win32::utf16_to_utf8(arguments[index]).value.value_or(std::u8string {}) };
+                if (argument.starts_with(settings_prefix))
+                    options.settings_path = argument.substr(settings_prefix.size());
+                else if (options.initial_repository.empty())
+                    options.initial_repository = argument;
+            }
+            ::LocalFree(arguments);
+        }
+        if (options.settings_path.empty())
+            options.settings_path = cyella::win32::app_settings_file_path();
+        return options;
     }
 } // namespace
 
@@ -51,12 +65,14 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
     config.resize_border_thickness = 4;
     config.resize_corner_thickness = 10;
 
-    // driver와 delegate는 창이 도는 동안 살아 있어야 한다. delegate는 driver의 relay를 host에
-    // 묶는다. policy는 텍스트 입력·휠·단축키가 생길 때 더하며 지금은 nullptr로 둔다.
-    cyella::win32::cyella_driver driver { initial_repository_argument() };
+    // driver·policy·delegate는 창이 도는 동안 살아 있어야 한다. delegate는 driver의 relay를 host에
+    // 묶고, policy는 텍스트 입력·휠·단축키를 앱 메시지로 옮긴다.
+    cyella::win32::cyella_driver driver { command_line_options() };
+    cyella::ui::cyella_policy policy {};
     cyella::win32::cyella_delegate delegate { &driver.relay() };
     luil::win32::window_environment environment {};
     environment.driver = &driver;
+    environment.policy = &policy;
     environment.delegate = &delegate;
 
     // 메시지 루프가 끝날 때까지 여기서 돈다. 반환값이 프로세스 종료 코드다.
