@@ -142,15 +142,15 @@ TEST_CASE("failed and needs_input operations become banners until dismissed", "[
     checkout.needs_input = input_request { .kind = input_kind::dirty_worktree, .files = { "a.txt" }, .target = "feature" };
     harness.operations.push_back(checkout);
     view = harness.build();
-    REQUIRE(view.banner.has_value());
-    CHECK(view.banner->kind == banner_kind::needs_input);
-    CHECK(view.banner->title == u8"입력 필요 · dirty_worktree");
-    CHECK(view.banner->summary.find(u8"아직 없습니다") != std::u8string::npos);
-    CHECK(view.banner->details == std::vector<std::u8string> { u8"a.txt" });
+    // 입력이 필요한 작업은 배너가 아니라 체크아웃 정책 대화 상자가 맡는다.
+    CHECK_FALSE(view.banner.has_value());
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->id == u8"dirty-dialog");
 
-    // 아직 없는 대화 상자의 안내가 operation 배너보다 앞선다.
-    harness.ui.notice = notice_state { u8"새 브랜치 대화 상자는 아직 없습니다.", false };
+    // 안내는 operation 배너보다 앞선다.
+    harness.ui.notice = notice_state { u8"안내입니다.", false };
     view = harness.build();
+    REQUIRE(view.banner.has_value());
     CHECK(view.banner->kind == banner_kind::notice);
 }
 

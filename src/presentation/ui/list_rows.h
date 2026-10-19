@@ -1,5 +1,6 @@
 #pragma once
 
+#include "presentation/menu_model.h"
 #include "presentation/view_snapshot.h"
 
 #include "luil/ui/ui_element.h"
@@ -21,12 +22,13 @@ namespace cyella::ui {
     inline constexpr float log_row_height { 20.0f };
     inline constexpr float start_row_height { 44.0f };
 
-    // 사이드바 행이다. 브랜치 행은 두 번 누르면 체크아웃이라, 그 행만 스스로 누름을 받는다 — 목록 행에는
-    // 두 번 누름 자리가 없다. 그래서 한 번 누름도 같은 고르기 메시지를 다시 낸다.
+    // 사이드바 행이다. 브랜치 행은 두 번 누르면 체크아웃이고 우클릭하면 메뉴이며 끌어서 다른 브랜치·커밋에 놓을 수 있어,
+    // 그 행만 스스로 누름을 받는다 — 목록 행에는 두 번 누름·우클릭·끌기 자리가 없다. 그래서 한 번 누름도 같은 고르기
+    // 메시지를 다시 낸다.
     class sidebar_row_element final : public luil::ui_element
     {
     public:
-        sidebar_row_element(sidebar_row_view row, std::optional<luil::input_action> select, std::optional<luil::input_action> activate);
+        sidebar_row_element(sidebar_row_view row, std::optional<luil::input_action> select, std::optional<luil::input_action> activate, std::optional<menu_target> menu);
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
@@ -64,7 +66,9 @@ namespace cyella::ui {
     class file_row_element final : public luil::ui_element
     {
     public:
-        file_row_element(file_row_view row, std::vector<file_row_button> buttons);
+        // `select`는 행을 눌렀을 때의 메시지(고르기)이고 `menu`는 우클릭 메뉴의 대상이다. 둘 중 하나라도 있으면 이 element가 눌림을
+        // 직접 받으므로 목록 행의 고르기를 다시 낸다.
+        file_row_element(file_row_view row, std::vector<file_row_button> buttons, std::optional<luil::input_action> select = std::nullopt, std::optional<menu_target> menu = std::nullopt);
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;

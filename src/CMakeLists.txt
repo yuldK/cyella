@@ -250,6 +250,32 @@ cyella_add_source_filter(cyella_lib_files "presentation/settings"
     presentation/settings/settings_state.h
     presentation/settings/settings_view.cpp
     presentation/settings/settings_view.h)
+# 대화 상자·메뉴·끌어 놓기·충돌 해결의 상태와 규칙이다. 모두 UI 없이 test하는 순수 함수다.
+cyella_add_source_filter(cyella_lib_files "presentation/dialogs"
+    presentation/dialog_intents.h
+    presentation/dialog_state.h
+    presentation/drop_hints.cpp
+    presentation/drop_hints.h
+    presentation/form_builders.cpp
+    presentation/form_builders.h
+    presentation/form_view.h
+    presentation/graph_index.cpp
+    presentation/graph_index.h
+    presentation/korean_josa.cpp
+    presentation/korean_josa.h
+    presentation/menu_model.cpp
+    presentation/menu_model.h
+    presentation/shell_controller_dialogs.cpp
+    presentation/snapshot_dialogs.cpp
+    presentation/snapshot_dialogs.h)
+
+# 대화 상자·메뉴·라벨 칩·충돌 해결 화면의 luil element다.
+cyella_add_source_filter(cyella_lib_files "presentation/ui/dialogs"
+    presentation/ui/conflict_ui.cpp
+    presentation/ui/form_ui.cpp
+    presentation/ui/overlay_ui.cpp
+    presentation/ui/ref_chip_element.cpp
+    presentation/ui/ref_chip_element.h)
 
 cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
     presentation/ui/cyella_caption.h

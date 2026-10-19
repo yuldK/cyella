@@ -1,6 +1,7 @@
 #include "application/app_messages.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/ui/diff_webview.h"
+#include "presentation/dialog_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
 #include "presentation/ui/list_rows.h"
@@ -26,6 +27,7 @@ namespace cyella::ui {
         constexpr float detail_line_height { 18.0f };
         constexpr std::size_t detail_body_line_limit { 10 };
         constexpr float commit_box_height { 172.0f };
+        constexpr float amend_warning_extra { 44.0f };
 
         const color_selector dim_color { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
 
@@ -57,6 +59,33 @@ namespace cyella::ui {
             std::map<std::u8string, sidebar_row_view> rows {};
         };
 
+        // 사이드바 행을 우클릭했을 때의 메뉴 대상이다.
+        std::optional<menu_target> sidebar_menu_target(const sidebar_row_view& row)
+        {
+            menu_target target {};
+            target.name = row.ref_name;
+            target.sha = row.target_sha;
+            switch (row.kind)
+            {
+            case ref_kind::local:
+                target.kind = menu_target_kind::local_branch;
+                return target;
+            case ref_kind::remote:
+                target.kind = menu_target_kind::remote_branch;
+                return target;
+            case ref_kind::tag:
+                target.kind = menu_target_kind::tag;
+                return target;
+            case ref_kind::stash:
+                target.kind = menu_target_kind::stash;
+                target.index = row.stash_index;
+                return target;
+            case ref_kind::head:
+                break;
+            }
+            return std::nullopt;
+        }
+
         luil::input_action sidebar_select_action(const sidebar_row_view& row)
         {
             if (row.header)
@@ -85,12 +114,20 @@ namespace cyella::ui {
                 const sidebar_row_view& row { found->second };
                 std::optional<luil::input_action> select {};
                 std::optional<luil::input_action> activate {};
-                if (row.header == false && row.group == false)
+                std::optional<menu_target> menu {};
+                if (row.header)
+                {
+                    select = sidebar_select_action(row);
+                    if (row.section == sidebar_section::tags)
+                        menu = menu_target { .kind = menu_target_kind::tags_section };
+                }
+                else if (row.group == false)
                 {
                     select = sidebar_select_action(row);
                     activate = message(activate_ref_intent { row.kind, row.ref_name });
+                    menu = sidebar_menu_target(row);
                 }
-                return std::make_unique<sidebar_row_element>(row, std::move(select), std::move(activate));
+                return std::make_unique<sidebar_row_element>(row, std::move(select), std::move(activate), std::move(menu));
             };
             config.select = [index](const std::u8string& key) {
                 const auto found { index->rows.find(key) };
@@ -282,16 +319,22 @@ namespace cyella::ui {
                     if (view == diff_view::unstaged && row.conflicted == false)
                     {
                         buttons.push_back(make_row_button(u8"stage:" + to_u8(row.path), codicons::icon_add, u8"stage", submit(repo, stage_files_request { { row.path } })));
-                        // 확인 대화 상자가 붙기 전까지는 두 번 눌러야 버린다. 한 번 누름으로 변경이 사라지지 않게 한다.
+                        // 버리기는 확인 대화 상자를 거친다. 추적하지 않는 파일은 휴지통 단계가 따로 없어 버리지 않는다.
                         const bool discardable { row.untracked == false };
-                        std::u8string tooltip { discardable ? u8"두 번 누르면 변경을 버립니다" : u8"추적하지 않는 파일 버리기는 휴지통 단계의 몫입니다" };
-                        luil::input_action discard { submit(repo, discard_files_request { { row.path } }) };
-                        buttons.push_back(make_row_button(u8"discard:" + to_u8(row.path), codicons::icon_discard, std::move(tooltip), std::move(discard), discardable, true));
+                        std::u8string tooltip { discardable ? u8"변경 버리기 (확인 후)" : u8"추적하지 않는 파일은 버릴 수 없습니다" };
+                        buttons.push_back(make_row_button(u8"discard:" + to_u8(row.path), codicons::icon_discard, std::move(tooltip), message(discard_files_intent { { row.path } }), discardable));
                     }
                     if (view == diff_view::staged)
                         buttons.push_back(make_row_button(u8"unstage:" + to_u8(row.path), codicons::icon_remove, u8"unstage", submit(repo, unstage_files_request { { row.path } })));
-                    (*builders)[row.key] = [row, buttons] { return std::make_unique<file_row_element>(row, buttons); };
-                    (*requests)[row.key] = diff_file_request { .path = row.path, .view = view, .sha = {}, .untracked = row.untracked };
+                    const diff_file_request request { .path = row.path, .view = view, .sha = {}, .untracked = row.untracked };
+                    menu_target target {};
+                    target.kind = menu_target_kind::file;
+                    target.name = row.path;
+                    target.side = view == diff_view::staged ? change_side::staged : change_side::unstaged;
+                    target.untracked = row.untracked;
+                    target.conflicted = row.conflicted;
+                    (*builders)[row.key] = [row, buttons, request, target] { return std::make_unique<file_row_element>(row, buttons, message(select_file_intent { request }), target); };
+                    (*requests)[row.key] = request;
                     if (row.selected)
                         selected = row.key;
                 }
@@ -339,10 +382,17 @@ namespace cyella::ui {
                 28.0f);
             luil::check_config amend { .owner = u8"commit-amend", .label = u8"직전 커밋 수정(amend)", .checked = working.amend, .toggle = action_of(message(toggle_amend_intent {})) };
             box->add(std::make_unique<luil::check_element>(std::move(amend)), luil::check_row_height);
+            if (working.amend_warning)
+            {
+                const color_selector warning { [](const luil::ui_color_palette& palette) { return palette.warning_accent; } };
+                box->add(make_text(u8"commit-amend-warning", u8"이미 push한 커밋입니다.", text_style { .size = 11.0f, .color = warning, .bold = true }), 16.0f);
+                box->add(make_text(u8"commit-amend-warning-detail", u8"고쳐 쓰면 강제 push(--force-with-lease)가 필요합니다.", text_style { .size = 11.0f, .color = warning }), 16.0f);
+            }
             box->add(
                 make_text_button(u8"commit-button", working.commit_label, luil::text_button_visual::accent, message(commit_intent {}), working.can_commit, codicons::icon_git_commit, true), 30.0f);
             box->add(make_text(u8"commit-blocked", working.blocked_reason, text_style { .size = 11.0f, .color = dim_color }), 16.0f);
-            column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"commit-box-bar" }, bar_style { .divider_top = true }, std::move(box)), commit_box_height);
+            column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"commit-box-bar" }, bar_style { .divider_top = true }, std::move(box)),
+                commit_box_height + (working.amend_warning ? amend_warning_extra : 0.0f));
             return column;
         }
     } // namespace
@@ -418,6 +468,10 @@ namespace cyella::ui {
         if (repository.diff.has_value())
             return build_diff_area(view, repository, sources);
 
+        // rebase·merge·cherry-pick·revert가 멈춰 있으면 그래프 자리를 닫을 수 없는 충돌 해결 화면이 덮는다.
+        if (repository.conflict.has_value())
+            return build_conflict_screen(repository, *repository.conflict, repository.conflict_scroll, sources);
+
         const graph_view& graph { repository.graph };
         const graph_columns columns { make_graph_columns(graph.lane_count, graph.compact_columns) };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"graph-area" }, luil::stack_config {}) };
@@ -459,6 +513,8 @@ namespace cyella::ui {
             data.head_row_index = graph_state.head_row_index;
             data.wip_lane = wip_lane;
             data.head = commit.sha == graph_state.head_sha;
+            data.row_key = graph_item_key(commit.sha);
+            data.sha = commit.sha;
             if (data.wip == false)
             {
                 data.subject = to_u8(commit.subject);

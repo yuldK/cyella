@@ -86,6 +86,9 @@ namespace cyella {
         void apply(const operation_event& event);
 
         [[nodiscard]] const operation_status* find_operation(operation_id id) const;
+        // 그 operation을 낸 요청 값이다. 인증 질문의 "이번만 연결"로 같은 요청을 다시 내고, 체크아웃 정책을 골라 다시 내는
+        // 데 쓴다. 표에 없으면 null이다.
+        [[nodiscard]] const git_operation* request_of(operation_id id) const;
         // 낸 순서의 operation id다. 작업 로그가 이 순서로 그린다.
         [[nodiscard]] const std::deque<operation_id>& operation_order() const noexcept
         {
@@ -120,6 +123,8 @@ namespace cyella {
             std::vector<std::string> remote_tag_targets {};
             bool refreshes_remote_tags { false };
             std::shared_ptr<process_cancellation_source> cancellation {};
+            // 낸 요청이다 (`request_of`).
+            git_operation request {};
             // 답을 기다리는 질문이다. 맨 앞이 `status.needs_input`에 보이는 질문이다. 대개 하나뿐이다.
             std::deque<pending_prompt> prompts {};
             // 사용자가 질문을 답 없이 닫았다. job과 공유해 실행기가 `auth_cancelled`를 고른다.

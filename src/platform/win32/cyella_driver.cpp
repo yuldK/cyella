@@ -11,11 +11,13 @@
 #include "platform/win32/win32_ssh_environment.h"
 #include "platform/win32/win32_webview_support.h"
 #include "platform/win32/win32_workspace_files.h"
+#include "presentation/dialog_intents.h"
 #include "presentation/diff_view_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/diff_webview_theme.h"
+#include "presentation/ui_intents.h"
 
 #include <memory>
 #include <string>
@@ -126,8 +128,13 @@ namespace cyella::win32 {
         }
         else
             dependencies.git_message = std::u8string { git_tool_unavailable_message(git_tool_.availability) };
+        // 인증 대화 상자의 답·닫기는 이 driver의 백엔드 처리기로 들어간다 (`answer_input_intent`는 처리하고 바로 비밀을 지운다).
+        dependencies.send_backend_intent = [this](const luil::app_message& message) { static_cast<void>(handle_backend_intent(message)); };
         controller_ = std::make_unique<shell_controller>(std::move(dependencies));
         controller_->start(options_.initial_repository);
+        // 인증 도우미를 쓸 수 없으면 인증이 필요한 작업은 즉시 실패한다. 이유를 한 번 안내로 띄운다.
+        if (const std::optional<diagnostic>& problem { askpass_.startup_diagnostic() }; problem.has_value() && git_tool_.usable())
+            static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = problem->message, .warning = true } }));
     }
 
     void cyella_driver::start_diff_view()
@@ -199,7 +206,12 @@ namespace cyella::win32 {
         if (message.get<relay_drain_intent>() == nullptr && handle_backend_intent(message) == false && handle_diff_view_intent(message) == false && controller_ != nullptr)
             static_cast<void>(controller_->handle(message));
         if (controller_ != nullptr)
+        {
             controller_->after_events();
+            // 메뉴가 복사하라고 한 글은 UI thread의 클립보드로 넘긴다.
+            if (std::optional<std::u8string> text { controller_->take_clipboard_text() }; text.has_value())
+                relay_.copy_to_clipboard(std::move(*text));
+        }
     }
 
     void cyella_driver::drain_relay()
@@ -390,6 +402,19 @@ namespace cyella::win32 {
         ui::built_tree built { ui::build_ui_tree(view) };
         controller_->apply_feedback(built.feedback);
         frame->tree = std::move(built.tree);
+        for (ui::built_popup& popup : built.popups)
+        {
+            luil::win32::ui_popup shown {};
+            shown.id = std::move(popup.id);
+            shown.x = popup.x;
+            shown.y = popup.y;
+            shown.width = popup.width;
+            shown.height = popup.height;
+            shown.tree = std::move(popup.tree);
+            // 바깥을 누르거나 Esc·휠·창 이동이면 닫는다. 닫는 것은 상태(`ui_state::menu`)이고 popup은 다음 frame에 빠진다.
+            shown.dismiss = [](const luil::win32::popup_dismiss_reason) { return luil::make_app_action(close_menu_intent {}); };
+            frame->popups.push_back(std::move(shown));
+        }
         frame->appearance.theme = to_luil_theme(view.theme);
 
         // 웹뷰는 한 번 필요해진 뒤로 계속 싣는다. 빼면 luil이 웹뷰를 닫아 페이지 상태가 날아간다. 자리표(webview_element)가

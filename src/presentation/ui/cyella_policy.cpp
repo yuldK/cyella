@@ -1,6 +1,7 @@
 #include "presentation/ui/cyella_policy.h"
 
 #include "presentation/settings/settings_intents.h"
+#include "presentation/dialog_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
@@ -36,7 +37,23 @@ namespace cyella::ui {
             return to_luil_target(text_target::settings_key_comment);
         if (kind == kind_settings_test_host_input)
             return to_luil_target(text_target::settings_test_host);
+        if (kind == kind_form_input_0)
+            return to_luil_target(text_target::form_field_0);
+        if (kind == kind_form_input_1)
+            return to_luil_target(text_target::form_field_1);
+        if (kind == kind_form_input_2)
+            return to_luil_target(text_target::form_field_2);
         return std::nullopt;
+    }
+
+    std::optional<luil::menu_kinds> cyella_policy::menu() const
+    {
+        return luil::menu_kinds { .container = luil::ui_element_kind::menu, .item = luil::ui_element_kind::menu_item };
+    }
+
+    std::vector<luil::input_action> cyella_policy::close_menu() const
+    {
+        return { message(close_menu_intent {}) };
     }
 
     luil::input_action cyella_policy::make_text_edit_action(const luil::text_edit_request& request) const
@@ -74,6 +91,8 @@ namespace cyella::ui {
                 return { message(apply_git_path_intent {}) };
             if (focused == kind_settings_test_host_input)
                 return { message(test_ssh_connection_intent {}) };
+            if (focused == kind_form_input_0 || focused == kind_form_input_1 || focused == kind_form_input_2)
+                return { message(form_enter_intent {}) };
             return {};
         case luil::key_code::tab:
             if (event.control && event.repeat == false)
@@ -82,6 +101,11 @@ namespace cyella::ui {
         case luil::key_code::key_w:
             if (event.control && event.repeat == false)
                 return { message(close_selected_tab_intent {}) };
+            return {};
+        case luil::key_code::f10:
+            // Shift+F10은 고른 항목의 우클릭 메뉴다 (마우스 없이 메뉴를 여는 길).
+            if (event.shift && event.repeat == false)
+                return { message(open_menu_for_selection_intent {}) };
             return {};
         case luil::key_code::f5:
             if (event.repeat == false)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "presentation/shell_layout.h"
+#include "presentation/ui/build_ui_tree.h"
 #include "presentation/view_snapshot.h"
 
 #include "luil/ui/scroll_area_element.h"
@@ -30,4 +31,14 @@ namespace cyella::ui {
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_rail_popup(const repository_view& repository, sidebar_section section);
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_graph_area(const view_snapshot& view, const repository_view& repository, feedback_sources& sources);
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_detail(const view_snapshot& view, const repository_view& repository, bool drawer, feedback_sources& sources);
+
+    // 대화 상자·메뉴·끌어 놓기·충돌 해결이다.
+    // 모달 입력 상자다. 화면 전체를 덮고 가운데에 대화 상자를 놓는다.
+    [[nodiscard]] std::unique_ptr<luil::ui_element> build_form_dialog(const form_view& form, float logical_width, float logical_height);
+    // 우클릭 메뉴 popup이다. 좌표는 논리 픽셀이고 크기는 항목 글로 짐작한다.
+    [[nodiscard]] built_popup build_menu_popup(const menu_view& menu, float scale);
+    // 끄는 동안 대상 위에 뜨는 문구다. 창 전체를 덮는 투명한 element이고 누름을 받지 않는다.
+    [[nodiscard]] std::unique_ptr<luil::ui_element> build_drag_hint_overlay(std::shared_ptr<const drop_hint_data> hints);
+    // 그래프 자리를 덮는 충돌 해결 화면이다.
+    [[nodiscard]] std::unique_ptr<luil::ui_element> build_conflict_screen(const repository_view& repository, const conflict_view& conflict, float scroll, feedback_sources& sources);
 } // namespace cyella::ui

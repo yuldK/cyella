@@ -185,11 +185,11 @@ TEST_CASE("toolbar actions without a dialog submit operations and the rest show 
     const std::size_t before { test.dispatcher.pending() };
     REQUIRE(test.send(toolbar_intent { toolbar_action::fetch }));
     CHECK(test.dispatcher.pending() == before + 1);
-    // upstream이 없는 Push는 대화 상자가 필요하다.
+    // upstream이 없는 Push는 대화 상자가 필요하다. 이 저장소는 원격이 없어 안내가 뜬다.
     REQUIRE(test.send(toolbar_intent { toolbar_action::push }));
     CHECK(test.dispatcher.pending() == before + 1);
     REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->text.find(u8"아직 없습니다") != std::u8string::npos);
+    CHECK(test.controller.state().notice->text.find(u8"원격이 없어") != std::u8string::npos);
     REQUIRE(test.send(dismiss_notice_intent {}));
     CHECK_FALSE(test.controller.state().notice.has_value());
 }

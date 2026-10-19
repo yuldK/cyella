@@ -39,4 +39,12 @@ namespace cyella::ui {
     inline constexpr luil::ui_element_kind kind_settings_key_name_input { luil::application_element_kind(44) };
     inline constexpr luil::ui_element_kind kind_settings_key_comment_input { luil::application_element_kind(45) };
     inline constexpr luil::ui_element_kind kind_settings_test_host_input { luil::application_element_kind(46) };
+    // 입력 대화 상자의 칸 셋, 그래프 라벨 칩, 끄는 동안의 문구, 충돌 파일 행이다. 다른 화면이 번호를 더해도 겹치지 않게 100부터 쓴다.
+    inline constexpr luil::ui_element_kind kind_form_input_0 { luil::application_element_kind(100) };
+    inline constexpr luil::ui_element_kind kind_form_input_1 { luil::application_element_kind(101) };
+    inline constexpr luil::ui_element_kind kind_form_input_2 { luil::application_element_kind(102) };
+    inline constexpr luil::ui_element_kind kind_ref_chip { luil::application_element_kind(103) };
+    inline constexpr luil::ui_element_kind kind_drag_hint { luil::application_element_kind(104) };
+    inline constexpr luil::ui_element_kind kind_conflict_row { luil::application_element_kind(105) };
+    inline constexpr luil::ui_element_kind kind_form_note { luil::application_element_kind(106) };
 } // namespace cyella::ui

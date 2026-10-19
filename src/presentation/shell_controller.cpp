@@ -5,7 +5,11 @@
 #include "presentation/build_view_snapshot.h"
 #include "presentation/graph_geometry.h"
 
+#include "infrastructure/ssh_tools.h"
+
 #include <algorithm>
+#include <filesystem>
+#include <system_error>
 #include <utility>
 
 namespace cyella {
@@ -224,7 +228,7 @@ namespace cyella {
         const bool still_open { std::any_of(tab_repositories_.begin(), tab_repositories_.end(), [&repository](const auto& entry) { return entry.second == repository; }) };
         if (dependencies_.workspace != nullptr && repository.empty() == false && still_open == false)
         {
-            // 탭을 닫으면 그 저장소의 남은 작업도 거둔다. 확인 대화 상자는 아직 없다.
+            // 탭을 닫으면 그 저장소의 남은 작업도 거둔다. 작업을 취소하고 닫기 전의 확인 상자는 아직 없다.
             for (const operation_id operation : dependencies_.workspace->operation_order())
             {
                 const operation_status* const status { dependencies_.workspace->find_operation(operation) };
@@ -233,6 +237,7 @@ namespace cyella {
             }
             static_cast<void>(dependencies_.workspace->close_repository(repository));
             graph_cache_.erase(repository);
+            history_cache_.erase(repository);
         }
         save_tabs();
         ui_.notice.reset();
@@ -280,6 +285,14 @@ namespace cyella {
         case text_target::settings_key_comment:
         case text_target::settings_test_host:
             return settings_.draft(target);
+        case text_target::form_field_0:
+        case text_target::form_field_1:
+        case text_target::form_field_2:
+            // 떠 있는 입력 상자가 없으면 늦게 온 편집은 버린다. 상자가 바뀌었으면 앞 상자의 글이 새 상자로 새지 않게 먼저 비운다.
+            sync_form_inputs();
+            if (current_form_source().kind == form_source_kind::none)
+                return nullptr;
+            return &ui_.form.fields[static_cast<std::size_t>(static_cast<std::uint32_t>(target) - static_cast<std::uint32_t>(text_target::form_field_0))];
         case text_target::none:
             break;
         }
@@ -321,10 +334,10 @@ namespace cyella {
             if (summary.has_upstream)
                 static_cast<void>(submit(push_execute_request {}));
             else
-                show_notice(u8"upstream이 없는 브랜치의 Push 대화 상자(원격·--set-upstream 선택)는 아직 없습니다.");
+                open_push_dialog(summary.current_branch, true);
             return;
         case toolbar_action::branch:
-            show_notice(u8"새 브랜치 대화 상자(이름·위치·체크아웃)는 아직 없습니다.");
+            open_create_branch_dialog({});
             return;
         case toolbar_action::stash:
             static_cast<void>(submit(stash_push_request { .message = {}, .include_untracked = true }));
@@ -428,11 +441,18 @@ namespace cyella {
             static_cast<void>(submit(checkout_remote_branch_request { intent.name }));
             return;
         case ref_kind::tag:
+            request_detached_checkout(intent.name, to_u8(intent.name));
+            return;
         case ref_kind::head:
-            show_notice(u8"태그·커밋 체크아웃은 detached HEAD 경고 대화 상자가 생기면 붙습니다.");
             return;
         case ref_kind::stash:
-            show_notice(u8"stash 적용·삭제 메뉴는 아직 없습니다. 맨 위 stash는 툴바의 Pop으로 꺼낼 수 있습니다.");
+            // 두 번 누름은 stash를 남겨 두는 apply다. 지우는 pop·삭제는 우클릭 메뉴에 있다.
+            for (const stash_entry& stash : session->snapshot().stashes)
+                if (stash.name == intent.name)
+                {
+                    static_cast<void>(submit(stash_apply_request { stash.index }));
+                    return;
+                }
             return;
         }
     }
@@ -633,7 +653,7 @@ namespace cyella {
             if (repository_exists(intent->path))
                 open_repository(intent->path);
             else
-                show_notice(u8"'" + intent->path + u8"' 경로를 찾을 수 없습니다. 위치 찾기 대화 상자는 아직 없습니다. 목록에서 지울 수 있습니다.", true);
+                show_notice(u8"'" + intent->path + u8"' 경로를 찾을 수 없습니다. 위치 찾기는 아직 없습니다. 목록에서 지울 수 있습니다.", true);
             return true;
         }
         if (const auto* const intent { message.get<pin_recent_intent>() }; intent != nullptr)
@@ -766,7 +786,7 @@ namespace cyella {
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         if (settings_.handle(message))
             return true;
-        return false;
+        return handle_dialog_message(message);
     }
 
     void shell_controller::after_events()
@@ -840,6 +860,31 @@ namespace cyella {
             tab.pending_commit = 0;
         }
         settings_.after_events();
+        process_chains();
+        cancel_automatic_prompts();
+        // "이번만 연결"로 다시 낸 작업이 성공하면 같은 임시 신뢰로 원격 태그 표시를 한 번 갱신한다. 쓰기 뒤 자동으로 나가는
+        // 갱신에는 임시 known_hosts가 이미 지워져 있어 같은 호스트를 다시 묻게 되는데 (위에서 조용히 취소한다), 사용자가 이미 이
+        // 연결을 믿기로 했으므로 그 몫을 여기서 한 번 채운다.
+        for (auto it { trusted_retries_.begin() }; it != trusted_retries_.end();)
+        {
+            const operation_status* const status { workspace->find_operation(it->first) };
+            if (status != nullptr && status->finished() == false)
+            {
+                ++it;
+                continue;
+            }
+            if (status != nullptr && status->state == operation_state::succeeded)
+            {
+                temporary_ssh_trust trust { it->second.trust };
+                std::error_code error {};
+                const std::filesystem::path directory { std::filesystem::path { trust.known_hosts_path }.parent_path() };
+                trust.known_hosts_path = (directory / ("cyella-known-hosts-follow-" + std::to_string(++temporary_counter_) + ".tmp")).u8string();
+                trust.command = make_temporary_known_hosts_ssh_command(dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable },
+                    std::filesystem::path { trust.known_hosts_path });
+                static_cast<void>(workspace->submit(it->second.repository_id, refresh_remote_tags_request { .remotes = {}, .ssh_command_override = trust }, true));
+            }
+            it = trusted_retries_.erase(it);
+        }
         maybe_load_more();
     }
 
@@ -882,6 +927,8 @@ namespace cyella {
 
     view_snapshot shell_controller::make_view(const float width, const float height, const float scale)
     {
+        last_scale_ = scale;
+        sync_form_inputs();
         view_inputs inputs {};
         inputs.width = width;
         inputs.height = height;
@@ -901,6 +948,7 @@ namespace cyella {
                 if (const operation_status* const status { workspace->find_operation(id) }; status != nullptr)
                     inputs.operations.push_back(status);
             inputs.graph_items = [this](const repository_session& session) { return graph_items(session); };
+            inputs.history_index = [this](const repository_session& session) { return history_index(session); };
         }
         view_snapshot view { build_view_snapshot(inputs) };
         view.settings = settings_.make_view(ui_.composition);

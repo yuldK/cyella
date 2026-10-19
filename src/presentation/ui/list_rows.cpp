@@ -1,7 +1,10 @@
 #include "presentation/ui/list_rows.h"
 
+#include "presentation/dialog_intents.h"
+#include "presentation/drop_hints.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
+#include "presentation/ui_intents.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
@@ -87,15 +90,22 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- sidebar_row_element
 
-    sidebar_row_element::sidebar_row_element(sidebar_row_view row, std::optional<luil::input_action> select, std::optional<luil::input_action> activate)
-        : ui_element { luil::ui_element_id { kind_sidebar_row, u8"row-" + row.key } }
+    sidebar_row_element::sidebar_row_element(sidebar_row_view row, std::optional<luil::input_action> select, std::optional<luil::input_action> activate, std::optional<menu_target> menu)
+        : ui_element { luil::ui_element_id { kind_sidebar_row, std::u8string { sidebar_row_owner_prefix } + row.key } }
         , row_ { std::move(row) }
     {
         if (row_.tooltip.empty() == false)
             set_tooltip(row_.tooltip);
-        if (activate.has_value() && select.has_value())
+        if (select.has_value() == false && activate.has_value() == false && menu.has_value() == false)
         {
+            set_hit_opaque(false);
+            return;
+        }
+        set_tab_stop(false);
+        if (select.has_value())
             set_action(luil::ui_trigger::left_click, action_of(std::move(*select)));
+        if (activate.has_value())
+        {
             // 보조 기술의 "실행"은 두 번 누름과 같은 체크아웃이다. 고르기는 목록 항목의 SelectionItem이 맡는다.
             set_access_handler([activate = *activate](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
                 if (request.command != luil::access_command::invoke)
@@ -103,10 +113,39 @@ namespace cyella::ui {
                 return std::vector<luil::input_action> { activate };
             });
             set_action(luil::ui_trigger::double_click, action_of(std::move(*activate)));
-            set_tab_stop(false);
         }
-        else
-            set_hit_opaque(false);
+        if (menu.has_value())
+            set_action(luil::ui_trigger::right_click, [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                return { message(open_context_menu_intent { target, context.x, context.y }) };
+            });
+
+        // 로컬·원격 브랜치 행은 끌 수 있고 다른 브랜치가 놓일 수 있다.
+        if (row_.header || row_.group || (row_.kind != ref_kind::local && row_.kind != ref_kind::remote))
+            return;
+        const drop_party party { .kind = row_.kind, .name = row_.ref_name, .sha = row_.target_sha, .is_commit = false };
+        const std::u8string key { branch_drag_key(row_.kind, row_.ref_name) };
+        luil::drag_source source {};
+        source.make_payload = [key, text = row_.label, id = id()](const luil::ui_action_context&) {
+            luil::drag_payload payload {};
+            payload.source = id;
+            payload.dragged_owner = key;
+            payload.label = text;
+            payload.rejected_cursor = luil::ui_cursor::not_allowed;
+            return payload;
+        };
+        set_drag_source(std::move(source));
+        luil::drop_target target {};
+        target.accepts = [party](const luil::drag_payload& payload) {
+            const std::optional<drop_party> source { parse_branch_drag_key(payload.dragged_owner) };
+            return source.has_value() && can_drop_on(*source, party);
+        };
+        target.on_drop = [party](const luil::drag_payload& payload, const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+            const std::optional<drop_party> source { parse_branch_drag_key(payload.dragged_owner) };
+            if (source.has_value() == false)
+                return {};
+            return { message(drop_intent { *source, party, context.x, context.y }) };
+        };
+        set_drop_target(std::move(target));
     }
 
     void sidebar_row_element::arrange(const luil::arrange_context& context)
@@ -118,7 +157,7 @@ namespace cyella::ui {
     {
         if (row_.header)
             return { .role = luil::access_role::static_text, .name = row_.label + u8" " + number_text(row_.count) };
-        return { .role = action(luil::ui_trigger::double_click) != nullptr ? luil::access_role::button : luil::access_role::static_text, .name = row_.label };
+        return { .role = action(luil::ui_trigger::double_click) != nullptr ? luil::access_role::button : luil::access_role::static_text, .name = row_.label + (row_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {}) };
     }
 
     void sidebar_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
@@ -188,12 +227,23 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- file_row_element
 
-    file_row_element::file_row_element(file_row_view row, std::vector<file_row_button> buttons)
+    file_row_element::file_row_element(file_row_view row, std::vector<file_row_button> buttons, std::optional<luil::input_action> select, std::optional<menu_target> menu)
         : ui_element { luil::ui_element_id { kind_file_row, u8"file-" + row.key } }
         , row_ { std::move(row) }
         , button_count_ { buttons.size() }
     {
-        set_hit_opaque(false);
+        if (select.has_value() == false && menu.has_value() == false)
+            set_hit_opaque(false);
+        else
+        {
+            set_tab_stop(false);
+            if (select.has_value())
+                set_action(luil::ui_trigger::left_click, action_of(std::move(*select)));
+            if (menu.has_value())
+                set_action(luil::ui_trigger::right_click, [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                    return { message(open_context_menu_intent { target, context.x, context.y }) };
+                });
+        }
         set_tooltip(to_u8(row_.path));
         for (file_row_button& button : buttons)
         {

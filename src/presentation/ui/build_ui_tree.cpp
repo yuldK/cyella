@@ -1,6 +1,7 @@
 #include "presentation/ui/build_ui_tree.h"
 
 #include "application/app_messages.h"
+#include "presentation/dialog_intents.h"
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
@@ -162,7 +163,7 @@ namespace cyella::ui {
                 set_tooltip(caption_ + u8": " + value_ + u8" (고르는 목록은 아직 없습니다)");
                 set_cursor(luil::ui_cursor::hand);
                 set_action(
-                    luil::ui_trigger::left_click, action_of(message(show_notice_intent { .text = caption_ + u8" 선택 목록(입력으로 거르기·새로 만들기)은 아직 없습니다.", .warning = false })));
+                    luil::ui_trigger::left_click, action_of(message(show_notice_intent { .text = caption_ + u8" 선택 목록(입력으로 거르기·새로 만들기)은 아직 없습니다. 사이드바에서 더블클릭하세요.", .warning = false })));
             }
 
             void arrange(const luil::arrange_context& context) override
@@ -253,11 +254,11 @@ namespace cyella::ui {
             tool(u8"fetch", codicons::icon_repo_fetch, u8"Fetch", u8"Fetch: 원격의 새 커밋과 ref를 받는다", toolbar.fetch_enabled, toolbar_action::fetch);
             tool(u8"pull", codicons::icon_repo_pull, u8"Pull", u8"Pull (--ff-only)", toolbar.pull_enabled, toolbar_action::pull);
             tool(u8"push", codicons::icon_repo_push, u8"Push",
-                toolbar.push_needs_dialog ? std::u8string { u8"Push: upstream이 없어 대화 상자가 필요합니다" }
+                toolbar.push_needs_dialog ? std::u8string { u8"Push: upstream이 없어 원격을 골라 --set-upstream으로 보냅니다" }
                                           : u8"Push" + (toolbar.ahead > 0 ? u8" (↑" + number_text(toolbar.ahead) + u8")" : std::u8string {}),
                 toolbar.push_enabled, toolbar_action::push);
             row->add(std::make_unique<separator_element>(u8"toolbar-separator-2"), 13.0f);
-            tool(u8"branch", codicons::icon_git_branch, u8"Branch", u8"새 브랜치", toolbar.branch_enabled, toolbar_action::branch);
+            tool(u8"branch", codicons::icon_git_branch, u8"Branch", u8"새 브랜치: 이름과 만들 위치를 정한다", toolbar.branch_enabled, toolbar_action::branch);
             tool(u8"stash", codicons::icon_git_stash, u8"Stash", u8"Stash: 변경을 stash에 넣는다 (추적하지 않는 파일 포함)", toolbar.stash_enabled, toolbar_action::stash);
             tool(u8"pop", codicons::icon_git_stash_pop, u8"Pop", u8"Pop: 맨 위 stash를 꺼낸다", toolbar.pop_enabled, toolbar_action::pop);
             row->add_flexible_gap();
@@ -299,6 +300,9 @@ namespace cyella::ui {
             row->add(std::make_unique<icon_element>(luil::ui_element_id { kind_label, u8"banner-icon" }, glyph, tone), 20.0f);
             row->add(make_text(u8"banner-title", banner.title, text_style { .size = 12.0f, .color = tone, .bold = true }), text_button_width(banner.title) + 8.0f);
             row->add_flexible(make_text(u8"banner-summary", banner.summary, text_style { .size = 12.0f }));
+            for (const banner_action_view& action : banner.actions)
+                row->add(make_text_button(u8"banner-action-" + action.key, action.label, luil::text_button_visual::accent, message(banner_action_intent { action.key, banner.id })),
+                    text_button_width(action.label) + 24.0f);
             if (banner.details.empty() == false)
                 row->add(make_text_button(u8"banner-details", banner.expanded ? u8"접기" : u8"자세히", luil::text_button_visual::normal, message(toggle_banner_details_intent {})), 64.0f);
             const luil::input_action close { banner.kind == banner_kind::notice ? message(dismiss_notice_intent {}) : message(dismiss_banner_intent { banner.id }) };
@@ -551,13 +555,20 @@ namespace cyella::ui {
         root->place(build_tab_row(view), rects.tab_row);
         if (window_caption)
             root->place(std::make_unique<luil::caption_element>(caption_config), { 0.0f, 0.0f, view.logical_width, caption_height });
+        // 끄는 동안의 문구는 대화 상자 아래, 나머지 화면 위에 그린다.
+        if (view.repository.has_value() && view.repository->drop_hints != nullptr)
+            root->place(build_drag_hint_overlay(view.repository->drop_hints), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         // 대화 상자는 마지막 자식이라 모든 것 위에 그려지고 누름도 먼저 받는다.
         if (view.clone.has_value())
             root->place(build_clone_dialog(*view.clone), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         if (view.settings.has_value())
             root->place(build_settings_dialog(*view.settings, view.logical_width, view.logical_height, sources), { 0.0f, 0.0f, view.logical_width, view.logical_height });
+        if (view.form.has_value())
+            root->place(build_form_dialog(*view.form, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
 
         built_tree built {};
+        if (view.menu.has_value())
+            built.popups.push_back(build_menu_popup(*view.menu, scale));
         built.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(root), { 0.0f, 0.0f, view.width, view.height }, scale));
         if (sources.graph != nullptr)
         {

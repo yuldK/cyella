@@ -71,7 +71,14 @@ TEST_CASE("cyella_driver reports why askpass is unavailable and wipes answers it
     const bool helper_present { cyella::win32::locate_askpass_helper().has_value() };
     CHECK(driver.askpass_diagnostic().has_value() == !helper_present);
     if (helper_present == false)
+    {
         CHECK(driver.askpass_diagnostic()->code == cyella::diagnostic_code::askpass_helper_missing);
+        // 화면은 그 진단을 안내로 한 번 보인다.
+        REQUIRE(driver.controller() != nullptr);
+        REQUIRE(driver.controller()->state().notice.has_value());
+        CHECK(driver.controller()->state().notice->text == driver.askpass_diagnostic()->message);
+        CHECK(driver.controller()->state().notice->warning);
+    }
 
     // 모르는 operation에 대한 답은 아무 일도 하지 않지만, 메시지가 쥔 비밀은 지운다.
     const luil::app_message answer { cyella::answer_input_intent { 4242, 1, u8"hunter2" } };

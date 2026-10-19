@@ -6,8 +6,11 @@
 #include "application/git_workspace.h"
 #include "application/repository_tabs.h"
 #include "domain/app_settings.h"
+#include "presentation/dialog_intents.h"
 #include "presentation/frame_feedback.h"
 #include "presentation/settings/settings_controller.h"
+#include "presentation/graph_index.h"
+#include "presentation/snapshot_dialogs.h"
 #include "presentation/ui_intents.h"
 #include "presentation/ui_state.h"
 #include "presentation/view_snapshot.h"
@@ -51,6 +54,14 @@ namespace cyella {
             std::u8string default_key_comment {};
             bool ssh_tools_found { false };
             std::u8string ssh_tools_origin {};
+            // "이번만 연결"이 임시 known_hosts로 ssh를 부를 때 쓰는 ssh 실행 파일이다. 사용자의 `core.sshCommand`를 그 한 번의
+            // 실행에서 덮어쓰므로 사용자가 쓰는 ssh여야 한다. 비면 git이 PATH에서 찾는 `ssh`다.
+            std::u8string ssh_executable {};
+            // 임시 known_hosts 파일을 둘 폴더다. 비우면 시스템 임시 폴더다 (test가 지정한다).
+            std::u8string temporary_directory {};
+            // 인증 대화 상자가 내는 백엔드 메시지(`answer_input_intent`·`cancel_input_intent`)를 처리하는 길이다. driver가
+            // 자기 백엔드 처리기를 꽂는다. 비어 있으면(test) controller가 같은 일을 workspace에 바로 한다.
+            std::function<void(const luil::app_message&)> send_backend_intent {};
         };
 
         explicit shell_controller(dependencies dependencies);
@@ -95,6 +106,9 @@ namespace cyella {
         {
             return settings_;
         }
+        // 메뉴가 복사하라고 한 글이다 (SHA·이름·경로). 한 번 꺼내면 비워진다. 클립보드는 UI thread의 일이라 driver가
+        // 이 글을 가져가 넘긴다.
+        [[nodiscard]] std::optional<std::u8string> take_clipboard_text();
 
         [[nodiscard]] const app_settings& settings() const noexcept;
         // 선택된 탭의 저장소 id다. 시작 탭이면 비어 있다.
@@ -123,6 +137,53 @@ namespace cyella {
         void handle_activate_ref(const activate_ref_intent& intent);
         void handle_commit();
         void handle_folder(const folder_chosen_intent& intent);
+
+        // ---- 대화 상자·메뉴·끌어 놓기·충돌 해결 (shell_controller_dialogs.cpp)
+        bool handle_dialog_message(const luil::app_message& message);
+        [[nodiscard]] std::shared_ptr<const graph_index> history_index(const repository_session& session);
+        // 선택된 저장소와 저장소 없는(clone·init) operation이다.
+        void collect_operations(std::vector<const operation_status*>& repository, std::vector<const operation_status*>& setup);
+        [[nodiscard]] form_source current_form_source();
+        // 떠 있는 상자가 바뀌었으면 입력 초안을 지우고 비운다. 비밀이 다음 상자로 새지 않게 한다.
+        void sync_form_inputs();
+        void clear_form_inputs();
+        void set_form_field(std::size_t index, std::u8string text);
+        operation_id submit_to(const std::string& repository_id, git_operation operation);
+        // 첫 operation을 내고, 앞이 성공하면 이어서 낼 것들을 맡긴다.
+        operation_id submit_sequence(std::vector<git_operation> operations);
+        void process_chains();
+        void cancel_automatic_prompts();
+
+        void open_context_menu(menu_target target, float x, float y);
+        void request_drop_facts();
+        void handle_menu_select(const std::u8string& key);
+        void run_menu_action(const menu_target& target, const std::u8string& key, const menu_context& context);
+        void handle_drop(const drop_intent& intent);
+        void handle_activate_commit(const std::string& sha);
+        void open_menu_for_selection();
+        void copy_text(std::u8string text);
+
+        void open_create_branch_dialog(const std::string& at);
+        void open_create_tag_dialog(const std::string& sha);
+        void open_push_dialog(const std::string& branch, bool set_upstream);
+        void open_rename_dialog(const std::string& branch);
+        void open_confirm(dialog_state dialog);
+        void request_detached_checkout(const std::string& revision, std::u8string label);
+        void request_rebase(const std::string& branch, const std::string& onto);
+
+        void handle_form_button(const std::u8string& key);
+        void handle_form_check(std::size_t index);
+        void handle_form_choose(std::size_t index);
+        void handle_form_enter();
+        void handle_dialog_button(const std::u8string& key);
+        void handle_dirty_button(const operation_status& status, const std::u8string& key);
+        void handle_auth_button(const operation_status& status, const std::u8string& key);
+        void trust_host_once(const operation_status& status);
+        void send_backend_intent(const luil::app_message& message);
+        void handle_banner_action(const banner_action_intent& intent);
+        void handle_conflict_action(conflict_action action);
+
+        [[nodiscard]] std::u8string commit_label(const repository_session& session, const std::string& sha) const;
         void handle_text_edit(const luil::text_edit_request& request);
         void maybe_load_more();
         void show_notice(std::u8string text, bool warning = false);
@@ -146,5 +207,33 @@ namespace cyella {
         settings_controller settings_;
         // 판 폭을 설정에 쓸 시각이다. 폭을 끄는 동안 뒤로 밀리고, 값이 없으면 쓸 것이 없다.
         std::optional<std::chrono::steady_clock::time_point> pane_widths_flush_at_ {};
+
+        struct history_cache_entry
+        {
+            std::uint64_t generation { 0 };
+            std::size_t size { 0 };
+            std::shared_ptr<const graph_index> index {};
+        };
+
+        // 앞 operation이 성공해야 이어서 낼 operation들이다 (원격 태그를 먼저 지우고 로컬 태그를 지운다, pull 뒤 push).
+        struct chain_entry
+        {
+            std::string repository_id {};
+            std::vector<git_operation> rest {};
+        };
+
+        // "이번만 연결"로 다시 낸 operation이다. 성공하면 같은 임시 신뢰로 원격 태그 표시를 한 번 갱신한다.
+        struct trusted_retry
+        {
+            std::string repository_id {};
+            temporary_ssh_trust trust {};
+        };
+
+        std::map<std::string, history_cache_entry> history_cache_ {};
+        std::map<operation_id, chain_entry> chains_ {};
+        std::map<operation_id, trusted_retry> trusted_retries_ {};
+        std::optional<std::u8string> clipboard_text_ {};
+        std::uint64_t temporary_counter_ { 0 };
+        float last_scale_ { 1.0f };
     };
 } // namespace cyella

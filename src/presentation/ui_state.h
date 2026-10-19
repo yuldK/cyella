@@ -4,6 +4,7 @@
 #include "application/git_operation.h"
 #include "application/repository_tabs.h"
 #include "domain/operation_status.h"
+#include "presentation/dialog_state.h"
 #include "presentation/shell_layout.h"
 
 #include "luil/text/text_edit.h"
@@ -37,6 +38,10 @@ namespace cyella {
         settings_key_name,
         settings_key_comment,
         settings_test_host,
+        // 입력 대화 상자(브랜치·태그·push·인증)의 칸이다. 대화 상자마다 최대 셋이고 어느 상자의 것인지는 `form_inputs`가 안다.
+        form_field_0 = 100,
+        form_field_1,
+        form_field_2,
     };
 
     // 사이드바 구역이다. 순서가 곧 화면 순서다.
@@ -83,6 +88,10 @@ namespace cyella {
         // 배너에서 닫은 실패·입력 필요 operation이다. 그보다 새 것만 배너로 보인다.
         operation_id dismissed_banner { 0 };
         bool banner_expanded { false };
+        // 체크아웃 정책 대화 상자를 닫은 operation이다. 그보다 새 것만 대화 상자로 뜬다.
+        operation_id dismissed_dialog { 0 };
+        // 체크아웃 정책 대화 상자의 선택이다.
+        std::optional<dirty_checkout_state> dirty {};
 
         [[nodiscard]] bool section_collapsed(const sidebar_section section) const noexcept
         {
@@ -143,6 +152,14 @@ namespace cyella {
         // IME 조합 중인 칸의 표시 글이다. 한 번에 한 칸만 조합한다.
         std::optional<luil::text_composition_event> composition {};
         diff_surface_state diff_surface {};
+        // 사용자가 연 대화 상자(브랜치·태그·push·확인)다. 한 번에 하나다.
+        std::optional<dialog_state> dialog {};
+        std::uint64_t dialog_serial { 0 };
+        // 열린 입력 대화 상자의 칸과 선택이다 (`dialog`·체크아웃 정책·인증 질문 어느 것이든 하나만 보인다).
+        form_inputs form {};
+        // 열린 우클릭 메뉴다.
+        std::optional<menu_state> menu {};
+        dialog_memory memory {};
     };
 
     [[nodiscard]] inline luil::text_input_target to_luil_target(const text_target target) noexcept
@@ -153,8 +170,8 @@ namespace cyella {
     [[nodiscard]] inline text_target from_luil_target(const luil::text_input_target target) noexcept
     {
         const auto value { static_cast<std::uint32_t>(target) };
-        if (value > static_cast<std::uint32_t>(text_target::settings_test_host))
-            return text_target::none;
-        return static_cast<text_target>(value);
+        const bool basic { value >= static_cast<std::uint32_t>(text_target::start_search) && value <= static_cast<std::uint32_t>(text_target::settings_test_host) };
+        const bool form { value >= static_cast<std::uint32_t>(text_target::form_field_0) && value <= static_cast<std::uint32_t>(text_target::form_field_2) };
+        return basic || form ? static_cast<text_target>(value) : text_target::none;
     }
 } // namespace cyella

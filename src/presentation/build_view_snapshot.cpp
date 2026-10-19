@@ -1,6 +1,7 @@
 #include "presentation/build_view_snapshot.h"
 
 #include "domain/repository_path.h"
+#include "presentation/snapshot_dialogs.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -63,65 +64,15 @@ namespace cyella {
             return to_u8(sha.substr(0, std::min<std::size_t>(sha.size(), 7)));
         }
 
-        // 상태 줄·탭 표시·배너가 보이는 작업이다. 자동 갱신과, 화면을 채우려고 낸 읽기(커밋 상세·diff·log
-        // 이어 읽기)는 사용자가 기다리는 작업이 아니라 빠진다.
+        // 상태 줄·탭 표시·배너가 보이는 작업이다. 판정은 `is_user_operation_status` 하나다.
         bool is_user_operation(const operation_status& status) noexcept
         {
-            if (status.automatic)
-                return false;
-            switch (status.kind)
-            {
-            case operation_kind::show_commit:
-            case operation_kind::diff_file:
-            case operation_kind::load_more_log:
-            case operation_kind::is_ancestor:
-            case operation_kind::count_commits:
-            case operation_kind::refresh_remote_tags:
-            case operation_kind::inspect_path:
-                return false;
-            default:
-                break;
-            }
-            return true;
+            return is_user_operation_status(status);
         }
 
         bool is_active(const operation_status& status) noexcept
         {
             return status.state == operation_state::queued || status.state == operation_state::running;
-        }
-
-        std::u8string input_kind_title(const input_kind kind)
-        {
-            switch (kind)
-            {
-            case input_kind::dirty_worktree:
-                return u8"작업 트리의 변경 때문에 옮기지 못했습니다";
-            case input_kind::conflict:
-                return u8"충돌을 해결해야 합니다";
-            case input_kind::passphrase:
-                return u8"SSH 키 passphrase가 필요합니다";
-            case input_kind::host_key:
-                return u8"처음 보는 호스트 키를 확인해야 합니다";
-            case input_kind::credentials:
-                return u8"HTTPS 자격 증명이 필요합니다";
-            }
-            return u8"입력이 필요합니다";
-        }
-
-        // 아직 없는 대화 상자가 어느 단계의 몫인지 밝힌다.
-        std::u8string input_kind_placeholder(const input_kind kind)
-        {
-            switch (kind)
-            {
-            case input_kind::dirty_worktree:
-            case input_kind::conflict:
-                return u8"(대화 상자는 아직 없습니다)";
-            case input_kind::passphrase:
-            case input_kind::host_key:
-            case input_kind::credentials:
-                return u8"(인증 대화 상자는 아직 없습니다)";
-            }
-            return {};
         }
 
         std::u8string command_line_text(const operation_command& command)
@@ -236,29 +187,7 @@ namespace cyella {
                     }
                     banner.details.push_back(std::move(line));
                 }
-                return banner;
-            }
-            if (status.state == operation_state::needs_input && status.needs_input.has_value())
-            {
-                const input_request& request { *status.needs_input };
-                banner.kind = banner_kind::needs_input;
-                banner.warning = true;
-                banner.title = u8"입력 필요 · " + to_u8(input_kind_name(request.kind));
-                banner.summary = input_kind_title(request.kind);
-                if (request.target.empty() == false)
-                    banner.summary += u8" ('" + to_u8(request.target) + u8"')";
-                banner.summary += u8" " + input_kind_placeholder(request.kind);
-                for (const std::string& file : request.files)
-                {
-                    if (banner.details.size() >= banner_detail_line_limit)
-                    {
-                        banner.details.push_back(u8"…");
-                        break;
-                    }
-                    banner.details.push_back(to_u8(file));
-                }
-                if (request.untracked_files)
-                    banner.details.push_back(u8"추적하지 않는 파일도 덮어써집니다.");
+                banner.actions = banner_actions_for(status);
                 return banner;
             }
             return std::nullopt;
@@ -343,6 +272,7 @@ namespace cyella {
             else if (view.staged.empty() && tab.amend == false)
                 view.blocked_reason = u8"stage한 변경이 없습니다.";
             view.can_commit = view.blocked_reason.empty();
+            view.amend_warning = tab.amend && snapshot.summary.head_pushed;
             return view;
         }
 
@@ -463,7 +393,7 @@ namespace cyella {
         }
 
         repository_view build_repository(const view_inputs& inputs, const repository_tab& tab, const repository_session& session, const tab_ui_state& tab_state,
-            std::span<const operation_status* const> operations, const std::int64_t now)
+            std::span<const operation_status* const> operations, const std::int64_t now, const std::shared_ptr<const graph_index>& index)
         {
             const ui_state& ui { *inputs.ui };
             const repository_snapshot& snapshot { session.snapshot() };
@@ -519,6 +449,10 @@ namespace cyella {
             if (tab_state.diff.has_value())
                 view.diff = build_diff(session, *tab_state.diff, tab_state.diff_scroll, ui.diff_surface);
             graph.labels = std::move(labels);
+            view.drop_hints = build_drop_hints(snapshot, index);
+            view.conflict = build_conflict_view(session, operations);
+            view.conflict_scroll = tab_state.diff_scroll;
+            view.head_pushed = snapshot.summary.head_pushed;
             return view;
         }
 
@@ -574,6 +508,26 @@ namespace cyella {
             }
         }
     } // namespace
+
+    bool is_user_operation_status(const operation_status& status) noexcept
+    {
+        if (status.automatic)
+            return false;
+        switch (status.kind)
+        {
+        case operation_kind::show_commit:
+        case operation_kind::diff_file:
+        case operation_kind::load_more_log:
+        case operation_kind::is_ancestor:
+        case operation_kind::count_commits:
+        case operation_kind::refresh_remote_tags:
+        case operation_kind::inspect_path:
+            return false;
+        default:
+            break;
+        }
+        return true;
+    }
 
     tab_marker compute_tab_marker(std::span<const operation_status* const> operations, const std::uint32_t changed_file_count, const bool awaiting_input) noexcept
     {
@@ -740,6 +694,7 @@ namespace cyella {
                 row.label = to_u8(stash.message.empty() ? stash.name : stash.message);
                 row.detail = to_u8(stash.name);
                 row.kind = ref_kind::stash;
+                row.stash_index = stash.index;
                 row.ref_name = stash.name;
                 row.target_sha = stash.sha;
                 row.tooltip = row.detail + u8" · " + row.label;
@@ -911,10 +866,14 @@ namespace cyella {
         const tab_ui_state& tab_state { tab_state_found == ui.tabs.end() ? empty_tab_state : tab_state_found->second };
 
         const repository_session* session { selected.kind == repository_tab_kind::repository ? repository_of(selected.id) : nullptr };
+        std::shared_ptr<const graph_index> index {};
+        std::vector<const operation_status*> repository_operations {};
         if (session != nullptr)
         {
             const std::vector<const operation_status*> mine { operations_of(inputs.operations, session->id()) };
-            view.repository = build_repository(inputs, selected, *session, tab_state, mine, now);
+            repository_operations = mine;
+            index = inputs.history_index != nullptr ? inputs.history_index(*session) : std::make_shared<const graph_index>(session->graph_commits());
+            view.repository = build_repository(inputs, selected, *session, tab_state, mine, now, index);
             fill_toolbar(view, *session, mine, git_usable);
             fill_status(view, mine, session, ui.operation_log_open);
             if (const operation_status * last { latest_finished_user(mine) }; last != nullptr)
@@ -947,6 +906,15 @@ namespace cyella {
 
         if (ui.operation_log_open)
             view.log = build_log(inputs.operations);
+
+        // 모달 입력 상자(인증 질문 > 사용자가 연 상자 > 체크아웃 정책)와 우클릭 메뉴다.
+        {
+            const std::vector<const operation_status*> setup { operations_of(inputs.operations, std::string {}) };
+            const tab_ui_state* const tab { session != nullptr ? &tab_state : nullptr };
+            const form_source source { resolve_form_source(repository_operations, setup, ui, tab) };
+            view.form = build_form_view(source, ui, tab, session != nullptr ? &session->snapshot() : nullptr);
+            view.menu = build_menu_view(ui, session, index.get(), view.scale);
+        }
 
         if (ui.clone.has_value())
         {

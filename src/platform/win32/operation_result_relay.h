@@ -44,6 +44,10 @@ namespace cyella::win32 {
         // lock 밖에서 sink에 도착 순서대로 넘긴다.
         void drain(const std::function<void(luil::app_message)>& sink);
 
+        // logic thread가 UI thread의 클립보드에 글을 넣어 달라고 청한다 (메뉴의 SHA·이름·경로 복사). host가 묶이지 않았으면
+        // 아무 일도 없다.
+        void copy_to_clipboard(std::u8string text);
+
         // 아직 배출되지 않은 메시지 수다 (test 관찰용).
         [[nodiscard]] std::size_t pending();
 

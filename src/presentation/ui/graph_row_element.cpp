@@ -1,7 +1,11 @@
 #include "presentation/ui/graph_row_element.h"
 
+#include "presentation/dialog_intents.h"
+#include "presentation/drop_hints.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/ui_helpers.h"
+#include "presentation/ui_intents.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
@@ -164,8 +168,7 @@ namespace cyella::ui {
         , data_ { std::move(data) }
         , columns_ { columns }
     {
-        // 누름은 목록의 행이 받는다 (고르기·커서).
-        set_hit_opaque(false);
+        // 행 자리의 누름은 이 element가 직접 받는다 (아래). 라벨 칩은 자기 자리를 따로 누른다.
         access_name_ = data_.wip ? u8"WIP 변경 " + number_text(data_.wip_count) + u8"개" : data_.subject;
         if (data_.labels.empty() == false)
         {
@@ -174,85 +177,118 @@ namespace cyella::ui {
                 names += (names.empty() ? u8"" : u8", ") + label.text;
             access_name_ += u8" [" + names + u8"]";
         }
+        set_tab_stop(false);
+        // 목록 행의 고르기를 가로채지 않도록 같은 고르기 메시지를 낸다 (사이드바 행과 같은 이유).
+        set_action(luil::ui_trigger::left_click, action_of(message(select_commit_intent { data_.row_key })));
+        if (data_.wip)
+            return;
+
+        set_action(luil::ui_trigger::double_click, action_of(message(activate_commit_intent { data_.sha })));
+        menu_target target {};
+        target.kind = menu_target_kind::commit;
+        target.sha = data_.sha;
+        set_action(luil::ui_trigger::right_click, [target](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+            return { message(open_context_menu_intent { target, context.x, context.y }) };
+        });
+
+        // 커밋 행은 브랜치를 놓을 자리다 ("이 커밋에서 브랜치 만들기", 현재 브랜치면 reset).
+        luil::drop_target drop {};
+        drop.accepts = [](const luil::drag_payload& payload) { return parse_branch_drag_key(payload.dragged_owner).has_value(); };
+        drop.on_drop = [sha = data_.sha](const luil::drag_payload& payload, const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+            const std::optional<drop_party> source { parse_branch_drag_key(payload.dragged_owner) };
+            if (source.has_value() == false)
+                return {};
+            drop_party destination {};
+            destination.is_commit = true;
+            destination.sha = sha;
+            return { message(drop_intent { *source, destination, context.x, context.y }) };
+        };
+        set_drop_target(std::move(drop));
+
+        for (const ref_label& label : data_.labels)
+            chips_.push_back(static_cast<ref_chip_element*>(add_chip(std::make_unique<ref_chip_element>(label, data_.row_key, data_.sha, data_.row.color))));
+    }
+
+    luil::ui_element* graph_row_element::add_chip(std::unique_ptr<luil::ui_element> chip)
+    {
+        luil::ui_element* const raw { chip.get() };
+        add_child(std::move(chip));
+        return raw;
     }
 
     void graph_row_element::arrange(const luil::arrange_context& context)
     {
         set_bounds(context.slot);
-    }
-
-    luil::access_info graph_row_element::accessibility() const
-    {
-        return { .role = luil::access_role::static_text, .name = access_name_ };
-    }
-
-    void graph_row_element::draw_labels(luil::draw_context& context, const luil::rect_f& cell) const
-    {
-        if (data_.labels.empty())
+        if (chips_.empty())
             return;
-        const float scale { context.scale };
-        const float left { cell.x + cell_padding * scale };
-        const float right { cell.x + cell.width - label_padding * scale };
+        const luil::rect_f box { bounds() };
+        const float scale { context.scale > 0.0f ? context.scale : 1.0f };
+        const float left { box.x + cell_padding * scale };
+        const float right { box.x + columns_.refs * scale - label_padding * scale };
         const float available { right - left };
-        if (available <= 0.0f)
-            return;
         const float gap { label_gap * scale };
-        std::vector<float> widths {};
+        const float height { label_height * scale };
+        const float top { box.y + (box.height - height) / 2.0f };
+
+        std::vector<float> widths(chips_.size(), 0.0f);
         float total { 0.0f };
-        for (const ref_label& label : data_.labels)
+        for (std::size_t index { 0 }; index < chips_.size(); ++index)
         {
-            widths.push_back(measure_ref_label(context, label));
-            total += widths.back() + (widths.size() > 1 ? gap : 0.0f);
+            widths[index] = estimate_ref_label_width(data_.labels[index]) * scale;
+            total += widths[index] + (index > 0 ? gap : 0.0f);
         }
 
-        std::size_t shown { data_.labels.size() };
-        float chip_width { 0.0f };
-        std::u8string chip {};
-        const SkFont chip_font { ui_font(context, label_font_size) };
+        std::size_t shown { chips_.size() };
+        float overflow_width { 0.0f };
         if (total > available)
         {
-            // 칸이 모자라면 앞에서부터 들어가는 만큼만 그리고 나머지는 "+N" 칩으로 줄인다.
+            // 칸이 모자라면 앞에서부터 들어가는 만큼만 두고 나머지는 "+N" 칩으로 줄인다.
             shown = 0;
             float used { 0.0f };
             for (std::size_t index { 0 }; index < widths.size(); ++index)
             {
                 const std::size_t rest { widths.size() - index - 1 };
-                const float rest_chip { rest > 0 ? luil::measure_text(u8"+" + number_text(rest), chip_font) + 10.0f * scale + gap : 0.0f };
+                const float rest_chip { rest > 0 ? (estimate_text_width(u8"+" + number_text(rest), label_font_size) + 10.0f) * scale + gap : 0.0f };
                 const float next { used + (index > 0 ? gap : 0.0f) + widths[index] };
                 if (next + rest_chip > available && index > 0)
                     break;
                 used = next;
                 shown = index + 1;
             }
-            const std::size_t hidden { data_.labels.size() - shown };
+            const std::size_t hidden { chips_.size() - shown };
             if (hidden > 0)
             {
-                chip = u8"+" + number_text(hidden);
-                chip_width = luil::measure_text(chip, chip_font) + 10.0f * scale;
+                overflow_width = (estimate_text_width(u8"+" + number_text(hidden), label_font_size) + 10.0f) * scale;
+                std::u8string names {};
+                for (std::size_t index { shown }; index < data_.labels.size(); ++index)
+                    names += (names.empty() ? u8"" : u8", ") + data_.labels[index].text;
+                if (overflow_ == nullptr)
+                    overflow_ = add_chip(std::make_unique<ref_overflow_element>(u8"overflow-" + data_.row_key, hidden, std::move(names)));
             }
-            total = used + (chip_width > 0.0f ? gap + chip_width : 0.0f);
+            total = used + (overflow_width > 0.0f ? gap + overflow_width : 0.0f);
         }
 
-        const float height { label_height * scale };
-        const float top { cell.y + (cell.height - height) / 2.0f };
         float x { std::max(right - total, left) };
-        const luil::ui_color lane { lane_color(context.palette, data_.row.color) };
-        for (std::size_t index { 0 }; index < shown; ++index)
+        for (std::size_t index { 0 }; index < chips_.size(); ++index)
         {
-            const float width { std::min(widths[index], right - x - (chip_width > 0.0f ? chip_width + gap : 0.0f)) };
-            if (width <= 0.0f)
-                break;
-            draw_ref_label(context, data_.labels[index], { x, top, width, height }, lane);
+            ref_chip_element* const chip { chips_[index] };
+            chip->set_visible(index < shown);
+            if (index >= shown)
+            {
+                chip->arrange(context.for_child({ box.x, top, 0.0f, 0.0f }));
+                continue;
+            }
+            const float width { std::max(std::min(widths[index], right - x - (overflow_width > 0.0f ? overflow_width + gap : 0.0f)), 0.0f) };
+            chip->arrange(context.for_child({ x, top, width, height }));
             x += width + gap;
         }
-        if (chip_width > 0.0f)
-        {
-            const SkRect shape { SkRect::MakeXYWH(x, top, chip_width, height) };
-            const float radius { context.metrics.control_corner_radius * scale };
-            context.canvas.drawRRect(SkRRect::MakeRectXY(shape, radius, radius), luil::solid_paint(context.palette.input_background));
-            static_cast<void>(luil::draw_text_within(context.canvas, chip, x + 5.0f * scale, top + luil::centered_text_baseline(chip_font, height), chip_width - 5.0f * scale, chip_font,
-                luil::solid_paint(context.palette.secondary_foreground)));
-        }
+        if (overflow_ != nullptr)
+            overflow_->arrange(context.for_child({ x, top, overflow_width, height }));
+    }
+
+    luil::access_info graph_row_element::accessibility() const
+    {
+        return { .role = luil::access_role::static_text, .name = access_name_ };
     }
 
     void graph_row_element::draw_graph(luil::draw_context& context, const luil::rect_f& cell) const
@@ -315,7 +351,7 @@ namespace cyella::ui {
         context.canvas.restore();
     }
 
-    void graph_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
+    void graph_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
     {
         const luil::rect_f box { bounds() };
         const float scale { context.scale };
@@ -324,9 +360,7 @@ namespace cyella::ui {
         const float tail { columns_.compact ? 0.0f : (columns_.author + columns_.date) * scale };
         const float summary { std::max(box.width - refs - graph - tail, 0.0f) };
 
-        float x { box.x };
-        draw_labels(context, { x, box.y, refs, box.height });
-        x += refs;
+        float x { box.x + refs };
         draw_graph(context, { x, box.y, graph, box.height });
         x += graph;
 
@@ -347,6 +381,7 @@ namespace cyella::ui {
         else if (summary > padding * 2.0f)
             static_cast<void>(luil::draw_text_within(context.canvas, data_.subject, x + padding, baseline, summary - padding * 2.0f, body, luil::solid_paint(context.palette.primary_foreground)));
         x += summary;
+        draw_children(context, interaction);
         if (columns_.compact || data_.wip)
             return;
 

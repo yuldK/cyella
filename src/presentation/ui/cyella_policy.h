@@ -15,6 +15,9 @@ namespace cyella::ui {
     {
     public:
         [[nodiscard]] std::optional<luil::text_input_target> text_target_of(luil::ui_element_kind kind) const override;
+        // 우클릭 메뉴(`luil::menu_element`)의 키보드 탐색(↑/↓/Enter)과 Esc 닫기다.
+        [[nodiscard]] std::optional<luil::menu_kinds> menu() const override;
+        [[nodiscard]] std::vector<luil::input_action> close_menu() const override;
         [[nodiscard]] luil::input_action make_text_edit_action(const luil::text_edit_request& request) const override;
         [[nodiscard]] luil::input_action make_text_composition_action(const luil::text_composition_event& event) const override;
         [[nodiscard]] std::vector<luil::input_action> on_wheel(const luil::ui_tree& tree, const luil::mouse_wheel_event& event, float scroll_delta) override;

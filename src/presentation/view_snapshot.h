@@ -9,6 +9,8 @@
 #include "domain/file_change.h"
 #include "domain/operation_status.h"
 #include "domain/ref.h"
+#include "presentation/drop_hints.h"
+#include "presentation/form_view.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/settings/settings_view.h"
 #include "presentation/shell_layout.h"
@@ -72,7 +74,7 @@ namespace cyella {
         bool fetch_enabled { false };
         bool pull_enabled { false };
         bool push_enabled { false };
-        // upstream이 없어 push 대화 상자가 필요하다. 지금은 안내만 띄운다.
+        // upstream이 없어 push 대화 상자에서 원격을 골라야 한다.
         bool push_needs_dialog { false };
         bool branch_enabled { false };
         bool stash_enabled { false };
@@ -109,10 +111,17 @@ namespace cyella {
     enum class banner_kind
     {
         failure,
-        // 대화 상자가 아직 없는 needs_input이다. 종류를 이름으로 밝힌다.
+        // (쓰지 않는다) 입력이 필요한 operation은 배너가 아니라 모달 입력 상자(`view_snapshot::form`)와 충돌 화면이 맡는다.
         needs_input,
         // 아직 없는 대화 상자의 안내다.
         notice,
+    };
+
+    // 배너의 조치 단추다 ("Pull 후 다시 push"). 눌리면 `banner_action_intent`가 키와 operation을 나른다.
+    struct banner_action_view
+    {
+        std::u8string key {};
+        std::u8string label {};
     };
 
     struct banner_view
@@ -125,6 +134,7 @@ namespace cyella {
         std::vector<std::u8string> details {};
         bool expanded { false };
         bool warning { false };
+        std::vector<banner_action_view> actions {};
     };
 
     struct log_line_view
@@ -167,6 +177,8 @@ namespace cyella {
         ref_kind kind { ref_kind::local };
         std::string ref_name {};
         std::string target_sha {};
+        // stash 행의 `stash@{N}`에서 N이다.
+        std::uint32_t stash_index { 0 };
         bool current { false };
         std::uint32_t ahead { 0 };
         std::uint32_t behind { 0 };
@@ -252,6 +264,8 @@ namespace cyella {
         // 커밋 단추가 꺼진 이유다. 단추 아래에 글로 보인다.
         std::u8string blocked_reason {};
         bool committing { false };
+        // amend를 켰고 HEAD 커밋이 이미 upstream에 있다. 고쳐 쓰면 강제 push가 필요하다.
+        bool amend_warning { false };
     };
 
     struct diff_line_view
@@ -299,6 +313,13 @@ namespace cyella {
         float detail_scroll { 0.0f };
         std::optional<diff_panel_view> diff {};
         std::optional<sidebar_section> rail_section {};
+        // rebase·merge·cherry-pick·revert가 멈춰 있으면 그래프 자리를 덮는 충돌 해결 화면이다.
+        std::optional<conflict_view> conflict {};
+        float conflict_scroll { 0.0f };
+        // 끄는 동안 대상 위에서 보일 문구의 근거다.
+        std::shared_ptr<const drop_hint_data> drop_hints {};
+        // 커밋 상세·그래프 행이 amend 경고 등에 쓰는 값이다.
+        bool head_pushed { false };
     };
 
     struct clone_dialog_view
@@ -337,6 +358,9 @@ namespace cyella {
         std::vector<log_line_view> log {};
         float log_scroll { 0.0f };
         std::optional<clone_dialog_view> clone {};
+        // 모달 입력 상자다 (브랜치·태그·push·확인·체크아웃 정책·인증). 있으면 Clone 상자보다 위에 선다.
+        std::optional<form_view> form {};
+        std::optional<menu_view> menu {};
         float sidebar_width { default_sidebar_width };
         float detail_width { default_detail_width };
         bool drawer_open { false };

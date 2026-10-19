@@ -52,6 +52,13 @@ namespace cyella::win32 {
             sink(std::move(message));
     }
 
+    void operation_result_relay::copy_to_clipboard(std::u8string text)
+    {
+        const std::lock_guard<std::mutex> lock { mutex_ };
+        if (host_ != nullptr)
+            host_->post_clipboard_request(luil::clipboard_copy_request { std::move(text) });
+    }
+
     std::size_t operation_result_relay::pending()
     {
         const std::lock_guard<std::mutex> lock { mutex_ };

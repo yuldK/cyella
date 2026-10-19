@@ -243,6 +243,7 @@ namespace cyella {
         record.status.state = operation_state::queued;
         record.status.submitted_at = std::chrono::system_clock::now();
         record.cancellation = std::make_shared<process_cancellation_source>();
+        record.request = job.operation;
         if (registry_ != nullptr)
             registry_->add(*record.cancellation);
         record.prompt_cancelled = std::make_shared<std::atomic<bool>>(false);
@@ -552,6 +553,12 @@ namespace cyella {
     {
         const auto found { operations_.find(id) };
         return found == operations_.end() ? nullptr : &found->second.status;
+    }
+
+    const git_operation* git_workspace::request_of(const operation_id id) const
+    {
+        const auto found { operations_.find(id) };
+        return found == operations_.end() ? nullptr : &found->second.request;
     }
 
     std::optional<path_inspected> git_workspace::inspection(const std::u8string& path) const

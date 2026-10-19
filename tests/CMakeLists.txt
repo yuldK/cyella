@@ -63,6 +63,9 @@ cyella_add_source_filter(cyella_test_files "presentation"
     settings_tests.cpp
     settings_ui_tests.cpp
     shell_controller_tests.cpp
+    dialog_controller_tests.cpp
+    dialog_ui_tests.cpp
+    menu_model_tests.cpp
     shell_layout_tests.cpp
     start_page_view_tests.cpp
     ui_tree_perf_tests.cpp

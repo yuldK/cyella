@@ -58,19 +58,14 @@ cyella_driver::make_frame
 
 ## 화면 세부
 
-- **인증 대화 상자**: `askpass_bridge`는 `cyella_driver`가 소유한다(백엔드 멤버들 옆, scheduler보다 앞에 선언).
-  `answer_input_intent`·`cancel_input_intent`는 `cyella_driver::handle_backend_intent`에 분기를 더한다. 대화 상자는
-  `ui::build_ui_tree`의 마지막 자식으로 Clone 대화 상자와 같은 모양(`luil::modal_host_element`)으로 단다 — 지금은
-  `needs_input{passphrase|host_key|credentials}`가 배너로 "인증 대화 상자는 아직 없습니다"를 보인다
-  (`build_view_snapshot.cpp`의 `operation_banner`). 탭의 🔔 표시는 이미 `compute_tab_marker`가 낸다.
-- **diff 웹뷰**: 아래 "diff 웹뷰" 절.
-- **대화 상자·끌어 놓기·메뉴**: 지금은 `show_notice_intent`로 "…는 아직 없습니다"를 띄우는 자리들이다 —
-  툴바 Branch, upstream 없는 Push, 저장소·브랜치 선택 상자, 태그·stash 체크아웃, 없는 경로의 위치 찾기,
-  체크아웃 정책(`needs_input{dirty_worktree}` 배너), 충돌 해결(`needs_input{conflict}` 배너), discard 확인.
-  대화 상자는 Clone처럼 `ui_state`에 열림 상태를 두고 `build_ui_tree` 끝에 `modal_host_element`로 단다.
-  메뉴는 `ui_frame::popups`에 `menu_element` tree로 싣는다(`cyella_policy::menu`를 함께 채운다).
-  끌어 놓기는 그래프 행 내용(`graph_row_element`)과 사이드바 행(`sidebar_row_element`)에 `drag`·`drop`을 단다 — 둘 다
-  지금은 누름을 목록 행에 넘기도록 지어져 있으니, 라벨 칩 단위로 끌려면 라벨마다 자식 element가 필요하다.
+- 환경 설정·테마 단추는 캡션이 아니라 탭 줄 오른쪽에 있다(아래 "알아 둘 것"의 캡션 띠). 판 폭(`ui.pane_widths`)은 설정 파일에만 남고 환경 설정 화면에는 없다.
+- 탭은 아이콘 자리 하나에 표시(🔔 ⟳ ⌚ ●)를 그린다(`tab_item`에 칸이 하나뿐이다).
+- 커밋 본문은 `multiline_text_element`다. Enter·방향키·Home·End와 여러 줄 붙여넣기를 지원하며, 커밋 입력 영역은 패널 높이에 맞춰 약 280~360 논리 픽셀을 쓴다(낮은 창에서는 파일 목록 자리를 남기며 줄인다).
+- 시작 페이지의 git 버전은 제목 아래 한 줄이다.
+- 작업 영역의 파일은 목록·트리로 전환하며(`working-files-view`, `ui.working_files_view`), Unstaged·Staged의 폴더 접기는 독립적이다. 행의 단추는 늘 보이고 체크박스 일괄 선택은 없다. discard는 확인 대화 상자를 거친다.
+- 원격에 없는 태그 표시는 그 실행에서 fetch(또는 태그 push)가 한 번 돈 뒤에야 맞다. 그 전에는 원격이 있는 저장소의 태그가 모두 점선이다
+  (`ref.remotes`가 `ls-remote` 전에는 비어 있다).
+- 사이드바의 원격 묶음 머리는 접히지 않는다.
 
 ## 구성 요소가 붙는 자리
 
@@ -154,10 +149,10 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 - 탭은 아이콘 자리 하나에 표시(🔔 ⟳ ⌚ ●)를 그린다(`tab_item`에 칸이 하나뿐이다).
 - 커밋 본문 칸이 한 줄이다. luil `text_input_element`에 여러 줄 칸이 없다.
 - 시작 페이지의 오른쪽 안내 카드(Git·자격 증명·알아 두면 좋은 것)가 없고, git 버전은 제목 아래 한 줄이다.
-- 작업 영역 행의 단추가 hover 때만이 아니라 늘 보이고, 체크박스 일괄 선택·트리 보기가 없다. discard는 확인 대화 상자 대신 두 번 눌러야 한다.
+- 작업 영역 행의 단추가 hover 때만이 아니라 늘 보이고, 체크박스 일괄 선택·트리 보기가 없다. discard는 확인 대화 상자를 거친다.
 - 원격에 없는 태그 표시는 그 실행에서 fetch(또는 태그 push)가 한 번 돈 뒤에야 맞다. 그 전에는 원격이 있는 저장소의 태그가 모두 점선이다
   (`ref.remotes`가 `ls-remote` 전에는 비어 있다).
-- 사이드바의 원격 묶음 머리는 접히지 않는다. 툴바 선택 상자와 우클릭 메뉴는 표시만 한다.
+- 사이드바의 원격 묶음 머리는 접히지 않는다. 툴바 선택 상자는 표시만 한다.
 
 ## 알아 둘 것
 
@@ -176,3 +171,74 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
   - 웹뷰 환경 생성 실패가 앱에 알려지지 않는다. `webview_host::fail()`이 이유를 버리고 `webview_event`도 나가지 않아, 앱이 `GetAvailableCoreWebView2BrowserVersionString`으로 직접 확인한다.
   - `split_handle_config`에 "놓았다" 콜백이 없다(`pointer_drag_target::on_release`는 있다). 그래서 판 폭 저장을 500 ms 조용해질 때까지 미룬다.
 
+## 대화 상자·메뉴·끌어 놓기
+
+### 모달 입력 상자 하나로 모은다
+
+브랜치·태그·push·확인·체크아웃 정책·인증 질문은 모두 `form_view`(`presentation/form_view.h`) 하나로 그려진다. 종류마다 갈리는 것은 어떤
+칸·선택지·체크·단추가 서는가뿐이다. `build_view_snapshot`이 `resolve_form_source`로 지금 떠 있는 상자를 정하고(우선순위: 인증 질문 >
+사용자가 연 대화 상자 > 체크아웃 정책), `form_builders`가 그 상태에서 `form_view`를 짓는다. 화면 쪽(`ui/form_ui.cpp`)은 `form_view`만 읽는다.
+
+| 상자 | 어디서 | 상태 |
+| --- | --- | --- |
+| 체크아웃 정책 | `needs_input{dirty_worktree}`로 끝난 체크아웃 | operation(+`tab_ui_state::dirty`) |
+| 인증 | 끝나지 않은 `needs_input{passphrase\|host_key\|credentials}` (저장소 operation과 clone·init·ssh-keygen 같은 저장소 없는 operation 모두) | operation |
+| 새 브랜치·태그·이름 바꾸기·push·확인 | 툴바, 우클릭 메뉴, 끌어 놓기 메뉴, 배너 조치 | `ui_state::dialog` |
+
+- 입력 칸은 상자마다 최대 셋이고 `ui_state::form`이 든다. 상자를 가르는 열쇠(`form_inputs::identity`: `dialog:N`, `auth:<operation>:<prompt_id>`,
+  `dirty:<operation>`)가 바뀌면 글을 지우고 비운다. ssh의 다음 passphrase 질문은 새 `prompt_id`라 앞 시도의 글이 남지 않는다.
+- `text_target::form_field_0..2`와 element kind 100~102를 쓴다 (다른 칸의 번호와 겹치지 않게 100부터 쓴다).
+- 인증의 답·닫기는 `answer_input_intent`·`cancel_input_intent`로 나간다. controller는 `dependencies::send_backend_intent`(driver가 자기 백엔드 처리기를
+  꽂는다)로 보내고, 비어 있으면(test) 같은 일을 workspace에 바로 한다. 답을 쓴 뒤 메시지가 쥔 사본과 입력 칸의 글을 지운다.
+- 입력 칸이 비밀이면(`secret`) 점으로 가리고 "입력 보이기" 체크가 있다. 호스트 키 상자의 기본 단추는 **거절**이라 Enter가 모르는 키를 믿지 않는다.
+
+### 호스트 키 "이번만 연결"과 자동 후속 작업
+
+"이번만 연결"은 질문 중인 operation을 취소(알림 없이 `cancelled`)하고, `request_of`로 꺼낸 같은 요청에 `ssh_command_override`(`make_temporary_known_hosts_ssh_command`,
+임시 known_hosts 경로는 `%TEMP%\cyella-known-hosts-N-<op>.tmp`)를 넣어 다시 낸다. ssh 실행 파일은 `shell_controller::dependencies::ssh_executable`
+(기본 `ssh`, git이 PATH에서 찾는다)이다.
+
+쓰기 뒤 workspace가 자동으로 내는 `refresh_remote_tags`에는 임시 known_hosts가 이미 지워져 같은 호스트 질문이 다시 올 수 있다. 두 가지로 푼다.
+
+1. **자동 operation(`automatic=true`)이 묻는 인증 질문은 대화 상자를 띄우지 않고 조용히 취소한다.** 사용자가 시작하지 않은 작업이 영문 질문을 띄우면
+   놀랍고, 취소하면 원격 태그 표시가 이번 갱신만 건너뛴다(다음 fetch가 고친다).
+2. **"이번만 연결"로 다시 낸 작업이 성공하면 같은 신뢰를 한 번 더 써서(새 임시 파일) `refresh_remote_tags`를 직접 낸다** (fetch·push_tag·push_tags·
+   delete_remote_tag·`push_execute(follow_tags)`일 때). 사용자가 이미 이 연결을 믿기로 했으므로 태그 표시가 오래된 채 남지 않는다.
+
+### 우클릭 메뉴
+
+`ui_state::menu`(`menu_target` + 창 좌표)가 열린 메뉴다. 항목은 snapshot마다 `build_context_menu(target, context)`(`presentation/menu_model.*`, 순수 함수)로
+정하고, 고른 키로 controller가 같은 규칙을 다시 불러 실행한다. 메뉴는 `ui_frame::popups`에 싣는다: `build_ui_tree`가 `built_tree::popups`에
+`luil::menu_element` tree를 주고 driver가 `ui_popup`으로 옮긴다(닫힘은 `close_menu_intent`). `cyella_policy::menu()`가 ↑/↓/Enter/Esc 탐색을 켠다.
+Shift+F10은 고른 사이드바 항목이나 커밋의 메뉴를 연다. SHA·이름·경로 복사는 controller가 글을 들고 있다가 driver가 UI thread 클립보드로 넘긴다.
+
+대상: 커밋(체크아웃(detached 경고)·브랜치/태그 만들기·cherry-pick·revert·reset soft/mixed/hard(hard는 확인)·SHA 복사), 로컬 브랜치(체크아웃·merge/rebase·
+push·upstream 설정·이름 바꾸기·삭제(확인, 강제는 체크)), 원격 브랜치, 태그(원격마다 push, 로컬 삭제, 원격에도 삭제), stash(apply·pop·삭제 확인),
+TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 확인·ignore·외부 diff·경로 복사).
+
+### 끌어 놓기
+
+- 그래프 행 안의 라벨은 **`ref_chip_element` 자식**이다(`graph_row_element`가 소유). 칩마다 `set_drag_source`(로컬·원격 브랜치만), `set_drop_target`, 한 번 누름(커밋 고르기),
+  두 번 누름(체크아웃), 우클릭(메뉴)을 가진다. 칩의 자리는 배치(`arrange`)에서 정하므로 글꼴 없이 폭을 짐작한다(`estimate_text_width`). 칸이 모자라면 뒤쪽 칩은
+  숨고 "+N" 칩이 이름을 툴팁으로 보인다.
+- 사이드바 브랜치 행(`sidebar_row_element`)도 같은 payload 키(`l:<이름>`, `rb:<이름>`)로 끌고 받는다. 그래프 행 자체는 커밋 대상이다.
+- **`virtual_list` 행 안의 자식에 붙인 `set_drag_source`가 그대로 동작한다.** 눌린 요소는 가장 깊은 상호작용 요소(칩)이고, 6px를 넘기면 끌기가 서며 행의 누름·고르기와 겹치지 않는다.
+- 끄는 동안의 문구(`feature/graph를 main 위로 rebase · 커밋 2개`)는 창 전체를 덮는 투명 overlay element(`ui/overlay_ui.cpp`)가 `interaction.drag`로 그린다.
+  `drop_hint_data`(읽어 둔 이력의 `graph_index` + 브랜치 표)만 읽으므로 세션 포인터를 tree가 붙잡지 않는다.
+- 놓으면 `drop_intent` → `menu_target{drop}` 메뉴가 뜬다. 조상·개수는 먼저 `graph_index`(읽어 둔 이력)로, 모르면 세션이 받아 둔 답으로 채우고, 둘 다 없는 관계만
+  `is_ancestor`·`count_commits`로 한 번 묻는다(`menu_state::asked_facts`). 답이 오면 열려 있는 메뉴 항목이 켜진다.
+
+### 충돌 해결 화면
+
+`repository_summary.in_progress`가 있으면(`repository_view::conflict`) 그래프 자리를 닫을 수 없는 충돌 화면이 덮는다(diff를 열면 diff가 먼저). 진행 줄("커밋 2/3 적용 중: …"),
+충돌 파일별 현재(ours)·들어오는(theirs)·해결 표시, 아래 막대의 계속·건너뛰기(merge는 없음)·중단(확인)이다. 3-way 편집기는 없다. 외부 merge 도구는 설정에 없어
+단추도 없다. 충돌 대기는 취소할 수 없고 abort로만 나간다.
+
+### 알아 둘 것
+
+- 확인이 필요한 조치는 `open_confirm_intent{title, lines, confirm_label, danger, operations}`를 내면 같은 확인 상자로 뜬다.
+- 배너 조치(`banner_action_intent`): push 거절(`rejected_non_ff`·`rejected_fetch_first`) → "Pull 후 다시 push"(pull(rebase) 뒤 같은 push, 앞이 성공해야 이어 낸다),
+  `stale_info` → fetch, ff-only pull 실패 → "rebase로 Pull", 안 합쳐진 브랜치 삭제 실패 → 강제 삭제 확인, `index_lock` → 잠금 지우기.
+- 앞 operation이 성공해야 이어 내는 열(`submit_sequence`)은 원격 태그를 먼저 지우고 로컬을 지울 때(`delete_remote_tag` → `delete_tag`)도 쓴다.
+- upstream 설정은 `push --set-upstream`으로 한다 (`branch --set-upstream-to` operation은 없다). 메뉴의 "upstream 설정…"은 그 체크를 켠 push 대화 상자다.
+- 사이드바 태그·stash 두 번 누름: 태그는 detached 체크아웃(경고 한 번, "다시 보지 않기"), stash는 apply다.
