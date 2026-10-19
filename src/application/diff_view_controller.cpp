@@ -149,6 +149,25 @@ namespace cyella {
         page_ready_ = false;
     }
 
+    diff_content diff_view_controller::content() const noexcept
+    {
+        switch (kind_)
+        {
+        case content_kind::empty:
+            return diff_content::empty;
+        case content_kind::pending_image:
+        case content_kind::pending_binary:
+            return diff_content::loading;
+        case content_kind::text:
+            return diff_content::text;
+        case content_kind::image:
+            return diff_content::image;
+        case content_kind::binary:
+            return diff_content::binary;
+        }
+        return diff_content::empty;
+    }
+
     bool diff_view_controller::truncated() const noexcept
     {
         return kind_ == content_kind::text && full_requested_ == false && options_.line_limit != 0 && count_diff_lines(file_) > options_.line_limit;

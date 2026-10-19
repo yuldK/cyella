@@ -31,4 +31,12 @@ namespace cyella::ui {
     inline constexpr luil::ui_element_kind kind_spinner { luil::application_element_kind(22) };
     inline constexpr luil::ui_element_kind kind_progress { luil::application_element_kind(23) };
     inline constexpr luil::ui_element_kind kind_graph_header { luil::application_element_kind(24) };
+    // 환경 설정 화면의 입력 칸이다. 다른 화면(대화 상자)이 번호를 더해도 부딪치지 않게 40번부터 쓴다.
+    inline constexpr luil::ui_element_kind kind_settings_git_path_input { luil::application_element_kind(40) };
+    inline constexpr luil::ui_element_kind kind_settings_tool_extensions_input { luil::application_element_kind(41) };
+    inline constexpr luil::ui_element_kind kind_settings_tool_executable_input { luil::application_element_kind(42) };
+    inline constexpr luil::ui_element_kind kind_settings_tool_arguments_input { luil::application_element_kind(43) };
+    inline constexpr luil::ui_element_kind kind_settings_key_name_input { luil::application_element_kind(44) };
+    inline constexpr luil::ui_element_kind kind_settings_key_comment_input { luil::application_element_kind(45) };
+    inline constexpr luil::ui_element_kind kind_settings_test_host_input { luil::application_element_kind(46) };
 } // namespace cyella::ui

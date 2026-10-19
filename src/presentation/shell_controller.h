@@ -1,11 +1,13 @@
 #pragma once
 
 #include "application/app_settings_service.h"
+#include "application/diff_view_coordinator.h"
 #include "application/file_probe.h"
 #include "application/git_workspace.h"
 #include "application/repository_tabs.h"
 #include "domain/app_settings.h"
 #include "presentation/frame_feedback.h"
+#include "presentation/settings/settings_controller.h"
 #include "presentation/ui_intents.h"
 #include "presentation/ui_state.h"
 #include "presentation/view_snapshot.h"
@@ -41,6 +43,14 @@ namespace cyella {
             std::u8string git_message {};
             std::u8string git_version {};
             std::function<std::chrono::system_clock::time_point()> clock {};
+            // 환경 설정 화면이 쓰는 값이다. 이번 실행이 찾은 git, ssh 도구의 위치, worker에게 시킬 일이다.
+            git_tool_info git_tool {};
+            std::function<void()> request_ssh_info {};
+            std::function<void(std::string text)> copy_text {};
+            std::u8string ssh_directory {};
+            std::u8string default_key_comment {};
+            bool ssh_tools_found { false };
+            std::u8string ssh_tools_origin {};
         };
 
         explicit shell_controller(dependencies dependencies);
@@ -60,6 +70,17 @@ namespace cyella {
         [[nodiscard]] view_snapshot make_view(float width, float height, float scale);
         void apply_feedback(const frame_feedback& feedback);
 
+        // 선택된 탭이 연 diff와 그 저장소다. 웹뷰가 보여야 할 대상이며, 열린 diff가 없으면 값이 없다.
+        [[nodiscard]] std::optional<diff_target> current_diff_target() const;
+        // diff 웹뷰의 지금 모습이다. 웹뷰를 쥔 driver가 frame마다 올려 머리 막대와 대체 보기가 읽는다.
+        void set_diff_surface(const diff_surface_state& surface);
+
+        // 판 폭을 끌 때마다 설정 파일을 쓰지 않도록, 끌기가 멈춘 뒤 한 번만 쓴다 (손잡이에는 놓았다는 사건이 없다).
+        // driver가 `next_tick`·`tick`에 이어 주고, 앱을 닫을 때는 `flush`로 바로 쓴다.
+        [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_tick() const noexcept;
+        void tick(std::chrono::steady_clock::time_point now);
+        void flush();
+
         [[nodiscard]] const repository_tabs& tabs() const noexcept
         {
             return tabs_;
@@ -68,6 +89,11 @@ namespace cyella {
         [[nodiscard]] const ui_state& state() const noexcept
         {
             return ui_;
+        }
+
+        [[nodiscard]] const settings_controller& settings_screen() const noexcept
+        {
+            return settings_;
         }
 
         [[nodiscard]] const app_settings& settings() const noexcept;
@@ -83,6 +109,7 @@ namespace cyella {
         };
 
         void update_settings(const std::function<void(app_settings&)>& change);
+        [[nodiscard]] settings_controller::dependencies settings_dependencies();
         void save_tabs();
         void close_tab(repository_tab_id id);
         void select_tab_index(std::size_t index);
@@ -116,5 +143,8 @@ namespace cyella {
         // 끝나기를 기다리는 저장소 준비 작업이다. 끝나면 결과로 탭을 연다.
         std::map<operation_id, std::u8string> pending_inspections_ {};
         std::map<operation_id, std::u8string> pending_setup_ {};
+        settings_controller settings_;
+        // 판 폭을 설정에 쓸 시각이다. 폭을 끄는 동안 뒤로 밀리고, 값이 없으면 쓸 것이 없다.
+        std::optional<std::chrono::steady_clock::time_point> pane_widths_flush_at_ {};
     };
 } // namespace cyella

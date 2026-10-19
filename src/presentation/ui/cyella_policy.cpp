@@ -1,5 +1,6 @@
 #include "presentation/ui/cyella_policy.h"
 
+#include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
@@ -21,6 +22,20 @@ namespace cyella::ui {
             return to_luil_target(text_target::clone_url);
         if (kind == kind_clone_path_input)
             return to_luil_target(text_target::clone_path);
+        if (kind == kind_settings_git_path_input)
+            return to_luil_target(text_target::settings_git_path);
+        if (kind == kind_settings_tool_extensions_input)
+            return to_luil_target(text_target::settings_tool_extensions);
+        if (kind == kind_settings_tool_executable_input)
+            return to_luil_target(text_target::settings_tool_executable);
+        if (kind == kind_settings_tool_arguments_input)
+            return to_luil_target(text_target::settings_tool_arguments);
+        if (kind == kind_settings_key_name_input)
+            return to_luil_target(text_target::settings_key_name);
+        if (kind == kind_settings_key_comment_input)
+            return to_luil_target(text_target::settings_key_comment);
+        if (kind == kind_settings_test_host_input)
+            return to_luil_target(text_target::settings_test_host);
         return std::nullopt;
     }
 
@@ -55,6 +70,10 @@ namespace cyella::ui {
                 return { message(commit_intent {}) };
             if (focused == kind_clone_url_input || focused == kind_clone_path_input)
                 return { message(submit_clone_intent {}) };
+            if (focused == kind_settings_git_path_input)
+                return { message(apply_git_path_intent {}) };
+            if (focused == kind_settings_test_host_input)
+                return { message(test_ssh_connection_intent {}) };
             return {};
         case luil::key_code::tab:
             if (event.control && event.repeat == false)

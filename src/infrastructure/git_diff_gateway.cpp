@@ -86,6 +86,11 @@ namespace cyella {
 
     extracted_sides git_diff_gateway::extract(const diff_side_plan& plan, const bool write_files)
     {
+        return extract_cancellable(plan, write_files, {});
+    }
+
+    extracted_sides git_diff_gateway::extract_cancellable(const diff_side_plan& plan, const bool write_files, const process_cancellation_token& cancellation)
+    {
         extracted_sides result {};
         const diff_side_pair pair { resolve_diff_sides(plan) };
 
@@ -161,7 +166,7 @@ namespace cyella {
                     return outcome;
                 }
                 stdout_sink sink { &file };
-                const process_result run { runner_.run(make_request(git_executable_, plan.repository_path, { u8"cat-file", u8"blob", to_u8(object) }), &sink, {}) };
+                const process_result run { runner_.run(make_request(git_executable_, plan.repository_path, { u8"cat-file", u8"blob", to_u8(object) }), &sink, cancellation) };
                 file.close();
                 if (run.succeeded() == false)
                 {
@@ -174,7 +179,7 @@ namespace cyella {
             }
 
             stdout_sink sink { nullptr };
-            const process_result run { runner_.run(make_request(git_executable_, plan.repository_path, { u8"cat-file", u8"-s", to_u8(object) }), &sink, {}) };
+            const process_result run { runner_.run(make_request(git_executable_, plan.repository_path, { u8"cat-file", u8"-s", to_u8(object) }), &sink, cancellation) };
             if (run.succeeded() == false)
             {
                 outcome.error = "git cat-file 실패: " + object;

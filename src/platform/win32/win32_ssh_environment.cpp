@@ -5,6 +5,8 @@
 #include <knownfolders.h>
 #include <shlobj.h>
 
+#include <iterator>
+#include <string>
 #include <vector>
 
 namespace cyella::win32 {
@@ -81,5 +83,28 @@ namespace cyella::win32 {
         std::filesystem::path directory { std::filesystem::path { profile } / L".ssh" };
         CoTaskMemFree(profile);
         return directory;
+    }
+
+    std::u8string windows_directory()
+    {
+        wchar_t buffer[MAX_PATH] {};
+        const UINT length { GetSystemWindowsDirectoryW(buffer, MAX_PATH) };
+        if (length == 0 || length >= MAX_PATH)
+            return {};
+        return std::filesystem::path { std::wstring { buffer, length } }.u8string();
+    }
+
+    std::u8string default_ssh_key_comment()
+    {
+        wchar_t user[256] {};
+        DWORD user_length { static_cast<DWORD>(std::size(user)) };
+        wchar_t computer[MAX_COMPUTERNAME_LENGTH + 1] {};
+        DWORD computer_length { static_cast<DWORD>(std::size(computer)) };
+        // GetUserNameW의 길이는 끝의 NUL을 센다.
+        const bool has_user { GetUserNameW(user, &user_length) != FALSE && user_length > 1 };
+        const bool has_computer { GetComputerNameW(computer, &computer_length) != FALSE && computer_length > 0 };
+        if (has_user == false || has_computer == false)
+            return u8"cyella";
+        return std::filesystem::path { std::wstring { user, user_length - 1 } + L"@" + std::wstring { computer, computer_length } }.u8string();
     }
 } // namespace cyella::win32

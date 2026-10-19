@@ -39,7 +39,8 @@ cyella_driver::make_frame
 | 셸 전체 | 사이드바·상세 폭, 작업 로그 열림, 시작 페이지 검색 초안·스크롤, 서랍 열림, 아이콘 막대에서 연 구역, Clone 대화 상자 초안, 안내 한 줄, IME 조합 |
 
 - 탭 목록의 정본은 `repository_tabs`, git 상태의 정본은 workspace·세션, 설정의 정본은 `app_settings_service`다.
-- 판 폭은 아직 설정에 남기지 않는다(`app_settings`에 칸이 없다). 칸을 더하면 `shell_controller::update_settings`로 저장한다.
+- 판 폭은 `app_settings::ui.pane_widths`에 남긴다. 손잡이에 "놓았다"는 사건이 없어서 끄는 동안(`resize_pane_intent`)은 쓸 시각만 500 ms 뒤로 미루고,
+  `shell_controller::tick`(driver의 `next_tick`)이 한 번 쓴다. 앱을 닫을 때는 `flush`가 바로 쓴다. 시작할 때 저장된 폭을 범위로 다듬어 되살린다.
 - 텍스트 칸은 luil 규약 그대로다. `cyella_policy::text_target_of`가 kind → `text_target`을 답하고, 편집은
   `edit_text_intent`로 와서 `ui_state`의 `text_edit_state`에 `luil::apply_text_edit`로 적용된다. 한 줄 칸이라 붙여넣은 줄바꿈은 공백이 된다.
 
@@ -62,21 +63,94 @@ cyella_driver::make_frame
   `ui::build_ui_tree`의 마지막 자식으로 Clone 대화 상자와 같은 모양(`luil::modal_host_element`)으로 단다 — 지금은
   `needs_input{passphrase|host_key|credentials}`가 배너로 "인증 대화 상자는 아직 없습니다"를 보인다
   (`build_view_snapshot.cpp`의 `operation_banner`). 탭의 🔔 표시는 이미 `compute_tab_marker`가 낸다.
-- **diff 웹뷰**: 파일을 고르면 `tab_ui_state::diff`가 서고 `diff_file`이 나간다. 그래프 자리를 diff가 덮는 판은
-  `repository_ui.cpp`의 `build_graph_area` 첫 갈래다. 머리 막대(돌아가기·제목)는 luil에 남기고, 그 아래의 임시 줄 목록
-  (`diff_row_element`의 `virtual_list_element`)을 `luil::webview_element` 자리표로 바꾼 뒤 `cyella_driver::make_frame`에서
-  `diff_view_controller`가 `frame->webviews`를 채운다. 자리는 snapshot의 `repository_view::diff`(요청·제목)를 그대로 쓴다.
+- **diff 웹뷰**: 아래 "diff 웹뷰" 절.
 - **대화 상자·끌어 놓기·메뉴**: 지금은 `show_notice_intent`로 "…는 아직 없습니다"를 띄우는 자리들이다 —
-  툴바 Branch, upstream 없는 Push, 저장소·브랜치 선택 상자, 태그·stash 체크아웃, 없는 경로의 위치 찾기, 환경 설정,
+  툴바 Branch, upstream 없는 Push, 저장소·브랜치 선택 상자, 태그·stash 체크아웃, 없는 경로의 위치 찾기,
   체크아웃 정책(`needs_input{dirty_worktree}` 배너), 충돌 해결(`needs_input{conflict}` 배너), discard 확인.
   대화 상자는 Clone처럼 `ui_state`에 열림 상태를 두고 `build_ui_tree` 끝에 `modal_host_element`로 단다.
   메뉴는 `ui_frame::popups`에 `menu_element` tree로 싣는다(`cyella_policy::menu`를 함께 채운다).
   끌어 놓기는 그래프 행 내용(`graph_row_element`)과 사이드바 행(`sidebar_row_element`)에 `drag`·`drop`을 단다 — 둘 다
   지금은 누름을 목록 행에 넘기도록 지어져 있으니, 라벨 칩 단위로 끌려면 라벨마다 자식 element가 필요하다.
 
+## 구성 요소가 붙는 자리
+
+- **인증**: `askpass_bridge`는 `cyella_driver`가 소유한다(백엔드 멤버들 옆, scheduler보다 앞에 선언). `answer_input_intent`·`cancel_input_intent`는
+  `cyella_driver::handle_backend_intent`가 처리한다. 질문은 아래 "대화 상자·메뉴·끌어 놓기"의 입력 상자로 뜬다. 탭의 🔔 표시는 `compute_tab_marker`가 낸다.
+- **diff 웹뷰**: `diff_view_coordinator`는 driver가 controller 옆에 두고 `make_frame`에서 `frame->webviews`를 채운다. 아래 "diff 웹뷰" 절.
+- **대화 상자**: Clone처럼 `ui_state`에 열림 상태를 두고 `ui::build_ui_tree`의 마지막 자식으로 `luil::modal_host_element`로 단다.
+- **메뉴**: `ui_frame::popups`에 `menu_element` tree로 싣는다(`cyella_policy::menu`를 함께 채운다).
+- **끌어 놓기**: 그래프 행(`graph_row_element`)의 라벨 칩과 사이드바 행(`sidebar_row_element`)에 `drag`·`drop`을 단다.
+- 탭을 닫으면 그 저장소의 끝나지 않은 작업을 취소한다. 취소 전에 묻는 확인 상자는 없다.
+
+## diff 웹뷰
+
+파일을 고르면 `tab_ui_state::diff`가 서고 `diff_file`이 나간다. 그래프 자리를 diff가 덮는 판은 `presentation/ui/diff_webview.cpp`의
+`build_diff_area`다. 머리 막대(돌아가기·파일명·Inline/좌우 분할·이미지 비교 방식)는 luil이 그리고, 본문은 `webview_element` 자리표다.
+
+```text
+cyella_driver
+ ├ diff_view_coordinator ── diff_view_controller (입출력 없음, diff_view_effect를 값으로 돌려준다)
+ │    ├ apply_patch_effect   → workspace.submit(apply_patch_request) → 끝나면 같은 diff_file을 다시 낸다
+ │    ├ prepare_sides_effect → task_scheduler("diff-view" lane, 취소 token) → diff_git_gateway.extract
+ │    ├ open_external_effect → task_scheduler("diff-view" lane, 취소 token) → external_diff_opener.open
+ │    └ copy_text_effect     → app_host::post_clipboard_request
+ └ make_frame: sync_diff_view() → controller.poll() → frame->webviews (id "diff", 한 개)
+```
+
+- **웹뷰는 창에 하나다.** 한 번 diff를 열면 그 뒤로 frame마다 같은 `ui_webview`(id `diff`)를 싣는다(`navigate_revision`은 늘 1이라 다시 읽지
+  않는다). 자리표(`webview_element`)가 tree에 없는 동안은 luil이 웹뷰를 숨기고 페이지 상태는 남는다. 탭·파일을 바꾸면 컨트롤러가 `show_diff`만
+  새로 보낸다.
+- **무엇을 보일지는 `sync`가 맞춘다.** driver가 frame마다 (선택된 탭의 열린 diff 요청, 그 저장소 세션의 `selected_diff`, 그 저장소에서 `file_diff_loaded`가
+  온 횟수)를 넘기면, 요청이 같은 diff가 읽혀 있고 횟수가 바뀌었을 때만 `show`한다. 읽는 중이면 낡은 내용을 지워 stage 단추가 엉뚱한 파일에 걸리지
+  않게 한다. 동작은 **보이고 있는 diff의 저장소**로 나가므로 탭을 옮긴 사이에 끝나도 맞는 저장소를 고친다.
+- **정책**: `allowed_schemes={file}`, 메시지 8 MiB, **개발자 도구 끔**, 기본 컨텍스트 메뉴 끔. 웹뷰가 보낸 메시지는 문서 주소가 우리가 연 뷰어와 같을 때만
+  믿는다(`is_viewer_document`). 뷰어 파일은 실행 파일 옆 `diff-viewer\index.html`이다.
+- **WebView2 Runtime이 없을 때**: luil은 환경을 만들지 못해도 앱에 사건을 보내지 않고 자리표의 placeholder만 남긴다. 그래서 앱이 시작할 때
+  `GetAvailableCoreWebView2BrowserVersionString`으로 직접 확인하고(`webview_runtime_installed`), 뷰어 파일이 없거나 프로필 폴더를 모를 때도 같이 거른다.
+  쓸 수 없으면 `diff_surface_state::webview_available`이 거짓이고 본문은 텍스트 hunk 목록(`diff_row_element`)이다. `--no-webview`로 강제할 수 있다.
+  웹뷰가 뜬 뒤의 `navigation_failed`·`browser_process_failed`도 같은 대체 보기로 넘긴다.
+- **테마**: driver가 `luil::resolve_color_theme` + `color_palette_for`로 팔레트를 얻어 `make_diff_theme`이 뷰어의 CSS 변수(`--window-background` …)로 옮긴다.
+  테마가 바뀌면 `set_theme` 메시지 하나가 간다. 시스템 모드는 `AppsUseLightTheme`를 읽는다(고대비 PC는 luil의 고대비 팔레트를 쓰지 않으므로 뷰어는 어두운 기본 색에 가깝다).
+- **복사**는 `host->post_clipboard_request(clipboard_copy_request{text})`다.
+- **외부 도구**: 결과가 `no_tool`·`launch_failed`·`extraction_failed`·`invalid_template`이면 안내 배너(`show_notice_intent`)로 알린다. 도구를 띄웠으면 짧은 확인이다.
+- **discard 확인**: hunk·줄 discard는 웹뷰 안의 확인("정말 버릴까요?")을 쓴다. luil 확인 대화 상자는 **파일 단위** discard에만 걸린다
+  (웹뷰 안의 단추를 luil이 가로채지 못한다).
+- **접근성**: 아래 "알아 둘 것"의 웹 콘텐츠와 UI Automation 항목을 본다.
+
+## 환경 설정 화면
+
+탭 줄 오른쪽의 톱니바퀴가 `open_settings_intent`를 낸다. 대화 상자(`modal_host_element`, 최대 900×700)이고 왼쪽 목록에서 일반·diff 도구·SSH를 고른다.
+`presentation/settings/*`가 상태·메시지·snapshot이고 `presentation/ui/settings/settings_ui.cpp`가 tree다.
+
+```text
+settings_controller (shell_controller가 소유) ── handle(intent) ──▶ app_settings_service.update   (테마·git 경로·도구 표)
+        │                                       └──────────────▶ git_workspace.submit_setup     (ssh_keygen·ssh_connection_test)
+        └ make_view() ──▶ build_settings_view (순수 함수) ──▶ settings_view ──▶ build_settings_dialog
+cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ──▶ collect_ssh_info ──▶ relay ──▶ ssh_info_loaded_intent
+```
+
+- **일반**: 테마(system·light·dark, 고르면 바로 저장), git 실행 파일(이번 실행이 찾은 경로·버전·자동 탐색/직접 지정, 경로 초안과 [찾아보기…]·[적용]·[자동 탐색으로 되돌리기]).
+  경로는 절대 경로의 존재하는 파일이어야 저장한다. 이번 실행의 git은 이미 정해졌으므로 다음 실행부터 적용된다고 알린다.
+- **diff 도구**: `app_settings.external_diff_tools` 표(확장자·실행 파일·인자 템플릿)와 추가·편집·삭제. 편집 상자에서 토큰(`{left}` `{right}` `{base}` `{path}`)을 누르면 인자 끝에 붙고,
+  샘플 경로로 푼 **argv 미리보기**를 한 줄에 하나씩 보인다(공백이 든 경로가 한 인자로 남는지 눈으로 확인). 확장자·실행 파일이 비었거나 템플릿의 따옴표가 닫히지 않았으면 저장할 수 없고,
+  절대 경로의 실행 파일이 없거나 `{left}`·`{right}`가 없으면 경고만 한다. 저장할 때마다 `app_settings_service`가 파일을 쓴다.
+- **SSH**: ssh-agent 서비스 상태(실행 중·중지됨·사용 안 함·설치 안 됨과 그때 할 일), `ssh-add -l` 목록, `%USERPROFILE%\.ssh`의 키 쌍과 [공개 키 복사](클립보드),
+  [키 만들기], [연결 시험]. 열 때와 [새로고침], 키 만들기가 끝났을 때 worker가 다시 읽는다. git의 ssh와 `ssh-keygen`은 Git for Windows의 것을 먼저 쓰고,
+  agent 조회만 시스템 OpenSSH의 `ssh-add`를 먼저 쓴다(Windows ssh-agent 서비스의 named pipe는 그쪽만 닿는다). 이 둘을 `locate_ssh_programs`가 고른다.
+  - **키 만들기·연결 시험은 저장소 없는 setup operation**(`ssh_keygen`, `ssh_connection_test`)이다. passphrase·호스트 키 질문이 askpass로 와서 operation의
+    `needs_input`이 되어야 인증 대화 상자가 받을 수 있기 때문이다. passphrase는 명령줄(`-N`)에도 작업 로그에도 남지 않는다.
+  - 질문을 답 없이 닫으면 `ssh-keygen`은 빈 passphrase로 키를 **만들어 버린다**(종료 코드 0). 그래서 닫은 것을 성공보다 먼저 가려 `auth_cancelled`로 끝내고 만들어진 파일을 지운다.
+  - 연결 시험은 `ssh -T [계정@]호스트[:포트]`의 결과를 `classify_ssh_connection_test`로 분류해 `ssh_connection_tested` 사건으로 올린다. 시험이 돌았으면 operation은 성공이다
+    (인증이 되었는지는 분류가 말한다). 입력은 `parse_ssh_target`이 옵션 주입(`-o…`, 공백, 따옴표)을 거른다.
+- **읽기 전용**: 설정 파일을 읽지 못했으면(`app_settings_service::is_read_only`) 화면 위에 "이번 실행 동안은 저장하지 않습니다" 배너가 선다. 값은 메모리에서 바뀐다.
+  마지막 저장이 실패했을 때(`has_unsaved_changes`)도 배너가 있다.
+- 입력 칸의 초안은 `settings_state`가 가지고(대화 상자를 닫으면 버린다), 저장은 [적용]·[저장]처럼 한 번에 한다. 텍스트 대상은 `text_target::settings_*`,
+  입력 칸의 kind는 `kind_settings_*_input`(40번부터)이다.
+
 ## 화면 세부
 
-- 환경 설정·테마 단추가 캡션이 아니라 탭 줄 오른쪽에 있다 (아래 "알아 둘 것"의 캡션 띠).
+- 환경 설정·테마 단추가 캡션이 아니라 탭 줄 오른쪽에 있다 (아래 "알아 둘 것"의 캡션 띠). 환경 설정은 일반·SSH·diff 도구에 더해 `ui.pane_widths`를 따로 설정 파일에만 남긴다
+  (화면에는 아직 없다).
 - 탭은 아이콘 자리 하나에 표시(🔔 ⟳ ⌚ ●)를 그린다(`tab_item`에 칸이 하나뿐이다).
 - 커밋 본문 칸이 한 줄이다. luil `text_input_element`에 여러 줄 칸이 없다.
 - 시작 페이지의 오른쪽 안내 카드(Git·자격 증명·알아 두면 좋은 것)가 없고, git 버전은 제목 아래 한 줄이다.
@@ -93,3 +167,12 @@ cyella_driver::make_frame
 - 목록 행 안의 내용 element가 액션을 가지면 hit test가 그 element를 답해 목록 행의 고르기를 가로챈다. 그래서 내용은
   `hit_opaque(false)`이고, 두 번 누름이 필요한 사이드바 브랜치 행만 한 번 누름에도 같은 고르기 메시지를 다시 낸다.
 - 캡션 띠는 luil의 창 버튼 밖이 전부 끌기 영역(HTCAPTION)이라 앱 단추를 둘 수 없다. 환경 설정·테마 단추는 탭 줄 오른쪽에 둔다.
+- **웹 콘텐츠는 UI Automation에 보이지 않는다.** diff 자리의 `Group 'diff 뷰어'`는 자식이 없고 페이지 글(`Stage hunk`, 줄 내용)은 UIA 트리에 나오지 않는다.
+  웹뷰는 composition 호스팅이라 자식 HWND가 없고, luil의 `webview_host.cpp`는 `ICoreWebView2CompositionController::get_UIAProvider`를 부르지 않으며
+  `uia_root_provider::GetEmbeddedFragmentRoots`는 빈 배열을 돌려준다. 빠진 연결은 자리표의 UIA provider가 컨트롤러의 `UIAProvider`를 자식 fragment root로 내어
+  `Navigate(FirstChild)`와 `GetEmbeddedFragmentRoots`로 잇는 것이다. 그래서 UIA(스크린 리더 포함)로 웹뷰 안을 읽거나 누를 수 없고, diff의 핵심 정보(파일명·hunk 수)는 luil 머리 막대가 말한다.
+- **luil의 빈 곳**:
+  - 웹 콘텐츠의 UIA 연결이 없다(위).
+  - 웹뷰 환경 생성 실패가 앱에 알려지지 않는다. `webview_host::fail()`이 이유를 버리고 `webview_event`도 나가지 않아, 앱이 `GetAvailableCoreWebView2BrowserVersionString`으로 직접 확인한다.
+  - `split_handle_config`에 "놓았다" 콜백이 없다(`pointer_drag_target::on_release`는 있다). 그래서 판 폭 저장을 500 ms 조용해질 때까지 미룬다.
+

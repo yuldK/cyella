@@ -574,3 +574,64 @@ TEST_CASE("backup timestamp has no characters that are invalid in file names", "
     const std::chrono::system_clock::time_point time { std::chrono::seconds { 1792488612 } };
     CHECK(format_backup_timestamp(time) == u8"20261020T093012Z");
 }
+
+TEST_CASE("pane widths are written under ui and absent widths are left out", "[json_app_settings]")
+{
+    CHECK_FALSE(json::parse(text_of(serialize_app_settings_json(app_settings {}, u8""))).contains("ui"));
+
+    app_settings settings {};
+    settings.ui.pane_widths.sidebar = 300.0f;
+    const json one { json::parse(text_of(serialize_app_settings_json(settings, u8""))) };
+    CHECK(one.at("ui").at("pane_widths").at("sidebar") == 300.0);
+    CHECK_FALSE(one.at("ui").at("pane_widths").contains("detail"));
+
+    settings.ui.pane_widths.detail = 412.5f;
+    const std::u8string bytes { serialize_app_settings_json(settings, u8"") };
+    const app_settings_load_result loaded { parse_app_settings_json(bytes) };
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings.ui.pane_widths.sidebar == 300.0f);
+    CHECK(loaded.settings.ui.pane_widths.detail == 412.5f);
+    CHECK(loaded.settings == settings);
+}
+
+TEST_CASE("a dragged pane width is written with two decimals", "[json_app_settings]")
+{
+    app_settings settings {};
+    settings.ui.pane_widths.sidebar = 237.33334350585938f;
+    const std::u8string bytes { serialize_app_settings_json(settings, u8"") };
+    CHECK(text_of(bytes).find("237.33\r") != std::string::npos);
+    CHECK(text_of(bytes).find("237.333") == std::string::npos);
+}
+
+TEST_CASE("unknown keys inside ui survive saving the pane widths", "[json_app_settings]")
+{
+    const std::u8string source {
+        u8R"({"schema_version":1,"ui":{"future_density":"compact","pane_widths":{"sidebar":250,"graph":1}}})",
+    };
+    app_settings_load_result loaded { parse_app_settings_json(source) };
+    REQUIRE(loaded.diagnostics.empty());
+    CHECK(loaded.settings.ui.pane_widths.sidebar == 250.0f);
+    loaded.settings.ui.pane_widths.detail = 333.0f;
+
+    const json saved { json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json))) };
+    CHECK(saved.at("ui").at("future_density") == "compact");
+    CHECK(saved.at("ui").at("pane_widths").at("graph") == 1);
+    CHECK(saved.at("ui").at("pane_widths").at("sidebar") == 250.0);
+    CHECK(saved.at("ui").at("pane_widths").at("detail") == 333.0);
+}
+
+TEST_CASE("invalid pane widths fall back to the default with a warning", "[json_app_settings]")
+{
+    const app_settings_load_result negative { parse_app_settings_json(u8R"({"ui":{"pane_widths":{"sidebar":-4,"detail":300}}})") };
+    CHECK_FALSE(negative.settings.ui.pane_widths.sidebar.has_value());
+    CHECK(negative.settings.ui.pane_widths.detail == 300.0f);
+    CHECK(negative.diagnostics.size() == 1);
+
+    const app_settings_load_result text { parse_app_settings_json(u8R"({"ui":{"pane_widths":{"sidebar":"wide"}}})") };
+    CHECK_FALSE(text.settings.ui.pane_widths.sidebar.has_value());
+    CHECK(text.diagnostics.size() == 1);
+
+    CHECK(parse_app_settings_json(u8R"({"ui":[1]})").diagnostics.size() == 1);
+    CHECK(parse_app_settings_json(u8R"({"ui":{"pane_widths":5}})").diagnostics.size() == 1);
+    CHECK(parse_app_settings_json(u8R"({"ui":null})").diagnostics.empty());
+}

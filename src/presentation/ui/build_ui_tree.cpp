@@ -2,8 +2,10 @@
 
 #include "application/app_messages.h"
 #include "presentation/ui/cyella_caption.h"
+#include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
+#include "presentation/ui/settings/settings_ui.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui/ui_parts.h"
 #include "presentation/ui_intents.h"
@@ -138,9 +140,7 @@ namespace cyella::ui {
             row->add_flexible(std::move(tab_bar));
             row->add(make_icon_button(u8"new-tab", codicons::icon_add, u8"새 탭 (시작 페이지)", message(new_tab_intent {})), tab_row_button_width);
             row->add(make_icon_button(u8"theme", codicons::icon_color_mode, theme_tooltip(view.theme), message(cycle_theme_intent {})), tab_row_button_width);
-            row->add(make_icon_button(u8"settings", codicons::icon_settings_gear, u8"환경 설정",
-                         message(show_notice_intent { .text = u8"환경 설정 화면은 아직 없습니다. 테마는 옆의 단추로 바꿀 수 있습니다.", .warning = false })),
-                tab_row_button_width);
+            row->add(make_icon_button(u8"settings", codicons::icon_settings_gear, u8"환경 설정", message(open_settings_intent {})), tab_row_button_width);
             row->add_gap(4.0f);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"tab-row-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; }, .divider_bottom = true }, std::move(row));
@@ -554,6 +554,8 @@ namespace cyella::ui {
         // 대화 상자는 마지막 자식이라 모든 것 위에 그려지고 누름도 먼저 받는다.
         if (view.clone.has_value())
             root->place(build_clone_dialog(*view.clone), { 0.0f, 0.0f, view.logical_width, view.logical_height });
+        if (view.settings.has_value())
+            root->place(build_settings_dialog(*view.settings, view.logical_width, view.logical_height, sources), { 0.0f, 0.0f, view.logical_width, view.logical_height });
 
         built_tree built {};
         built.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(root), { 0.0f, 0.0f, view.width, view.height }, scale));
@@ -572,6 +574,8 @@ namespace cyella::ui {
             built.feedback.log_maximum = sources.log->metrics().maximum_scroll;
         if (sources.start != nullptr)
             built.feedback.start_maximum = sources.start->metrics().maximum_scroll;
+        if (sources.settings != nullptr)
+            built.feedback.settings_maximum = sources.settings->metrics().maximum_scroll;
         return built;
     }
 } // namespace cyella::ui

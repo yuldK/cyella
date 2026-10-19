@@ -6,6 +6,7 @@
 #include "domain/credential_prompt.h"
 #include "domain/diff_file.h"
 #include "domain/file_change.h"
+#include "domain/ssh_connection.h"
 #include "domain/operation_status.h"
 #include "domain/ref.h"
 #include "domain/repository_summary.h"
@@ -148,6 +149,12 @@ namespace cyella {
         std::u8string root {};
     };
 
+    // `ssh -T` 연결 시험의 분류다. 시험은 실행됐으므로 operation은 성공이고, 인증이 되었는지는 이 값이 말한다.
+    struct ssh_connection_tested
+    {
+        ssh_connection_classification classification {};
+    };
+
     // 마지막 사건이다. 반드시 한 번 온다. state는 succeeded·failed·cancelled·needs_input이다.
     struct operation_finished
     {
@@ -158,7 +165,7 @@ namespace cyella {
     };
 
     using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded,
-        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, operation_finished>;
+        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished>;
 
     struct operation_event
     {

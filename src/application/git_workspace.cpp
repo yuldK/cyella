@@ -24,6 +24,10 @@ namespace cyella {
                 return init->target_path;
             if (const auto* const inspect { std::get_if<inspect_path_request>(&operation) })
                 return inspect->path;
+            if (const auto* const keygen { std::get_if<ssh_keygen_request>(&operation) })
+                return keygen->key_path;
+            if (const auto* const test { std::get_if<ssh_connection_test_request>(&operation) })
+                return test->host;
             return {};
         }
 
@@ -452,6 +456,10 @@ namespace cyella {
                 {
                     inspections_[payload.path] = payload;
                 }
+                else if constexpr (std::is_same_v<payload_type, ssh_connection_tested>)
+                {
+                    ssh_tests_[event.id] = payload.classification;
+                }
                 else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded>)
                 {
                     if (session != nullptr)
@@ -533,6 +541,7 @@ namespace cyella {
             const auto oldest { std::find_if(order_.begin(), order_.end(), removable) };
             if (oldest == order_.end())
                 break;
+            ssh_tests_.erase(*oldest);
             operations_.erase(*oldest);
             order_.erase(oldest);
             --finished_count;
@@ -549,6 +558,14 @@ namespace cyella {
     {
         const auto found { inspections_.find(path) };
         if (found == inspections_.end())
+            return std::nullopt;
+        return found->second;
+    }
+
+    std::optional<ssh_connection_classification> git_workspace::ssh_connection_result_of(const operation_id id) const
+    {
+        const auto found { ssh_tests_.find(id) };
+        if (found == ssh_tests_.end())
             return std::nullopt;
         return found->second;
     }

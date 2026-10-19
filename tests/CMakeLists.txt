@@ -33,7 +33,8 @@ cyella_add_source_filter(cyella_test_files "domain/authentication"
 cyella_add_source_filter(cyella_test_files "platform/authentication"
     askpass_git_integration_tests.cpp
     askpass_workspace_integration_tests.cpp
-    askpass_server_tests.cpp)
+    askpass_server_tests.cpp
+    ssh_askpass_integration_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "support"
     askpass_test_support.h
@@ -53,10 +54,14 @@ cyella_add_source_filter(cyella_test_files "infrastructure"
     git_tool_discovery_tests.cpp
     json_app_settings_store_tests.cpp
     secret_masking_tests.cpp
+    ssh_operations_tests.cpp
     ssh_tools_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "presentation"
+    diff_webview_tests.cpp
     graph_geometry_tests.cpp
+    settings_tests.cpp
+    settings_ui_tests.cpp
     shell_controller_tests.cpp
     shell_layout_tests.cpp
     start_page_view_tests.cpp
@@ -79,6 +84,7 @@ cyella_disable_automatic_windows_manifest(cyella_test_child)
 # domain: 값 타입과 규칙의 test다. git이 필요 없다.
 cyella_add_source_filter(cyella_test_files "application/diff_view"
     diff_view_controller_tests.cpp
+    diff_view_coordinator_tests.cpp
     diff_view_git_tests.cpp
     diff_view_protocol_tests.cpp
     external_diff_opener_tests.cpp)

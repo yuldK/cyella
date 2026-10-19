@@ -15,6 +15,8 @@ namespace cyella {
         std::u8string git_executable {};
         // 환경 설정의 확장자별 도구 표다.
         std::vector<external_diff_tool> tools {};
+        // 두 쪽을 꺼내는 동안의 취소다. 도구를 띄운 뒤에는 도구가 스스로 끝난다.
+        process_cancellation_token cancellation {};
     };
 
     enum class external_open_status

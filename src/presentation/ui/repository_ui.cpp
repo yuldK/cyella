@@ -1,5 +1,6 @@
 #include "application/app_messages.h"
 #include "presentation/build_view_snapshot.h"
+#include "presentation/ui/diff_webview.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
 #include "presentation/ui/list_rows.h"
@@ -415,45 +416,7 @@ namespace cyella::ui {
     std::unique_ptr<luil::ui_element> build_graph_area(const view_snapshot& view, const repository_view& repository, feedback_sources& sources)
     {
         if (repository.diff.has_value())
-        {
-            // diff 자리다. 이 판은 WebView2(`webview_element`)로 바꿀 자리다 — 머리 막대는 luil 쪽에 남는다 (ADR-002).
-            const diff_panel_view& diff { *repository.diff };
-            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-area" }, luil::stack_config {}) };
-            auto header = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-header" },
-                luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 4.0f, 0.0f, 10.0f, 0.0f } });
-            header->add(make_icon_button(u8"diff-close", codicons::icon_arrow_left, u8"그래프로 돌아가기", message(close_diff_intent {})), 30.0f);
-            header->add(make_text(u8"diff-title", diff.title, text_style { .size = 12.0f, .bold = true }), text_button_width(diff.title));
-            header->add_flexible(make_text(u8"diff-subtitle", diff.subtitle, text_style { .size = 11.0f, .color = dim_color }));
-            header->add(make_text(u8"diff-placeholder-note", u8"임시 diff 보기", text_style { .size = 11.0f, .color = dim_color, .align = 2 }), 190.0f);
-            column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"diff-header-bar" }, bar_style { .divider_bottom = true }, std::move(header)), 32.0f);
-            if (diff.loading)
-                column->add_flexible(centered_message(u8"diff-loading", u8"diff를 읽는 중…"));
-            else if (diff.lines.empty())
-                column->add_flexible(
-                    centered_message(u8"diff-empty", diff.binary ? std::u8string { u8"바이너리 파일입니다. 이미지·바이너리 비교는 아직 없습니다." } : std::u8string { u8"보일 변경이 없습니다." }));
-            else
-            {
-                auto lines { std::make_shared<std::vector<diff_line_view>>(diff.lines) };
-                luil::virtual_list_config config {};
-                config.owner = u8"diff-lines";
-                config.items.reserve(lines->size());
-                for (std::size_t index { 0 }; index < lines->size(); ++index)
-                    config.items.push_back({ .key = u8"d" + number_text(index) });
-                config.row_height = diff_row_height;
-                config.scroll_offset = diff.scroll;
-                config.overscan = 6;
-                config.build_row = [lines](const luil::virtual_list_item& item, const std::size_t index, bool) -> std::unique_ptr<luil::ui_element> {
-                    return std::make_unique<diff_row_element>(u8"line-" + item.key, (*lines)[index]);
-                };
-                config.scroll = [](const float delta) { return message(scroll_intent { .target = scroll_target::diff, .value = delta }); };
-                config.scroll_to = [](const float offset) { return message(scroll_intent { .target = scroll_target::diff, .value = offset, .absolute = true }); };
-                auto list { std::make_unique<luil::virtual_list_element>(std::move(config)) };
-                list->set_access_name(u8"diff");
-                sources.diff = list.get();
-                column->add_flexible(std::move(list));
-            }
-            return surface(u8"diff-panel", std::move(column));
-        }
+            return build_diff_area(view, repository, sources);
 
         const graph_view& graph { repository.graph };
         const graph_columns columns { make_graph_columns(graph.lane_count, graph.compact_columns) };

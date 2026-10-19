@@ -63,6 +63,23 @@ namespace cyella {
         [[nodiscard]] bool valid() const noexcept;
     };
 
+    // 셸 판의 폭이다 (논리 픽셀). 값이 없으면 기본 폭을 쓴다. 범위를 다듬는 것은 화면 쪽(`shell_layout`)의 몫이다.
+    struct pane_widths_settings
+    {
+        std::optional<float> sidebar {};
+        std::optional<float> detail {};
+
+        [[nodiscard]] bool operator==(const pane_widths_settings&) const noexcept = default;
+    };
+
+    // 화면 배치 설정이다. `ui` 객체 하나에 모아 두어 알 수 없는 키도 이 안에서 보존한다.
+    struct ui_settings
+    {
+        pane_widths_settings pane_widths {};
+
+        [[nodiscard]] bool operator==(const ui_settings&) const noexcept = default;
+    };
+
     // 문서 밖에 남는 앱 단위 설정이다. `%APPDATA%\cyella\settings.json` 한 파일에 저장한다.
     struct app_settings
     {
@@ -79,6 +96,7 @@ namespace cyella {
         std::vector<external_diff_tool> external_diff_tools {};
         appearance_settings appearance {};
         std::optional<window_placement> window {};
+        ui_settings ui {};
 
         [[nodiscard]] bool operator==(const app_settings&) const noexcept = default;
     };

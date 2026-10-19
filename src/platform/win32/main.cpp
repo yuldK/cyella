@@ -17,7 +17,8 @@
 
 namespace {
     // 명령줄이다. 위치 인자 하나는 시작할 때 여는 저장소이고, `--settings=<경로>`는 설정 파일을 바꾼다
-    // (검증할 때 사용자의 `%APPDATA%\cyella\settings.json`을 건드리지 않으려는 것이다).
+    // (검증할 때 사용자의 `%APPDATA%\cyella\settings.json`을 건드리지 않으려는 것이다). `--no-webview`는 diff를
+    // 웹뷰 없이 텍스트 대체 보기로만 보인다 (WebView2 Runtime이 없는 PC의 화면을 확인할 때 쓴다).
     cyella::win32::cyella_driver_options command_line_options()
     {
         cyella::win32::cyella_driver_options options {};
@@ -26,11 +27,16 @@ namespace {
         if (arguments != nullptr)
         {
             constexpr std::u8string_view settings_prefix { u8"--settings=" };
+            constexpr std::u8string_view ssh_directory_prefix { u8"--ssh-dir=" };
             for (int index { 1 }; index < count; ++index)
             {
                 const std::u8string argument { cyella::win32::utf16_to_utf8(arguments[index]).value.value_or(std::u8string {}) };
                 if (argument.starts_with(settings_prefix))
                     options.settings_path = argument.substr(settings_prefix.size());
+                else if (argument == u8"--no-webview")
+                    options.force_text_diff = true;
+                else if (argument.starts_with(ssh_directory_prefix))
+                    options.ssh_directory = argument.substr(ssh_directory_prefix.size());
                 else if (options.initial_repository.empty())
                     options.initial_repository = argument;
             }
@@ -69,7 +75,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
     // 묶고, policy는 텍스트 입력·휠·단축키를 앱 메시지로 옮긴다.
     cyella::win32::cyella_driver driver { command_line_options() };
     cyella::ui::cyella_policy policy {};
-    cyella::win32::cyella_delegate delegate { &driver.relay() };
+    cyella::win32::cyella_delegate delegate { &driver.relay(), &driver };
     luil::win32::window_environment environment {};
     environment.driver = &driver;
     environment.policy = &policy;

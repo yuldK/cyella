@@ -14,4 +14,10 @@ namespace cyella::win32 {
 
     // `%USERPROFILE%\.ssh`다. 사용자 프로필 폴더를 알 수 없으면 값이 없다.
     [[nodiscard]] std::optional<std::filesystem::path> user_ssh_directory();
+
+    // `%SystemRoot%`(보통 `C:\Windows`)다. 시스템 OpenSSH(`System32\OpenSSH`)를 찾는 데 쓴다. 모르면 비어 있다.
+    [[nodiscard]] std::u8string windows_directory();
+
+    // 새 키의 주석 기본값 `사용자@컴퓨터`다. 이름을 알 수 없으면 `cyella`다.
+    [[nodiscard]] std::u8string default_ssh_key_comment();
 } // namespace cyella::win32

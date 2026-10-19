@@ -14,6 +14,8 @@ namespace cyella {
         constexpr std::size_t load_more_threshold_rows { 200 };
         // 첫 frame 전처럼 그래프 창 높이를 모를 때의 짐작이다 (논리 픽셀).
         constexpr float assumed_graph_viewport { 800.0f };
+        // 판 폭 끌기가 멈춘 뒤 설정에 쓰기까지의 간격이다.
+        constexpr std::chrono::milliseconds pane_widths_save_delay { 500 };
 
         std::string to_text(const std::u8string_view text)
         {
@@ -77,6 +79,7 @@ namespace cyella {
 
     shell_controller::shell_controller(dependencies dependencies)
         : dependencies_ { std::move(dependencies) }
+        , settings_ { settings_dependencies() }
     {
         if (dependencies_.clock == nullptr)
             dependencies_.clock = [] { return std::chrono::system_clock::now(); };
@@ -95,6 +98,26 @@ namespace cyella {
             change(memory_settings_);
     }
 
+    settings_controller::dependencies shell_controller::settings_dependencies()
+    {
+        settings_controller::dependencies result {};
+        result.settings = [this]() -> const app_settings& { return settings(); };
+        result.update = [this](const std::function<void(app_settings&)>& change) { update_settings(change); };
+        result.read_only = [this] { return dependencies_.settings != nullptr && dependencies_.settings->is_read_only(); };
+        // 읽기 전용일 때는 배너가 따로 말하므로 "저장 실패"로 겹쳐 말하지 않는다.
+        result.unsaved = [this] { return dependencies_.settings != nullptr && dependencies_.settings->is_read_only() == false && dependencies_.settings->has_unsaved_changes(); };
+        result.probe = dependencies_.probe;
+        result.git_tool = dependencies_.git_tool;
+        result.workspace = dependencies_.workspace;
+        result.request_ssh_info = dependencies_.request_ssh_info;
+        result.copy_text = dependencies_.copy_text;
+        result.ssh_directory = dependencies_.ssh_directory;
+        result.default_key_comment = dependencies_.default_key_comment;
+        result.ssh_tools_found = dependencies_.ssh_tools_found;
+        result.ssh_tools_origin = dependencies_.ssh_tools_origin;
+        return result;
+    }
+
     void shell_controller::save_tabs()
     {
         update_settings([this](app_settings& value) { capture_open_tabs(tabs_, value); });
@@ -108,8 +131,9 @@ namespace cyella {
 
     void shell_controller::start(const std::u8string& initial_repository)
     {
-        ui_.sidebar_width = clamp_sidebar_width(ui_.sidebar_width);
-        ui_.detail_width = clamp_detail_width(ui_.detail_width);
+        const pane_widths_settings& saved_widths { settings().ui.pane_widths };
+        ui_.sidebar_width = clamp_sidebar_width(saved_widths.sidebar.value_or(ui_.sidebar_width));
+        ui_.detail_width = clamp_detail_width(saved_widths.detail.value_or(ui_.detail_width));
         if (dependencies_.workspace != nullptr)
         {
             tabs_ = restore_tabs(settings());
@@ -248,6 +272,14 @@ namespace cyella {
             return ui_.clone.has_value() ? &ui_.clone->url : nullptr;
         case text_target::clone_path:
             return ui_.clone.has_value() ? &ui_.clone->path : nullptr;
+        case text_target::settings_git_path:
+        case text_target::settings_tool_extensions:
+        case text_target::settings_tool_executable:
+        case text_target::settings_tool_arguments:
+        case text_target::settings_key_name:
+        case text_target::settings_key_comment:
+        case text_target::settings_test_host:
+            return settings_.draft(target);
         case text_target::none:
             break;
         }
@@ -566,6 +598,7 @@ namespace cyella {
                 ui_.sidebar_width = clamp_sidebar_width(ui_.sidebar_width + intent->delta);
             else
                 ui_.detail_width = clamp_detail_width(ui_.detail_width + intent->delta);
+            pane_widths_flush_at_ = std::chrono::steady_clock::now() + pane_widths_save_delay;
             return true;
         }
         if (const auto* const intent { message.get<toggle_drawer_intent>() }; intent != nullptr)
@@ -730,6 +763,9 @@ namespace cyella {
             handle_folder(*intent);
             return true;
         }
+        // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
+        if (settings_.handle(message))
+            return true;
         return false;
     }
 
@@ -803,6 +839,7 @@ namespace cyella {
             }
             tab.pending_commit = 0;
         }
+        settings_.after_events();
         maybe_load_more();
     }
 
@@ -866,6 +903,7 @@ namespace cyella {
             inputs.graph_items = [this](const repository_session& session) { return graph_items(session); };
         }
         view_snapshot view { build_view_snapshot(inputs) };
+        view.settings = settings_.make_view(ui_.composition);
         last_mode_ = view.mode;
         // 상세 서랍은 medium·narrow에서 커밋을 고르면 열린다. 고른 것이 없으면 닫는다.
         if (view.repository.has_value() && view.repository->detail == detail_mode::none)
@@ -876,5 +914,52 @@ namespace cyella {
     void shell_controller::apply_feedback(const frame_feedback& feedback)
     {
         feedback_ = feedback;
+        settings_.apply_scroll_maximum(feedback.settings_maximum);
+    }
+
+    std::optional<diff_target> shell_controller::current_diff_target() const
+    {
+        if (dependencies_.workspace == nullptr)
+            return std::nullopt;
+        const repository_tab& tab { tabs_.selected() };
+        if (tab.kind != repository_tab_kind::repository)
+            return std::nullopt;
+        const auto state { ui_.tabs.find(tab.id) };
+        const auto repository { tab_repositories_.find(tab.id) };
+        if (state == ui_.tabs.end() || state->second.diff.has_value() == false || repository == tab_repositories_.end())
+            return std::nullopt;
+        const repository_session* const session { std::as_const(*dependencies_.workspace).find_session(repository->second) };
+        if (session == nullptr)
+            return std::nullopt;
+        return diff_target { repository->second, session->path(), *state->second.diff };
+    }
+
+    void shell_controller::set_diff_surface(const diff_surface_state& surface)
+    {
+        ui_.diff_surface = surface;
+    }
+
+    std::optional<std::chrono::steady_clock::time_point> shell_controller::next_tick() const noexcept
+    {
+        return pane_widths_flush_at_;
+    }
+
+    void shell_controller::tick(const std::chrono::steady_clock::time_point now)
+    {
+        if (pane_widths_flush_at_.has_value() && now >= *pane_widths_flush_at_)
+            flush();
+    }
+
+    void shell_controller::flush()
+    {
+        if (pane_widths_flush_at_.has_value() == false)
+            return;
+        pane_widths_flush_at_.reset();
+        const float sidebar { ui_.sidebar_width };
+        const float detail { ui_.detail_width };
+        update_settings([sidebar, detail](app_settings& value) {
+            value.ui.pane_widths.sidebar = sidebar;
+            value.ui.pane_widths.detail = detail;
+        });
     }
 } // namespace cyella

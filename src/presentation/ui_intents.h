@@ -24,6 +24,9 @@ namespace cyella {
         init_folder,
         // Clone 대상 폴더를 고른다.
         clone_target_folder,
+        // 환경 설정의 파일 고르기다. 결과는 `settings_file_chosen_intent`다.
+        choose_git_executable,
+        choose_tool_executable,
     };
 
     enum class folder_purpose

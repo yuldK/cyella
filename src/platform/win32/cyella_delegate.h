@@ -5,6 +5,8 @@
 #include "luil/luil.h"
 
 namespace cyella::win32 {
+    class cyella_driver;
+
     // luil UI thread에 꽂는 cyella 훅이다. 창 사건을 앱 메시지로 바꾸기만 하고
     // 상태는 직접 고치지 않는다.
     //
@@ -14,8 +16,10 @@ namespace cyella::win32 {
     {
     public:
         // relay는 driver가 소유한다. host가 준비되면 묶어 worker 결과가 logic thread를 깨우게 한다.
-        explicit cyella_delegate(operation_result_relay* relay = nullptr) noexcept
+        // driver는 host가 준비되면 클립보드 요청을 보낼 길을 얻는다.
+        explicit cyella_delegate(operation_result_relay* relay = nullptr, cyella_driver* driver = nullptr) noexcept
             : relay_ { relay }
+            , driver_ { driver }
         {}
 
         void on_started(luil::app_host& host) override;
@@ -24,5 +28,6 @@ namespace cyella::win32 {
 
     private:
         operation_result_relay* relay_ { nullptr };
+        cyella_driver* driver_ { nullptr };
     };
 } // namespace cyella::win32

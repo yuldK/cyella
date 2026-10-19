@@ -83,6 +83,9 @@ namespace cyella {
         clone,
         init,
         inspect_path,
+        // 환경 설정의 SSH 도구다. 저장소가 없고 대상(키 경로·호스트)으로 묶인다.
+        ssh_keygen,
+        ssh_connection_test,
     };
 
     enum class operation_state

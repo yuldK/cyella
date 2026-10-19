@@ -37,7 +37,7 @@ namespace cyella {
 
         if (const external_diff_tool* const tool { select_external_diff_tool(request.tools, path) }; tool != nullptr)
         {
-            const extracted_sides sides { gateway_.extract(plan, true) };
+            const extracted_sides sides { gateway_.extract_cancellable(plan, true, request.cancellation) };
             if (sides.ok == false)
                 return { external_open_status::extraction_failed, tool->executable, sides.error };
 

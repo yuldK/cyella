@@ -202,3 +202,107 @@ TEST_CASE("pane resizing is clamped", "[presentation][controller]")
     REQUIRE(test.send(resize_pane_intent { .sidebar = false, .delta = -10000.0f }));
     CHECK(test.controller.state().detail_width == minimum_detail_width);
 }
+
+TEST_CASE("pane widths are saved after the drag settles and restored on start", "[presentation][controller]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(resize_pane_intent { .sidebar = true, .delta = 40.0f }));
+    REQUIRE(test.send(resize_pane_intent { .sidebar = false, .delta = -30.0f }));
+    // 끄는 동안에는 쓰지 않는다. 쓸 시각만 예약한다.
+    CHECK_FALSE(test.controller.settings().ui.pane_widths.sidebar.has_value());
+    REQUIRE(test.controller.next_tick().has_value());
+    test.controller.tick(*test.controller.next_tick() - std::chrono::milliseconds { 1 });
+    CHECK_FALSE(test.controller.settings().ui.pane_widths.sidebar.has_value());
+
+    test.controller.tick(*test.controller.next_tick());
+    CHECK_FALSE(test.controller.next_tick().has_value());
+    CHECK(test.controller.settings().ui.pane_widths.sidebar == default_sidebar_width + 40.0f);
+    CHECK(test.controller.settings().ui.pane_widths.detail == default_detail_width - 30.0f);
+
+    // 앱을 닫을 때는 기다리지 않고 바로 쓴다.
+    REQUIRE(test.send(resize_pane_intent { .sidebar = true, .delta = 8.0f }));
+    test.controller.flush();
+    CHECK(test.controller.settings().ui.pane_widths.sidebar == default_sidebar_width + 48.0f);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+}
+
+namespace {
+    // 정해 둔 설정을 돌려주고 저장한 마지막 값을 기억하는 저장소다.
+    class memory_settings_store final : public cyella::app_settings_store
+    {
+    public:
+        [[nodiscard]] cyella::app_settings_load_result load(std::u8string_view) noexcept override
+        {
+            cyella::app_settings_load_result result {};
+            result.settings = initial;
+            return result;
+        }
+
+        [[nodiscard]] cyella::app_settings_save_result save(std::u8string_view, const cyella::app_settings& settings, std::u8string_view) noexcept override
+        {
+            saved = settings;
+            cyella::app_settings_save_result result {};
+            result.succeeded = true;
+            return result;
+        }
+
+        cyella::app_settings initial {};
+        cyella::app_settings saved {};
+    };
+} // namespace
+
+TEST_CASE("saved pane widths are restored and clamped on start", "[presentation][controller]")
+{
+    using namespace cyella;
+    memory_settings_store store {};
+    store.initial.ui.pane_widths.sidebar = 300.0f;
+    store.initial.ui.pane_widths.detail = 9999.0f;
+    app_settings_service service { store, u8"memory" };
+    static_cast<void>(service.load());
+
+    shell_controller::dependencies dependencies {};
+    dependencies.settings = &service;
+    shell_controller controller { std::move(dependencies) };
+    controller.start({});
+    CHECK(controller.state().sidebar_width == 300.0f);
+    CHECK(controller.state().detail_width == maximum_detail_width);
+
+    REQUIRE(controller.handle(luil::app_message { resize_pane_intent { .sidebar = true, .delta = 10.0f } }));
+    controller.flush();
+    CHECK(store.saved.ui.pane_widths.sidebar == 310.0f);
+}
+
+TEST_CASE("the open diff of the selected tab is the webview's wanted target", "[presentation][controller][diff]")
+{
+    controller_harness test {};
+    CHECK_FALSE(test.controller.current_diff_target().has_value());
+
+    test.controller.open_repository(u8"C:\\work\\repo");
+    CHECK_FALSE(test.controller.current_diff_target().has_value());
+
+    const diff_file_request request { .path = "src/a.cpp", .view = diff_view::staged };
+    REQUIRE(test.send(select_file_intent { request }));
+    const std::optional<diff_target> target { test.controller.current_diff_target() };
+    REQUIRE(target.has_value());
+    CHECK(target->repository_id == test.controller.selected_repository_id());
+    CHECK(target->repository_path == u8"C:\\work\\repo");
+    CHECK(target->request == request);
+
+    // 다른 탭(시작 탭)으로 가면 그 탭에는 열린 diff가 없다. 돌아오면 다시 있다.
+    REQUIRE(test.send(new_tab_intent {}));
+    CHECK_FALSE(test.controller.current_diff_target().has_value());
+
+    REQUIRE(test.send(close_diff_intent {}));
+    CHECK_FALSE(test.controller.current_diff_target().has_value());
+}
+
+TEST_CASE("the diff surface is stored for the header bar", "[presentation][controller][diff]")
+{
+    controller_harness test {};
+    diff_surface_state surface {};
+    surface.webview_available = true;
+    surface.layout = diff_layout::split;
+    surface.content = diff_content::image;
+    test.controller.set_diff_surface(surface);
+    CHECK(test.controller.state().diff_surface == surface);
+}

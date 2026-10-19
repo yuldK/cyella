@@ -29,6 +29,9 @@ namespace cyella {
         // 도우미가 접속할 앱의 named pipe와 토큰이다. `askpass_helper`가 있을 때만 쓴다. git 명령마다
         // 여기에 operation id를 더한 `askpass_session`을 자식 환경으로 건넨다.
         askpass_endpoint askpass {};
+        // 환경 설정의 SSH 도구가 쓰는 실행 파일이다. 비어 있으면 그 도구가 "찾지 못했다"로 실패한다.
+        std::u8string ssh_executable {};
+        std::u8string ssh_keygen_executable {};
     };
 
     // `git_operation_executor`의 git CLI 구현이다. 한 instance를 모든 worker가 함께 쓴다.

@@ -93,6 +93,10 @@ namespace cyella {
                 return operation_kind::init;
             else if constexpr (std::is_same_v<request_type, inspect_path_request>)
                 return operation_kind::inspect_path;
+            else if constexpr (std::is_same_v<request_type, ssh_keygen_request>)
+                return operation_kind::ssh_keygen;
+            else if constexpr (std::is_same_v<request_type, ssh_connection_test_request>)
+                return operation_kind::ssh_connection_test;
             else
                 return operation_kind::refresh;
         }
@@ -127,6 +131,8 @@ namespace cyella {
             return operation_lane::read;
         case operation_kind::clone:
         case operation_kind::init:
+        case operation_kind::ssh_keygen:
+        case operation_kind::ssh_connection_test:
             return operation_lane::setup;
         default:
             return operation_lane::write;
@@ -135,7 +141,7 @@ namespace cyella {
 
     bool is_setup_operation(const operation_kind kind) noexcept
     {
-        return kind == operation_kind::clone || kind == operation_kind::init || kind == operation_kind::inspect_path;
+        return kind == operation_kind::clone || kind == operation_kind::init || kind == operation_kind::inspect_path || kind == operation_kind::ssh_keygen || kind == operation_kind::ssh_connection_test;
     }
 
     const temporary_ssh_trust* ssh_override_of(const git_operation& operation) noexcept

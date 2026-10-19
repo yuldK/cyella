@@ -54,6 +54,17 @@ namespace cyella {
         dark,
     };
 
+    // 웹뷰가 지금 보이고 있는(또는 곧 보일) 내용의 종류다. 머리 막대가 어떤 단추를 보일지 정하는 데 쓴다.
+    enum class diff_content
+    {
+        empty,
+        // 이미지·바이너리의 두 쪽을 꺼내는 중이다.
+        loading,
+        text,
+        image,
+        binary,
+    };
+
     // 웹뷰가 쓰는 색이다. tokens는 CSS 변수 이름(`--window-background`)과 값(`#1e1e1e`)이며 비워 두면 뷰어에
     // 내장된 기본 색을 쓴다. luil 팔레트를 그대로 넘기고 싶을 때 채운다.
     struct diff_theme

@@ -1,7 +1,9 @@
 #include "platform/win32/cyella_delegate.h"
 
 #include "application/app_messages.h"
+#include "platform/win32/cyella_driver.h"
 #include "platform/win32/utf8.h"
+#include "presentation/settings/settings_intents.h"
 #include "presentation/ui_intents.h"
 
 #include <windows.h>
@@ -9,6 +11,7 @@
 #include <objbase.h>
 #include <shobjidl.h>
 
+#include <iterator>
 #include <optional>
 #include <string>
 #include <utility>
@@ -52,17 +55,48 @@ namespace cyella::win32 {
             dialog->Release();
             return chosen;
         }
+
+        // 실행 파일 고르기 대화 상자다 (`.exe`가 첫 필터이고 모든 파일도 고를 수 있다). 취소했거나 열지 못했으면 빈 값이다.
+        [[nodiscard]] std::optional<std::u8string> choose_executable(const wchar_t* const title)
+        {
+            IFileOpenDialog* dialog { nullptr };
+            if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))) || dialog == nullptr)
+                return std::nullopt;
+            std::optional<std::u8string> chosen {};
+            FILEOPENDIALOGOPTIONS options { 0 };
+            if (SUCCEEDED(dialog->GetOptions(&options)))
+                static_cast<void>(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST));
+            const COMDLG_FILTERSPEC filters[] { { L"실행 파일 (*.exe;*.cmd;*.bat)", L"*.exe;*.cmd;*.bat" }, { L"모든 파일", L"*.*" } };
+            static_cast<void>(dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters));
+            static_cast<void>(dialog->SetTitle(title));
+            if (SUCCEEDED(dialog->Show(GetActiveWindow())))
+                chosen = selected_path(*dialog);
+            dialog->Release();
+            return chosen;
+        }
     } // namespace
 
     void cyella_delegate::on_started(luil::app_host& host)
     {
         // 묶이기 전에 도착한 결과가 있으면 bind가 한 번 깨운다.
+        if (driver_ != nullptr)
+            driver_->bind_host(&host);
         if (relay_ != nullptr)
             relay_->bind(host);
     }
 
     void cyella_delegate::execute_app_ui_command(luil::app_host& host, const luil::app_ui_command& command)
     {
+        // 환경 설정의 파일 고르기다. 결과는 `settings_file_chosen_intent`로 logic thread에 돌려준다.
+        const auto command_id { static_cast<ui_command_id>(command.command) };
+        if (command_id == ui_command_id::choose_git_executable || command_id == ui_command_id::choose_tool_executable)
+        {
+            const bool for_git { command_id == ui_command_id::choose_git_executable };
+            if (std::optional<std::u8string> path { choose_executable(for_git ? L"git 실행 파일 선택" : L"외부 diff 도구 실행 파일 선택") }; path.has_value())
+                host.post_app_message(luil::app_message { settings_file_chosen_intent { for_git ? file_purpose::git_executable : file_purpose::tool_executable, std::move(*path) } });
+            return;
+        }
+
         folder_purpose purpose { folder_purpose::open };
         const wchar_t* title { L"열 저장소 폴더 선택" };
         switch (static_cast<ui_command_id>(command.command))

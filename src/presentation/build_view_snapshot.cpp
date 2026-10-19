@@ -387,11 +387,13 @@ namespace cyella {
             return view;
         }
 
-        diff_panel_view build_diff(const repository_session& session, const diff_file_request& request, const float scroll)
+        diff_panel_view build_diff(const repository_session& session, const diff_file_request& request, const float scroll, const diff_surface_state& surface)
         {
             diff_panel_view view {};
             view.request = request;
             view.scroll = scroll;
+            view.surface = surface;
+            view.use_webview = surface.webview_available;
             view.title = name_of(request.path);
             switch (request.view)
             {
@@ -418,6 +420,9 @@ namespace cyella {
                     view.binary = true;
                     continue;
                 }
+                // 웹뷰가 본문을 그린다. 줄 목록은 대체 보기에만 필요하다.
+                if (view.use_webview)
+                    continue;
                 for (const diff_hunk& hunk : file.hunks)
                 {
                     if (view.lines.size() >= diff_line_limit)
@@ -512,7 +517,7 @@ namespace cyella {
             }
             view.detail_scroll = tab_state.detail_scroll;
             if (tab_state.diff.has_value())
-                view.diff = build_diff(session, *tab_state.diff, tab_state.diff_scroll);
+                view.diff = build_diff(session, *tab_state.diff, tab_state.diff_scroll, ui.diff_surface);
             graph.labels = std::move(labels);
             return view;
         }
@@ -817,6 +822,10 @@ namespace cyella {
             return u8"Init";
         case operation_kind::inspect_path:
             return u8"경로 검사";
+        case operation_kind::ssh_keygen:
+            return u8"SSH 키 만들기";
+        case operation_kind::ssh_connection_test:
+            return u8"SSH 연결 시험";
         default:
             break;
         }

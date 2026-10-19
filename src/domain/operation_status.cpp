@@ -122,6 +122,10 @@ namespace cyella {
             return "init";
         case operation_kind::inspect_path:
             return "inspect_path";
+        case operation_kind::ssh_keygen:
+            return "ssh_keygen";
+        case operation_kind::ssh_connection_test:
+            return "ssh_connection_test";
         }
         return "unknown";
     }

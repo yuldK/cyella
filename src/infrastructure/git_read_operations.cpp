@@ -420,6 +420,14 @@ namespace cyella {
                         return *stop;
                     return operation_outcome::succeeded(u8"저장소를 만들었습니다.");
                 }
+                else if constexpr (std::is_same_v<request_type, ssh_keygen_request>)
+                {
+                    return run_ssh_keygen(context, request);
+                }
+                else if constexpr (std::is_same_v<request_type, ssh_connection_test_request>)
+                {
+                    return run_ssh_connection_test(context, request);
+                }
                 else
                 {
                     return operation_outcome::failed(failure_kind::invalid_request, u8"저장소 준비 작업이 아닙니다.");

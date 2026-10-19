@@ -19,6 +19,7 @@ namespace cyella::ui {
         const luil::virtual_list_element* diff { nullptr };
         const luil::virtual_list_element* log { nullptr };
         const luil::scroll_area_element* start { nullptr };
+        const luil::scroll_area_element* settings { nullptr };
     };
 
     // 셸의 판마다 짓는 함수다. 자리는 셸이 정하므로 각 판은 받은 자리 전체를 채운다.

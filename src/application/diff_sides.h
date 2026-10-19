@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/git_operation.h"
+#include "application/process_cancellation.h"
 #include "domain/diff_file.h"
 
 #include <cstdint>
@@ -108,6 +109,14 @@ namespace cyella {
         // 파일은 원래 파일 이름을 유지하고 `left`·`right` 하위 폴더에 두어 도구가 확장자와 이름을 알아보게
         // 한다. 한 쪽이 없으면 present가 거짓이다.
         [[nodiscard]] virtual extracted_sides extract(const diff_side_plan& plan, bool write_files) = 0;
+
+        // 취소할 수 있는 판이다. 취소되면 실행 중인 git을 끝내고 `ok`가 거짓인 결과를 돌려준다. 취소를 모르는
+        // 구현은 그냥 `extract`를 부른다.
+        [[nodiscard]] virtual extracted_sides extract_cancellable(const diff_side_plan& plan, bool write_files, const process_cancellation_token& cancellation)
+        {
+            static_cast<void>(cancellation);
+            return extract(plan, write_files);
+        }
 
         // `git config diff.tool`이다. 설정이 없으면 값이 없다.
         [[nodiscard]] virtual std::optional<std::string> configured_diff_tool(std::u8string_view repository_path) = 0;

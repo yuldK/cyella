@@ -3,6 +3,9 @@
 #include "application/app_messages.h"
 #include "application/app_settings_service.h"
 #include "application/cancellation_registry.h"
+#include "application/diff_tool_launcher.h"
+#include "application/diff_view_coordinator.h"
+#include "application/external_diff_opener.h"
 #include "application/file_probe.h"
 #include "application/git_workspace.h"
 #include "application/process_runner.h"
@@ -10,7 +13,10 @@
 #include "application/task_scheduler.h"
 #include "application/workspace_files.h"
 #include "domain/git_tool.h"
+#include "infrastructure/diff_temp_directory.h"
+#include "infrastructure/git_diff_gateway.h"
 #include "infrastructure/git_operation_runner.h"
+#include "infrastructure/ssh_info.h"
 #include "infrastructure/json_app_settings_store.h"
 #include "platform/win32/askpass_bridge.h"
 #include "platform/win32/operation_result_relay.h"
@@ -19,6 +25,9 @@
 #include "luil/luil.h"
 
 #include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -31,6 +40,10 @@ namespace cyella::win32 {
         std::u8string initial_repository {};
         // 설정 파일 경로다. 비우면 설정을 메모리에만 둔다 (test, 위치를 모를 때).
         std::u8string settings_path {};
+        // diff를 웹뷰 없이 텍스트 대체 보기로만 보인다 (WebView2 Runtime이 없는 PC의 화면을 검증할 때 쓴다).
+        bool force_text_diff { false };
+        // SSH 키를 읽고 만드는 폴더다. 비우면 `%USERPROFILE%\.ssh`다 (검증할 때 사용자의 키를 건드리지 않으려고 바꾼다).
+        std::u8string ssh_directory {};
     };
 
     // luil logic thread에 꽂는 cyella 구동기다. 백엔드(workspace·scheduler·relay)와 설정을 조립하고, 화면은
@@ -62,6 +75,8 @@ namespace cyella::win32 {
         [[nodiscard]] bool shutdown_completed() const override;
         void cancel() noexcept override;
         void stop_workers() override;
+        [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_tick() override;
+        void tick(std::chrono::steady_clock::time_point now) override;
 
         // delegate의 `on_started`가 host를 묶는다.
         [[nodiscard]] operation_result_relay& relay() noexcept
@@ -88,10 +103,36 @@ namespace cyella::win32 {
             return controller_.get();
         }
 
+        // delegate의 `on_started`가 host를 묶는다. 클립보드 요청이 host를 거친다.
+        void bind_host(luil::app_host* host) noexcept
+        {
+            host_.store(host);
+        }
+
+        // diff 웹뷰를 쥔 조립부다. git을 쓸 수 없으면 null이다.
+        [[nodiscard]] const diff_view_coordinator* diff_view() const noexcept
+        {
+            return diff_.get();
+        }
+        // 웹뷰로 diff를 그릴 수 있다 (Runtime·뷰어 파일이 있고, 웹뷰가 실패하지 않았다).
+        [[nodiscard]] bool webview_usable() const noexcept
+        {
+            return webview_capable_ && webview_failed_ == false;
+        }
+
     private:
         void drain_relay();
         // 백엔드 메시지면 처리하고 true다.
         bool handle_backend_intent(const luil::app_message& message);
+        // diff 웹뷰의 머리 막대·웹뷰 사건이면 처리하고 true다.
+        bool handle_diff_view_intent(const luil::app_message& message);
+        void handle_webview_event(const luil::webview_event& event);
+        void start_diff_view();
+        void copy_to_clipboard(const std::string& text);
+        // 환경 설정 SSH 화면의 agent·키 목록을 worker에게 읽게 한다.
+        void request_ssh_info();
+        // 웹뷰가 보여야 할 diff를 맞추고, 쌓인 안내를 화면에 올린다.
+        void sync_diff_view();
 
         // 멤버 순서가 파괴 순서의 반대다. worker(scheduler)가 가장 먼저 멈추고, 그다음 workspace·설정을
         // 빌린 controller가 사라져야 실행기·relay를 붙잡은 것이 남지 않는다.
@@ -112,6 +153,30 @@ namespace cyella::win32 {
         std::unique_ptr<git_workspace> workspace_ {};
         std::unique_ptr<shell_controller> controller_ {};
         std::unique_ptr<task_scheduler> scheduler_ {};
+        // diff 뷰어: 두 쪽 꺼내기·외부 도구 열기는 scheduler worker가 쓰므로 scheduler 뒤에 둔다 (stop_workers가 먼저 join한다).
+        std::unique_ptr<diff_temp_directory> diff_temp_ {};
+        std::unique_ptr<git_diff_gateway> diff_gateway_ {};
+        std::unique_ptr<diff_tool_launcher> diff_launcher_ {};
+        std::unique_ptr<external_diff_opener> diff_opener_ {};
+        std::unique_ptr<diff_view_coordinator> diff_ {};
+        // 저장소마다 `file_diff_loaded`가 온 횟수다. 같은 요청을 다시 읽어 왔는지(stage 뒤) 알아내는 데 쓴다.
+        std::map<std::string, std::uint64_t> diff_serials_ {};
+        std::atomic<luil::app_host*> host_ { nullptr };
+        ssh_programs ssh_programs_ {};
+        std::filesystem::path ssh_directory_ {};
+        // 웹뷰에 보낸 테마와 그 원천(해석한 luil 테마)이다.
+        std::optional<luil::color_theme> diff_theme_source_ {};
+        diff_theme diff_theme_ {};
+        std::u8string viewer_url_ {};
+        std::u8string webview_data_folder_ {};
+        // 웹뷰를 세울 수 있는 PC인가 (Runtime 설치, 뷰어 파일 있음, 프로필 폴더를 앎).
+        bool webview_capable_ { false };
+        // 웹뷰가 실패했다 (항해 실패·브라우저 프로세스 종료). 이후 대체 보기를 쓴다.
+        bool webview_failed_ { false };
+        // 한 번 diff를 연 뒤로는 웹뷰를 frame에 계속 실어 둔다. 웹뷰를 다시 만들지 않고 재사용하려는 것이다.
+        bool webview_requested_ { false };
+        std::uint64_t posted_revision_ { 0 };
+        std::u8string posted_message_ {};
         // 창의 실제 크기·배율이다. 첫 frame(메시지가 오기 전)은 기본값으로 배치한다.
         window_metrics_intent metrics_ {};
         std::atomic<bool> closed_ { false };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/diff_view_protocol.h"
 #include "application/git_operation.h"
 #include "application/repository_tabs.h"
 #include "domain/operation_status.h"
@@ -28,6 +29,14 @@ namespace cyella {
         commit_body,
         clone_url,
         clone_path,
+        // 환경 설정 화면의 입력 칸이다 (`settings_controller`의 초안).
+        settings_git_path,
+        settings_tool_extensions,
+        settings_tool_executable,
+        settings_tool_arguments,
+        settings_key_name,
+        settings_key_comment,
+        settings_test_host,
     };
 
     // 사이드바 구역이다. 순서가 곧 화면 순서다.
@@ -98,6 +107,21 @@ namespace cyella {
         bool warning { false };
     };
 
+    // diff 웹뷰가 지금 보이는 모습이다. 웹뷰를 쥔 driver가 frame마다 채우고, 머리 막대(전환 단추)와 대체 보기가 읽는다.
+    struct diff_surface_state
+    {
+        diff_layout layout { diff_layout::inline_view };
+        image_compare_mode image_mode { image_compare_mode::side_by_side };
+        diff_content content { diff_content::empty };
+        // 웹뷰로 그릴 수 있는가. 거짓이면 텍스트 대체 보기를 쓴다 (WebView2 Runtime이 없거나 뷰어를 못 찾은 경우).
+        // 기본이 거짓인 것은 웹뷰를 쥔 쪽이 확인해 올리기 전에는 대체 보기가 안전하기 때문이다.
+        bool webview_available { false };
+        // 줄 수 상한으로 잘린 diff다. 머리 막대가 알려 준다.
+        bool truncated { false };
+
+        [[nodiscard]] bool operator==(const diff_surface_state&) const noexcept = default;
+    };
+
     struct ui_state
     {
         std::map<repository_tab_id, tab_ui_state> tabs {};
@@ -118,6 +142,7 @@ namespace cyella {
         operation_id dismissed_start_banner { 0 };
         // IME 조합 중인 칸의 표시 글이다. 한 번에 한 칸만 조합한다.
         std::optional<luil::text_composition_event> composition {};
+        diff_surface_state diff_surface {};
     };
 
     [[nodiscard]] inline luil::text_input_target to_luil_target(const text_target target) noexcept
@@ -128,7 +153,7 @@ namespace cyella {
     [[nodiscard]] inline text_target from_luil_target(const luil::text_input_target target) noexcept
     {
         const auto value { static_cast<std::uint32_t>(target) };
-        if (value > static_cast<std::uint32_t>(text_target::clone_path))
+        if (value > static_cast<std::uint32_t>(text_target::settings_test_host))
             return text_target::none;
         return static_cast<text_target>(value);
     }

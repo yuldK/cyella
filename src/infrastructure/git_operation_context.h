@@ -137,6 +137,9 @@ namespace cyella {
     [[nodiscard]] operation_outcome run_read_operation(git_operation_context& context);
     [[nodiscard]] operation_outcome run_write_operation(git_operation_context& context);
     [[nodiscard]] operation_outcome run_setup_operation(git_operation_context& context);
+    // 환경 설정의 SSH 도구다 (`ssh_operations.cpp`). `run_setup_operation`이 부른다.
+    [[nodiscard]] operation_outcome run_ssh_keygen(git_operation_context& context, const ssh_keygen_request& request);
+    [[nodiscard]] operation_outcome run_ssh_connection_test(git_operation_context& context, const ssh_connection_test_request& request);
 
     // 문자열 계층을 잇는 도구다. git 출력은 UTF-8 byte(std::string)이고 프로세스 계약은 u8string이다.
     [[nodiscard]] std::string to_bytes(std::u8string_view text);

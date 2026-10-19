@@ -100,7 +100,9 @@ cyella_add_source_filter(cyella_lib_files "domain/settings"
 
 cyella_add_source_filter(cyella_lib_files "domain/authentication"
     domain/credential_prompt.cpp
-    domain/credential_prompt.h)
+    domain/credential_prompt.h
+    domain/ssh_connection.cpp
+    domain/ssh_connection.h)
 
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
 # UI 헤더를 include하지 않는다.
@@ -127,6 +129,8 @@ cyella_add_source_filter(cyella_lib_files "application/diff_view"
     application/diff_sides.cpp
     application/diff_sides.h
     application/diff_tool_launcher.h
+    application/diff_view_coordinator.cpp
+    application/diff_view_coordinator.h
     application/diff_view_controller.cpp
     application/diff_view_controller.h
     application/diff_view_protocol.cpp
@@ -195,6 +199,8 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/settings"
 cyella_add_source_filter(cyella_lib_files "infrastructure/authentication"
     infrastructure/askpass_environment.cpp
     infrastructure/askpass_environment.h
+    infrastructure/ssh_info.cpp
+    infrastructure/ssh_info.h
     infrastructure/ssh_tools.cpp
     infrastructure/ssh_tools.h)
 
@@ -212,7 +218,8 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/git_operations"
     infrastructure/git_operation_runner.cpp
     infrastructure/git_operation_runner.h
     infrastructure/git_read_operations.cpp
-    infrastructure/git_write_operations.cpp)
+    infrastructure/git_write_operations.cpp
+    infrastructure/ssh_operations.cpp)
 
 # presentation: view snapshot을 luil element tree로 짓는 앱 element 계층이다.
 cyella_add_source_filter(cyella_lib_files "presentation/start_page"
@@ -225,6 +232,7 @@ cyella_add_source_filter(cyella_lib_files "presentation/shell"
     presentation/build_view_snapshot.h
     presentation/frame_feedback.h
     presentation/graph_geometry.cpp
+    presentation/diff_view_intents.h
     presentation/graph_geometry.h
     presentation/shell_controller.cpp
     presentation/shell_controller.h
@@ -233,6 +241,15 @@ cyella_add_source_filter(cyella_lib_files "presentation/shell"
     presentation/ui_intents.h
     presentation/ui_state.h
     presentation/view_snapshot.h)
+
+# 환경 설정 화면: 상태·메시지·snapshot builder와 그 controller다. luil 없이 test한다.
+cyella_add_source_filter(cyella_lib_files "presentation/settings"
+    presentation/settings/settings_controller.cpp
+    presentation/settings/settings_controller.h
+    presentation/settings/settings_intents.h
+    presentation/settings/settings_state.h
+    presentation/settings/settings_view.cpp
+    presentation/settings/settings_view.h)
 
 cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
     presentation/ui/cyella_caption.h
@@ -246,11 +263,17 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
 cyella_add_source_filter(cyella_lib_files "presentation/ui/screens"
     presentation/ui/build_ui_tree.cpp
     presentation/ui/build_ui_tree.h
+    presentation/ui/diff_webview.cpp
+    presentation/ui/diff_webview.h
+    presentation/ui/diff_webview_theme.cpp
+    presentation/ui/diff_webview_theme.h
     presentation/ui/graph_row_element.cpp
     presentation/ui/graph_row_element.h
     presentation/ui/list_rows.cpp
     presentation/ui/list_rows.h
     presentation/ui/repository_ui.cpp
+    presentation/ui/settings/settings_ui.cpp
+    presentation/ui/settings/settings_ui.h
     presentation/ui/start_page_ui.cpp
     presentation/ui/ui_parts.h)
 
@@ -273,6 +296,10 @@ cyella_add_source_filter(cyella_lib_files "platform/process"
 cyella_add_source_filter(cyella_lib_files "platform/diff_view"
     platform/win32/win32_diff_tool_launcher.cpp
     platform/win32/win32_diff_tool_launcher.h)
+
+cyella_add_source_filter(cyella_lib_files "platform/webview"
+    platform/win32/win32_webview_support.cpp
+    platform/win32/win32_webview_support.h)
 
 cyella_add_source_filter(cyella_lib_files "platform/settings"
     platform/win32/win32_app_settings_path.cpp

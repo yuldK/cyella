@@ -23,6 +23,7 @@ namespace cyella {
         {}
 
         [[nodiscard]] extracted_sides extract(const diff_side_plan& plan, bool write_files) override;
+        [[nodiscard]] extracted_sides extract_cancellable(const diff_side_plan& plan, bool write_files, const process_cancellation_token& cancellation) override;
         [[nodiscard]] std::optional<std::string> configured_diff_tool(std::u8string_view repository_path) override;
 
     private:

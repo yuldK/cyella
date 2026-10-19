@@ -4,21 +4,39 @@
 #include "infrastructure/git_operation_runner.h"
 #include "infrastructure/git_tool_discovery.h"
 #include "platform/win32/askpass_helper_path.h"
+#include "platform/win32/win32_diff_tool_launcher.h"
 #include "platform/win32/win32_file_probe.h"
 #include "platform/win32/win32_process_runner.h"
 #include "platform/win32/win32_settings_file_system.h"
+#include "platform/win32/win32_ssh_environment.h"
+#include "platform/win32/win32_webview_support.h"
 #include "platform/win32/win32_workspace_files.h"
+#include "presentation/diff_view_intents.h"
+#include "presentation/settings/settings_intents.h"
 #include "presentation/ui/build_ui_tree.h"
+#include "presentation/ui/diff_webview.h"
+#include "presentation/ui/diff_webview_theme.h"
 
 #include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 
 namespace cyella::win32 {
     namespace {
         // 논리 픽셀(96 DPI 기준) 상수다. 첫 frame은 창 크기 메시지가 오기 전이라 이 값으로 배치한다.
         constexpr float default_window_width { 1280.0f };
         constexpr float default_window_height { 720.0f };
+
+        std::u8string to_u8(const std::string& text)
+        {
+            return std::u8string { text.begin(), text.end() };
+        }
+
+        std::string to_text(const std::u8string& text)
+        {
+            return std::string { text.begin(), text.end() };
+        }
 
         luil::theme_preference to_luil_theme(const theme_preference theme) noexcept
         {
@@ -67,6 +85,15 @@ namespace cyella::win32 {
         shell_controller::dependencies dependencies {};
         dependencies.settings = settings_.get();
         dependencies.probe = probe_.get();
+        dependencies.git_tool = git_tool_;
+        dependencies.request_ssh_info = [this] { request_ssh_info(); };
+        dependencies.copy_text = [this](std::string text) { copy_to_clipboard(text); };
+        if (options_.ssh_directory.empty() == false)
+            ssh_directory_ = std::filesystem::path { options_.ssh_directory };
+        else if (const std::optional<std::filesystem::path> ssh_directory { user_ssh_directory() }; ssh_directory.has_value())
+            ssh_directory_ = *ssh_directory;
+        dependencies.ssh_directory = ssh_directory_.u8string();
+        dependencies.default_key_comment = default_ssh_key_comment();
         if (git_tool_.usable())
         {
             // 서버는 앱 실행마다 한 번만 연다. 도우미나 서버가 없으면 askpass 없이 돌고 진단이 하나 남는다.
@@ -77,6 +104,12 @@ namespace cyella::win32 {
                 runner_options.askpass_helper = askpass_.helper_path();
                 runner_options.askpass = askpass_.endpoint();
             }
+            // 환경 설정의 SSH 도구(키 만들기·연결 시험)는 passphrase를 askpass로 묻는다. 도우미가 없으면 쓰지 않는다.
+            ssh_programs_ = locate_ssh_programs(git_tool_.executable, windows_directory(), *probe_);
+            runner_options.ssh_executable = ssh_programs_.ssh;
+            runner_options.ssh_keygen_executable = ssh_programs_.ssh_keygen;
+            dependencies.ssh_tools_found = ssh_programs_.found() && askpass_.available();
+            dependencies.ssh_tools_origin = ssh_programs_.origin;
             git_workspace_options workspace_options {};
             workspace_options.askpass = askpass_.service();
 
@@ -89,6 +122,7 @@ namespace cyella::win32 {
                 [relay](operation_event event) { relay->post(luil::app_message { std::move(event) }); }, &registry_, workspace_options);
             dependencies.workspace = workspace_.get();
             dependencies.git_version = git_tool_.reported_version;
+            start_diff_view();
         }
         else
             dependencies.git_message = std::u8string { git_tool_unavailable_message(git_tool_.availability) };
@@ -96,11 +130,73 @@ namespace cyella::win32 {
         controller_->start(options_.initial_repository);
     }
 
+    void cyella_driver::start_diff_view()
+    {
+        // 웹뷰를 세울 수 있는 PC인가를 앱이 미리 안다. luil은 환경을 만들지 못해도 사건을 보내지 않고 placeholder만 남기므로,
+        // 여기서 거르지 않으면 diff가 영영 빈 자리로 남는다.
+        const viewer_location viewer { locate_diff_viewer() };
+        webview_data_folder_ = webview_user_data_directory();
+        webview_capable_ = options_.force_text_diff == false && viewer.exists && webview_data_folder_.empty() == false && webview_runtime_installed();
+        viewer_url_ = to_u8(make_file_url(viewer.index_path));
+
+        diff_temp_ = std::make_unique<diff_temp_directory>();
+        diff_gateway_ = std::make_unique<git_diff_gateway>(*process_runner_, git_tool_.executable, *diff_temp_);
+        diff_launcher_ = make_diff_tool_launcher();
+        diff_opener_ = std::make_unique<external_diff_opener>(*diff_gateway_, *diff_launcher_);
+
+        diff_view_ports ports {};
+        ports.submit = [this](const std::string& repository_id, git_operation operation) { return workspace_->submit(repository_id, std::move(operation)); };
+        ports.schedule = [scheduler = scheduler_.get()](operation_request request) { return scheduler->submit(std::move(request)); };
+        ports.copy_text = [this](std::string text) { copy_to_clipboard(text); };
+        ports.sides_ready = [relay = &relay_](diff_sides_ready_intent message) { relay->post(luil::app_message { std::move(message) }); };
+        ports.external_done = [relay = &relay_](external_open_done_intent message) { relay->post(luil::app_message { std::move(message) }); };
+        ports.tools = [this] { return controller_ != nullptr ? controller_->settings().external_diff_tools : std::vector<external_diff_tool> {}; };
+        ports.registry = &registry_;
+        ports.gateway = diff_gateway_.get();
+        ports.opener = diff_opener_.get();
+        ports.git_executable = git_tool_.executable;
+        // 머리 줄(경로·보기 전환)은 luil이 그리므로 뷰어 안의 머리는 끈다.
+        diff_ = std::make_unique<diff_view_coordinator>(std::move(ports), diff_view_options { .line_limit = diff_view_default_line_limit, .toolbar = false });
+    }
+
+    void cyella_driver::request_ssh_info()
+    {
+        // 서비스 상태·`ssh-add -l`·키 목록은 프로세스를 띄우고 파일을 읽으므로 worker가 한다. 결과는 relay로 돌아온다.
+        ssh_info_sources sources {};
+        sources.service_status = [] { return query_ssh_agent_service_status(); };
+        sources.runner = process_runner_.get();
+        sources.ssh_add_executable = ssh_programs_.ssh_add;
+        sources.ssh_directory = ssh_directory_;
+        if (scheduler_ == nullptr)
+        {
+            // git을 쓸 수 없어 scheduler가 없다. 드문 경로이므로 이 thread에서 바로 읽는다.
+            relay_.post(luil::app_message { ssh_info_loaded_intent { collect_ssh_info(sources) } });
+            return;
+        }
+        auto source { std::make_shared<process_cancellation_source>() };
+        registry_.add(*source);
+        operation_request request {};
+        request.repository_key = "ssh-info";
+        request.job = [sources = std::move(sources), source, relay = &relay_](const operation_context& context) mutable {
+            const process_cancellation_registration link { context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {} };
+            sources.cancellation = source->token();
+            relay->post(luil::app_message { ssh_info_loaded_intent { collect_ssh_info(sources) } });
+        };
+        static_cast<void>(scheduler_->submit(std::move(request)));
+    }
+
+    void cyella_driver::copy_to_clipboard(const std::string& text)
+    {
+        // 앱 UI thread가 클립보드를 소유한다. host를 묶기 전이거나 푼 뒤에는 복사할 곳이 없다.
+        if (luil::app_host* const host { host_.load() }; host != nullptr)
+            host->post_clipboard_request(luil::clipboard_copy_request { to_u8(text) });
+    }
+
     void cyella_driver::handle(luil::app_message message)
     {
         // relay가 결과의 정본이다. 깨우기가 아닌 메시지가 먼저 와도 쌓인 결과부터 반영한다.
         drain_relay();
-        if (message.get<relay_drain_intent>() == nullptr && handle_backend_intent(message) == false && controller_ != nullptr)
+        if (message.get<relay_drain_intent>() == nullptr && handle_backend_intent(message) == false && handle_diff_view_intent(message) == false && controller_ != nullptr)
             static_cast<void>(controller_->handle(message));
         if (controller_ != nullptr)
             controller_->after_events();
@@ -109,16 +205,102 @@ namespace cyella::win32 {
     void cyella_driver::drain_relay()
     {
         relay_.drain([this](luil::app_message drained) {
-            const auto* const event { drained.get<operation_event>() };
-            if (event != nullptr && workspace_ != nullptr)
-                workspace_->apply(*event);
+            if (const auto* const event { drained.get<operation_event>() }; event != nullptr)
+            {
+                if (workspace_ != nullptr)
+                    workspace_->apply(*event);
+                if (std::holds_alternative<file_diff_loaded>(event->payload))
+                    ++diff_serials_[event->repository_id];
+                if (const auto* const finished { std::get_if<operation_finished>(&event->payload) }; finished != nullptr && diff_ != nullptr)
+                    diff_->on_operation_finished(event->id, *finished);
+            }
+            else if (const auto* const sides { drained.get<diff_sides_ready_intent>() }; sides != nullptr && diff_ != nullptr)
+                diff_->sides_prepared(*sides);
+            else if (const auto* const external { drained.get<external_open_done_intent>() }; external != nullptr && diff_ != nullptr)
+                diff_->external_opened(*external);
+            else if (drained.get<ssh_info_loaded_intent>() != nullptr && controller_ != nullptr)
+                static_cast<void>(controller_->handle(drained));
         });
+    }
+
+    bool cyella_driver::handle_diff_view_intent(const luil::app_message& message)
+    {
+        if (const auto* const web { message.get<ui::diff_webview_event_intent>() }; web != nullptr)
+        {
+            handle_webview_event(web->event);
+            return true;
+        }
+        if (const auto* const layout { message.get<set_diff_layout_intent>() }; layout != nullptr)
+        {
+            if (diff_ != nullptr)
+                diff_->controller().set_layout(layout->layout);
+            return true;
+        }
+        if (const auto* const mode { message.get<set_diff_image_mode_intent>() }; mode != nullptr)
+        {
+            if (diff_ != nullptr)
+                diff_->controller().set_image_mode(mode->mode);
+            return true;
+        }
+        return false;
+    }
+
+    void cyella_driver::handle_webview_event(const luil::webview_event& event)
+    {
+        if (diff_ == nullptr)
+            return;
+        switch (event.kind)
+        {
+        case luil::webview_event_kind::navigation_started:
+        case luil::webview_event_kind::render_process_failed:
+            // 페이지가 다시 읽힌다. 새 `ready`가 올 때까지 보내지 않는다.
+            diff_->page_reloading();
+            break;
+        case luil::webview_event_kind::navigation_failed:
+        case luil::webview_event_kind::browser_process_failed:
+            // 뷰어를 열지 못했거나 웹뷰가 사라졌다. 이후 diff는 텍스트 대체 보기로 보인다.
+            webview_failed_ = true;
+            break;
+        case luil::webview_event_kind::web_message_received:
+            // 웹뷰는 간 적이 있는 어느 문서든 메시지를 보낼 수 있다. 우리가 연 뷰어가 보낸 것만 믿는다.
+            if (ui::is_viewer_document(event.url, viewer_url_))
+                static_cast<void>(diff_->handle_web_message(to_text(event.message)));
+            break;
+        case luil::webview_event_kind::navigation_completed:
+        case luil::webview_event_kind::navigation_blocked:
+        case luil::webview_event_kind::permission_denied:
+        case luil::webview_event_kind::download_blocked:
+        case luil::webview_event_kind::events_dropped:
+            break;
+        }
+    }
+
+    void cyella_driver::sync_diff_view()
+    {
+        if (diff_ == nullptr || controller_ == nullptr)
+            return;
+        const std::optional<diff_target> wanted { controller_->current_diff_target() };
+        const file_diff* loaded { nullptr };
+        std::uint64_t serial { 0 };
+        if (wanted.has_value() && workspace_ != nullptr)
+        {
+            if (const repository_session* const session { std::as_const(*workspace_).find_session(wanted->repository_id) }; session != nullptr && session->selected_diff().has_value())
+                loaded = &*session->selected_diff();
+            if (const auto found { diff_serials_.find(wanted->repository_id) }; found != diff_serials_.end())
+                serial = found->second;
+        }
+        diff_->sync(wanted, loaded, serial);
+        while (const std::optional<diff_notice> notice { diff_->take_notice() })
+            static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { notice->text, notice->warning } }));
     }
 
     bool cyella_driver::handle_backend_intent(const luil::app_message& message)
     {
         if (message.get<close_intent>() != nullptr)
         {
+            // 끌기가 멈추기를 기다리던 설정도 닫기 전에 쓴다.
+            if (controller_ != nullptr)
+                controller_->flush();
             closed_.store(true);
             return true;
         }
@@ -182,11 +364,51 @@ namespace cyella::win32 {
         const float width { metrics_.width > 0.0f ? metrics_.width : default_window_width * scale };
         const float height { metrics_.height > 0.0f ? metrics_.height : default_window_height * scale };
 
+        sync_diff_view();
+        if (diff_ != nullptr)
+        {
+            // 앱 테마를 웹뷰의 CSS 변수로 옮긴다. 테마가 바뀌면 `set_theme` 한 통만 간다.
+            // 팔레트를 만들고 CSS 변수로 옮기는 일은 선택된 테마가 바뀔 때만 한다 (frame마다 문자열 수십 개를 짓지 않는다).
+            const luil::color_theme theme { luil::resolve_color_theme(to_luil_theme(controller_->settings().appearance.theme), high_contrast_enabled(), system_prefers_light_theme()) };
+            if (diff_theme_source_.has_value() == false || *diff_theme_source_ != theme)
+            {
+                diff_theme_source_ = theme;
+                diff_theme_ = ui::make_diff_theme(luil::color_palette_for(theme));
+            }
+            diff_->controller().set_theme(diff_theme_);
+            static_cast<void>(diff_->controller().poll());
+            diff_surface_state surface {};
+            surface.layout = diff_->controller().state().layout;
+            surface.image_mode = diff_->controller().state().image_mode;
+            surface.content = diff_->controller().content();
+            surface.truncated = diff_->controller().truncated();
+            surface.webview_available = webview_usable();
+            controller_->set_diff_surface(surface);
+        }
+
         const view_snapshot view { controller_->make_view(width, height, scale) };
         ui::built_tree built { ui::build_ui_tree(view) };
         controller_->apply_feedback(built.feedback);
         frame->tree = std::move(built.tree);
         frame->appearance.theme = to_luil_theme(view.theme);
+
+        // 웹뷰는 한 번 필요해진 뒤로 계속 싣는다. 빼면 luil이 웹뷰를 닫아 페이지 상태가 날아간다. 자리표(webview_element)가
+        // tree에 없는 동안은 luil이 숨겨 둔다.
+        if (diff_ != nullptr && webview_usable())
+        {
+            if (view.repository.has_value() && view.repository->diff.has_value())
+                webview_requested_ = true;
+            if (webview_requested_)
+            {
+                // 메시지 내용은 번호가 바뀔 때만 다시 만든다. 번호가 같은 frame에도 내용을 실어야 건너뛴 frame에서 잃지 않는다.
+                if (diff_->controller().post_revision() != posted_revision_)
+                {
+                    posted_revision_ = diff_->controller().post_revision();
+                    posted_message_ = to_u8(diff_->controller().latest_message());
+                }
+                frame->webviews.push_back(ui::make_diff_webview({ viewer_url_, webview_data_folder_, posted_revision_, posted_message_ }));
+            }
+        }
         return frame;
     }
 
@@ -200,6 +422,17 @@ namespace cyella::win32 {
         return closed_.load();
     }
 
+    std::optional<std::chrono::steady_clock::time_point> cyella_driver::next_tick()
+    {
+        return controller_ != nullptr ? controller_->next_tick() : std::nullopt;
+    }
+
+    void cyella_driver::tick(const std::chrono::steady_clock::time_point now)
+    {
+        if (controller_ != nullptr)
+            controller_->tick(now);
+    }
+
     void cyella_driver::cancel() noexcept
     {
         // close 메시지가 유실돼도 실행 중인 git이 종료 예산 안에 끝나게 한다.
@@ -208,6 +441,7 @@ namespace cyella::win32 {
 
     void cyella_driver::stop_workers()
     {
+        host_.store(nullptr);
         // 서버를 먼저 닫아 대기 질문을 취소로 답한다. 그래야 프롬프트에서 멈춘 git과 도우미가 풀려
         // scheduler가 worker를 join할 때 매달리지 않는다.
         askpass_.shutdown();

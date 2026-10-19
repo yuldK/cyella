@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -298,6 +299,43 @@ namespace cyella {
             normalize_recent_repositories(result.settings.recent_repositories);
         }
 
+        // 판 폭 하나다. 양수이고 화면 폭으로 쓸 수 있는 크기여야 한다. 아니면 경고를 남기고 기본 폭을 쓴다.
+        std::optional<float> parse_pane_width(const json& panes, const char* const key, app_settings_load_result& result)
+        {
+            const auto found { panes.find(key) };
+            if (found == panes.end() || found->is_null())
+                return std::nullopt;
+            constexpr double maximum_pane_width { 8192.0 };
+            if (found->is_number() == false || found->get<double>() <= 0.0 || found->get<double>() > maximum_pane_width)
+            {
+                warn(result, u8"앱 설정의 ui.pane_widths 값은 양수여야 합니다. 기본 폭을 사용합니다.");
+                return std::nullopt;
+            }
+            return static_cast<float>(found->get<double>());
+        }
+
+        void parse_ui(const json& root, app_settings_load_result& result)
+        {
+            const auto source { root.find("ui") };
+            if (source == root.end() || source->is_null())
+                return;
+            if (source->is_object() == false)
+            {
+                warn(result, u8"앱 설정의 ui는 object여야 합니다. 기본값을 사용합니다.");
+                return;
+            }
+            const auto panes { source->find("pane_widths") };
+            if (panes == source->end() || panes->is_null())
+                return;
+            if (panes->is_object() == false)
+            {
+                warn(result, u8"앱 설정의 ui.pane_widths는 object여야 합니다. 기본 폭을 사용합니다.");
+                return;
+            }
+            result.settings.ui.pane_widths.sidebar = parse_pane_width(*panes, "sidebar", result);
+            result.settings.ui.pane_widths.detail = parse_pane_width(*panes, "detail", result);
+        }
+
         void parse_open_tabs(const json& root, app_settings_load_result& result)
         {
             const auto tabs { root.find("open_tabs") };
@@ -374,6 +412,24 @@ namespace cyella {
             root["appearance"] = std::move(appearance);
         }
 
+        // ui 객체는 판 폭이 있을 때만 쓴다. 쓰지 않는 사용자의 파일을 짧게 두고, 알 수 없는 키는 보존한다.
+        if (settings.ui.pane_widths.sidebar.has_value() || settings.ui.pane_widths.detail.has_value())
+        {
+            json ui { existing_object(root, "ui") };
+            json panes { existing_object(ui, "pane_widths") };
+            const auto write_width = [&panes](const char* const key, const std::optional<float>& width) {
+                // 끌어서 얻은 float(237.33334350585938)를 그대로 쓰면 파일이 지저분하다. 0.01 논리 픽셀로 맞춘다.
+                if (width.has_value())
+                    panes[key] = std::round(static_cast<double>(*width) * 100.0) / 100.0;
+                else
+                    panes.erase(key);
+            };
+            write_width("sidebar", settings.ui.pane_widths.sidebar);
+            write_width("detail", settings.ui.pane_widths.detail);
+            ui["pane_widths"] = std::move(panes);
+            root["ui"] = std::move(ui);
+        }
+
         if (settings.window.has_value())
         {
             json window { existing_object(root, "window") };
@@ -414,6 +470,7 @@ namespace cyella {
         parse_external_diff_tools(root, result);
         parse_appearance(root, result);
         result.settings.window = parse_window(root, result);
+        parse_ui(root, result);
         return result;
     }
 

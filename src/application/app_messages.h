@@ -1,5 +1,7 @@
 #pragma once
 
+#include "application/diff_sides.h"
+#include "application/external_diff_opener.h"
 #include "application/git_operation.h"
 #include "domain/operation_status.h"
 
@@ -75,5 +77,18 @@ namespace cyella {
     {
         operation_id id { 0 };
         std::uint64_t prompt_id { 0 };
+    };
+
+    // diff 뷰어의 이미지·바이너리 두 쪽을 worker가 꺼냈다. `ticket`이 지금 보는 diff의 것이 아니면 컨트롤러가 버린다.
+    struct diff_sides_ready_intent
+    {
+        std::uint64_t ticket { 0 };
+        extracted_sides sides {};
+    };
+
+    // "외부 도구로 열기"가 끝났다. 도구를 띄웠거나, 도구가 없거나, 띄우지 못했다는 결과다.
+    struct external_open_done_intent
+    {
+        external_open_result result {};
     };
 } // namespace cyella

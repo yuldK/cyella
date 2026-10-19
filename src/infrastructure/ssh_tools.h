@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/process_request.h"
+#include "domain/ssh_connection.h"
 #include "infrastructure/askpass_environment.h"
 
 #include <cstdint>
@@ -140,25 +141,6 @@ namespace cyella {
     // `ssh -T -o StrictHostKeyChecking=ask git@<host>`다. 호스트나 계정에 공백, 따옴표, 앞의 `-`가
     // 있으면 옵션 주입이 될 수 있어 만들지 않는다.
     [[nodiscard]] std::optional<process_request> make_ssh_connection_test_request(const ssh_connection_test_options& options);
-
-    enum class ssh_connection_result
-    {
-        // 종료 코드 0, 또는 1이면서 "successfully authenticated"처럼 인증은 성공했다고 알리는 경우다.
-        // GitHub는 셸을 주지 않아 인증에 성공해도 1로 끝난다.
-        authenticated,
-        permission_denied,
-        host_key_rejected,
-        host_key_changed,
-        connection_failed,
-        unknown,
-    };
-
-    struct ssh_connection_classification
-    {
-        ssh_connection_result result { ssh_connection_result::unknown };
-        // 서버가 인사말에 적은 계정 이름이다 (`Hi alice!`). 알 수 없으면 비어 있다.
-        std::u8string authenticated_user {};
-    };
 
     // 종료 코드와 두 출력을 합친 텍스트로 시험 결과를 분류한다. 영어 문구에 대한 최선 노력이며
     // 모르면 `unknown`이다.

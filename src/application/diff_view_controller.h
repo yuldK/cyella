@@ -142,6 +142,7 @@ namespace cyella {
         {
             return content_seq_;
         }
+        [[nodiscard]] diff_content content() const noexcept;
         [[nodiscard]] bool truncated() const noexcept;
         [[nodiscard]] bool can_stage() const noexcept;
         [[nodiscard]] bool can_unstage() const noexcept;

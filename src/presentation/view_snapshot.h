@@ -10,6 +10,7 @@
 #include "domain/operation_status.h"
 #include "domain/ref.h"
 #include "presentation/graph_geometry.h"
+#include "presentation/settings/settings_view.h"
 #include "presentation/shell_layout.h"
 #include "presentation/start_page_view.h"
 #include "presentation/ui_state.h"
@@ -263,7 +264,7 @@ namespace cyella {
         std::u8string text {};
     };
 
-    // diff 자리의 임시 본문이다. WebView2 diff가 붙으면 이 자리를 대신한다.
+    // diff 자리의 머리 막대 값과, 웹뷰를 쓸 수 없을 때의 텍스트 대체 본문이다(`docs/ui-architecture.md`).
     struct diff_panel_view
     {
         diff_file_request request {};
@@ -273,6 +274,9 @@ namespace cyella {
         bool loading { false };
         bool binary { false };
         float scroll { 0.0f };
+        // 웹뷰가 본문을 그린다. 참이면 `lines`를 채우지 않는다 (큰 diff를 frame마다 복사하지 않으려는 것이다).
+        bool use_webview { false };
+        diff_surface_state surface {};
     };
 
     struct repository_view
@@ -336,5 +340,7 @@ namespace cyella {
         float sidebar_width { default_sidebar_width };
         float detail_width { default_detail_width };
         bool drawer_open { false };
+        // 환경 설정 대화 상자다. 열려 있을 때만 값이 있다.
+        std::optional<settings_view> settings {};
     };
 } // namespace cyella
