@@ -4,8 +4,10 @@
 #include "application/operation_events.h"
 #include "application/process_cancellation.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace cyella {
@@ -30,6 +32,10 @@ namespace cyella {
         std::string current_branch_hint {};
         // 사용자의 취소와 앱 종료가 합쳐진 token이다. 실행기는 이것을 그대로 runner에 넘긴다.
         process_cancellation_token cancellation {};
+        // 사용자가 인증 대화 상자를 답 없이 닫으면 logic thread가 true로 올린다. job은 복사되므로
+        // logic thread와 worker가 같은 값을 보게 공유한다. 실행기는 인증 실패가 이 값 때문이면
+        // `auth_failed`가 아니라 `auth_cancelled`로 보고한다. null이면 인증 취소가 없는 job이다.
+        std::shared_ptr<std::atomic<bool>> prompt_cancelled {};
     };
 
     // operation을 git 명령으로 바꿔 실행하는 경계다. 구현(infrastructure/git_operation_runner)은

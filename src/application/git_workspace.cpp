@@ -3,7 +3,9 @@
 #include "domain/path_syntax.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -75,6 +77,15 @@ namespace cyella {
         }
     } // namespace
 
+    void wipe_secret_text(std::u8string& text) noexcept
+    {
+        // volatile 쓰기는 컴파일러가 "이후 읽지 않는다"며 없애지 못한다.
+        volatile char8_t* const bytes { text.data() };
+        for (std::size_t index { 0 }; index < text.size(); ++index)
+            bytes[index] = u8'\0';
+        text.clear();
+    }
+
     git_workspace::git_workspace(git_operation_executor& executor, operation_dispatcher dispatch, operation_event_sink post, cancellation_registry* const registry, git_workspace_options options)
         : executor_ { executor }
         , dispatch_ { std::move(dispatch) }
@@ -101,8 +112,14 @@ namespace cyella {
             return false;
         // 닫힌 탭의 작업은 결과를 받을 곳이 없다. 실행 중인 것은 취소하고 사건은 버린다.
         for (auto& [id, record] : operations_)
-            if (record.status.repository_id == repository_id && record.status.finished() == false && record.cancellation != nullptr)
+        {
+            if (record.status.repository_id != repository_id || record.status.finished())
+                continue;
+            if (record.cancellation != nullptr)
                 record.cancellation->request_cancellation();
+            // 결과를 받을 곳이 없으니 대화 상자도 닫는다.
+            release_prompts(record);
+        }
         last_write_.erase(repository_id);
         ++revision_;
         return true;
@@ -224,7 +241,9 @@ namespace cyella {
         record.cancellation = std::make_shared<process_cancellation_source>();
         if (registry_ != nullptr)
             registry_->add(*record.cancellation);
+        record.prompt_cancelled = std::make_shared<std::atomic<bool>>(false);
         job.id = id;
+        job.prompt_cancelled = record.prompt_cancelled;
 
         operation_request request {};
         request.id = id;
@@ -240,11 +259,8 @@ namespace cyella {
             running.cancellation = source->token();
             if (running.cancellation.cancelled())
             {
-                operation_event event {};
-                event.id = running.id;
-                event.repository_id = running.repository_id;
-                event.payload = operation_finished { operation_state::cancelled, std::nullopt, std::nullopt, {} };
-                post(std::move(event));
+                // git은 띄우지 않지만 실행기를 거쳐야 "이번만 연결"의 임시 파일이 지워지고 취소 사건이 나간다.
+                executor->execute(running, post);
                 return;
             }
             post(operation_event { running.id, running.repository_id, operation_started {} });
@@ -277,6 +293,8 @@ namespace cyella {
         record.status.cancel_requested = true;
         if (record.cancellation != nullptr)
             record.cancellation->request_cancellation();
+        // git을 죽여도 도우미는 별도 프로세스라 답을 기다리며 남는다. 대화 상자도 함께 닫는다.
+        release_prompts(record);
         // 아직 시작하지 않은 작업은 바로 끝난 것으로 보인다. job은 곧 취소된 token을 보고 빠진다.
         if (record.status.state == operation_state::queued)
         {
@@ -288,8 +306,116 @@ namespace cyella {
         return true;
     }
 
+    bool git_workspace::answer_input(const operation_id id, const std::uint64_t prompt_id, std::u8string answer)
+    {
+        // 어느 길로 나가든 이 사본은 지운다. 호출한 쪽의 원본은 호출한 쪽이 지운다.
+        askpass_reply reply { askpass_reply::with_answer(answer) };
+        wipe_secret_text(answer);
+
+        const auto found { operations_.find(id) };
+        if (found == operations_.end() || found->second.prompts.empty() || found->second.prompts.front().prompt_id != prompt_id)
+        {
+            wipe_secret_text(reply.answer);
+            return false;
+        }
+        operation_record& record { found->second };
+        askpass_reply_callback callback { std::move(record.prompts.front().reply) };
+        record.prompts.pop_front();
+        show_front_prompt(record);
+        ++revision_;
+        // 서버에는 사본을 건네고 이쪽 사본은 지운다. 이동하면 짧은 문자열의 내용이 원본에 남는다.
+        if (callback != nullptr)
+            callback(reply);
+        wipe_secret_text(reply.answer);
+        return true;
+    }
+
+    bool git_workspace::cancel_input(const operation_id id, const std::uint64_t prompt_id)
+    {
+        const auto found { operations_.find(id) };
+        if (found == operations_.end() || found->second.prompts.empty() || found->second.prompts.front().prompt_id != prompt_id)
+            return false;
+        operation_record& record { found->second };
+        if (record.prompt_cancelled != nullptr)
+            record.prompt_cancelled->store(true);
+        // 한 질문이 아니라 이 operation의 인증을 그만둔다. 같은 키로 다시 묻는 ssh가 대화 상자를 또 띄우지 않는다.
+        release_prompts(record);
+        ++revision_;
+        return true;
+    }
+
+    void git_workspace::receive_prompt(const operation_id id, const operation_input_requested& asked)
+    {
+        const auto found { operations_.find(id) };
+        bool accepts { false };
+        if (found != operations_.end())
+        {
+            const operation_record& record { found->second };
+            const bool waiting { record.status.state == operation_state::running || record.status.state == operation_state::needs_input };
+            const bool duplicate { std::ranges::any_of(record.prompts, [&asked](const pending_prompt& pending) { return pending.prompt_id == asked.prompt_id; }) };
+            // 사용자가 인증을 그만둔 operation의 질문은 서버의 기억과 별개로 여기서도 받지 않는다.
+            const bool abandoned { record.prompt_cancelled != nullptr && record.prompt_cancelled->load() };
+            accepts = waiting && record.status.finished() == false && record.status.cancel_requested == false && duplicate == false && abandoned == false;
+        }
+        // 받지 못하는 질문은 반드시 취소로 답한다. 아니면 도우미가 operation이 끝날 때까지 매달린다.
+        if (accepts == false)
+        {
+            if (asked.reply != nullptr)
+                asked.reply(askpass_reply::cancelled());
+            return;
+        }
+        operation_record& record { found->second };
+        record.prompts.push_back(pending_prompt { asked.prompt_id, asked.prompt, asked.reply });
+        show_front_prompt(record);
+        ++revision_;
+    }
+
+    void git_workspace::show_front_prompt(operation_record& record)
+    {
+        if (record.prompts.empty())
+        {
+            // 질문이 모두 풀렸다. git이 다시 돈다.
+            if (record.status.state == operation_state::needs_input)
+            {
+                record.status.state = operation_state::running;
+                record.status.needs_input.reset();
+            }
+            return;
+        }
+        const pending_prompt& front { record.prompts.front() };
+        input_request request {};
+        request.kind = input_kind_for_prompt(front.prompt.kind);
+        request.prompt_id = front.prompt_id;
+        request.prompt = front.prompt;
+        request.secret = credential_prompt_expects_secret(front.prompt.kind);
+        request.yes_no = credential_prompt_expects_yes_no(front.prompt.kind);
+        // 이 상태에서도 operation은 끝나지 않았다. git이 도우미를 기다리고 있고 취소할 수 있다.
+        record.status.state = operation_state::needs_input;
+        record.status.needs_input = std::move(request);
+    }
+
+    void git_workspace::release_prompts(operation_record& record)
+    {
+        std::deque<pending_prompt> released { std::move(record.prompts) };
+        record.prompts.clear();
+        for (const pending_prompt& pending : released)
+            if (pending.reply != nullptr)
+                pending.reply(askpass_reply::cancelled());
+        if (options_.askpass != nullptr)
+        {
+            const std::string digits { std::to_string(record.status.id) };
+            options_.askpass->cancel_operation(std::u8string { digits.begin(), digits.end() });
+        }
+        show_front_prompt(record);
+    }
+
     void git_workspace::apply(const operation_event& event)
     {
+        if (const auto* const asked { std::get_if<operation_input_requested>(&event.payload) })
+        {
+            receive_prompt(event.id, *asked);
+            return;
+        }
         const auto found { operations_.find(event.id) };
         if (found == operations_.end())
             return;
@@ -318,6 +444,10 @@ namespace cyella {
                 {
                     record.status.commands.push_back(payload.command);
                 }
+                else if constexpr (std::is_same_v<payload_type, operation_input_requested>)
+                {
+                    // 위에서 `receive_prompt`가 처리하고 돌아왔다.
+                }
                 else if constexpr (std::is_same_v<payload_type, path_inspected>)
                 {
                     inspections_[payload.path] = payload;
@@ -343,6 +473,8 @@ namespace cyella {
 
     void git_workspace::finish(operation_record& record, const operation_finished& finished)
     {
+        // 어떤 이유로 끝났든 이 operation의 대기 질문을 푼다. 도우미가 남아 있으면 앱 종료까지 매달린다.
+        release_prompts(record);
         const bool was_started { record.status.state == operation_state::running };
         record.status.state = finished.state;
         record.status.failure = finished.failure;

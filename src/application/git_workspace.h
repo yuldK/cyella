@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/askpass_service.h"
 #include "application/cancellation_registry.h"
 #include "application/git_operation.h"
 #include "application/git_operation_executor.h"
@@ -7,8 +8,10 @@
 #include "application/operation_executor.h"
 #include "application/process_cancellation.h"
 #include "application/repository_session.h"
+#include "domain/credential_prompt.h"
 #include "domain/operation_status.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -31,7 +34,15 @@ namespace cyella {
         bool refresh_on_open { true };
         // 끝난 operation을 이만큼만 남긴다. 작업 로그가 더 오래된 것은 보지 않는다.
         std::size_t finished_history_limit { 256 };
+        // 인증 도우미의 서버다. 있으면 operation이 취소되거나 끝날 때 그 operation의 대기 질문을
+        // 풀어 준다. git을 죽여도 별도 프로세스인 도우미는 답을 기다리며 남기 때문이다. null이면
+        // askpass 없이 도는 앱이다. workspace보다 오래 살아야 한다.
+        askpass_service* askpass { nullptr };
     };
+
+    // 비밀이 담긴 문자열을 지우고 비운다. 컴파일러가 마지막 쓰기라며 없애지 못하게 volatile로
+    // 쓴다. 최선 노력이다 (이미 다른 곳에 복사된 값은 지울 수 없다).
+    void wipe_secret_text(std::u8string& text) noexcept;
 
     // 열린 저장소 세션들과 operation 표의 소유자다. logic thread에서만 쓴다.
     //
@@ -62,6 +73,16 @@ namespace cyella {
         // 대기·실행 중이면 취소를 걸고 true다. 충돌 대기(needs_input)는 취소할 수 없다.
         bool cancel(operation_id id);
 
+        // 인증 대화 상자의 답이다. `prompt_id`는 `operation_status::needs_input->prompt_id`다. 지금 보이는
+        // 질문에만 답할 수 있다. 이미 답했거나 닫혔거나, 질문이 없거나 끝난 operation이면 아무 일도
+        // 하지 않고 false다. 답한 operation은 `running`으로 돌아간다 (다른 질문이 줄 서 있으면 그
+        // 질문이 `needs_input`으로 보인다). 답은 읽은 뒤 지운다. 상태·명령 기록·로그에 남기지 않는다.
+        bool answer_input(operation_id id, std::uint64_t prompt_id, std::u8string answer);
+        // 질문을 답 없이 닫는다. 이 operation의 이후 질문도 모두 취소로 답하고(ssh는 passphrase를 세
+        // 번까지 다시 묻는다), git이 인증 실패로 끝나면 실패 종류는 `auth_cancelled`다. 답과 같은
+        // 규칙으로 false를 돌려준다.
+        bool cancel_input(operation_id id, std::uint64_t prompt_id);
+
         void apply(const operation_event& event);
 
         [[nodiscard]] const operation_status* find_operation(operation_id id) const;
@@ -80,6 +101,14 @@ namespace cyella {
         }
 
     private:
+        // 답을 기다리는 인증 질문 하나다. 도우미 하나가 묻고 있으므로 `reply`를 부를 때까지 git이 멈춰 있다.
+        struct pending_prompt
+        {
+            std::uint64_t prompt_id { 0 };
+            credential_prompt prompt {};
+            askpass_reply_callback reply {};
+        };
+
         struct operation_record
         {
             operation_status status {};
@@ -89,9 +118,18 @@ namespace cyella {
             std::vector<std::string> remote_tag_targets {};
             bool refreshes_remote_tags { false };
             std::shared_ptr<process_cancellation_source> cancellation {};
+            // 답을 기다리는 질문이다. 맨 앞이 `status.needs_input`에 보이는 질문이다. 대개 하나뿐이다.
+            std::deque<pending_prompt> prompts {};
+            // 사용자가 질문을 답 없이 닫았다. job과 공유해 실행기가 `auth_cancelled`를 고른다.
+            std::shared_ptr<std::atomic<bool>> prompt_cancelled {};
         };
 
         operation_id dispatch(operation_record record, git_operation_job job, std::string lane_key);
+        void receive_prompt(operation_id id, const operation_input_requested& asked);
+        // `status`를 맨 앞 질문에 맞춘다. 질문이 없으면 `running`으로 돌린다.
+        void show_front_prompt(operation_record& record);
+        // 대기 질문 전부를 취소로 답하고 서버에도 이 operation을 풀라고 알린다.
+        void release_prompts(operation_record& record);
         void finish(operation_record& record, const operation_finished& finished);
         void follow_up(const operation_record& record);
         void trim_history();

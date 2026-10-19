@@ -114,7 +114,8 @@ namespace cyella {
         [[nodiscard]] git_command_spec path_command(
             const std::vector<std::string>& paths, git_arguments (*inline_builder)(std::span<const std::string>), git_arguments (*stdin_builder)(), git_command_class command_class) const;
 
-        // askpass가 취소를 알리면 인증 실패를 auth_cancelled로 바꾼다.
+        // 사용자가 인증 대화 상자를 답 없이 닫았으면 인증 실패를 auth_cancelled로 바꾼다. `run`이
+        // job의 `prompt_cancelled`를 보고 부른다.
         void note_authentication_cancelled() noexcept
         {
             authentication_cancelled_ = true;

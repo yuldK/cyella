@@ -208,6 +208,25 @@ namespace cyella {
         return "unknown";
     }
 
+    input_kind input_kind_for_prompt(const credential_prompt_kind kind) noexcept
+    {
+        switch (kind)
+        {
+        case credential_prompt_kind::ssh_key_passphrase:
+        case credential_prompt_kind::ssh_new_key_passphrase:
+        case credential_prompt_kind::ssh_new_key_passphrase_confirm:
+            return input_kind::passphrase;
+        case credential_prompt_kind::ssh_host_key_confirm:
+            return input_kind::host_key;
+        case credential_prompt_kind::ssh_password:
+        case credential_prompt_kind::https_username:
+        case credential_prompt_kind::https_password:
+        case credential_prompt_kind::unknown:
+            return input_kind::credentials;
+        }
+        return input_kind::credentials;
+    }
+
     std::u8string_view failure_kind_message(const failure_kind value) noexcept
     {
         switch (value)

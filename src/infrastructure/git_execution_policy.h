@@ -42,6 +42,8 @@ namespace cyella {
         std::u8string askpass_helper {};
         // 도우미가 앱에 접속하는 값이다. `askpass_helper`가 있을 때만 `CYELLA_ASKPASS_*`로 전달한다.
         askpass_session askpass {};
+        // 비어 있지 않으면 `GIT_SSH_COMMAND`로 건넨다. "이번만 연결"(`temporary_ssh_trust`)이 쓴다.
+        std::u8string ssh_command {};
         // 자식의 표준 입력이다 (`commit -F -`, `apply --cached`, `cat-file --batch`).
         std::string standard_input {};
         // 기본값을 넘길 수 있는 줄(rename 항목을 담은 status 등)만 올린다.
@@ -59,8 +61,9 @@ namespace cyella {
     // - `GIT_TERMINAL_PROMPT=0`: 터미널 프롬프트를 막는다.
     // - 인증은 askpass 도우미로만 받는다. 도우미가 있으면 `GIT_ASKPASS`·`SSH_ASKPASS`와
     //   `SSH_ASKPASS_REQUIRE=force`를 설정하고, 없으면 사용자 환경에서 온 값을 지운다.
-    // - `GIT_SSH_COMMAND`와 `BatchMode`는 건드리지 않는다. 사용자의 `core.sshCommand`와
-    //   ssh 설정이 터미널에서와 똑같이 적용되어야 한다.
+    // - `GIT_SSH_COMMAND`와 `BatchMode`는 기본으로 건드리지 않는다. 사용자의 `core.sshCommand`와
+    //   ssh 설정이 터미널에서와 똑같이 적용되어야 한다. 예외는 `git_request_options::ssh_command`로
+    //   "이번만 연결"을 요청한 한 번의 실행이다.
     // - `GCM_INTERACTIVE`도 건드리지 않는다. Git Credential Manager가 자기 UI를 띄울 수 있다.
     // - `GIT_OPTIONAL_LOCKS` 환경 변수는 건드리지 않는다. 읽기 조회(`local_query`)는 대신
     //   `--no-optional-locks` 인자를 받는다(`make_git_process_request`). 읽기는 쓰기와 다른

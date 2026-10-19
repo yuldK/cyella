@@ -8,13 +8,16 @@
 #include "application/workspace_files.h"
 #include "domain/git_tool.h"
 #include "infrastructure/git_operation_runner.h"
+#include "platform/win32/askpass_bridge.h"
 #include "platform/win32/operation_result_relay.h"
 
 #include "luil/luil.h"
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace cyella::win32 {
     // luil logic thread에 꽂는 cyella 구동기다. 앱 상태를 소유하고 메시지를 처리해
@@ -53,6 +56,13 @@ namespace cyella::win32 {
             return workspace_.get();
         }
 
+        // 인증(askpass)을 쓸 수 없는 이유다. 도우미나 서버가 없으면 인증이 필요한 작업은 즉시 실패하고,
+        // UI는 이 진단을 한 번 보인다. 준비됐거나 시작 전이면 값이 없다.
+        [[nodiscard]] const std::optional<diagnostic>& askpass_diagnostic() const noexcept
+        {
+            return askpass_.startup_diagnostic();
+        }
+
     private:
         void drain_relay();
         void handle_intent(const luil::app_message& message);
@@ -60,6 +70,9 @@ namespace cyella::win32 {
         // 멤버 순서가 파괴 순서의 반대다. worker(scheduler)가 가장 먼저 멈춰야 실행기·relay를
         // 붙잡은 job이 남지 않는다.
         operation_result_relay relay_ {};
+        // 서버의 연결 스레드가 질문을 relay로 보낸다. relay보다 먼저 파괴되어 스레드가 멈춘 뒤에야
+        // relay가 사라진다. workspace가 서버를 가리키므로 workspace보다 나중에 파괴된다.
+        askpass_bridge askpass_ { [relay = &relay_](operation_event event) { relay->post(luil::app_message { std::move(event) }); } };
         cancellation_registry registry_ {};
         std::unique_ptr<process_runner> process_runner_ {};
         std::unique_ptr<workspace_files> files_ {};

@@ -184,6 +184,17 @@ namespace cyella {
 
         git_request_options options {};
         options.askpass_helper = owner_.options().askpass_helper;
+        if (options.askpass_helper.empty() == false)
+        {
+            // 도우미가 질문을 이 operation에 묶어 보내고, 취소할 때도 이 id로 대기 질문을 찾는다.
+            // 명령마다 같은 값이라 한 operation의 여러 git 명령이 같은 id로 묻는다.
+            const std::string operation_digits { std::to_string(job_.id) };
+            options.askpass.pipe_name = owner_.options().askpass.pipe_name;
+            options.askpass.token = owner_.options().askpass.token;
+            options.askpass.operation_id = std::u8string { operation_digits.begin(), operation_digits.end() };
+        }
+        if (const temporary_ssh_trust* const trust { ssh_override_of(job_.operation) }; trust != nullptr)
+            options.ssh_command = trust->command;
         options.standard_input = std::move(spec.standard_input);
         options.raw_standard_output = true;
         if (spec.on_standard_output != nullptr)
@@ -195,6 +206,10 @@ namespace cyella {
             git_operation_sink sink { *this, outcome, spec.on_standard_output };
             outcome.process = owner_.runner().run(request, &sink, job_.cancellation);
         }
+
+        // 사용자가 인증 대화 상자를 답 없이 닫았다. 이 명령의 인증 실패는 `auth_cancelled`로 보고한다.
+        if (job_.prompt_cancelled != nullptr && job_.prompt_cancelled->load())
+            note_authentication_cancelled();
 
         const std::optional<std::int32_t> code { outcome.process.exit_code };
         outcome.accepted = outcome.process.completion == process_completion::exited && code.has_value()
@@ -245,7 +260,9 @@ namespace cyella {
         const std::string standard_error { outcome.standard_error_bytes() };
         const git_failure_kind classified { classify_git_failure(standard_error, outcome.standard_output) };
         failure_kind kind { map_failure_kind(classified) };
-        if (kind == failure_kind::auth_failed && authentication_cancelled_)
+        // 호스트 키 대화 상자를 닫은 것도 취소다. ssh는 답이 없으면 "Host key verification failed."로 끝나지만,
+        // 사용자가 `no`라고 답한 것(`host_key_refused`)과는 다르다.
+        if ((kind == failure_kind::auth_failed || kind == failure_kind::host_key_refused) && authentication_cancelled_)
             kind = failure_kind::auth_cancelled;
 
         std::u8string detail { outcome.standard_error_text() };

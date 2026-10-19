@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/credential_prompt.h"
 #include "domain/process_execution.h"
 #include "domain/repository_summary.h"
 
@@ -165,9 +166,13 @@ namespace cyella {
         dirty_worktree,
         // merge·rebase·cherry-pick·revert가 충돌로 멈췄다. 해결 뒤 continue, 또는 abort한다.
         conflict,
-        // 아래는 askpass 연결이 채운다.
+        // 아래 셋은 인증(askpass)이다. git이 도우미의 답을 기다리는 동안의 상태라서 앞의 둘과 달리
+        // operation은 끝나지 않았다(`operation_status::finished()`가 false).
+        // SSH 키 passphrase다 (새 키의 passphrase와 그 확인 문구 포함).
         passphrase,
+        // 처음 보는 호스트 키를 믿을지 묻는다. 답은 `yes` 또는 `no`다.
         host_key,
+        // 사용자 이름, 비밀번호, 그 밖에 분류하지 못한 질문이다. `prompt.kind`로 가른다.
         credentials,
     };
 
@@ -183,7 +188,22 @@ namespace cyella {
         bool untracked_files { false };
         // conflict: 멈춘 작업의 종류다. 이어서 낼 continue·abort의 종류가 여기서 정해진다.
         repository_operation_state sequence { repository_operation_state::none };
+
+        // 아래는 인증(passphrase·host_key·credentials)에서만 채운다.
+        // 답을 돌려줄 때 짝으로 쓰는 질문 번호다. 서버가 붙이며 operation 안에서 유일하다.
+        std::uint64_t prompt_id { 0 };
+        // 대화 상자가 그릴 분류된 질문이다 (`kind`, `key_path`, `host`, `address`, `key_type`,
+        // `fingerprint`, `url`, `user_name`, `raw_text`). 답은 여기에 담지 않는다.
+        credential_prompt prompt {};
+        // 입력을 가리고 답을 기록하지 않는다 (passphrase, 비밀번호).
+        bool secret { false };
+        // 답이 문자 그대로 `yes` 또는 `no`여야 한다 (호스트 키 확인).
+        bool yes_no { false };
     };
+
+    // 분류된 질문이 어느 대화 상자인지 정한다. 알아보지 못한 질문(`unknown`)은 원문을 보이고 자유
+    // 텍스트를 받는 `credentials`다.
+    [[nodiscard]] input_kind input_kind_for_prompt(credential_prompt_kind kind) noexcept;
 
     // contract의 operation_status다. 저장소 세션이 정본을 갖고 frame은 이 값을 읽는다.
     struct operation_status

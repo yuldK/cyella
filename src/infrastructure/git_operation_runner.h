@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/askpass_service.h"
 #include "application/git_operation_executor.h"
 #include "application/process_runner.h"
 #include "application/workspace_files.h"
@@ -22,8 +23,12 @@ namespace cyella {
         std::chrono::milliseconds log_flush_interval { 50 };
         // 진행률 사건의 최소 간격이다. git은 초당 수십 줄을 내므로 그대로 보내면 frame만 늘린다.
         std::chrono::milliseconds progress_interval { 50 };
-        // askpass 연결이 채운다. 비어 있으면 askpass 변수를 지워 인증이 즉시 실패한다.
+        // 인증 도우미(`cyella-askpass.exe`)의 절대 경로다. 비어 있으면 askpass 변수를 지워 인증이
+        // 필요한 작업이 즉시 실패한다.
         std::u8string askpass_helper {};
+        // 도우미가 접속할 앱의 named pipe와 토큰이다. `askpass_helper`가 있을 때만 쓴다. git 명령마다
+        // 여기에 operation id를 더한 `askpass_session`을 자식 환경으로 건넨다.
+        askpass_endpoint askpass {};
     };
 
     // `git_operation_executor`의 git CLI 구현이다. 한 instance를 모든 worker가 함께 쓴다.

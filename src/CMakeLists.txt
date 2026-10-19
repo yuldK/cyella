@@ -227,6 +227,8 @@ cyella_add_source_filter(cyella_lib_files "platform/watching"
     platform/win32/win32_repository_watcher.h)
 
 cyella_add_source_filter(cyella_lib_files "platform/authentication"
+    platform/win32/askpass_bridge.cpp
+    platform/win32/askpass_bridge.h
     platform/win32/askpass_helper_path.cpp
     platform/win32/askpass_helper_path.h
     platform/win32/askpass_protocol.cpp

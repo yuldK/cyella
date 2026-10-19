@@ -33,6 +33,10 @@ namespace cyella {
         app_settings_write_failed,
         app_settings_backup_failed,
         repository_watch_failed,
+        // 인증 도우미(`cyella-askpass.exe`)를 앱 옆에서 찾지 못했다. 인증이 필요한 작업은 즉시 실패한다.
+        askpass_helper_missing,
+        // 도우미가 접속할 named pipe 서버를 열지 못했다. 인증이 필요한 작업은 즉시 실패한다.
+        askpass_server_failed,
     };
 
     struct diagnostic

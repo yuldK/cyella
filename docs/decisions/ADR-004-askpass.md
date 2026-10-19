@@ -104,3 +104,12 @@ no passphrase):`와 `Enter same passphrase again:`). 그래서 빌더는 `-N`을
 - 도우미 경로는 앱 실행 파일 옆에서 찾는다(`locate_askpass_helper`). 없으면 askpass 없이 실행하고 인증이
   필요한 작업은 즉시 실패한다.
 - 같은 사용자 권한의 악성 프로세스는 막지 못한다는 한계는 의도한 것이다.
+
+## 앱에 잇기
+
+- 앱은 시작할 때 서버를 한 번 열고 도우미를 `cyella.exe` 옆에서 찾는다(`platform/win32/askpass_bridge`). 둘 중 하나라도 없으면 askpass 없이 실행하고 진단을 하나 남긴다.
+- 실행기는 git 명령마다 `askpass_session{pipe, token, operation id}`를 건넨다. 서버가 받은 질문은 `operation_input_requested` 사건으로 relay를 건너 `git_workspace`에 닿고, operation은 끝나지 않은 채 `needs_input{passphrase|host_key|credentials}`가 된다. 답과 취소는 `answer_input_intent`·`cancel_input_intent`다.
+- operation이 취소되거나 끝나면 workspace가 `cancel_operation`을 불러 대기 질문을 푼다. 앱 종료는 `stop_workers`가 서버를 scheduler보다 먼저 닫는다.
+- 사용자가 질문을 닫으면 그 operation의 실패는 `auth_cancelled`다. `no`로 답한 호스트 키는 `host_key_refused`로 남는다.
+- "이번만 연결"은 요청의 `ssh_command_override{command, known_hosts_path}`다. 그 operation의 git 명령에만 `GIT_SSH_COMMAND`를 걸고, 끝나면 실행기가 임시 파일을 지운다.
+- operation 상태(`needs_input`)와 실패 종류(`auth_cancelled`, `host_key_refused` 등)는 `src/domain/operation_status.h`에 있다.

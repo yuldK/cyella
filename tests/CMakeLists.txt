@@ -32,6 +32,7 @@ cyella_add_source_filter(cyella_test_files "domain/authentication"
 
 cyella_add_source_filter(cyella_test_files "platform/authentication"
     askpass_git_integration_tests.cpp
+    askpass_workspace_integration_tests.cpp
     askpass_server_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "support"
@@ -93,6 +94,7 @@ cyella_add_source_filter(cyella_test_files "infrastructure/git_commands"
 cyella_add_source_filter(cyella_test_files "application/repository"
     fake_git_runner.h
     git_operation_runner_tests.cpp
+    git_workspace_auth_tests.cpp
     git_workspace_tests.cpp)
 
 # 저장소 세션을 실제 git과 임시 저장소(로컬 bare 원격)로 끝까지 돌린다.
@@ -122,6 +124,7 @@ target_compile_definitions(cyella_tests
 target_link_libraries(cyella_tests
     PRIVATE
         cyella_lib
+        ws2_32
         Catch2::Catch2WithMain)
 cyella_disable_automatic_windows_manifest(cyella_tests)
 

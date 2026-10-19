@@ -44,6 +44,17 @@ namespace cyella::test {
         std::string working_directory {};
         std::string standard_input {};
         bool no_optional_locks { false };
+        // 자식에게 건넨 환경 변수 override다. 값이 없는 항목은 부모 환경에서 지우라는 뜻이다.
+        std::vector<process_environment_override> environment {};
+
+        // 설정한 변수의 값이다. 설정하지 않았거나 지우도록 했으면 값이 없다.
+        [[nodiscard]] std::optional<std::string> variable(const std::u8string_view name) const
+        {
+            for (const process_environment_override& entry : environment)
+                if (entry.name == name)
+                    return entry.value.has_value() ? std::optional<std::string> { std::string { entry.value->begin(), entry.value->end() } } : std::nullopt;
+            return std::nullopt;
+        }
     };
 
     // 명령의 앞 토큰으로 응답을 고르는 가짜 runner다. 규칙은 등록 순서로 찾고, `once`는 한 번
@@ -89,6 +100,7 @@ namespace cyella::test {
             recorded_call call {};
             call.working_directory = to_text(request.working_directory);
             call.standard_input = request.standard_input;
+            call.environment = request.environment_overrides;
             const std::vector<std::u8string> common { git_common_arguments() };
             std::size_t index { 0 };
             while (index < common.size() && index < request.arguments.size() && request.arguments[index] == common[index])

@@ -3,6 +3,7 @@
 #include "application/git_operation.h"
 #include "domain/operation_status.h"
 
+#include <cstdint>
 #include <string>
 
 namespace cyella {
@@ -53,5 +54,26 @@ namespace cyella {
     struct cancel_operation_intent
     {
         operation_id id { 0 };
+    };
+
+    // 인증 대화 상자의 답이다. `needs_input{passphrase|host_key|credentials}`의 `prompt_id`를 그대로
+    // 돌려준다. 이미 답했거나 취소했거나 끝난 질문에 대한 답은 아무 일도 하지 않는다. 빈 답도
+    // 유효한 답이다 (`ssh-keygen`의 "passphrase 없음").
+    //
+    // app_message는 값을 불변으로 공유하지만 답은 비밀일 수 있어, 쓰고 나서 지울 수 있게
+    // `mutable`로 둔다. 쓰는 쪽(`cyella_driver`)이 workspace에 넘기고 이 문자열을 지운다.
+    // 같은 메시지를 다시 처리해도 질문은 이미 닫혀 있어 무시되므로 지워진 값을 보는 일은 없다.
+    struct answer_input_intent
+    {
+        operation_id id { 0 };
+        std::uint64_t prompt_id { 0 };
+        mutable std::u8string answer {};
+    };
+
+    // 인증 대화 상자를 답 없이 닫는다. 그 operation은 `auth_cancelled`로 끝난다.
+    struct cancel_input_intent
+    {
+        operation_id id { 0 };
+        std::uint64_t prompt_id { 0 };
     };
 } // namespace cyella

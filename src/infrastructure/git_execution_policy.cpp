@@ -102,6 +102,9 @@ namespace cyella {
         request.environment_overrides = git_environment_overrides(options.askpass_helper);
         for (process_environment_override& entry : askpass_session_overrides(options.askpass_helper.empty() == false, options.askpass))
             request.environment_overrides.push_back(std::move(entry));
+        // "이번만 연결"이다. 이 요청 하나에서만 사용자의 `core.sshCommand`를 덮어쓴다.
+        if (options.ssh_command.empty() == false)
+            request.environment_overrides.push_back(set_variable(u8"GIT_SSH_COMMAND", options.ssh_command));
         request.standard_input = options.standard_input;
         request.timeout = limits.timeout;
         request.maximum_captured_bytes_per_stream = options.maximum_captured_bytes_per_stream.value_or(limits.maximum_captured_bytes_per_stream);

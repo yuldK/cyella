@@ -64,6 +64,11 @@ namespace cyella {
         if (job.cancellation.cancelled() && outcome.state != operation_state::succeeded)
             outcome = operation_outcome::cancelled();
 
+        // "이번만 연결"의 임시 known_hosts는 끝나는 순간 지운다. 마지막 사건보다 먼저 지워야 UI가
+        // 끝난 것을 본 뒤에 파일이 남아 있지 않다.
+        if (const temporary_ssh_trust* const trust { ssh_override_of(job.operation) }; trust != nullptr && trust->known_hosts_path.empty() == false)
+            static_cast<void>(files_.remove_file(trust->known_hosts_path));
+
         if (emit == nullptr)
             return;
         try

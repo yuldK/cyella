@@ -3,6 +3,7 @@
 #include "domain/operation_status.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -52,6 +53,20 @@ namespace cyella {
         theirs,
     };
 
+    // "이번만 연결"이다. 사용자가 호스트 키 지문을 확인하고 이 한 번만 믿기로 했을 때, 그 operation의
+    // 모든 git 명령이 임시 known_hosts로 연결한다. 사용자의 `known_hosts`와 `core.sshCommand`는
+    // 바뀌지 않는다. 네트워크를 쓰는 operation(fetch·pull·push_execute·clone·refresh_remote_tags)만
+    // 받는다.
+    struct temporary_ssh_trust
+    {
+        // `GIT_SSH_COMMAND` 값이다. `make_temporary_known_hosts_ssh_command`가 만든다. 사용자가 쓰는
+        // ssh 실행 파일을 넘겨야 한다. 이 값은 그 operation에서만 `core.sshCommand`를 덮어쓴다.
+        std::u8string command {};
+        // 위 명령이 쓰는 임시 known_hosts 파일의 절대 경로다. operation이 어떻게 끝나든(성공, 실패,
+        // 취소) 끝나면 실행기가 지운다. 비우면 지우지 않는다.
+        std::u8string known_hosts_path {};
+    };
+
     // ------------------------------------------------------------------ 읽기
 
     // status → refs → stash → 원격 → 진행 중 작업 → log 스트림 순서다. HEAD를 먼저 알아야
@@ -97,6 +112,7 @@ namespace cyella {
     struct refresh_remote_tags_request
     {
         std::vector<std::string> remotes {};
+        std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 
     // ------------------------------------------------------------------ 작업 영역
@@ -194,11 +210,13 @@ namespace cyella {
         std::string remote {};
         bool all { false };
         bool prune { true };
+        std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 
     struct pull_request
     {
         pull_strategy strategy { pull_strategy::ff_only };
+        std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 
     struct push_execute_request
@@ -211,6 +229,7 @@ namespace cyella {
         bool set_upstream { false };
         bool follow_tags { false };
         bool force_with_lease { false };
+        std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 
     // ------------------------------------------------------------------ 이력
@@ -343,6 +362,7 @@ namespace cyella {
     {
         std::string url {};
         std::u8string target_path {};
+        std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 
     struct init_request
@@ -379,4 +399,6 @@ namespace cyella {
     [[nodiscard]] operation_lane operation_lane_of(operation_kind kind) noexcept;
     // clone·init·inspect_path처럼 저장소 id 없이 대상 경로로 묶이는 작업이다.
     [[nodiscard]] bool is_setup_operation(operation_kind kind) noexcept;
+    // operation이 "이번만 연결"을 들고 있으면 그 값이다. 받지 않는 operation은 null이다.
+    [[nodiscard]] const temporary_ssh_trust* ssh_override_of(const git_operation& operation) noexcept;
 } // namespace cyella

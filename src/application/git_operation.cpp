@@ -137,4 +137,20 @@ namespace cyella {
     {
         return kind == operation_kind::clone || kind == operation_kind::init || kind == operation_kind::inspect_path;
     }
+
+    const temporary_ssh_trust* ssh_override_of(const git_operation& operation) noexcept
+    {
+        const auto trust_of = [](const auto& request) noexcept -> const temporary_ssh_trust* { return request.ssh_command_override.has_value() ? &*request.ssh_command_override : nullptr; };
+        if (const auto* const fetch { std::get_if<fetch_request>(&operation) })
+            return trust_of(*fetch);
+        if (const auto* const pull { std::get_if<pull_request>(&operation) })
+            return trust_of(*pull);
+        if (const auto* const push { std::get_if<push_execute_request>(&operation) })
+            return trust_of(*push);
+        if (const auto* const clone { std::get_if<clone_request>(&operation) })
+            return trust_of(*clone);
+        if (const auto* const tags { std::get_if<refresh_remote_tags_request>(&operation) })
+            return trust_of(*tags);
+        return nullptr;
+    }
 } // namespace cyella

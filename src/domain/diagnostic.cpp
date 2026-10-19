@@ -53,6 +53,10 @@ namespace cyella {
             return u8"app_settings_backup_failed";
         case diagnostic_code::repository_watch_failed:
             return u8"repository_watch_failed";
+        case diagnostic_code::askpass_helper_missing:
+            return u8"askpass_helper_missing";
+        case diagnostic_code::askpass_server_failed:
+            return u8"askpass_server_failed";
         }
         return u8"unknown";
     }

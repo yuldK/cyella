@@ -1,7 +1,9 @@
 #pragma once
 
+#include "application/askpass_service.h"
 #include "application/git_operation.h"
 #include "domain/commit_info.h"
+#include "domain/credential_prompt.h"
 #include "domain/diff_file.h"
 #include "domain/file_change.h"
 #include "domain/operation_status.h"
@@ -35,6 +37,21 @@ namespace cyella {
     struct operation_command_finished
     {
         operation_command command {};
+    };
+
+    // git(또는 ssh)이 askpass 도우미로 사용자에게 물었다. 도우미가 답을 기다리는 동안 git도 멈춰
+    // 있으므로 operation은 끝나지 않고 `needs_input{passphrase|host_key|credentials}`가 된다.
+    // 이 사건은 askpass 서버의 연결 스레드가 relay로 보낸다. `id`는 도우미가 환경 변수로 받은
+    // operation id다.
+    //
+    // `reply`는 서버가 만든 일회용 답 callback이다. 처음 부른 답만 효과가 있고 서버가 끝났거나
+    // 도우미가 사라졌으면 조용히 무시된다. 사건을 받은 쪽은 반드시 한 번은 불러야 한다. 부르지
+    // 않으면 도우미가 operation이 끝날 때까지 매달린다.
+    struct operation_input_requested
+    {
+        std::uint64_t prompt_id { 0 };
+        credential_prompt prompt {};
+        askpass_reply_callback reply {};
     };
 
     // refresh가 읽은 저장소 상태 전체다. 같은 generation의 log 묶음보다 먼저 온다.
@@ -140,8 +157,8 @@ namespace cyella {
         std::u8string summary {};
     };
 
-    using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, snapshot_loaded, commits_loaded, remote_tags_loaded, commit_detail_loaded,
-        file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, operation_finished>;
+    using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded,
+        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, operation_finished>;
 
     struct operation_event
     {
