@@ -78,13 +78,30 @@ function(cyella_find_visual_studio_clang_format output_variable)
         message(FATAL_ERROR "An output variable for the clang-format path is required.")
     endif()
 
-    file(GLOB visual_studio_llvm_directories
-        LIST_DIRECTORIES true
-        "$ENV{ProgramFiles}/Microsoft Visual Studio/*/*/VC/Tools/Llvm/bin")
-    find_program(clang_format_executable
-        NAMES clang-format
-        HINTS ${visual_studio_llvm_directories}
-        NO_CACHE
-        REQUIRED)
-    set("${output_variable}" "${clang_format_executable}" PARENT_SCOPE)
+    # Visual Studio를 여럿 깔면 판마다 clang-format 판이 다르다(2022는 19, 18은 22). 판에 따라 결과가
+    # 달라 관계없는 줄까지 바뀌므로, 찾은 것 가운데 가장 높은 판을 쓰고 기준 판(22)보다 낮으면 멈춘다.
+    set(minimum_major_version 22)
+    file(GLOB clang_format_candidates
+        "$ENV{ProgramFiles}/Microsoft Visual Studio/*/*/VC/Tools/Llvm/x64/bin/clang-format.exe"
+        "$ENV{ProgramFiles}/Microsoft Visual Studio/*/*/VC/Tools/Llvm/bin/clang-format.exe")
+    set(best_executable "")
+    set(best_major 0)
+    foreach(candidate IN LISTS clang_format_candidates)
+        execute_process(
+            COMMAND "${candidate}" --version
+            OUTPUT_VARIABLE version_output
+            ERROR_QUIET
+            RESULT_VARIABLE version_result)
+        if(version_result EQUAL 0 AND version_output MATCHES "clang-format version ([0-9]+)")
+            if(CMAKE_MATCH_1 GREATER best_major)
+                set(best_major "${CMAKE_MATCH_1}")
+                set(best_executable "${candidate}")
+            endif()
+        endif()
+    endforeach()
+    if(best_major LESS minimum_major_version)
+        message(FATAL_ERROR
+            "clang-format ${minimum_major_version} or newer from Visual Studio is required (found: '${best_executable}', major ${best_major}).")
+    endif()
+    set("${output_variable}" "${best_executable}" PARENT_SCOPE)
 endfunction()
