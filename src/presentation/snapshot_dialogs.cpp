@@ -65,7 +65,8 @@ namespace cyella {
         }
     } // namespace
 
-    form_source resolve_form_source(std::span<const operation_status* const> repository_operations, std::span<const operation_status* const> setup_operations, const ui_state& ui, const tab_ui_state* tab)
+    form_source resolve_form_source(
+        std::span<const operation_status* const> repository_operations, std::span<const operation_status* const> setup_operations, const ui_state& ui, const tab_ui_state* tab)
     {
         const operation_status* auth { nullptr };
         for (const auto& group : { repository_operations, setup_operations })
@@ -77,9 +78,8 @@ namespace cyella {
         if (ui.dialog.has_value())
             return { form_source_kind::dialog, nullptr };
         if (tab != nullptr)
-            if (const operation_status * last { latest_finished_user_operation(repository_operations) };
-                last != nullptr && last->state == operation_state::needs_input && last->needs_input.has_value() && last->needs_input->kind == input_kind::dirty_worktree
-                && last->id > tab->dismissed_dialog)
+            if (const operation_status* last { latest_finished_user_operation(repository_operations) }; last != nullptr && last->state == operation_state::needs_input && last->needs_input.has_value()
+                && last->needs_input->kind == input_kind::dirty_worktree && last->id > tab->dismissed_dialog)
                 return { form_source_kind::dirty_checkout, last };
         return {};
     }
@@ -112,7 +112,8 @@ namespace cyella {
         case form_source_kind::auth:
             return build_auth_form(*source.status, context);
         case form_source_kind::dirty_checkout: {
-            const dirty_checkout_state state { tab != nullptr && tab->dirty.has_value() && tab->dirty->operation == source.status->id ? *tab->dirty : dirty_checkout_state { source.status->id, false } };
+            const bool has_matching_dirty { tab != nullptr && tab->dirty.has_value() && tab->dirty->operation == source.status->id };
+            const dirty_checkout_state state { has_matching_dirty ? *tab->dirty : dirty_checkout_state { source.status->id, false } };
             return build_dirty_checkout_form(*source.status, state, context);
         }
         case form_source_kind::dialog:
@@ -253,7 +254,7 @@ namespace cyella {
             if (status != nullptr && is_user_operation_status(*status) && (status->state == operation_state::queued || status->state == operation_state::running))
                 view.busy = true;
         view.can_continue = view.files.empty() && view.busy == false;
-        if (const operation_status * last { latest_finished_user_operation(operations) }; last != nullptr)
+        if (const operation_status* last { latest_finished_user_operation(operations) }; last != nullptr)
         {
             if (last->state == operation_state::needs_input && last->needs_input.has_value() && last->needs_input->kind == input_kind::conflict)
                 view.message = view.files.empty() ? std::u8string {} : u8"아직 풀지 않은 충돌이 있습니다.";

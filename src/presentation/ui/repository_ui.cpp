@@ -1,7 +1,7 @@
 #include "application/app_messages.h"
 #include "presentation/build_view_snapshot.h"
-#include "presentation/ui/diff_webview.h"
 #include "presentation/dialog_intents.h"
+#include "presentation/ui/diff_webview.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
 #include "presentation/ui/list_rows.h"

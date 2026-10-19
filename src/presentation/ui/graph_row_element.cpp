@@ -187,9 +187,8 @@ namespace cyella::ui {
         menu_target target {};
         target.kind = menu_target_kind::commit;
         target.sha = data_.sha;
-        set_action(luil::ui_trigger::right_click, [target](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
-            return { message(open_context_menu_intent { target, context.x, context.y }) };
-        });
+        set_action(luil::ui_trigger::right_click,
+            [target](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { target, context.x, context.y }) }; });
 
         // 커밋 행은 브랜치를 놓을 자리다 ("이 커밋에서 브랜치 만들기", 현재 브랜치면 reset).
         luil::drop_target drop {};

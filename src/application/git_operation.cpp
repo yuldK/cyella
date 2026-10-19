@@ -141,7 +141,8 @@ namespace cyella {
 
     bool is_setup_operation(const operation_kind kind) noexcept
     {
-        return kind == operation_kind::clone || kind == operation_kind::init || kind == operation_kind::inspect_path || kind == operation_kind::ssh_keygen || kind == operation_kind::ssh_connection_test;
+        return kind == operation_kind::clone || kind == operation_kind::init || kind == operation_kind::inspect_path || kind == operation_kind::ssh_keygen
+            || kind == operation_kind::ssh_connection_test;
     }
 
     const temporary_ssh_trust* ssh_override_of(const git_operation& operation) noexcept

@@ -115,9 +115,8 @@ namespace cyella::ui {
             set_action(luil::ui_trigger::double_click, action_of(std::move(*activate)));
         }
         if (menu.has_value())
-            set_action(luil::ui_trigger::right_click, [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
-                return { message(open_context_menu_intent { target, context.x, context.y }) };
-            });
+            set_action(luil::ui_trigger::right_click,
+                [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { target, context.x, context.y }) }; });
 
         // 로컬·원격 브랜치 행은 끌 수 있고 다른 브랜치가 놓일 수 있다.
         if (row_.header || row_.group || (row_.kind != ref_kind::local && row_.kind != ref_kind::remote))
@@ -157,7 +156,9 @@ namespace cyella::ui {
     {
         if (row_.header)
             return { .role = luil::access_role::static_text, .name = row_.label + u8" " + number_text(row_.count) };
-        return { .role = action(luil::ui_trigger::double_click) != nullptr ? luil::access_role::button : luil::access_role::static_text, .name = row_.label + (row_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {}) };
+        const luil::access_role role { action(luil::ui_trigger::double_click) != nullptr ? luil::access_role::button : luil::access_role::static_text };
+        std::u8string name { row_.label + (row_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {}) };
+        return { .role = role, .name = std::move(name) };
     }
 
     void sidebar_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
@@ -240,9 +241,8 @@ namespace cyella::ui {
             if (select.has_value())
                 set_action(luil::ui_trigger::left_click, action_of(std::move(*select)));
             if (menu.has_value())
-                set_action(luil::ui_trigger::right_click, [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
-                    return { message(open_context_menu_intent { target, context.x, context.y }) };
-                });
+                set_action(luil::ui_trigger::right_click,
+                    [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { target, context.x, context.y }) }; });
         }
         set_tooltip(to_u8(row_.path));
         for (file_row_button& button : buttons)

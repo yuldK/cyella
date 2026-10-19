@@ -425,14 +425,14 @@ TEST_CASE("stop may be requested from inside the callback", "[integration][watch
 
     repository_watch_start_result result {
         win32::start_repository_watcher(
-        repository.u8string(),
-        [&](repository_change_kind) {
-            // 콜백 스레드에서 자기 자신을 멈춘다. 스스로를 기다리다 멈추면 안 된다.
-            std::unique_lock lock { mutex };
-            condition.wait(lock, [&] { return ready; });
-            watcher->stop();
-            called = true;
-        },
+            repository.u8string(),
+            [&](repository_change_kind) {
+                // 콜백 스레드에서 자기 자신을 멈춘다. 스스로를 기다리다 멈추면 안 된다.
+                std::unique_lock lock { mutex };
+                condition.wait(lock, [&] { return ready; });
+                watcher->stop();
+                called = true;
+            },
             fast_options()),
     };
     REQUIRE(result.watcher != nullptr);
@@ -470,19 +470,19 @@ TEST_CASE("a buffer overflow while the consumer is busy reports both kinds", "[i
 
     repository_watch_start_result result {
         win32::start_repository_watcher(
-        repository.u8string(),
-        [&](const repository_change_kind kind) {
-            std::unique_lock lock { mutex };
-            if (entered == false)
-            {
-                // 첫 알림에서 감시 스레드를 붙잡아 커널 버퍼가 차게 한다.
-                entered = true;
-                condition.notify_all();
-                condition.wait(lock, [&] { return release; });
-            }
-            lock.unlock();
-            collector(kind);
-        },
+            repository.u8string(),
+            [&](const repository_change_kind kind) {
+                std::unique_lock lock { mutex };
+                if (entered == false)
+                {
+                    // 첫 알림에서 감시 스레드를 붙잡아 커널 버퍼가 차게 한다.
+                    entered = true;
+                    condition.notify_all();
+                    condition.wait(lock, [&] { return release; });
+                }
+                lock.unlock();
+                collector(kind);
+            },
             fast_options()),
     };
     REQUIRE(result.watcher != nullptr);

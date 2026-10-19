@@ -1,7 +1,7 @@
 #include "presentation/ui/cyella_policy.h"
 
-#include "presentation/settings/settings_intents.h"
 #include "presentation/dialog_intents.h"
+#include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"

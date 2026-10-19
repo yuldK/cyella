@@ -80,7 +80,13 @@ namespace cyella {
                 return change_classification::repository_state;
 
             static constexpr std::array<std::u8string_view, 7> single_files {
-                u8"head", u8"index", u8"fetch_head", u8"orig_head", u8"merge_head", u8"cherry_pick_head", u8"revert_head",
+                u8"head",
+                u8"index",
+                u8"fetch_head",
+                u8"orig_head",
+                u8"merge_head",
+                u8"cherry_pick_head",
+                u8"revert_head",
             };
             if (components.size() == 1)
                 for (const std::u8string_view name : single_files)

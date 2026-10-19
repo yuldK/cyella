@@ -57,7 +57,8 @@ namespace {
             const operation_id id { workspace.submit_setup(std::move(operation)) };
             REQUIRE(id != 0);
             while (dispatcher.run())
-            {}
+            {
+            }
             for (const operation_event& event : events.take())
                 workspace.apply(event);
             return id;

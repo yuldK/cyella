@@ -97,10 +97,13 @@ TEST_CASE("the existence check runs only for items that survive the filter", "[s
 {
     std::vector<std::u8string> asked {};
     const start_page_view view {
-        build_start_page_view(sample_settings(), [&asked](const std::u8string_view path) {
-            asked.emplace_back(path);
-            return true;
-        }, u8"newest"),
+        build_start_page_view(
+            sample_settings(),
+            [&asked](const std::u8string_view path) {
+                asked.emplace_back(path);
+                return true;
+            },
+            u8"newest"),
     };
 
     CHECK(names_of(view) == name_list { u8"Newest" });

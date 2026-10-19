@@ -1,6 +1,5 @@
 #include "platform/win32/win32_webview_support.h"
 
-
 #include <windows.h>
 
 #include <KnownFolders.h>

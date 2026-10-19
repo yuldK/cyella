@@ -162,7 +162,9 @@ namespace cyella::ui {
         if (form.error.empty() == false)
             content.add_text(form.error, text_style { .size = 11.0f, .color = error_color });
 
-        auto buttons { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, form.id + u8"-buttons" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 8.0f }) };
+        luil::ui_element_id buttons_id { kind_layout, form.id + u8"-buttons" };
+        const luil::stack_config buttons_config { .direction = luil::stack_direction::row, .spacing = 8.0f };
+        auto buttons { std::make_unique<luil::stack_element>(std::move(buttons_id), buttons_config) };
         buttons->add_flexible_gap();
         for (const form_button& button : form.buttons)
         {

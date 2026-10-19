@@ -493,7 +493,8 @@ namespace cyella {
             {
                 app_settings_load_result result {};
                 result.read_failed = true;
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning, u8"앱 설정 파일을 읽지 못해 기본값을 사용합니다. 파일을 덮어쓰지 않도록 이번 실행 동안은 설정을 저장하지 않습니다.", source.native_error));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning,
+                    u8"앱 설정 파일을 읽지 못해 기본값을 사용합니다. 파일을 덮어쓰지 않도록 이번 실행 동안은 설정을 저장하지 않습니다.", source.native_error));
                 return result;
             }
             // 빈 파일은 깨진 것이 아니라 아직 아무것도 쓰지 않은 것이다. 백업할 내용이 없다.
@@ -536,7 +537,8 @@ namespace cyella {
                 result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_invalid, diagnostic_severity::warning, std::move(message)));
             }
             else
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_backup_failed, diagnostic_severity::warning, u8"앱 설정 파일이 깨져 기본값으로 시작합니다. 깨진 파일을 백업하지 못했습니다.", backup_error));
+                result.diagnostics.push_back(make_diagnostic(
+                    diagnostic_code::app_settings_backup_failed, diagnostic_severity::warning, u8"앱 설정 파일이 깨져 기본값으로 시작합니다. 깨진 파일을 백업하지 못했습니다.", backup_error));
             return result;
         }
         catch (...)
@@ -546,7 +548,8 @@ namespace cyella {
             result.read_failed = true;
             try
             {
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning, u8"앱 설정 파일을 읽는 중 예기치 않은 오류가 발생했습니다. 파일을 덮어쓰지 않도록 이번 실행 동안은 설정을 저장하지 않습니다."));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning,
+                    u8"앱 설정 파일을 읽는 중 예기치 않은 오류가 발생했습니다. 파일을 덮어쓰지 않도록 이번 실행 동안은 설정을 저장하지 않습니다."));
             }
             catch (...)
             {}
@@ -564,7 +567,8 @@ namespace cyella {
             app_settings_save_result result {};
             if (commit.succeeded() == false)
             {
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_write_failed, diagnostic_severity::warning, u8"앱 설정을 저장하지 못했습니다. 이번 실행 동안은 메모리의 설정을 계속 씁니다.", commit.native_error));
+                result.diagnostics.push_back(make_diagnostic(
+                    diagnostic_code::app_settings_write_failed, diagnostic_severity::warning, u8"앱 설정을 저장하지 못했습니다. 이번 실행 동안은 메모리의 설정을 계속 씁니다.", commit.native_error));
                 return result;
             }
 

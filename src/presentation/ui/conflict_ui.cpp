@@ -87,15 +87,16 @@ namespace cyella::ui {
                 x += letter + 10.0f * scale;
                 const float right { std::max(text_right_ - 8.0f * scale, x) };
                 const SkFont font { ui_font(context, 12.0f) };
-                const float drawn { luil::draw_text_within(context.canvas, file_.name, x, box.y + luil::centered_text_baseline(font, box.height), right - x, font, luil::solid_paint(palette.primary_foreground)) };
+                const float name_baseline { box.y + luil::centered_text_baseline(font, box.height) };
+                const float drawn { luil::draw_text_within(context.canvas, file_.name, x, name_baseline, right - x, font, luil::solid_paint(palette.primary_foreground)) };
                 const SkFont small { ui_font(context, 11.0f) };
                 std::u8string detail { file_.folder };
                 if (file_.meaning.empty() == false)
                     detail += (detail.empty() ? u8"" : u8"  ·  ") + file_.meaning;
                 const float detail_x { x + drawn + 8.0f * scale };
                 if (detail.empty() == false && right - detail_x > 0.0f)
-                    static_cast<void>(luil::draw_text_within(context.canvas, detail, detail_x, box.y + luil::centered_text_baseline(small, box.height), right - detail_x, small,
-                        luil::solid_paint(palette.secondary_foreground)));
+                    static_cast<void>(luil::draw_text_within(
+                        context.canvas, detail, detail_x, box.y + luil::centered_text_baseline(small, box.height), right - detail_x, small, luil::solid_paint(palette.secondary_foreground)));
                 draw_children(context, interaction);
             }
 
@@ -166,13 +167,17 @@ namespace cyella::ui {
             status = conflict.message;
         text_style status_style { .size = 11.0f, .color = conflict.message.empty() ? dim_color : [](const luil::ui_color_palette& palette) { return palette.warning_accent; } };
         footer->add_flexible(make_text(u8"conflict-status", status, std::move(status_style)));
-        footer->add(make_text_button(u8"conflict-abort", u8"중단", luil::text_button_visual::danger, message(conflict_action_intent { conflict_action::abort_sequence }), conflict.busy == false), 76.0f);
+        footer->add(
+            make_text_button(u8"conflict-abort", u8"중단", luil::text_button_visual::danger, message(conflict_action_intent { conflict_action::abort_sequence }), conflict.busy == false), 76.0f);
         if (conflict.can_skip)
-            footer->add(make_text_button(u8"conflict-skip", u8"건너뛰기", luil::text_button_visual::normal, message(conflict_action_intent { conflict_action::skip_sequence }), conflict.busy == false), 96.0f);
-        footer->add(make_text_button(u8"conflict-continue", u8"계속", luil::text_button_visual::accent, message(conflict_action_intent { conflict_action::continue_sequence }), conflict.can_continue, 0, true), 96.0f);
+            footer->add(
+                make_text_button(u8"conflict-skip", u8"건너뛰기", luil::text_button_visual::normal, message(conflict_action_intent { conflict_action::skip_sequence }), conflict.busy == false), 96.0f);
+        footer->add(
+            make_text_button(u8"conflict-continue", u8"계속", luil::text_button_visual::accent, message(conflict_action_intent { conflict_action::continue_sequence }), conflict.can_continue, 0, true),
+            96.0f);
         column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"conflict-footer-bar" }, bar_style { .divider_top = true }, std::move(footer)), conflict_footer_height);
 
-        return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"conflict-panel" },
-            bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.surface_background; } }, std::move(column));
+        return std::make_unique<bar_element>(
+            luil::ui_element_id { kind_panel, u8"conflict-panel" }, bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.surface_background; } }, std::move(column));
     }
 } // namespace cyella::ui

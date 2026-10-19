@@ -42,8 +42,8 @@ namespace cyella {
 
     // `repository_operations`는 선택된 저장소의 operation, `setup_operations`는 clone·init처럼 저장소 id가 없는 것이다.
     // 인증은 둘 다 본다. 나머지는 저장소 쪽만 본다. `tab`이 null이면 시작 탭이다.
-    [[nodiscard]] form_source resolve_form_source(std::span<const operation_status* const> repository_operations, std::span<const operation_status* const> setup_operations,
-        const ui_state& ui, const tab_ui_state* tab);
+    [[nodiscard]] form_source resolve_form_source(
+        std::span<const operation_status* const> repository_operations, std::span<const operation_status* const> setup_operations, const ui_state& ui, const tab_ui_state* tab);
 
     // `source`의 모달 입력 상자 값이다. 없으면 빈 값이다.
     [[nodiscard]] std::optional<form_view> build_form_view(const form_source& source, const ui_state& ui, const tab_ui_state* tab, const repository_snapshot* snapshot);

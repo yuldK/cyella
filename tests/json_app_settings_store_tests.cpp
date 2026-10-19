@@ -190,7 +190,7 @@ TEST_CASE("unknown keys survive through the store on disk", "[json_app_settings]
 
 TEST_CASE("a shadow that is not an object is ignored", "[json_app_settings]")
 {
-    const json document { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2")) ) };
+    const json document { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2"))) };
     CHECK(document.at("schema_version") == 1);
     const json from_array { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2]"))) };
     CHECK(from_array.is_object());

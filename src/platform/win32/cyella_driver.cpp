@@ -185,7 +185,9 @@ namespace cyella::win32 {
         operation_request request {};
         request.repository_key = "ssh-info";
         request.job = [sources = std::move(sources), source, relay = &relay_](const operation_context& context) mutable {
-            const process_cancellation_registration link { context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {} };
+            const process_cancellation_registration link {
+                context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {}
+            };
             sources.cancellation = source->token();
             relay->post(luil::app_message { ssh_info_loaded_intent { collect_ssh_info(sources) } });
         };

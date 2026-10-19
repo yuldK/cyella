@@ -143,8 +143,7 @@ namespace cyella {
             for (const std::string& remote : context.remotes)
             {
                 const bool exists { on_remote(remote) };
-                push.push_back(
-                    make_entry(u8"push:" + to_u8(remote), exists ? to_u8(remote) + u8"에 이미 있음" : to_u8(remote) + u8"으로 push", icons::icon_repo_push, exists == false));
+                push.push_back(make_entry(u8"push:" + to_u8(remote), exists ? to_u8(remote) + u8"에 이미 있음" : to_u8(remote) + u8"으로 push", icons::icon_repo_push, exists == false));
             }
             add_group(model.entries, std::move(push));
             add_group(model.entries, { make_entry(u8"checkout_detached", u8"이 태그 체크아웃 (detached HEAD)", icons::icon_target) });
@@ -248,8 +247,9 @@ namespace cyella {
                 // 원격 브랜치는 직접 바꾸지 않는다. 로컬 끈 쪽을 바꾸는 merge와 rebase만 있다.
                 std::vector<menu_entry> group {};
                 const bool contained { facts.destination_is_ancestor.value_or(false) };
-                group.push_back(make_entry(u8"merge_remote_into_source", with_eul_reul(b) + u8" " + a + u8"에 merge" + (contained ? std::u8string { u8" · 이미 포함" } : count_suffix(facts.only_in_destination)),
-                    icons::icon_git_merge, contained == false));
+                group.push_back(
+                    make_entry(u8"merge_remote_into_source", with_eul_reul(b) + u8" " + a + u8"에 merge" + (contained ? std::u8string { u8" · 이미 포함" } : count_suffix(facts.only_in_destination)),
+                        icons::icon_git_merge, contained == false));
                 group.push_back(make_entry(u8"rebase", with_eul_reul(a) + u8" " + b + u8" 위로 rebase" + (contained ? std::u8string { u8" · 이미 위에 있음" } : count_suffix(facts.only_in_source)),
                     icons::icon_repo_forked, contained == false && source.kind == ref_kind::local));
                 add_group(model.entries, std::move(group));
@@ -261,8 +261,8 @@ namespace cyella {
                 group.push_back(make_entry(u8"fast_forward", with_eul_reul(b) + u8" " + with_euro_ro(a) + u8" fast-forward" + count_suffix(facts.only_in_source), icons::icon_arrow_up,
                     facts.destination_is_ancestor.has_value()));
             const bool contained { same_tip || facts.source_is_ancestor.value_or(false) };
-            group.push_back(make_entry(u8"merge", with_eul_reul(a) + u8" " + b + u8"에 merge" + (contained ? std::u8string { u8" · 이미 포함" } : count_suffix(facts.only_in_source)), icons::icon_git_merge,
-                contained == false));
+            group.push_back(make_entry(u8"merge", with_eul_reul(a) + u8" " + b + u8"에 merge" + (contained ? std::u8string { u8" · 이미 포함" } : count_suffix(facts.only_in_source)),
+                icons::icon_git_merge, contained == false));
             if (source.kind == ref_kind::local)
             {
                 const bool on_top { same_tip || facts.destination_is_ancestor.value_or(false) };

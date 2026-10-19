@@ -114,17 +114,21 @@ namespace cyella {
             switch (state)
             {
             case repository_operation_state::rebase:
-                return action == conflict_action::continue_sequence ? operation_kind::rebase_continue : action == conflict_action::skip_sequence ? operation_kind::rebase_skip : operation_kind::rebase_abort;
+                return action == conflict_action::continue_sequence ? operation_kind::rebase_continue
+                    : action == conflict_action::skip_sequence      ? operation_kind::rebase_skip
+                                                                    : operation_kind::rebase_abort;
             case repository_operation_state::merge:
                 if (action == conflict_action::skip_sequence)
                     return std::nullopt;
                 return action == conflict_action::continue_sequence ? operation_kind::merge_continue : operation_kind::merge_abort;
             case repository_operation_state::cherry_pick:
                 return action == conflict_action::continue_sequence ? operation_kind::cherry_pick_continue
-                    : action == conflict_action::skip_sequence       ? operation_kind::cherry_pick_skip
-                                                                     : operation_kind::cherry_pick_abort;
+                    : action == conflict_action::skip_sequence      ? operation_kind::cherry_pick_skip
+                                                                    : operation_kind::cherry_pick_abort;
             case repository_operation_state::revert:
-                return action == conflict_action::continue_sequence ? operation_kind::revert_continue : action == conflict_action::skip_sequence ? operation_kind::revert_skip : operation_kind::revert_abort;
+                return action == conflict_action::continue_sequence ? operation_kind::revert_continue
+                    : action == conflict_action::skip_sequence      ? operation_kind::revert_skip
+                                                                    : operation_kind::revert_abort;
             case repository_operation_state::none:
                 break;
             }
@@ -287,7 +291,7 @@ namespace cyella {
         // 자동 후속 작업(쓰기 뒤 원격 태그 갱신)이 인증을 물으면 사용자는 영문을 모른다. 조용히 취소한다 — 원격 태그 표시는
         // 이번 갱신을 건너뛰고 다음 fetch가 고친다. "이번만 연결"로 다시 낸 작업은 새 임시 신뢰로 직접 갱신한다 (`after_events`).
         for (const operation_id id : std::vector<operation_id> { workspace->operation_order().begin(), workspace->operation_order().end() })
-            if (const operation_status * status { workspace->find_operation(id) }; status != nullptr && status->automatic && awaiting_auth_status(*status))
+            if (const operation_status* status { workspace->find_operation(id) }; status != nullptr && status->automatic && awaiting_auth_status(*status))
                 static_cast<void>(workspace->cancel(id));
     }
 
@@ -586,10 +590,10 @@ namespace cyella {
         target.kind = menu_target_kind::drop;
         target.source = intent.source;
         target.destination = intent.destination;
-        if (const ref * source { find_ref(snapshot, target.source.kind, target.source.name) }; source != nullptr)
+        if (const ref* source { find_ref(snapshot, target.source.kind, target.source.name) }; source != nullptr)
             target.source.sha = source->target_sha;
         if (target.destination.is_commit == false)
-            if (const ref * destination { find_ref(snapshot, target.destination.kind, target.destination.name) }; destination != nullptr)
+            if (const ref* destination { find_ref(snapshot, target.destination.kind, target.destination.name) }; destination != nullptr)
                 target.destination.sha = destination->target_sha;
         if (target.source.sha.empty() || target.destination.sha.empty() || can_drop_on(target.source, target.destination) == false)
             return;
@@ -999,16 +1003,16 @@ namespace cyella {
         case dialog_kind::create_tag:
             if (create_tag_ready(dialog, ui_.form, snapshot) == false)
                 return;
-        {
-            create_tag_request request {};
-            request.name = trimmed_text(ui_.form.fields[0].text);
-            request.sha = dialog.subject;
-            request.annotated = dialog.choice == 1;
-            if (request.annotated)
-                request.message = trimmed_text(ui_.form.fields[1].text);
-            static_cast<void>(submit(std::move(request)));
-            break;
-        }
+            {
+                create_tag_request request {};
+                request.name = trimmed_text(ui_.form.fields[0].text);
+                request.sha = dialog.subject;
+                request.annotated = dialog.choice == 1;
+                if (request.annotated)
+                    request.message = trimmed_text(ui_.form.fields[1].text);
+                static_cast<void>(submit(std::move(request)));
+                break;
+            }
         case dialog_kind::push:
             if (push_ready(dialog, ui_.form, snapshot) == false)
                 return;
@@ -1140,7 +1144,8 @@ namespace cyella {
             directory = ".";
         const std::filesystem::path known_hosts { directory / ("cyella-known-hosts-" + std::to_string(++temporary_counter_) + "-" + std::to_string(status.id) + ".tmp") };
         temporary_ssh_trust trust {};
-        trust.command = make_temporary_known_hosts_ssh_command(dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable }, known_hosts);
+        trust.command
+            = make_temporary_known_hosts_ssh_command(dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable }, known_hosts);
         trust.known_hosts_path = known_hosts.u8string();
         std::optional<git_operation> retry { with_ssh_override(*request, trust) };
         // 질문 중인 operation을 거둔다. 취소는 알림 없이 끝나고 "답 없이 닫기"의 실패 배너도 남기지 않는다.

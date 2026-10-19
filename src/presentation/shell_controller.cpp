@@ -879,8 +879,8 @@ namespace cyella {
                 std::error_code error {};
                 const std::filesystem::path directory { std::filesystem::path { trust.known_hosts_path }.parent_path() };
                 trust.known_hosts_path = (directory / ("cyella-known-hosts-follow-" + std::to_string(++temporary_counter_) + ".tmp")).u8string();
-                trust.command = make_temporary_known_hosts_ssh_command(dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable },
-                    std::filesystem::path { trust.known_hosts_path });
+                trust.command = make_temporary_known_hosts_ssh_command(
+                    dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable }, std::filesystem::path { trust.known_hosts_path });
                 static_cast<void>(workspace->submit(it->second.repository_id, refresh_remote_tags_request { .remotes = {}, .ssh_command_override = trust }, true));
             }
             it = trusted_retries_.erase(it);

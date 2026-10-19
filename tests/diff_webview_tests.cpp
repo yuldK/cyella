@@ -2,10 +2,10 @@
 #include "application/diff_view_protocol.h"
 #include "domain/commit_graph_layout.h"
 #include "presentation/diff_view_intents.h"
-#include "presentation/ui/element_kinds.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/diff_webview_theme.h"
+#include "presentation/ui/element_kinds.h"
 #include "presentation/ui_intents.h"
 
 #include "view_snapshot_support.h"

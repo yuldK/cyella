@@ -77,7 +77,8 @@ namespace cyella::win32 {
 
             SetLastError(ERROR_SUCCESS);
             unique_handle file {
-                CreateFileW(prepared.value->c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr),
+                CreateFileW(
+                    prepared.value->c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr),
             };
             if (file.valid() == false)
             {

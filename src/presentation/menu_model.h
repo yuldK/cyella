@@ -63,13 +63,13 @@ namespace cyella {
     struct drop_facts
     {
         // 놓은 쪽(destination)이 끈 쪽(source)의 조상이다 (같으면 참).
-        std::optional<bool> destination_is_ancestor { };
+        std::optional<bool> destination_is_ancestor {};
         // 끈 쪽이 놓은 쪽의 조상이다 (같으면 참).
-        std::optional<bool> source_is_ancestor { };
+        std::optional<bool> source_is_ancestor {};
         // `rev-list --count destination..source`: 끈 쪽에만 있는 커밋 수다.
-        std::optional<std::uint32_t> only_in_source { };
+        std::optional<std::uint32_t> only_in_source {};
         // `rev-list --count source..destination`: 놓은 쪽에만 있는 커밋 수다.
-        std::optional<std::uint32_t> only_in_destination { };
+        std::optional<std::uint32_t> only_in_destination {};
 
         [[nodiscard]] bool complete() const noexcept
         {

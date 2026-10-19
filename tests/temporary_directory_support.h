@@ -19,7 +19,8 @@ namespace cyella::test {
         explicit temporary_directory(const std::string_view label)
         {
             static std::atomic_uint64_t sequence { 0 };
-            path_ = std::filesystem::temp_directory_path() / (std::string { "cyella-test-" } + std::string { label } + "-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(sequence.fetch_add(1)));
+            path_ = std::filesystem::temp_directory_path()
+                / (std::string { "cyella-test-" } + std::string { label } + "-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(sequence.fetch_add(1)));
             std::error_code ignored {};
             std::filesystem::remove_all(path_, ignored);
             std::filesystem::create_directories(path_);

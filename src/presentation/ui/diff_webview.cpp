@@ -26,8 +26,8 @@ namespace cyella::ui {
 
         std::unique_ptr<luil::ui_element> panel_surface(std::u8string owner, std::unique_ptr<luil::ui_element> content)
         {
-            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, std::move(owner) },
-                bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.surface_background; } }, std::move(content));
+            return std::make_unique<bar_element>(
+                luil::ui_element_id { kind_panel, std::move(owner) }, bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.surface_background; } }, std::move(content));
         }
 
         std::unique_ptr<luil::ui_element> centered_note(std::u8string owner, std::u8string text)
@@ -120,8 +120,8 @@ namespace cyella::ui {
             if (diff.loading)
                 return centered_note(u8"diff-loading", u8"diff를 읽는 중…");
             if (diff.lines.empty())
-                return centered_note(u8"diff-empty",
-                    diff.binary ? std::u8string { u8"바이너리 파일입니다. 이미지·바이너리 비교에는 WebView2 Runtime이 필요합니다." } : std::u8string { u8"보일 변경이 없습니다." });
+                return centered_note(
+                    u8"diff-empty", diff.binary ? std::u8string { u8"바이너리 파일입니다. 이미지·바이너리 비교에는 WebView2 Runtime이 필요합니다." } : std::u8string { u8"보일 변경이 없습니다." });
             auto lines { std::make_shared<std::vector<diff_line_view>>(diff.lines) };
             luil::virtual_list_config config {};
             config.owner = u8"diff-lines";

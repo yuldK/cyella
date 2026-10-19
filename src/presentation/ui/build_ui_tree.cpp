@@ -2,8 +2,8 @@
 
 #include "application/app_messages.h"
 #include "presentation/dialog_intents.h"
-#include "presentation/ui/cyella_caption.h"
 #include "presentation/settings/settings_intents.h"
+#include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
 #include "presentation/ui/settings/settings_ui.h"
@@ -162,8 +162,8 @@ namespace cyella::ui {
             {
                 set_tooltip(caption_ + u8": " + value_ + u8" (고르는 목록은 아직 없습니다)");
                 set_cursor(luil::ui_cursor::hand);
-                set_action(
-                    luil::ui_trigger::left_click, action_of(message(show_notice_intent { .text = caption_ + u8" 선택 목록(입력으로 거르기·새로 만들기)은 아직 없습니다. 사이드바에서 더블클릭하세요.", .warning = false })));
+                set_action(luil::ui_trigger::left_click,
+                    action_of(message(show_notice_intent { .text = caption_ + u8" 선택 목록(입력으로 거르기·새로 만들기)은 아직 없습니다. 사이드바에서 더블클릭하세요.", .warning = false })));
             }
 
             void arrange(const luil::arrange_context& context) override

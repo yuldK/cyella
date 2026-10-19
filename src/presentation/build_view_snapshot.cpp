@@ -491,7 +491,7 @@ namespace cyella {
             for (const operation_status* value : operations)
                 if (is_user_operation(*value) && value->state == operation_state::queued)
                     ++status.queued_count;
-            if (const operation_status * last { latest_finished_user(operations) }; last != nullptr)
+            if (const operation_status* last { latest_finished_user(operations) }; last != nullptr)
             {
                 status.last_result = result_text(*last);
                 status.last_failed = last->state == operation_state::failed;
@@ -844,7 +844,7 @@ namespace cyella {
             item.start = tab.kind == repository_tab_kind::start;
             item.label = item.start ? std::u8string { u8"시작" } : tab.display_name;
             item.tooltip = item.start ? std::u8string { u8"시작 페이지" } : tab.path;
-            if (const repository_session * session { repository_of(tab.id) }; session != nullptr)
+            if (const repository_session* session { repository_of(tab.id) }; session != nullptr)
             {
                 const std::vector<const operation_status*> mine { operations_of(inputs.operations, session->id()) };
                 const repository_summary& summary { session->snapshot().summary };
@@ -876,7 +876,7 @@ namespace cyella {
             view.repository = build_repository(inputs, selected, *session, tab_state, mine, now, index);
             fill_toolbar(view, *session, mine, git_usable);
             fill_status(view, mine, session, ui.operation_log_open);
-            if (const operation_status * last { latest_finished_user(mine) }; last != nullptr)
+            if (const operation_status* last { latest_finished_user(mine) }; last != nullptr)
                 view.banner = operation_banner(*last, tab_state.dismissed_banner, tab_state.banner_expanded);
         }
         else
@@ -895,7 +895,7 @@ namespace cyella {
             if (const std::optional<active_operation_view> active { active_operation(setup) }; active.has_value())
                 start.setup_progress = active->text;
             fill_status(view, setup, nullptr, ui.operation_log_open);
-            if (const operation_status * last { latest_finished_user(setup) }; last != nullptr && last->kind != operation_kind::clone)
+            if (const operation_status* last { latest_finished_user(setup) }; last != nullptr && last->kind != operation_kind::clone)
                 view.banner = operation_banner(*last, ui.dismissed_start_banner, false);
             view.start = std::move(start);
         }

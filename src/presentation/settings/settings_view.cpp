@@ -248,7 +248,10 @@ namespace cyella {
             if (view.keygen_error.empty())
             {
                 const std::u8string path { join_path(inputs.ssh_directory, name) };
-                const bool exists { std::ranges::any_of(view.keys, [&name](const ssh_key_row_view& row) { return row.name == name; }) || (inputs.probe != nullptr && inputs.ssh_directory.empty() == false && inputs.probe->probe(path) != path_kind::missing) };
+                const auto has_name = [&name](const ssh_key_row_view& row) { return row.name == name; };
+                const bool listed { std::ranges::any_of(view.keys, has_name) };
+                const bool on_disk { inputs.probe != nullptr && inputs.ssh_directory.empty() == false && inputs.probe->probe(path) != path_kind::missing };
+                const bool exists { listed || on_disk };
                 if (exists)
                     view.keygen_error = u8"같은 이름의 키가 이미 있습니다. 다른 이름을 고르세요.";
                 view.keygen_command = u8"ssh-keygen -t ed25519 -C \"" + comment + u8"\" -f \"" + path + u8"\"";
@@ -259,10 +262,12 @@ namespace cyella {
 
             const std::optional<ssh_target> target { parse_ssh_target(view.test_host.displayed_text()) };
             if (target.has_value() == false)
-                view.test_error = trimmed(view.test_host.displayed_text()).empty() ? u8"시험할 호스트를 입력하세요 (예: github.com)." : u8"호스트 형식이 올바르지 않습니다. [계정@]호스트[:포트]로 쓰세요.";
+                view.test_error
+                    = trimmed(view.test_host.displayed_text()).empty() ? u8"시험할 호스트를 입력하세요 (예: github.com)." : u8"호스트 형식이 올바르지 않습니다. [계정@]호스트[:포트]로 쓰세요.";
             else
             {
-                view.test_command = u8"ssh -T -o StrictHostKeyChecking=ask " + (target->port != 0 ? u8"-p " + number_text(target->port) + u8" " : std::u8string {}) + target->user_name + u8"@" + target->host;
+                view.test_command
+                    = u8"ssh -T -o StrictHostKeyChecking=ask " + (target->port != 0 ? u8"-p " + number_text(target->port) + u8" " : std::u8string {}) + target->user_name + u8"@" + target->host;
             }
             view.test = make_task_view(inputs.test, u8"연결을 시험하는 중…");
             const bool test_busy { view.test.state == task_view::phase::running || view.test.state == task_view::phase::waiting_for_input };
@@ -461,7 +466,8 @@ namespace cyella {
         target.host = host_part;
 
         const auto valid = [](const std::u8string_view token, const bool allow_underscore) {
-            return token.empty() == false && token.front() != u8'-' && std::ranges::all_of(token, [allow_underscore](const char8_t character) { return is_word_character(character, allow_underscore); });
+            return token.empty() == false && token.front() != u8'-'
+                && std::ranges::all_of(token, [allow_underscore](const char8_t character) { return is_word_character(character, allow_underscore); });
         };
         if (valid(target.host, false) == false || valid(target.user_name, true) == false)
             return std::nullopt;

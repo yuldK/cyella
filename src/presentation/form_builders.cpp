@@ -78,7 +78,8 @@ namespace cyella {
             const std::optional<luil::text_composition_event>& composition { context.composition != nullptr ? *context.composition : none };
             form_field field {};
             field.label = std::move(label);
-            field.view = luil::make_text_input_view(field_state(*context.inputs, index), composition, to_luil_target(static_cast<text_target>(static_cast<std::uint32_t>(text_target::form_field_0) + index)));
+            field.view
+                = luil::make_text_input_view(field_state(*context.inputs, index), composition, to_luil_target(static_cast<text_target>(static_cast<std::uint32_t>(text_target::form_field_0) + index)));
             field.placeholder = std::move(placeholder);
             field.secret = secret;
             field.reveal = secret && context.inputs->reveal;
@@ -309,7 +310,8 @@ namespace cyella {
         preview += " " + (request.remote.empty() ? std::string { "<원격>" } : request.remote) + " " + request.branch + ":" + request.remote_branch;
         form.preview = to_u8(preview);
         form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(make_button(u8"submit", dialog.flag_c ? u8"강제 Push" : u8"Push", dialog.flag_c ? form_tone::danger : form_tone::accent, push_ready(dialog, *context.inputs, snapshot), true));
+        form.buttons.push_back(
+            make_button(u8"submit", dialog.flag_c ? u8"강제 Push" : u8"Push", dialog.flag_c ? form_tone::danger : form_tone::accent, push_ready(dialog, *context.inputs, snapshot), true));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -328,7 +330,8 @@ namespace cyella {
         if (dialog.check_label.empty() == false && dialog.flag_a && dialog.check_warning)
             form.warnings.push_back({ .text = u8"원격에서 지운 태그는 다른 사람의 저장소에도 영향을 줍니다.", .warning = true });
         form.buttons.push_back(make_button(u8"cancel", u8"취소", form_tone::normal, true, dialog.danger));
-        form.buttons.push_back(make_button(u8"submit", dialog.confirm_label.empty() ? std::u8string { u8"확인" } : dialog.confirm_label, dialog.danger ? form_tone::danger : form_tone::accent, true, dialog.danger == false));
+        form.buttons.push_back(make_button(
+            u8"submit", dialog.confirm_label.empty() ? std::u8string { u8"확인" } : dialog.confirm_label, dialog.danger ? form_tone::danger : form_tone::accent, true, dialog.danger == false));
         form.dismiss_key = u8"cancel";
         return form;
     }

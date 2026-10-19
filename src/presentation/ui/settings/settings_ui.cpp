@@ -55,12 +55,19 @@ namespace cyella::ui {
             };
         }
 
+        std::unique_ptr<luil::stack_element> make_column(std::u8string owner)
+        {
+            luil::ui_element_id id { kind_layout, std::move(owner) };
+            const luil::stack_config config { .padding = luil::edge_insets { 0.0f, 0.0f, 0.0f, 0.0f } };
+            return std::make_unique<luil::stack_element>(std::move(id), config);
+        }
+
         // 한 쪽(page)의 내용을 쌓는다. 측정 단계가 없으므로 담을 때 높이를 함께 더해 두었다가 흘리는 창에 알려 준다.
         class page_column
         {
         public:
             explicit page_column(std::u8string owner)
-                : column_ { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, std::move(owner) }, luil::stack_config { .padding = luil::edge_insets { 0.0f, 0.0f, 0.0f, 0.0f } }) }
+                : column_ { make_column(std::move(owner)) }
             {}
 
             void add(std::unique_ptr<luil::ui_element> child, const float height)
@@ -188,8 +195,10 @@ namespace cyella::ui {
             page.add(field_label(u8"settings-git-path-label", u8"git 실행 파일 경로 (비워 두면 자동 탐색)"), label_height);
             auto path_row { make_row(u8"settings-git-path-row") };
             path_row->add_flexible(input_of(kind_settings_git_path_input, u8"settings-git-path", git.path, u8"C:\\Program Files\\Git\\cmd\\git.exe"));
-            path_row->add(button_of(u8"settings-git-browse", u8"찾아보기…", ui_command(static_cast<std::uint32_t>(ui_command_id::choose_git_executable))), { .length = 88.0f, .cross_length = button_height });
-            path_row->add(button_of(u8"settings-git-apply", u8"적용", message(apply_git_path_intent {}), git.can_apply, luil::text_button_visual::accent), { .length = 56.0f, .cross_length = button_height });
+            path_row->add(
+                button_of(u8"settings-git-browse", u8"찾아보기…", ui_command(static_cast<std::uint32_t>(ui_command_id::choose_git_executable))), { .length = 88.0f, .cross_length = button_height });
+            path_row->add(
+                button_of(u8"settings-git-apply", u8"적용", message(apply_git_path_intent {}), git.can_apply, luil::text_button_visual::accent), { .length = 56.0f, .cross_length = button_height });
             page.add(std::move(path_row), input_height);
             if (git.validation.empty() == false)
                 page.add(help_line(u8"settings-git-validation", git.validation, tone_color(tone::bad)), line_height);
@@ -198,7 +207,8 @@ namespace cyella::ui {
             else
                 page.add(help_line(u8"settings-git-validation", git.configured ? u8"직접 지정한 경로입니다." : u8"지정한 경로가 없어 자동으로 찾습니다."), line_height);
             auto reset_row { make_row(u8"settings-git-reset-row") };
-            reset_row->add(button_of(u8"settings-git-reset", u8"자동 탐색으로 되돌리기", message(reset_git_path_intent {}), git.configured), { .length = text_button_width(u8"자동 탐색으로 되돌리기"), .cross_length = button_height });
+            reset_row->add(button_of(u8"settings-git-reset", u8"자동 탐색으로 되돌리기", message(reset_git_path_intent {}), git.configured),
+                { .length = text_button_width(u8"자동 탐색으로 되돌리기"), .cross_length = button_height });
             page.add(std::move(reset_row), input_height);
         }
 
@@ -212,7 +222,8 @@ namespace cyella::ui {
             row->add_flexible(make_text(u8"settings-tool-executable-" + key, tool.executable, text_style { .size = 11.0f, .code = true }));
             row->add_flexible(make_text(u8"settings-tool-arguments-" + key, tool.arguments, text_style { .size = 11.0f, .color = dim, .code = true }));
             row->add(button_of(u8"settings-tool-edit-" + key, u8"편집", message(edit_tool_intent { tool.index }), editing == false), { .length = 52.0f, .cross_length = button_height });
-            row->add(button_of(u8"settings-tool-remove-" + key, u8"삭제", message(remove_tool_intent { tool.index }), editing == false, luil::text_button_visual::danger), { .length = 52.0f, .cross_length = button_height });
+            row->add(button_of(u8"settings-tool-remove-" + key, u8"삭제", message(remove_tool_intent { tool.index }), editing == false, luil::text_button_visual::danger),
+                { .length = 52.0f, .cross_length = button_height });
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-tool-bar-" + key }, bar_style { .divider_bottom = true }, std::move(row));
         }
 
@@ -234,7 +245,8 @@ namespace cyella::ui {
             form.add(input_of(kind_settings_tool_arguments_input, u8"settings-tool-arguments-input", edit.arguments, u8"{left} {right}"), input_height);
             auto chips { make_row(u8"settings-tool-chips") };
             for (const std::u8string_view token : { u8"{left}", u8"{right}", u8"{base}", u8"{path}" })
-                chips->add(button_of(u8"settings-tool-chip-" + std::u8string { token.substr(1, token.size() - 2) }, std::u8string { token }, message(insert_tool_token_intent { std::u8string { token } })),
+                chips->add(
+                    button_of(u8"settings-tool-chip-" + std::u8string { token.substr(1, token.size() - 2) }, std::u8string { token }, message(insert_tool_token_intent { std::u8string { token } })),
                     { .length = text_button_width(token) + 6.0f, .cross_length = button_height });
             chips->add_flexible_gap();
             form.add(std::move(chips), input_height);
@@ -245,7 +257,9 @@ namespace cyella::ui {
             else
             {
                 // 풀린 인자를 한 줄씩 보인다. 공백이 든 경로가 한 인자로 남는지 눈으로 확인하려는 것이다.
-                form.add(code_line(u8"settings-tool-preview", u8"실행  " + (edit.executable.displayed_text().empty() ? std::u8string { u8"<실행 파일>" } : std::u8string { edit.executable.displayed_text() })), line_height);
+                form.add(code_line(u8"settings-tool-preview",
+                             u8"실행  " + (edit.executable.displayed_text().empty() ? std::u8string { u8"<실행 파일>" } : std::u8string { edit.executable.displayed_text() })),
+                    line_height);
                 const std::size_t shown { std::min<std::size_t>(edit.preview_arguments.size(), maximum_preview_arguments) };
                 for (std::size_t index { 0 }; index < shown; ++index)
                     form.add(code_line(u8"settings-tool-preview-" + number_text(index), u8"인자 " + number_text(index + 1) + u8"  " + edit.preview_arguments[index]), line_height);
@@ -260,7 +274,8 @@ namespace cyella::ui {
             auto buttons { make_row(u8"settings-tool-buttons") };
             buttons->add_flexible_gap();
             buttons->add(button_of(u8"settings-tool-cancel", u8"취소", message(cancel_tool_edit_intent {})), { .length = 64.0f, .cross_length = button_height });
-            buttons->add(button_of(u8"settings-tool-save", u8"저장", message(save_tool_intent {}), edit.can_save, luil::text_button_visual::accent), { .length = 64.0f, .cross_length = button_height });
+            buttons->add(
+                button_of(u8"settings-tool-save", u8"저장", message(save_tool_intent {}), edit.can_save, luil::text_button_visual::accent), { .length = 64.0f, .cross_length = button_height });
             form.add(std::move(buttons), input_height);
 
             const float height { form.height() + 24.0f };
@@ -293,7 +308,8 @@ namespace cyella::ui {
             }
             page.gap(small_gap);
             auto add_row { make_row(u8"settings-tools-add-row") };
-            add_row->add(button_of(u8"settings-tool-add", u8"도구 추가", message(add_tool_intent {}), editing == false, luil::text_button_visual::accent), { .length = 92.0f, .cross_length = button_height });
+            add_row->add(
+                button_of(u8"settings-tool-add", u8"도구 추가", message(add_tool_intent {}), editing == false, luil::text_button_visual::accent), { .length = 92.0f, .cross_length = button_height });
             page.add(std::move(add_row), input_height);
             if (view.edit.has_value())
             {
@@ -317,7 +333,8 @@ namespace cyella::ui {
                 service_row->add_flexible(make_text(u8"settings-agent-status", u8"상태를 읽는 중…", text_style { .size = 12.0f, .color = dim }));
             else
                 service_row->add_flexible(make_text(u8"settings-agent-status", u8"서비스: " + ssh.service_status, text_style { .size = 12.0f, .color = tone_color(ssh.service_tone), .bold = true }));
-            service_row->add(button_of(u8"settings-ssh-refresh", ssh.loading ? u8"읽는 중…" : u8"새로고침", message(refresh_ssh_intent {}), ssh.loading == false), { .length = 84.0f, .cross_length = button_height });
+            service_row->add(button_of(u8"settings-ssh-refresh", ssh.loading ? u8"읽는 중…" : u8"새로고침", message(refresh_ssh_intent {}), ssh.loading == false),
+                { .length = 84.0f, .cross_length = button_height });
             page.add(std::move(service_row), input_height);
             page.add(help_line(u8"settings-agent-help", ssh.service_help), line_height);
             page.gap(small_gap);
@@ -338,14 +355,16 @@ namespace cyella::ui {
                 auto row { make_row(u8"settings-key-row-" + key.name, 8.0f) };
                 row->add(make_text(u8"settings-key-name-" + key.name, key.name, text_style { .size = 12.0f, .bold = true }), 180.0f);
                 row->add_flexible(make_text(u8"settings-key-detail-" + key.name, key.detail, text_style { .size = 11.0f, .color = dim }));
-                row->add(button_of(u8"settings-key-copy-" + key.name, u8"공개 키 복사", message(copy_public_key_intent { key.name }), key.can_copy), { .length = 100.0f, .cross_length = button_height });
+                row->add(
+                    button_of(u8"settings-key-copy-" + key.name, u8"공개 키 복사", message(copy_public_key_intent { key.name }), key.can_copy), { .length = 100.0f, .cross_length = button_height });
                 page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-key-bar-" + key.name }, bar_style { .divider_bottom = true }, std::move(row)), row_height);
             }
             page.gap(large_gap);
 
             page.add(section_title(u8"settings-section-keygen", u8"키 만들기"), section_height);
             page.add(help_line(u8"settings-keygen-tools",
-                         ssh.tools_found ? u8"ssh-keygen: " + ssh.tools_origin + u8". passphrase는 명령줄이 아니라 인증 대화 상자로 묻습니다." : u8"ssh-keygen을 찾지 못했습니다. OpenSSH 클라이언트나 Git for Windows를 설치하세요.",
+                         ssh.tools_found ? u8"ssh-keygen: " + ssh.tools_origin + u8". passphrase는 명령줄이 아니라 인증 대화 상자로 묻습니다."
+                                         : u8"ssh-keygen을 찾지 못했습니다. OpenSSH 클라이언트나 Git for Windows를 설치하세요.",
                          ssh.tools_found ? dim : tone_color(tone::bad)),
                 line_height);
             page.add(field_label(u8"settings-keygen-name-label", u8"파일 이름 (ed25519)"), label_height);
@@ -355,7 +374,8 @@ namespace cyella::ui {
             page.add(code_line(u8"settings-keygen-command", ssh.keygen_command), line_height);
             page.add(help_line(u8"settings-keygen-error", ssh.keygen_error, tone_color(tone::bad)), line_height);
             auto create_row { make_row(u8"settings-keygen-row") };
-            create_row->add(button_of(u8"settings-keygen-create", u8"키 만들기", message(create_ssh_key_intent {}), ssh.can_create, luil::text_button_visual::accent), { .length = 96.0f, .cross_length = button_height });
+            create_row->add(button_of(u8"settings-keygen-create", u8"키 만들기", message(create_ssh_key_intent {}), ssh.can_create, luil::text_button_visual::accent),
+                { .length = 96.0f, .cross_length = button_height });
             page.add(std::move(create_row), input_height);
             add_task_lines(page, u8"settings-keygen", ssh.keygen);
             page.gap(large_gap);
@@ -364,7 +384,8 @@ namespace cyella::ui {
             page.add(field_label(u8"settings-test-host-label", u8"호스트 ([계정@]호스트[:포트], 계정 기본값 git)"), label_height);
             auto test_row { make_row(u8"settings-test-row") };
             test_row->add_flexible(input_of(kind_settings_test_host_input, u8"settings-test-host", ssh.test_host, u8"github.com"));
-            test_row->add(button_of(u8"settings-test-run", u8"시험", message(test_ssh_connection_intent {}), ssh.can_test, luil::text_button_visual::accent), { .length = 64.0f, .cross_length = button_height });
+            test_row->add(
+                button_of(u8"settings-test-run", u8"시험", message(test_ssh_connection_intent {}), ssh.can_test, luil::text_button_visual::accent), { .length = 64.0f, .cross_length = button_height });
             page.add(std::move(test_row), input_height);
             page.add(code_line(u8"settings-test-command", ssh.test_command), line_height);
             page.add(help_line(u8"settings-test-error", ssh.test_error, tone_color(tone::bad)), line_height);
@@ -375,9 +396,13 @@ namespace cyella::ui {
 
         std::unique_ptr<luil::ui_element> build_navigation(const settings_view& view)
         {
-            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-navigation" }, luil::stack_config { .spacing = 4.0f, .padding = luil::edge_insets::all(10.0f) }) };
+            luil::ui_element_id column_id { kind_layout, u8"settings-navigation" };
+            const luil::stack_config column_config { .spacing = 4.0f, .padding = luil::edge_insets::all(10.0f) };
+            auto column { std::make_unique<luil::stack_element>(std::move(column_id), column_config) };
             const auto entry = [&](std::u8string owner, std::u8string text, const settings_page page, const char32_t glyph) {
-                column->add(make_text_button(std::move(owner), std::move(text), view.page == page ? luil::text_button_visual::accent : luil::text_button_visual::normal, message(select_settings_page_intent { page }), true, glyph), 30.0f);
+                column->add(make_text_button(std::move(owner), std::move(text), view.page == page ? luil::text_button_visual::accent : luil::text_button_visual::normal,
+                                message(select_settings_page_intent { page }), true, glyph),
+                    30.0f);
             };
             entry(u8"settings-page-general", u8"일반", settings_page::general, codicons::icon_settings_gear);
             entry(u8"settings-page-diff-tools", u8"diff 도구", settings_page::diff_tools, codicons::icon_diff);
@@ -447,7 +472,9 @@ namespace cyella::ui {
         scroll.scroll_to = [](const float offset) { return message(settings_scroll_intent { .value = offset, .absolute = true }); };
         scroll.edges = luil::scroll_edges { .shadows = true };
         auto area { std::make_unique<luil::scroll_area_element>(std::move(scroll)) };
-        auto padded { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-page-padding" }, luil::stack_config { .padding = luil::edge_insets { content_padding, 10.0f, 12.0f, 0.0f } }) };
+        luil::ui_element_id padded_id { kind_layout, u8"settings-page-padding" };
+        const luil::stack_config padded_config { .padding = luil::edge_insets { content_padding, 10.0f, 12.0f, 0.0f } };
+        auto padded { std::make_unique<luil::stack_element>(std::move(padded_id), padded_config) };
         padded->add(page.take(), page.height());
         area->set_content(std::move(padded));
         sources.settings = area.get();

@@ -6,10 +6,10 @@
 #include "domain/credential_prompt.h"
 #include "domain/diff_file.h"
 #include "domain/file_change.h"
-#include "domain/ssh_connection.h"
 #include "domain/operation_status.h"
 #include "domain/ref.h"
 #include "domain/repository_summary.h"
+#include "domain/ssh_connection.h"
 #include "domain/stash_entry.h"
 
 #include <cstddef>

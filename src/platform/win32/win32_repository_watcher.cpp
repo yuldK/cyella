@@ -192,7 +192,8 @@ namespace cyella::win32 {
                 const prepared_path prepared { prepare_file_path(spec.path) };
                 if (prepared.value.has_value() == false)
                 {
-                    diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning, u8"감시할 경로가 올바르지 않습니다: " + spec.path, prepared.native_error));
+                    diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning,
+                        u8"감시할 경로가 올바르지 않습니다: " + spec.path, prepared.native_error));
                     return nullptr;
                 }
 
@@ -200,17 +201,20 @@ namespace cyella::win32 {
                 root->kind = spec.kind;
                 root->path = spec.path;
                 SetLastError(ERROR_SUCCESS);
-                root->directory.reset(CreateFileW(prepared.value->c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr));
+                root->directory.reset(CreateFileW(prepared.value->c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr));
                 if (root->directory.valid() == false)
                 {
-                    diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning, u8"감시할 폴더를 열지 못했습니다: " + spec.path, static_cast<std::uint32_t>(GetLastError())));
+                    diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning,
+                        u8"감시할 폴더를 열지 못했습니다: " + spec.path, static_cast<std::uint32_t>(GetLastError())));
                     return nullptr;
                 }
 
                 root->event.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
                 if (root->event.valid() == false || root->issue_read() == false)
                 {
-                    diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning, u8"폴더 변경 감시를 시작하지 못했습니다: " + spec.path, static_cast<std::uint32_t>(GetLastError())));
+                    diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning,
+                        u8"폴더 변경 감시를 시작하지 못했습니다: " + spec.path, static_cast<std::uint32_t>(GetLastError())));
                     return nullptr;
                 }
                 return root;

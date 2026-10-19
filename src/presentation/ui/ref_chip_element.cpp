@@ -93,7 +93,6 @@ namespace cyella::ui {
             }
         }
 
-
         std::optional<menu_target> menu_target_of(const ref_label& label, const std::string& commit_sha)
         {
             menu_target target {};
@@ -115,6 +114,16 @@ namespace cyella::ui {
                 break;
             }
             return std::nullopt;
+        }
+
+        // 두 번 눌러 여는 대상의 종류. 지역·원격 가지가 아니면 태그로 본다.
+        ref_kind activated_ref_kind(const ref_label_kind kind) noexcept
+        {
+            if (kind == ref_label_kind::local)
+                return ref_kind::local;
+            if (kind == ref_label_kind::remote)
+                return ref_kind::remote;
+            return ref_kind::tag;
         }
 
         std::optional<drop_party> drop_party_of(const ref_label& label, const std::string& commit_sha)
@@ -221,8 +230,7 @@ namespace cyella::ui {
         case ref_label_kind::local:
         case ref_label_kind::remote:
         case ref_label_kind::tag:
-            set_action(luil::ui_trigger::double_click,
-                action_of(message(activate_ref_intent { label_.kind == ref_label_kind::local ? ref_kind::local : label_.kind == ref_label_kind::remote ? ref_kind::remote : ref_kind::tag, label_.ref_name })));
+            set_action(luil::ui_trigger::double_click, action_of(message(activate_ref_intent { activated_ref_kind(label_.kind), label_.ref_name })));
             break;
         case ref_label_kind::head:
         case ref_label_kind::stash:
@@ -230,9 +238,8 @@ namespace cyella::ui {
         }
 
         if (const std::optional<menu_target> target { menu_target_of(label_, commit_sha) }; target.has_value())
-            set_action(luil::ui_trigger::right_click, [menu = *target](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
-                return { message(open_context_menu_intent { menu, context.x, context.y }) };
-            });
+            set_action(luil::ui_trigger::right_click,
+                [menu = *target](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { menu, context.x, context.y }) }; });
 
         const std::optional<drop_party> party { drop_party_of(label_, commit_sha) };
         if (party.has_value())
@@ -286,7 +293,8 @@ namespace cyella::ui {
         {
             const luil::rect_f box { bounds() };
             const float radius { context.metrics.control_corner_radius * context.scale };
-            context.canvas.drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), radius, radius), luil::solid_paint(luil::with_alpha(context.palette.primary_foreground, 0.08f)));
+            context.canvas.drawRRect(
+                SkRRect::MakeRectXY(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), radius, radius), luil::solid_paint(luil::with_alpha(context.palette.primary_foreground, 0.08f)));
         }
     }
 

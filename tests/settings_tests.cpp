@@ -133,7 +133,8 @@ namespace {
         void run_all_jobs()
         {
             while (dispatcher.run())
-            {}
+            {
+            }
             for (const operation_event& event : events.take())
                 workspace.apply(event);
         }

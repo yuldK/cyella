@@ -193,7 +193,8 @@ TEST_CASE("the conflict screen replaces the graph with per file actions and a fo
     repository_session& session { *fixture.harness.sessions["repo-1"] };
     repository_snapshot snapshot { session.snapshot() };
     snapshot.summary.operation_state = repository_operation_state::rebase;
-    snapshot.summary.in_progress = in_progress_operation { .kind = repository_operation_state::rebase, .step = 1, .total = 2, .current_summary = "subject", .onto = sha_of(4), .head_name = "refs/heads/feature" };
+    snapshot.summary.in_progress
+        = in_progress_operation { .kind = repository_operation_state::rebase, .step = 1, .total = 2, .current_summary = "subject", .onto = sha_of(4), .head_name = "refs/heads/feature" };
     snapshot.conflicts = { { .path = "src/a.cpp", .status = 'U', .side = change_side::unstaged, .conflict_code = "UU" } };
     const std::uint64_t generation { session.begin_refresh() };
     REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));

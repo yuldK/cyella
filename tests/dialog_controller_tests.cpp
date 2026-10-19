@@ -723,7 +723,8 @@ TEST_CASE("a host key prompt shows the fingerprint and defaults to refusing", "[
     test.start(fetching);
     askpass_recorder recorder {};
     test.ask(fetching, 3,
-        u8"The authenticity of host 'github.com (140.82.112.3)' can't be established.\nED25519 key fingerprint is SHA256:abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ",
+        u8"The authenticity of host 'github.com (140.82.112.3)' can't be established.\nED25519 key fingerprint is SHA256:abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG.\nAre you sure you want to "
+        u8"continue connecting (yes/no/[fingerprint])? ",
         recorder.callback());
     const view_snapshot view { test.view() };
     REQUIRE(view.form.has_value());
@@ -1011,8 +1012,11 @@ TEST_CASE("the conflict screen lists files and sends continue only when none are
     repository_session& session { test.load() };
     repository_snapshot snapshot { session.snapshot() };
     snapshot.summary.operation_state = repository_operation_state::rebase;
-    snapshot.summary.in_progress = in_progress_operation { .kind = repository_operation_state::rebase, .step = 2, .total = 3, .current_summary = "feature commit", .onto = snap::sha_of(4), .head_name = "refs/heads/feature/graph" };
-    snapshot.conflicts = { { .path = "src/a.cpp", .status = 'U', .side = change_side::unstaged, .conflict_code = "UU" }, { .path = "b.txt", .status = 'U', .side = change_side::unstaged, .conflict_code = "DU" } };
+    snapshot.summary.in_progress = in_progress_operation {
+        .kind = repository_operation_state::rebase, .step = 2, .total = 3, .current_summary = "feature commit", .onto = snap::sha_of(4), .head_name = "refs/heads/feature/graph"
+    };
+    snapshot.conflicts
+        = { { .path = "src/a.cpp", .status = 'U', .side = change_side::unstaged, .conflict_code = "UU" }, { .path = "b.txt", .status = 'U', .side = change_side::unstaged, .conflict_code = "DU" } };
     const std::uint64_t generation { session.begin_refresh() };
     REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
     REQUIRE(session.apply(commits_loaded { .generation = generation, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
@@ -1049,7 +1053,7 @@ TEST_CASE("the conflict screen lists files and sends continue only when none are
     REQUIRE(session.apply(commits_loaded { .generation = next, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
     // 앞서 낸 abort·skip이 아직 돌고 있다고 보지 않게 끝낸다.
     for (const operation_id id : std::vector<operation_id> { test.workspace.operation_order().begin(), test.workspace.operation_order().end() })
-        if (const operation_status * status { test.workspace.find_operation(id) }; status != nullptr && status->finished() == false)
+        if (const operation_status* status { test.workspace.find_operation(id) }; status != nullptr && status->finished() == false)
         {
             test.start(id);
             test.finish(id, operation_state::succeeded);
