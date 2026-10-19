@@ -15,4 +15,9 @@ namespace cyella {
     // 창을 닫는다 (caption X, Alt+F4).
     struct close_intent
     {};
+
+    // worker 결과가 `operation_result_relay`에 쌓였으니 비우라는 깨우기다. 내용은 relay 큐에
+    // 있고 이 메시지는 아무것도 나르지 않는다.
+    struct relay_drain_intent
+    {};
 } // namespace cyella

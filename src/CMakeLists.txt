@@ -30,12 +30,61 @@ cyella_add_source_filter(cyella_lib_files "domain/graph"
     domain/commit_graph_layout.cpp
     domain/commit_graph_layout.h)
 
-# infrastructure: application 계약의 구현이다 (Git 호출 등). 아직 파일이 없다.
+cyella_add_source_filter(cyella_lib_files "domain/diagnostics"
+    domain/diagnostic.cpp
+    domain/diagnostic.h)
+
+cyella_add_source_filter(cyella_lib_files "domain/process"
+    domain/path_syntax.cpp
+    domain/path_syntax.h
+    domain/process_execution.cpp
+    domain/process_execution.h)
+
+cyella_add_source_filter(cyella_lib_files "domain/git"
+    domain/git_tool.cpp
+    domain/git_tool.h)
 
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
 # UI 헤더를 include하지 않는다.
 cyella_add_source_filter(cyella_lib_files "application/logic"
     application/app_messages.h)
+
+cyella_add_source_filter(cyella_lib_files "application/process"
+    application/cancellation_registry.cpp
+    application/cancellation_registry.h
+    application/file_probe.h
+    application/process_cancellation.cpp
+    application/process_cancellation.h
+    application/process_request.cpp
+    application/process_request.h
+    application/process_runner.h
+    application/text_transcoder.h)
+
+cyella_add_source_filter(cyella_lib_files "application/scheduling"
+    application/operation_executor.h
+    application/task_scheduler.cpp
+    application/task_scheduler.h)
+
+# infrastructure: application 계약의 구현이다 (Git 호출 등). Win32 API를 직접 부르지 않는다.
+cyella_add_source_filter(cyella_lib_files "infrastructure/process"
+    infrastructure/command_line_builder.cpp
+    infrastructure/command_line_builder.h
+    infrastructure/process_output_pipeline.cpp
+    infrastructure/process_output_pipeline.h
+    infrastructure/secret_masking.cpp
+    infrastructure/secret_masking.h)
+
+cyella_add_source_filter(cyella_lib_files "infrastructure/git"
+    infrastructure/git_command_runner.cpp
+    infrastructure/git_command_runner.h
+    infrastructure/git_execution_policy.cpp
+    infrastructure/git_execution_policy.h
+    infrastructure/git_progress_parser.cpp
+    infrastructure/git_progress_parser.h
+    infrastructure/git_tool_discovery.cpp
+    infrastructure/git_tool_discovery.h
+    infrastructure/git_version.cpp
+    infrastructure/git_version.h)
 
 # presentation: view snapshot을 luil element tree로 짓는 앱 element 계층이다.
 cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
@@ -43,6 +92,18 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
 
 # platform/win32: Win32 어댑터와 luil 앱 조립이다. 창·렌더러·입력은 luil 안에
 # 있다. 실행 파일만 이 계층을 쓴다.
+cyella_add_source_filter(cyella_lib_files "platform/process"
+    platform/win32/operation_result_relay.cpp
+    platform/win32/operation_result_relay.h
+    platform/win32/utf8.cpp
+    platform/win32/utf8.h
+    platform/win32/win32_file_probe.cpp
+    platform/win32/win32_file_probe.h
+    platform/win32/win32_process_runner.cpp
+    platform/win32/win32_process_runner.h
+    platform/win32/win32_text_transcoder.cpp
+    platform/win32/win32_text_transcoder.h)
+
 cyella_add_source_filter(cyella_lib_files "platform/host"
     platform/win32/cyella_delegate.cpp
     platform/win32/cyella_delegate.h

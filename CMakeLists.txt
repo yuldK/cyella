@@ -135,5 +135,5 @@ endif()
 # `cyella`만 최상위에 남겨 솔루션을 열었을 때 진입점이 바로 보이게 한다.
 cyella_set_ide_folder("Libraries" cyella_lib luil)
 if(CYELLA_BUILD_TESTS)
-    cyella_set_ide_folder("Tests" cyella_tests)
+    cyella_set_ide_folder("Tests" cyella_tests cyella_test_child)
 endif()

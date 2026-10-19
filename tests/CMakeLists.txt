@@ -16,7 +16,38 @@ cyella_add_source_filter(cyella_test_files "domain/graph"
 cyella_add_source_filter(cyella_test_files "platform/host"
     cyella_driver_tests.cpp)
 
+cyella_add_source_filter(cyella_test_files "support"
+    process_test_support.h)
+
+cyella_add_source_filter(cyella_test_files "application"
+    process_runner_tests.cpp
+    process_support_tests.cpp
+    task_scheduler_tests.cpp)
+
+cyella_add_source_filter(cyella_test_files "infrastructure"
+    git_execution_policy_tests.cpp
+    git_progress_parser_tests.cpp
+    git_tool_discovery_tests.cpp
+    secret_masking_tests.cpp)
+
+# 프로세스 실행기 test가 띄우는 도우미다. stdin 반향, NUL을 포함한 바이트 출력, 손자
+# 프로세스 생성처럼 실제 git으로는 흉내 내기 어려운 동작을 한다. console 앱이고 앱 코드와
+# 링크하지 않으며 .rc도 싣지 않는다.
+set(cyella_test_child_files)
+cyella_add_source_filter(cyella_test_child_files "support"
+    cyella_test_child.cpp)
+add_executable(cyella_test_child ${cyella_test_child_files})
+target_link_libraries(cyella_test_child
+    PRIVATE
+        cyella_project_options)
+cyella_disable_automatic_windows_manifest(cyella_test_child)
+
 add_executable(cyella_tests ${cyella_test_files})
+# test가 도우미를 먼저 빌드하게 하고, 경로는 생성 시점의 target 파일로 받는다.
+add_dependencies(cyella_tests cyella_test_child)
+target_compile_definitions(cyella_tests
+    PRIVATE
+        "CYELLA_TEST_CHILD_PATH=\"$<TARGET_FILE:cyella_test_child>\"")
 target_include_directories(cyella_tests
     PRIVATE
         "${CYELLA_SOURCE_DIRECTORY}"

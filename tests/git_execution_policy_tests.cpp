@@ -1,0 +1,128 @@
+#include "infrastructure/git_execution_policy.h"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <algorithm>
+#include <optional>
+#include <string>
+#include <vector>
+
+using namespace cyella;
+
+namespace {
+    const process_environment_override* find_override(const std::vector<process_environment_override>& overrides, const std::u8string_view name)
+    {
+        for (const process_environment_override& entry : overrides)
+            if (entry.name == name)
+                return &entry;
+        return nullptr;
+    }
+
+    process_request make_request(const git_command_class command_class, const git_request_options& options = {})
+    {
+        return make_git_process_request(u8"C:/Git/cmd/git.exe", u8"C:/work/repo", { u8"status", u8"--porcelain=v2" }, command_class, options);
+    }
+} // namespace
+
+TEST_CASE("git requests start with the common arguments", "[policy]")
+{
+    const process_request request { make_request(git_command_class::local_query) };
+
+    const std::vector<std::u8string> expected { u8"-c", u8"core.quotepath=false", u8"-c", u8"gc.auto=0", u8"-c", u8"color.ui=false", u8"--no-pager", u8"status", u8"--porcelain=v2" };
+    CHECK(request.arguments == expected);
+    CHECK(request.executable == u8"C:/Git/cmd/git.exe");
+    CHECK(request.working_directory == u8"C:/work/repo");
+}
+
+TEST_CASE("git requests never prompt on the terminal", "[policy]")
+{
+    const process_request request { make_request(git_command_class::local_query) };
+
+    const process_environment_override* const prompt { find_override(request.environment_overrides, u8"GIT_TERMINAL_PROMPT") };
+    REQUIRE(prompt != nullptr);
+    REQUIRE(prompt->value.has_value());
+    CHECK(*prompt->value == u8"0");
+}
+
+TEST_CASE("git requests leave the ssh command and credential manager alone", "[policy]")
+{
+    const process_request request { make_request(git_command_class::network) };
+
+    CHECK(find_override(request.environment_overrides, u8"GIT_SSH_COMMAND") == nullptr);
+    CHECK(find_override(request.environment_overrides, u8"GCM_INTERACTIVE") == nullptr);
+    CHECK(find_override(request.environment_overrides, u8"GIT_OPTIONAL_LOCKS") == nullptr);
+}
+
+TEST_CASE("git requests without a helper remove inherited askpass variables", "[policy][askpass]")
+{
+    const process_request request { make_request(git_command_class::network) };
+
+    for (const std::u8string_view name : { u8"GIT_ASKPASS", u8"SSH_ASKPASS", u8"SSH_ASKPASS_REQUIRE" })
+    {
+        const process_environment_override* const entry { find_override(request.environment_overrides, name) };
+        REQUIRE(entry != nullptr);
+        CHECK_FALSE(entry->value.has_value());
+    }
+}
+
+TEST_CASE("git requests with a helper route askpass to it", "[policy][askpass]")
+{
+    git_request_options options {};
+    options.askpass_helper = u8"C:/cyella/cyella_askpass.exe";
+
+    const process_request request { make_request(git_command_class::network, options) };
+
+    for (const std::u8string_view name : { u8"GIT_ASKPASS", u8"SSH_ASKPASS" })
+    {
+        const process_environment_override* const entry { find_override(request.environment_overrides, name) };
+        REQUIRE(entry != nullptr);
+        REQUIRE(entry->value.has_value());
+        CHECK(*entry->value == u8"C:/cyella/cyella_askpass.exe");
+    }
+    const process_environment_override* const require { find_override(request.environment_overrides, u8"SSH_ASKPASS_REQUIRE") };
+    REQUIRE(require != nullptr);
+    REQUIRE(require->value.has_value());
+    CHECK(*require->value == u8"force");
+    CHECK(validate_process_request(request).empty());
+}
+
+TEST_CASE("git command classes carry their own limits", "[policy][timeout]")
+{
+    using namespace std::chrono_literals;
+
+    CHECK(git_limits_for(git_command_class::tool_probe).timeout == 5s);
+    CHECK(git_limits_for(git_command_class::local_query).timeout == 600s);
+    CHECK(git_limits_for(git_command_class::local_write).timeout == 300s);
+    // 네트워크 작업은 느린 회선과 인증 대화 상자를 기다리므로 자르지 않는다.
+    CHECK_FALSE(git_limits_for(git_command_class::network).timeout.has_value());
+
+    const process_request network { make_request(git_command_class::network) };
+    CHECK_FALSE(network.timeout.has_value());
+    const process_request query { make_request(git_command_class::local_query) };
+    CHECK(query.timeout == 600s);
+}
+
+TEST_CASE("git request options select raw output and input", "[policy][raw]")
+{
+    git_request_options options {};
+    options.raw_standard_output = true;
+    options.standard_input = "message";
+    options.maximum_captured_bytes_per_stream = unlimited_process_capture_bytes;
+
+    const process_request request { make_request(git_command_class::local_query, options) };
+
+    CHECK(request.standard_output_mode == process_output_mode::raw);
+    CHECK(request.standard_error_mode == process_output_mode::lines);
+    CHECK(request.standard_input == "message");
+    CHECK(request.maximum_captured_bytes_per_stream == unlimited_process_capture_bytes);
+    CHECK(validate_process_request(request).empty());
+}
+
+TEST_CASE("git requests default to line output with the class capture limit", "[policy]")
+{
+    const process_request request { make_request(git_command_class::local_query) };
+
+    CHECK(request.standard_output_mode == process_output_mode::lines);
+    CHECK(request.standard_input.empty());
+    CHECK(request.maximum_captured_bytes_per_stream == git_limits_for(git_command_class::local_query).maximum_captured_bytes_per_stream);
+}
