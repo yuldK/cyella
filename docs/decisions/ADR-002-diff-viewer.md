@@ -48,3 +48,33 @@ luil로 직접 그리면 텍스트 배치, 구문 강조, 선택·복사, 단어
 - 텍스트 배치·선택·복사를 새로 만들지 않고 inline·분할 보기와 구문 강조를 갖출 수 있다.
 - WebView2 Runtime이 필요하다. 없으면 diff 영역에 일반 텍스트 대체 보기와 설치 안내를 보인다.
 - 웹뷰와 luil 사이의 초점·단축키 이동은 luil `webview_element`의 규칙을 따른다.
+
+## 2026-10-20 구현 결정
+
+결정 2·4를 구현하며 바꾼 것과, 구현에서 정한 것이다.
+
+1. **`file://`로 연다.** luil 웹뷰에는 가상 호스트 매핑이 없어(`https://cyella.diff/`는 쓸 수 없다) 뷰어를
+   실행 파일 옆 `diff-viewer/`에 두고 `file:///…/index.html`로 연다. `webview_policy::allowed_schemes`에
+   `file`만 넣는다.
+   - `file://` 문서에서도 항해, 페이지의 `chrome.webview.postMessage`, 공백·한글이 든 경로의 `file://` `<img>`,
+     24 MiB `post_message`가 모두 된다. `tests/manual/webview_file_probe`(`--payload-mib`)로 다시 볼 수 있다.
+   - file 문서에서는 ES 모듈을 읽지 못하므로 고전 `<script>`만 쓴다.
+   - 빌드 후 단계가 `diff-viewer/`를 exe 옆에 복사하고, 설치 규칙(`install(DIRECTORY …)`)이 `bin/diff-viewer/`로 옮긴다.
+2. **diff 하나는 메시지 하나다.** luil의 상한(`maximum_message_bytes`, 기본 256 KiB)은 **페이지가 보내는**
+   메시지에만 걸리고, 앱이 페이지로 보내는 `post_message`에는 없다.
+   - 그래서 쪼개 보내지(`part`·ack) 않는다. frame마다 마지막 메시지만 적용돼 ack 상태 기계가 필요해지기 때문이다.
+   - 줄 수 상한(기본 10만 줄)을 넘으면 앞부분만 보내고 `truncated`·`total_lines`를 알린다. 뷰어의 "전체 보기"가
+     `show_full`을 보내면 전체를 다시 보낸다. 잘린 동안은 patch 동작을 막는다.
+   - `maximum_message_bytes`는 8 MiB로 올린다. 페이지가 보내는 가장 큰 메시지는 `copy`의 텍스트(최대 4 MiB,
+     JSON 이스케이프로 두 배까지)이고, 줄 선택은 구간 목록이라 수 KiB다.
+   - 모든 C++ → JS 메시지는 단조 증가하는 `seq`를 갖는다. 내용 메시지(`show_diff` 등)가 layout·theme을 함께
+     실어 마지막 메시지만 적용돼도 상태가 어긋나지 않는다. JS 동작은 보고 있는 diff의 `seq`를 되돌려 보내고, 다르면
+     거절한다. `ready`를 받기 전에는 보내지 않고, `ready`(웹뷰를 다시 읽었을 때 포함)에는 상태 전체를 다시 보낸다.
+3. **올바르지 않은 UTF-8은 바이트를 잃지 않는다.** 줄 내용이 올바른 UTF-8이 아니면 base64로 보내고 줄 항목에
+   표지(`1`)를 붙인다. 뷰어는 U+FFFD로 보인다. 경로 같은 표시값은 U+FFFD로 바꾼다. 동작은 줄 위치만 되돌려 보내므로
+   왕복이 필요 없다.
+4. **jsdiff는 쓰지 않는다.** 줄 안의 단어 단위 강조는 토큰 LCS를 직접 구현했다(`word-diff.js`). highlight.js
+   11.11.1(BSD-3-Clause)은 c·cpp·cmake·js·ts·json·python·markdown·xml·css·powershell·bash·csharp·ini·yaml만 번들(82 KB)하고,
+   라이선스 원문은 실행 파일 고지에 덧붙인다(`cyella_append_third_party_notices`).
+5. **임시 파일은 앱이 끝날 때 지운다.** 외부 도구와 웹뷰가 작업이 끝난 뒤에도 파일을 열어 둘 수 있어서
+   작업 단위로 지우지 않는다. 비정상 종료로 남은 24시간 넘은 폴더는 다음 실행이 지운다.

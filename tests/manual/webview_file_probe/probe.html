@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <title>webview file probe</title>
+</head>
+<body>
+    <pre id="out">probe</pre>
+    <img id="image" alt="" style="display:none">
+    <script>
+        'use strict';
+
+        // luil 웹뷰가 file:// 문서를 열 수 있는지, 그 문서가 chrome.webview.postMessage로 C++에
+        // 보낼 수 있는지, C++의 post_message를 받을 수 있는지, 같은 스킴의 <img>가 읽히는지 본다.
+        const out = document.getElementById('out');
+        const query = new URLSearchParams(location.search);
+
+        function send(message)
+        {
+            window.chrome.webview.postMessage(message);
+        }
+
+        window.chrome.webview.addEventListener('message', (event) =>
+        {
+            const data = event.data;
+            out.textContent += '\nreceived ' + data.type + ' ' + String(data.payload).length;
+            send({ type: 'pong', seq: data.seq, length: String(data.payload).length });
+        });
+
+        const image = document.getElementById('image');
+        image.addEventListener('load', () => send({ type: 'image', ok: true, width: image.naturalWidth, height: image.naturalHeight }));
+        image.addEventListener('error', () => send({ type: 'image', ok: false }));
+        image.src = query.get('image');
+
+        send({ type: 'ready', href: location.href, protocol: location.protocol });
+        // 상한(maximum_message_bytes)을 넘는 메시지는 버려지고 events_dropped가 와야 한다.
+        send({ type: 'oversize', payload: 'x'.repeat(300 * 1024) });
+    </script>
+</body>
+</html>

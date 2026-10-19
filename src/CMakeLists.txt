@@ -54,6 +54,10 @@ cyella_add_source_filter(cyella_lib_files "domain/model"
     domain/repository_summary.h
     domain/stash_entry.h)
 
+cyella_add_source_filter(cyella_lib_files "domain/diff"
+    domain/patch_builder.cpp
+    domain/patch_builder.h)
+
 # operation 하나의 상태(contract의 operation_status)와 실패·입력 종류다.
 cyella_add_source_filter(cyella_lib_files "domain/operations"
     domain/operation_status.cpp
@@ -116,6 +120,19 @@ cyella_add_source_filter(cyella_lib_files "application/process"
 
 cyella_add_source_filter(cyella_lib_files "application/authentication"
     application/askpass_service.h)
+
+# diff 뷰어: 웹뷰 메시지 프로토콜(순수 함수), 컨트롤러(입출력 없이 효과를 값으로 돌려준다), 두 쪽 해석과
+# 외부 도구 열기다.
+cyella_add_source_filter(cyella_lib_files "application/diff_view"
+    application/diff_sides.cpp
+    application/diff_sides.h
+    application/diff_tool_launcher.h
+    application/diff_view_controller.cpp
+    application/diff_view_controller.h
+    application/diff_view_protocol.cpp
+    application/diff_view_protocol.h
+    application/external_diff_opener.cpp
+    application/external_diff_opener.h)
 
 cyella_add_source_filter(cyella_lib_files "application/scheduling"
     application/operation_executor.h
@@ -181,6 +198,13 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/authentication"
     infrastructure/ssh_tools.cpp
     infrastructure/ssh_tools.h)
 
+# diff 뷰어의 git 입출력(blob을 임시 파일로 꺼내기, diff.tool 읽기)과 임시 폴더다.
+cyella_add_source_filter(cyella_lib_files "infrastructure/diff_view"
+    infrastructure/diff_temp_directory.cpp
+    infrastructure/diff_temp_directory.h
+    infrastructure/git_diff_gateway.cpp
+    infrastructure/git_diff_gateway.h)
+
 # operation을 git 명령으로 바꿔 실행하는 실행기다. 명령 조립기·해석기·process runner를 잇는다.
 cyella_add_source_filter(cyella_lib_files "infrastructure/git_operations"
     infrastructure/git_operation_context.cpp
@@ -213,6 +237,10 @@ cyella_add_source_filter(cyella_lib_files "platform/process"
     platform/win32/win32_text_transcoder.h
     platform/win32/win32_workspace_files.cpp
     platform/win32/win32_workspace_files.h)
+
+cyella_add_source_filter(cyella_lib_files "platform/diff_view"
+    platform/win32/win32_diff_tool_launcher.cpp
+    platform/win32/win32_diff_tool_launcher.h)
 
 cyella_add_source_filter(cyella_lib_files "platform/settings"
     platform/win32/win32_app_settings_path.cpp
@@ -273,6 +301,7 @@ cyella_add_source_filter(cyella_app_files "resource"
 add_executable(cyella WIN32 ${cyella_app_files})
 target_link_libraries(cyella PRIVATE cyella_lib)
 cyella_disable_automatic_windows_manifest(cyella)
+cyella_copy_diff_viewer_assets(cyella)
 
 # askpass 도우미다. git과 OpenSSH가 비밀이 필요할 때 실행하는 작은 프로그램이며 앱의 named pipe에
 # 묻는다. luil·Skia에 링크하지 않으려고 앱 라이브러리와 별개로 필요한 소스만 직접 컴파일한다.
@@ -296,3 +325,5 @@ cyella_disable_automatic_windows_manifest(cyella_askpass)
 # 앱이 도우미를 자기 옆에서 찾으므로 둘을 같은 디렉터리에 설치한다.
 add_dependencies(cyella cyella_askpass)
 install(TARGETS cyella cyella_askpass RUNTIME DESTINATION .)
+# 웹뷰가 실행 파일 옆의 이 폴더에서 `file://`로 뷰어를 연다.
+install(DIRECTORY "${CYELLA_DIFF_VIEWER_DIRECTORY}/" DESTINATION diff-viewer)

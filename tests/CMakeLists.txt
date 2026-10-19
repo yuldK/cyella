@@ -71,7 +71,14 @@ target_link_libraries(cyella_test_child
 cyella_disable_automatic_windows_manifest(cyella_test_child)
 
 # domain: 값 타입과 규칙의 test다. git이 필요 없다.
+cyella_add_source_filter(cyella_test_files "application/diff_view"
+    diff_view_controller_tests.cpp
+    diff_view_git_tests.cpp
+    diff_view_protocol_tests.cpp
+    external_diff_opener_tests.cpp)
+
 cyella_add_source_filter(cyella_test_files "domain"
+    patch_builder_tests.cpp
     ref_name_tests.cpp
     repository_summary_tests.cpp)
 
@@ -104,6 +111,7 @@ cyella_add_source_filter(cyella_test_files "application/repository_integration"
 # 실제 git으로 임시 저장소를 만들어 조립기와 해석기를 이어서 검증한다.
 cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"
     git_integration_tests.cpp
+    patch_builder_git_tests.cpp
     git_test_support.cpp
     git_test_support.h)
 
@@ -133,6 +141,18 @@ cyella_disable_automatic_windows_manifest(cyella_tests)
 # `[perf]` 측정(10만 커밋 레이아웃 등)은 숨김 태그라 기본 목록에 없고 ctest에도 넣지 않는다.
 # 직접 부른다:  cyella_tests.exe "[perf]"
 catch_discover_tests(cyella_tests TEST_SPEC "~[perf]" PROPERTIES TIMEOUT 120)
+
+# 수동 점검 프로그램(CTest에 등록하지 않는다).
+add_subdirectory(manual)
+
+# diff 뷰어의 순수 JS(단어 단위 차이, 줄별 구문 강조 조립, 행 계산)를 node로 시험한다. node가 없으면
+# 등록하지 않는다. 브라우저·DOM이 필요한 부분은 수동 점검 틀(tests/manual/diff_viewer_harness)이 맡는다.
+find_program(CYELLA_NODE_EXECUTABLE NAMES node)
+if(CYELLA_NODE_EXECUTABLE)
+    add_test(NAME cyella_diff_viewer_js
+        COMMAND "${CYELLA_NODE_EXECUTABLE}" --test "${CYELLA_TEST_DIRECTORY}/js/diff_viewer.test.js")
+    set_tests_properties(cyella_diff_viewer_js PROPERTIES TIMEOUT 120)
+endif()
 
 add_test(NAME cyella_source_style
     COMMAND "${CMAKE_COMMAND}"

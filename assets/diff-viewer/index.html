@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>cyella diff</title>
+    <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+    <div class="app">
+        <header id="toolbar" class="toolbar" hidden></header>
+        <div id="notice" class="notice" hidden></div>
+        <main id="content" class="content"></main>
+        <div id="selection-bar" class="selbar" hidden></div>
+    </div>
+    <!-- file:// 문서라 ES 모듈은 쓸 수 없다. 고전 스크립트를 순서대로 싣는다. -->
+    <script src="vendor/highlight.min.js"></script>
+    <script src="word-diff.js"></script>
+    <script src="syntax.js"></script>
+    <script src="model.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>

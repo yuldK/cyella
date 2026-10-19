@@ -28,6 +28,8 @@ set(CYELLA_GENERATED_RESOURCE "${CYELLA_GENERATED_DIRECTORY}/cyella.rc")
 set(CYELLA_GENERATED_LUIL_RESOURCE "${CYELLA_GENERATED_DIRECTORY}/luil_resources.rc")
 set(CYELLA_THIRD_PARTY_NOTICES
     "${CYELLA_GENERATED_DIRECTORY}/third_party_notices.txt")
+# diff 뷰어(HTML·JS·CSS) 자산이다. 실행 파일 옆 `diff-viewer` 폴더로 복사·설치한다.
+set(CYELLA_DIFF_VIEWER_DIRECTORY "${PROJECT_SOURCE_DIR}/assets/diff-viewer")
 set(CYELLA_SOURCE_STYLE_SCRIPT "${PROJECT_SOURCE_DIR}/scripts/check_source_style.ps1")
 set(CYELLA_SOURCE_STYLE_CMAKE_SCRIPT "${CYELLA_CMAKE_DIRECTORY}/run_style_check.cmake")
 
@@ -96,6 +98,9 @@ set(LUIL_ASSET_DIRECTORY "${CYELLA_THIRD_PARTY_DIRECTORY}/luil/assets/codicons")
 set(LUIL_NLOHMANN_JSON_ROOT "${CYELLA_THIRD_PARTY_DIRECTORY}/luil/third_party/nlohmann_json")
 # 제3자 고지와 .rc 조각은 src/와 tests/가 함께 쓰므로 여기서 한 번 만든다.
 luil_generate_third_party_notices("${CYELLA_THIRD_PARTY_NOTICES}")
+# luil의 목록에 없는 cyella 자신의 번들(diff 뷰어의 highlight.js)을 같은 파일에 덧붙인다.
+cyella_append_third_party_notices("${CYELLA_THIRD_PARTY_NOTICES}"
+    "highlight.js (diff viewer syntax highlighting)|${CYELLA_DIFF_VIEWER_DIRECTORY}/vendor/highlight.js-LICENSE.txt")
 luil_configure_resource_script("${CYELLA_GENERATED_LUIL_RESOURCE}" "${CYELLA_THIRD_PARTY_NOTICES}")
 
 # `include(CTest)`는 Continuous·Experimental·Nightly 등 dashboard target을 함께

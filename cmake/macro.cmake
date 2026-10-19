@@ -122,3 +122,46 @@ function(cyella_add_clang_format_targets)
             VERBATIM)
     endif()
 endfunction()
+
+# luil이 만든 제3자 고지 파일 끝에 cyella가 직접 싣는 구성 요소의 라이선스를 덧붙인다.
+#
+#   cyella_append_third_party_notices(<notices_file> "<이름>|<라이선스 파일>" ...)
+#
+# luil의 생성기는 목록이 고정이라 앱이 번들하는 것(diff 뷰어의 highlight.js 등)을 모른다. 같은 파일에
+# 같은 형식(Component 머리말)으로 이어 써서 실행 파일 resource 하나에 모이게 한다. 라이선스 파일이 없으면
+# configure를 멈춘다. 고지 없이 배포하는 것보다 낫다.
+function(cyella_append_third_party_notices notices_file)
+    set(appended "")
+    foreach(entry IN LISTS ARGN)
+        string(FIND "${entry}" "|" separator_index)
+        if(separator_index EQUAL -1)
+            message(FATAL_ERROR "Malformed notice entry: ${entry}")
+        endif()
+        string(SUBSTRING "${entry}" 0 ${separator_index} component_name)
+        math(EXPR path_index "${separator_index} + 1")
+        string(SUBSTRING "${entry}" ${path_index} -1 license_file)
+        if(NOT EXISTS "${license_file}")
+            message(FATAL_ERROR
+                "A license file is missing: ${license_file}\n"
+                "Component: ${component_name}")
+        endif()
+        file(READ "${license_file}" license_text)
+        string(APPEND appended
+            "\n\n----------------------------------------\n"
+            "Component: ${component_name}\n"
+            "----------------------------------------\n"
+            "${license_text}")
+    endforeach()
+    file(APPEND "${notices_file}" "${appended}")
+endfunction()
+
+# diff 뷰어 자산(assets/diff-viewer)을 target의 실행 파일 옆 `diff-viewer` 폴더에 복사한다. 웹뷰가
+# `file://` 주소로 그 폴더의 index.html을 열기 때문이다(ADR-002). 빌드 때마다 바뀐 파일만 갱신한다.
+function(cyella_copy_diff_viewer_assets target)
+    add_custom_command(TARGET "${target}" POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CYELLA_DIFF_VIEWER_DIRECTORY}"
+            "$<TARGET_FILE_DIR:${target}>/diff-viewer"
+        COMMENT "Copying the diff viewer assets next to ${target}"
+        VERBATIM)
+endfunction()

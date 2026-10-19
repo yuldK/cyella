@@ -1,0 +1,730 @@
+/*
+ * diff 뷰어 스타일이다. 색은 luil 팔레트 이름을 CSS 변수로 옮긴 값이고,
+ * C++이 `set_theme`의 tokens로 같은 이름의 변수를 덮어쓸 수 있다.
+ */
+
+:root,
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --window-background: #1e1e1e;
+    --surface-background: #2d2d30;
+    --primary-foreground: #ffffff;
+    --secondary-foreground: #ffffffbf;
+    --disabled-foreground: #ffffff73;
+    --divider: #ffffff1f;
+    --input-background: #ffffff14;
+    --control-border: #ffffff8c;
+    --error-accent: #e06c75;
+    --success-accent: #5fc98a;
+    --warning-accent: #dcaa2d;
+    --button-hover-background: #ffffff1a;
+    --tooltip-background: #252526;
+    --content-shadow: #000000;
+    --accent: #009070;
+    --accent-hover: #2ca483;
+    --accent-soft: #91ddc2;
+    --accent-emphasis-foreground: #b7ecd8;
+    --accent-foreground: #ffffff;
+    --lane-1: #e3a34b;
+    --lane-2: #b48ef0;
+    --lane-3: #5fc98a;
+    --lane-4: #ec7a9b;
+    --lane-6: #6fd3d0;
+    --diff-add-background: #2ea04326;
+    --diff-add-strong: #2ea04366;
+    --diff-del-background: #f8514926;
+    --diff-del-strong: #f8514966;
+    --diff-hunk-background: #ffffff0d;
+}
+
+:root[data-theme="light"] {
+    color-scheme: light;
+    --window-background: #f8f8f8;
+    --surface-background: #ffffff;
+    --primary-foreground: #1f1f1f;
+    --secondary-foreground: #1f1f1fbf;
+    --disabled-foreground: #1f1f1f73;
+    --divider: #1f1f1f1f;
+    --input-background: #1f1f1f14;
+    --control-border: #1f1f1f8c;
+    --error-accent: #c0303a;
+    --success-accent: #1a7f37;
+    --warning-accent: #9a6700;
+    --button-hover-background: #00000014;
+    --tooltip-background: #ffffff;
+    --content-shadow: #000000;
+    --accent: #007258;
+    --accent-hover: #00604a;
+    --accent-soft: #005440;
+    --accent-emphasis-foreground: #005440;
+    --accent-foreground: #ffffff;
+    --lane-1: #b8730f;
+    --lane-2: #7d4fd0;
+    --lane-3: #23944f;
+    --lane-4: #c43c66;
+    --lane-6: #188e8a;
+    --diff-add-background: #1a7f3720;
+    --diff-add-strong: #1a7f3750;
+    --diff-del-background: #cf222e1c;
+    --diff-del-strong: #cf222e48;
+    --diff-hunk-background: #0000000a;
+}
+
+:root {
+    --selection-background: color-mix(in srgb, var(--accent-soft) 35%, transparent);
+    --soft-button-background: color-mix(in srgb, var(--accent-soft) 25%, transparent);
+    --soft-button-hover-background: color-mix(in srgb, var(--accent-hover) 35%, transparent);
+    --danger-button-background: color-mix(in srgb, var(--error-accent) 20%, transparent);
+    --small-font-size: 11px;
+    --control-corner-radius: 3px;
+    --ui-font: "Segoe UI Variable Text", "Segoe UI", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+    --code-font: "Cascadia Mono", "Cascadia Code", Consolas, "D2Coding", "Malgun Gothic", monospace;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: var(--surface-background);
+    color: var(--primary-foreground);
+    font: 12px / 1.4 var(--ui-font);
+}
+
+.app {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+/* ---------- 머리 줄 ---------- */
+.toolbar {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    min-height: 34px;
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--divider);
+    background: var(--window-background);
+}
+
+.toolbar-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.toolbar-path {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.toolbar-stat {
+    display: inline-flex;
+    gap: 6px;
+    font-family: var(--code-font);
+}
+
+.toolbar-stat .is-add {
+    color: var(--success-accent);
+}
+
+.toolbar-stat .is-del {
+    color: var(--error-accent);
+}
+
+.toolbar-spacer {
+    flex: 1;
+}
+
+.chip {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: var(--control-corner-radius);
+    background: var(--input-background);
+    color: var(--secondary-foreground);
+    font-size: var(--small-font-size);
+    line-height: 18px;
+    white-space: nowrap;
+}
+
+.btn {
+    height: 24px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--control-corner-radius);
+    background: var(--input-background);
+    color: var(--primary-foreground);
+    font: inherit;
+    cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+    background: var(--button-hover-background);
+}
+
+.btn:disabled {
+    color: var(--disabled-foreground);
+    cursor: default;
+}
+
+.btn.is-primary {
+    background: var(--soft-button-background);
+    color: var(--accent-emphasis-foreground);
+}
+
+.btn.is-primary:hover:not(:disabled) {
+    background: var(--soft-button-hover-background);
+}
+
+.btn.is-quiet {
+    background: transparent;
+    color: var(--secondary-foreground);
+}
+
+.btn.is-danger {
+    background: var(--danger-button-background);
+    color: var(--error-accent);
+}
+
+.btn:focus-visible,
+.seg:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.segmented {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: var(--control-corner-radius);
+    background: var(--input-background);
+}
+
+.seg {
+    height: 20px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--control-corner-radius);
+    background: transparent;
+    color: var(--secondary-foreground);
+    font: inherit;
+    cursor: pointer;
+}
+
+.seg.is-active {
+    background: var(--soft-button-background);
+    color: var(--accent-emphasis-foreground);
+}
+
+.notice {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--divider);
+    background: var(--input-background);
+    color: var(--secondary-foreground);
+    font-size: var(--small-font-size);
+}
+
+/* ---------- 본문 ---------- */
+.content {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    background: var(--surface-background);
+}
+
+.empty {
+    margin: auto;
+    padding: 48px 16px;
+    color: var(--secondary-foreground);
+}
+
+.diff-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    font: 12px / 20px var(--code-font);
+    outline: none;
+}
+
+.diff-sizer {
+    position: relative;
+    min-width: 100%;
+}
+
+.diff-window {
+    position: absolute;
+    left: 0;
+    right: 0;
+}
+
+/* ---------- 줄 ---------- */
+.dl {
+    display: grid;
+    grid-template-columns: 46px 46px 20px minmax(0, 1fr);
+    height: 20px;
+}
+
+.dl.is-split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.dl-no {
+    padding: 0 8px 0 4px;
+    color: var(--disabled-foreground);
+    font-size: var(--small-font-size);
+    text-align: right;
+    user-select: none;
+}
+
+.dl.is-add .dl-no,
+.dl.is-del .dl-no,
+.dl-half.is-add .dl-no,
+.dl-half.is-del .dl-no {
+    color: var(--secondary-foreground);
+}
+
+.dl-no.is-selectable {
+    cursor: pointer;
+}
+
+.dl-no.is-selectable:hover {
+    background: var(--button-hover-background);
+    color: var(--primary-foreground);
+}
+
+.dl-mark {
+    color: var(--secondary-foreground);
+    text-align: center;
+    user-select: none;
+}
+
+.dl-code {
+    padding-right: 16px;
+    tab-size: 4;
+    white-space: pre;
+}
+
+.dl.is-add,
+.dl-half.is-add {
+    background-color: var(--diff-add-background);
+}
+
+.dl.is-del,
+.dl-half.is-del {
+    background-color: var(--diff-del-background);
+}
+
+.dl.is-add .dl-mark,
+.dl-half.is-add .dl-mark {
+    color: var(--success-accent);
+}
+
+.dl.is-del .dl-mark,
+.dl-half.is-del .dl-mark {
+    color: var(--error-accent);
+}
+
+.dl.is-add .is-strong,
+.dl-half.is-add .is-strong {
+    border-radius: 2px;
+    background: var(--diff-add-strong);
+}
+
+.dl.is-del .is-strong,
+.dl-half.is-del .is-strong {
+    border-radius: 2px;
+    background: var(--diff-del-strong);
+}
+
+.dl.is-selected,
+.dl-half.is-selected {
+    background-image: linear-gradient(var(--selection-background), var(--selection-background));
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.eol-cr {
+    margin-left: 4px;
+    color: var(--disabled-foreground);
+    font-size: 10px;
+    user-select: none;
+}
+
+.dl-half {
+    display: grid;
+    grid-template-columns: 44px 20px minmax(0, 1fr);
+    min-width: 0;
+    overflow: hidden;
+}
+
+.dl-half + .dl-half {
+    border-left: 1px solid var(--divider);
+}
+
+.dl-half.is-empty {
+    background: repeating-linear-gradient(135deg, var(--diff-hunk-background) 0 4px, transparent 4px 8px);
+}
+
+.dl-note {
+    height: 20px;
+    padding-left: 112px;
+    color: var(--disabled-foreground);
+    font-size: var(--small-font-size);
+    font-style: italic;
+}
+
+/* hunk 머리 줄 */
+.dl-hunk {
+    height: 30px;
+    border-top: 1px solid var(--divider);
+    border-bottom: 1px solid var(--divider);
+    background: var(--diff-hunk-background);
+}
+
+.dl-hunk-inner {
+    position: sticky;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: var(--view-w, 100%);
+    height: 28px;
+    padding: 0 8px;
+}
+
+.dl-hunk-text {
+    color: var(--accent-emphasis-foreground);
+    white-space: nowrap;
+}
+
+.dl-hunk-section {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--secondary-foreground);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dl-hunk-spacer {
+    flex: 1;
+}
+
+.dl-hunk .btn {
+    height: 22px;
+    padding: 0 8px;
+    font-size: var(--small-font-size);
+}
+
+/* ---------- 구문 강조 (highlight.js 클래스를 lane 색에 맞춘다) ---------- */
+.hljs-keyword,
+.hljs-literal,
+.hljs-doctag,
+.hljs-selector-tag,
+.hljs-name,
+.hljs-section {
+    color: var(--lane-2);
+}
+
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-title.class_,
+.hljs-tag {
+    color: var(--lane-6);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol,
+.hljs-addition {
+    color: var(--lane-3);
+}
+
+.hljs-number,
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+    color: var(--lane-1);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-bullet,
+.hljs-link,
+.hljs-deletion {
+    color: var(--lane-4);
+}
+
+.hljs-comment,
+.hljs-quote {
+    color: var(--secondary-foreground);
+    font-style: italic;
+}
+
+.hljs-title,
+.hljs-title.function_ {
+    color: var(--accent-emphasis-foreground);
+}
+
+.hljs-emphasis {
+    font-style: italic;
+}
+
+.hljs-strong {
+    font-weight: 700;
+}
+
+/* ---------- 줄 선택 막대 ---------- */
+.selbar {
+    position: absolute;
+    right: 10px;
+    bottom: 14px;
+    left: 10px;
+    z-index: 4;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: fit-content;
+    margin-inline: auto;
+    padding: 6px 8px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background: var(--tooltip-background);
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--content-shadow) 40%, transparent);
+}
+
+.selbar .btn {
+    height: 26px;
+}
+
+.selbar-count {
+    padding: 0 4px;
+    color: var(--accent-emphasis-foreground);
+    font-weight: 600;
+}
+
+/* ---------- 이미지 비교 ---------- */
+.image-stage {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    padding: 12px;
+    overflow: auto;
+}
+
+.image-pair {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 12px;
+    margin: auto;
+    max-width: 100%;
+}
+
+.image-pair.is-single {
+    flex-direction: column;
+    align-items: center;
+}
+
+.image-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 100%;
+    margin: 0;
+}
+
+.image-caption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    font-size: var(--small-font-size);
+}
+
+.image-meta {
+    color: var(--secondary-foreground);
+}
+
+.checker {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    border: 1px solid var(--divider);
+    border-radius: 4px;
+    background-color: var(--surface-background);
+    background-image: repeating-conic-gradient(color-mix(in srgb, var(--primary-foreground) 12%, transparent) 0 25%, transparent 0 50%);
+    background-size: 16px 16px;
+    touch-action: none;
+}
+
+.diff-img {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 170px);
+    user-select: none;
+    pointer-events: none;
+}
+
+.image-none {
+    display: block;
+    padding: 24px 32px;
+    color: var(--secondary-foreground);
+}
+
+.checker.is-stack {
+    min-width: 120px;
+    min-height: 80px;
+}
+
+.checker.is-stack .diff-img-wrap {
+    display: block;
+}
+
+.checker.is-stack .diff-img-wrap.is-right {
+    position: absolute;
+    inset: 0;
+}
+
+.checker.is-stack .diff-img-wrap.is-right .diff-img {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    object-fit: contain;
+}
+
+.checker.is-slide {
+    cursor: ew-resize;
+}
+
+.slide-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 2px solid var(--accent);
+    transform: translateX(-1px);
+}
+
+.slide-handle:focus-visible {
+    outline: none;
+}
+
+.slide-handle:focus-visible .slide-grip {
+    box-shadow: 0 0 0 2px var(--surface-background), 0 0 0 4px var(--accent);
+}
+
+.slide-grip {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 36px;
+    transform: translate(-50%, -50%);
+    border-radius: 11px;
+    background: var(--accent);
+    color: var(--accent-foreground);
+    font-size: 12px;
+}
+
+.image-slider {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--secondary-foreground);
+}
+
+.image-slider input {
+    width: 160px;
+    accent-color: var(--accent);
+}
+
+.image-hint {
+    color: var(--secondary-foreground);
+    font-size: var(--small-font-size);
+}
+
+/* ---------- 바이너리 카드 ---------- */
+.card-wrap {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    padding: 16px;
+    overflow: auto;
+}
+
+.card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    width: min(540px, 100%);
+    margin: auto;
+    padding: 20px;
+    border: 1px solid var(--divider);
+    border-radius: 8px;
+    background: var(--window-background);
+}
+
+.card-icon {
+    color: var(--secondary-foreground);
+    font-size: 32px;
+    line-height: 1;
+}
+
+.card-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.card-path {
+    color: var(--secondary-foreground);
+    font-family: var(--code-font);
+    word-break: break-all;
+}
+
+.card-sizes {
+    font-family: var(--code-font);
+}
+
+@media (max-width: 480px) {
+    .selbar {
+        bottom: 8px;
+    }
+
+    .dl {
+        grid-template-columns: 38px 38px 16px minmax(0, 1fr);
+    }
+}
