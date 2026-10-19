@@ -78,6 +78,14 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/git_commands"
     infrastructure/git_command_builder.cpp
     infrastructure/git_command_builder.h)
 
+cyella_add_source_filter(cyella_lib_files "domain/settings"
+    domain/app_settings.cpp
+    domain/app_settings.h
+    domain/external_diff_tool.cpp
+    domain/external_diff_tool.h
+    domain/repository_path.cpp
+    domain/repository_path.h)
+
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
 # UI 헤더를 include하지 않는다.
 cyella_add_source_filter(cyella_lib_files "application/logic"
@@ -98,6 +106,21 @@ cyella_add_source_filter(cyella_lib_files "application/scheduling"
     application/operation_executor.h
     application/task_scheduler.cpp
     application/task_scheduler.h)
+
+cyella_add_source_filter(cyella_lib_files "application/settings"
+    application/app_settings_service.cpp
+    application/app_settings_service.h
+    application/app_settings_store.h
+    application/settings_file_system.h)
+
+cyella_add_source_filter(cyella_lib_files "application/tabs"
+    application/repository_tabs.cpp
+    application/repository_tabs.h)
+
+cyella_add_source_filter(cyella_lib_files "application/watching"
+    application/repository_change_classifier.cpp
+    application/repository_change_classifier.h
+    application/repository_watcher.h)
 
 # infrastructure: application 계약의 구현이다 (Git 호출 등). Win32 API를 직접 부르지 않는다.
 cyella_add_source_filter(cyella_lib_files "infrastructure/process"
@@ -120,7 +143,15 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/git"
     infrastructure/git_version.cpp
     infrastructure/git_version.h)
 
+cyella_add_source_filter(cyella_lib_files "infrastructure/settings"
+    infrastructure/json_app_settings_store.cpp
+    infrastructure/json_app_settings_store.h)
+
 # presentation: view snapshot을 luil element tree로 짓는 앱 element 계층이다.
+cyella_add_source_filter(cyella_lib_files "presentation/start_page"
+    presentation/start_page_view.cpp
+    presentation/start_page_view.h)
+
 cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
     presentation/ui/cyella_caption.h)
 
@@ -138,6 +169,18 @@ cyella_add_source_filter(cyella_lib_files "platform/process"
     platform/win32/win32_text_transcoder.cpp
     platform/win32/win32_text_transcoder.h)
 
+cyella_add_source_filter(cyella_lib_files "platform/settings"
+    platform/win32/win32_app_settings_path.cpp
+    platform/win32/win32_app_settings_path.h
+    platform/win32/win32_file_io.cpp
+    platform/win32/win32_file_io.h
+    platform/win32/win32_settings_file_system.cpp
+    platform/win32/win32_settings_file_system.h)
+
+cyella_add_source_filter(cyella_lib_files "platform/watching"
+    platform/win32/win32_repository_watcher.cpp
+    platform/win32/win32_repository_watcher.h)
+
 cyella_add_source_filter(cyella_lib_files "platform/host"
     platform/win32/cyella_delegate.cpp
     platform/win32/cyella_delegate.h
@@ -154,7 +197,10 @@ target_link_libraries(cyella_lib
     PUBLIC
         cyella_project_options
         nlohmann_json::nlohmann_json
-        luil::luil)
+        luil::luil
+        # SHGetKnownFolderPath(shell32)와 CoTaskMemFree(ole32). 설정 파일 위치에 쓴다.
+        shell32
+        ole32)
 
 # resource는 두 .rc다: luil 조각(코디콘 폰트·라이선스·고지, ID 101~104)과 cyella
 # 조각(manifest·VERSIONINFO).

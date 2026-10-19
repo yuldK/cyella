@@ -43,6 +43,16 @@ namespace cyella {
             return u8"git_tool_version_unreadable";
         case diagnostic_code::git_tool_path_invalid:
             return u8"git_tool_path_invalid";
+        case diagnostic_code::app_settings_invalid:
+            return u8"app_settings_invalid";
+        case diagnostic_code::app_settings_read_failed:
+            return u8"app_settings_read_failed";
+        case diagnostic_code::app_settings_write_failed:
+            return u8"app_settings_write_failed";
+        case diagnostic_code::app_settings_backup_failed:
+            return u8"app_settings_backup_failed";
+        case diagnostic_code::repository_watch_failed:
+            return u8"repository_watch_failed";
         }
         return u8"unknown";
     }

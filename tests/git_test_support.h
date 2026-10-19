@@ -5,6 +5,9 @@
 #include <string_view>
 #include <vector>
 
+// write_file·read_file은 temporary_directory_support.h가 정의한다.
+#include "temporary_directory_support.h"
+
 namespace cyella {
     // git 해석기 test가 함께 쓰는 도구다. 앱 코드가 아니므로 앱의 process runner에
     // 기대지 않고 CreateProcess로 직접 git을 실행한다.
@@ -50,7 +53,5 @@ namespace cyella {
             std::filesystem::path path_ {};
         };
 
-        void write_file(const std::filesystem::path& path, std::string_view content);
-        [[nodiscard]] std::string read_file(const std::filesystem::path& path);
     } // namespace test
 } // namespace cyella

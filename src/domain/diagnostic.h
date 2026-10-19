@@ -28,6 +28,11 @@ namespace cyella {
         git_tool_too_old,
         git_tool_version_unreadable,
         git_tool_path_invalid,
+        app_settings_invalid,
+        app_settings_read_failed,
+        app_settings_write_failed,
+        app_settings_backup_failed,
+        repository_watch_failed,
     };
 
     struct diagnostic

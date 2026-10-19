@@ -13,22 +13,40 @@ cyella_add_source_filter(cyella_test_files "resource"
 cyella_add_source_filter(cyella_test_files "domain/graph"
     commit_graph_layout_tests.cpp)
 
+cyella_add_source_filter(cyella_test_files "domain/settings"
+    app_settings_tests.cpp
+    external_diff_tool_tests.cpp)
+
 cyella_add_source_filter(cyella_test_files "platform/host"
     cyella_driver_tests.cpp)
 
+cyella_add_source_filter(cyella_test_files "platform/settings"
+    win32_settings_tests.cpp)
+
+# 실제 filesystem에서 감시 스레드를 돌리는 통합 test다. 태그는 `[integration]`이다.
+cyella_add_source_filter(cyella_test_files "platform/watching"
+    win32_repository_watcher_tests.cpp)
+
 cyella_add_source_filter(cyella_test_files "support"
-    process_test_support.h)
+    process_test_support.h
+    temporary_directory_support.h)
 
 cyella_add_source_filter(cyella_test_files "application"
     process_runner_tests.cpp
     process_support_tests.cpp
+    repository_change_classifier_tests.cpp
+    repository_tabs_tests.cpp
     task_scheduler_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "infrastructure"
     git_execution_policy_tests.cpp
     git_progress_parser_tests.cpp
     git_tool_discovery_tests.cpp
+    json_app_settings_store_tests.cpp
     secret_masking_tests.cpp)
+
+cyella_add_source_filter(cyella_test_files "presentation"
+    start_page_view_tests.cpp)
 
 # 프로세스 실행기 test가 띄우는 도우미다. stdin 반향, NUL을 포함한 바이트 출력, 손자
 # 프로세스 생성처럼 실제 git으로는 흉내 내기 어려운 동작을 한다. console 앱이고 앱 코드와

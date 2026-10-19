@@ -1,0 +1,487 @@
+#include "application/app_settings_service.h"
+#include "infrastructure/json_app_settings_store.h"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <chrono>
+#include <cstdint>
+#include <map>
+#include <nlohmann/json.hpp>
+#include <string>
+#include <utility>
+#include <vector>
+
+using namespace cyella;
+
+namespace {
+    using json = nlohmann::json;
+
+    std::string text_of(const std::u8string_view value)
+    {
+        return std::string { reinterpret_cast<const char*>(value.data()), value.size() };
+    }
+
+    std::u8string u8_of(const std::string_view value)
+    {
+        return std::u8string { reinterpret_cast<const char8_t*>(value.data()), value.size() };
+    }
+
+    // 메모리에 파일을 두는 가짜다. 실패를 주입할 수 있다.
+    class fake_file_system final : public settings_file_system
+    {
+    public:
+        [[nodiscard]] settings_file_read_result read(const std::u8string_view path) noexcept override
+        {
+            if (fail_reads)
+                return { settings_file_read_state::failed, {}, 5u };
+            const auto found { files.find(std::u8string { path }) };
+            if (found == files.end())
+                return { settings_file_read_state::not_found, {}, 2u };
+            return { settings_file_read_state::available, found->second, std::nullopt };
+        }
+
+        [[nodiscard]] settings_file_commit_result atomic_commit(const std::u8string_view path, const std::u8string_view bytes) noexcept override
+        {
+            ++commit_count;
+            if (fail_commits)
+                return { settings_file_commit_failure::replace, 32u };
+            files[std::u8string { path }] = std::u8string { bytes };
+            return {};
+        }
+
+        [[nodiscard]] settings_file_rename_result rename(const std::u8string_view from, const std::u8string_view to) noexcept override
+        {
+            renames.emplace_back(std::u8string { from }, std::u8string { to });
+            if (fail_renames || files.contains(std::u8string { to }) || files.contains(std::u8string { from }) == false)
+                return { false, 183u };
+            files[std::u8string { to }] = std::move(files[std::u8string { from }]);
+            files.erase(std::u8string { from });
+            return { true, std::nullopt };
+        }
+
+        std::map<std::u8string, std::u8string> files {};
+        std::vector<std::pair<std::u8string, std::u8string>> renames {};
+        std::size_t commit_count { 0 };
+        bool fail_reads { false };
+        bool fail_commits { false };
+        bool fail_renames { false };
+    };
+
+    const std::u8string settings_path { u8"C:\\Users\\tester\\AppData\\Roaming\\cyella\\settings.json" };
+
+    // 2026-10-20 09:30:12 UTC
+    json_app_settings_store::clock_function fixed_clock()
+    {
+        return [] { return std::chrono::system_clock::time_point { std::chrono::seconds { 1792488612 } }; };
+    }
+
+    app_settings filled_settings()
+    {
+        app_settings settings {};
+        settings.recent_repositories.push_back({ u8"C:\\work\\고정 저장소", u8"고정 저장소", u8"2026-10-19T10:00:00Z", true });
+        settings.recent_repositories.push_back({ u8"C:\\work\\alpha", u8"alpha", u8"2026-10-20T08:00:00Z", false });
+        settings.recent_repositories.push_back({ u8"D:\\beta", u8"beta", u8"2026-10-18T08:00:00Z", false });
+        settings.open_tabs = { u8"C:\\work\\alpha", u8"D:\\beta" };
+        settings.active_tab = u8"D:\\beta";
+        settings.git_executable = u8"C:\\Program Files\\Git\\cmd\\git.exe";
+        external_diff_tool tool {};
+        tool.extensions = { u8".png", u8".tar.gz" };
+        tool.executable = u8"C:\\tools\\imgdiff.exe";
+        tool.arguments = u8"--left \"{left}\" --right \"{right}\"";
+        settings.external_diff_tools.push_back(tool);
+        settings.appearance.theme = theme_preference::dark;
+        settings.window = window_placement { -1920, 40, 1600, 900, true };
+        return settings;
+    }
+} // namespace
+
+TEST_CASE("settings survive a serialize and parse round trip", "[json_app_settings]")
+{
+    const app_settings original { filled_settings() };
+
+    const std::u8string bytes { serialize_app_settings_json(original, u8"") };
+    const app_settings_load_result loaded { parse_app_settings_json(bytes) };
+
+    CHECK_FALSE(loaded.corrupt);
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings == original);
+    CHECK(loaded.shadow_source_json == bytes);
+}
+
+TEST_CASE("default settings round trip and write every known key", "[json_app_settings]")
+{
+    const std::u8string bytes { serialize_app_settings_json(app_settings {}, u8"") };
+    const json document { json::parse(text_of(bytes)) };
+
+    CHECK(document.at("schema_version") == 1);
+    CHECK(document.at("recent_repositories").is_array());
+    CHECK(document.at("open_tabs").is_array());
+    CHECK(document.at("active_tab") == "");
+    CHECK(document.at("git_executable") == "");
+    CHECK(document.at("external_diff_tools").is_array());
+    CHECK(document.at("appearance").at("theme") == "system");
+    CHECK_FALSE(document.contains("window"));
+    CHECK(parse_app_settings_json(bytes).settings == app_settings {});
+}
+
+TEST_CASE("serialized settings use CRLF and keep Korean text readable", "[json_app_settings]")
+{
+    const std::u8string bytes { serialize_app_settings_json(filled_settings(), u8"") };
+    CHECK(bytes.ends_with(u8"\r\n"));
+    CHECK(bytes.find(u8"고정 저장소") != std::u8string::npos);
+    for (std::size_t index = 0; index < bytes.size(); ++index)
+        if (bytes[index] == u8'\n')
+            REQUIRE((index > 0 && bytes[index - 1] == u8'\r'));
+}
+
+TEST_CASE("pinned is written only when true", "[json_app_settings]")
+{
+    const json document { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8""))) };
+    const json& recent { document.at("recent_repositories") };
+    CHECK(recent.at(0).at("pinned") == true);
+    CHECK_FALSE(recent.at(1).contains("pinned"));
+}
+
+TEST_CASE("unknown keys survive a load and save cycle", "[json_app_settings]")
+{
+    const std::u8string source {
+        u8R"({
+        "schema_version": 1,
+        "future_feature": { "enabled": true, "list": [1, 2, 3] },
+        "appearance": { "theme": "light", "accent": "teal" },
+        "window": { "x": 1, "y": 2, "width": 300, "height": 200, "maximized": false, "dpi": 144 },
+        "recent_repositories": []
+    })",
+    };
+
+    app_settings_load_result loaded { parse_app_settings_json(source) };
+    REQUIRE_FALSE(loaded.corrupt);
+    loaded.settings.appearance.theme = theme_preference::dark;
+    loaded.settings.window->width = 640;
+
+    const json saved { json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json))) };
+
+    CHECK(saved.at("future_feature").at("enabled") == true);
+    CHECK(saved.at("future_feature").at("list").size() == 3);
+    // 객체 안의 모르는 키도 남고 아는 값은 새 값이다.
+    CHECK(saved.at("appearance").at("accent") == "teal");
+    CHECK(saved.at("appearance").at("theme") == "dark");
+    CHECK(saved.at("window").at("dpi") == 144);
+    CHECK(saved.at("window").at("width") == 640);
+}
+
+TEST_CASE("unknown keys survive through the store on disk", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    file_system.files[settings_path] = u8"{\"schema_version\":1,\"keep_me\":\"yes\",\"open_tabs\":[\"C:\\\\a\"]}";
+    json_app_settings_store store { file_system, fixed_clock() };
+
+    app_settings_load_result loaded { store.load(settings_path) };
+    REQUIRE(loaded.settings.open_tabs.size() == 1);
+    loaded.settings.git_executable = u8"C:\\git\\git.exe";
+
+    const app_settings_save_result saved { store.save(settings_path, loaded.settings, loaded.shadow_source_json) };
+    REQUIRE(saved.succeeded);
+
+    const json document { json::parse(text_of(file_system.files[settings_path])) };
+    CHECK(document.at("keep_me") == "yes");
+    CHECK(document.at("git_executable") == "C:\\git\\git.exe");
+}
+
+TEST_CASE("a shadow that is not an object is ignored", "[json_app_settings]")
+{
+    const json document { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2")) ) };
+    CHECK(document.at("schema_version") == 1);
+    const json from_array { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2]"))) };
+    CHECK(from_array.is_object());
+}
+
+TEST_CASE("a missing file gives defaults without diagnostics", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    json_app_settings_store store { file_system, fixed_clock() };
+
+    const app_settings_load_result loaded { store.load(settings_path) };
+
+    CHECK(loaded.settings == app_settings {});
+    CHECK(loaded.diagnostics.empty());
+    CHECK_FALSE(loaded.corrupt);
+    CHECK(file_system.renames.empty());
+}
+
+TEST_CASE("an empty file is not treated as corrupt", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    file_system.files[settings_path] = u8" \r\n";
+    json_app_settings_store store { file_system, fixed_clock() };
+
+    const app_settings_load_result loaded { store.load(settings_path) };
+
+    CHECK(loaded.settings == app_settings {});
+    CHECK(loaded.diagnostics.empty());
+    CHECK(file_system.renames.empty());
+}
+
+TEST_CASE("an unreadable file gives defaults and one diagnostic", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    file_system.fail_reads = true;
+    json_app_settings_store store { file_system, fixed_clock() };
+
+    const app_settings_load_result loaded { store.load(settings_path) };
+
+    CHECK(loaded.settings == app_settings {});
+    REQUIRE(loaded.diagnostics.size() == 1);
+    CHECK(loaded.diagnostics[0].code == diagnostic_code::app_settings_read_failed);
+    CHECK(loaded.diagnostics[0].native_error == 5u);
+}
+
+TEST_CASE("a corrupt file is backed up and replaced with defaults", "[json_app_settings]")
+{
+    const std::vector<std::u8string> corrupt_contents {
+        u8"{ \"recent_repositories\": [ ",
+        u8"not json at all",
+        u8"[1, 2, 3]",
+        u8"\"just a string\"",
+        std::u8string { u8"{\"open_tabs\":[\"" } + std::u8string { 0xFF, 0xFE } + u8"\"]}",
+    };
+
+    for (const std::u8string& contents : corrupt_contents)
+    {
+        fake_file_system file_system {};
+        file_system.files[settings_path] = contents;
+        json_app_settings_store store { file_system, fixed_clock() };
+
+        const app_settings_load_result loaded { store.load(settings_path) };
+
+        CHECK(loaded.corrupt);
+        CHECK(loaded.settings == app_settings {});
+        CHECK(loaded.shadow_source_json.empty());
+        REQUIRE(loaded.diagnostics.size() == 1);
+        CHECK(loaded.diagnostics[0].severity == diagnostic_severity::warning);
+
+        const std::u8string backup { settings_path + u8".bad-20261020T093012Z" };
+        CHECK(file_system.files.contains(backup));
+        CHECK(file_system.files.at(backup) == contents);
+        CHECK_FALSE(file_system.files.contains(settings_path));
+    }
+}
+
+TEST_CASE("backup name does not overwrite an earlier backup", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    const std::u8string first_backup { settings_path + u8".bad-20261020T093012Z" };
+    file_system.files[first_backup] = u8"older backup";
+    file_system.files[settings_path] = u8"{ broken";
+    json_app_settings_store store { file_system, fixed_clock() };
+
+    const app_settings_load_result loaded { store.load(settings_path) };
+
+    CHECK(loaded.corrupt);
+    CHECK(file_system.files.at(first_backup) == u8"older backup");
+    CHECK(file_system.files.at(settings_path + u8".bad-20261020T093012Z-1") == u8"{ broken");
+}
+
+TEST_CASE("a failed backup is reported but loading still gives defaults", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    file_system.files[settings_path] = u8"{ broken";
+    file_system.fail_renames = true;
+    json_app_settings_store store { file_system, fixed_clock() };
+
+    const app_settings_load_result loaded { store.load(settings_path) };
+
+    CHECK(loaded.corrupt);
+    CHECK(loaded.settings == app_settings {});
+    REQUIRE(loaded.diagnostics.size() == 1);
+    CHECK(loaded.diagnostics[0].code == diagnostic_code::app_settings_backup_failed);
+}
+
+TEST_CASE("a UTF-8 BOM before the JSON is accepted", "[json_app_settings]")
+{
+    const std::u8string source { std::u8string { 0xEF, 0xBB, 0xBF } + u8"{\"git_executable\":\"C:\\\\git\\\\git.exe\"}" };
+    const app_settings_load_result loaded { parse_app_settings_json(source) };
+    CHECK_FALSE(loaded.corrupt);
+    CHECK(loaded.settings.git_executable == u8"C:\\git\\git.exe");
+}
+
+TEST_CASE("schema version handling", "[json_app_settings]")
+{
+    SECTION("버전이 없으면 현재 버전이고 경고가 없다")
+    {
+        const app_settings_load_result loaded { parse_app_settings_json(u8"{}") };
+        CHECK(loaded.settings.schema_version == current_app_settings_schema_version);
+        CHECK(loaded.diagnostics.empty());
+    }
+
+    SECTION("현재보다 낮은 값은 현재 버전으로 읽는다")
+    {
+        const app_settings_load_result loaded { parse_app_settings_json(u8"{\"schema_version\":0}") };
+        CHECK(loaded.settings.schema_version == current_app_settings_schema_version);
+        CHECK(loaded.diagnostics.empty());
+    }
+
+    SECTION("정수가 아니면 경고하고 현재 버전으로 읽는다")
+    {
+        const app_settings_load_result loaded { parse_app_settings_json(u8"{\"schema_version\":\"one\"}") };
+        CHECK(loaded.settings.schema_version == current_app_settings_schema_version);
+        CHECK(loaded.diagnostics.size() == 1);
+    }
+
+    SECTION("더 새 버전은 경고하고 아는 필드를 읽으며 번호를 지킨다")
+    {
+        const std::u8string source { u8"{\"schema_version\":7,\"git_executable\":\"C:\\\\git\\\\git.exe\",\"brand_new\":{\"a\":1}}" };
+        const app_settings_load_result loaded { parse_app_settings_json(source) };
+
+        CHECK_FALSE(loaded.corrupt);
+        REQUIRE(loaded.diagnostics.size() == 1);
+        CHECK(loaded.diagnostics[0].severity == diagnostic_severity::warning);
+        CHECK(loaded.settings.schema_version == 7);
+        CHECK(loaded.settings.git_executable == u8"C:\\git\\git.exe");
+
+        const json saved { json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json))) };
+        // 번호를 낮추지 않고 모르는 키도 남긴다.
+        CHECK(saved.at("schema_version") == 7);
+        CHECK(saved.at("brand_new").at("a") == 1);
+    }
+
+    SECTION("새로 쓰는 파일은 현재 버전이다")
+    {
+        const json saved { json::parse(text_of(serialize_app_settings_json(app_settings {}, u8""))) };
+        CHECK(saved.at("schema_version") == current_app_settings_schema_version);
+    }
+}
+
+TEST_CASE("wrong field types fall back per field with warnings", "[json_app_settings]")
+{
+    const std::u8string source {
+        u8R"({
+        "recent_repositories": "nope",
+        "open_tabs": { "a": 1 },
+        "active_tab": 5,
+        "git_executable": "git.exe",
+        "external_diff_tools": [ { "extensions": [], "executable": "x.exe" }, 7, { "extensions": [".psd"], "executable": "" } ],
+        "appearance": { "theme": "purple" },
+        "window": { "x": 0, "y": 0, "width": 0, "height": 10 }
+    })",
+    };
+
+    const app_settings_load_result loaded { parse_app_settings_json(source) };
+
+    CHECK_FALSE(loaded.corrupt);
+    CHECK(loaded.settings == app_settings {});
+    // 필드마다 경고 하나다: 최근 목록, open_tabs, 상대 git 경로, 도구 묶음, 테마, 창 배치.
+    CHECK(loaded.diagnostics.size() == 6);
+    for (const diagnostic& value : loaded.diagnostics)
+        CHECK(value.code == diagnostic_code::app_settings_invalid);
+}
+
+TEST_CASE("valid entries are kept next to broken ones", "[json_app_settings]")
+{
+    const std::u8string source {
+        u8R"({
+        "recent_repositories": [ 5, { "display_name": "no path" }, { "path": "C:/work/ok/", "opened_at": "2026-10-20T00:00:00Z" } ],
+        "open_tabs": [ "C:/work/ok/", "", 7 ],
+        "external_diff_tools": [ { "extensions": ["PNG", 3, "", "*.TAR.GZ"], "executable": "x.exe", "arguments": "{left} {right}" } ]
+    })",
+    };
+
+    const app_settings_load_result loaded { parse_app_settings_json(source) };
+
+    REQUIRE(loaded.settings.recent_repositories.size() == 1);
+    CHECK(loaded.settings.recent_repositories[0].path == u8"C:\\work\\ok");
+    CHECK(loaded.settings.recent_repositories[0].display_name == u8"ok");
+    CHECK(loaded.settings.open_tabs == std::vector<std::u8string> { u8"C:\\work\\ok" });
+    REQUIRE(loaded.settings.external_diff_tools.size() == 1);
+    CHECK(loaded.settings.external_diff_tools[0].extensions == std::vector<std::u8string> { u8".png", u8".tar.gz" });
+    CHECK(loaded.settings.external_diff_tools[0].arguments == u8"{left} {right}");
+    CHECK(loaded.diagnostics.empty());
+}
+
+TEST_CASE("loading keeps pinned entries even beyond the cap and restores the invariants", "[json_app_settings]")
+{
+    json document { json::object() };
+    json recent { json::array() };
+    // 비고정 25개 뒤에 고정 하나가 있는 손으로 고친 파일이다.
+    for (int number = 0; number < 25; ++number)
+        recent.push_back({ { "path", "C:\\work\\repo" + std::to_string(number) } });
+    recent.push_back({ { "path", "C:\\work\\pinned" }, { "pinned", true } });
+    document["recent_repositories"] = recent;
+
+    const app_settings_load_result loaded { parse_app_settings_json(u8_of(document.dump())) };
+
+    REQUIRE(loaded.settings.recent_repositories.size() == recent_repository_capacity + 1);
+    CHECK(loaded.settings.recent_repositories.front().path == u8"C:\\work\\pinned");
+    CHECK(loaded.settings.recent_repositories.front().pinned);
+    CHECK(loaded.settings.recent_repositories[1].path == u8"C:\\work\\repo0");
+}
+
+TEST_CASE("a failed save reports exactly one diagnostic", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    file_system.fail_commits = true;
+    json_app_settings_store store { file_system, fixed_clock() };
+
+    const app_settings_save_result saved { store.save(settings_path, filled_settings(), u8"") };
+
+    CHECK_FALSE(saved.succeeded);
+    REQUIRE(saved.diagnostics.size() == 1);
+    CHECK(saved.diagnostics[0].code == diagnostic_code::app_settings_write_failed);
+    CHECK(saved.diagnostics[0].native_error == 32u);
+    CHECK(file_system.files.empty());
+}
+
+TEST_CASE("the service keeps memory state when saving fails and retries later", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    json_app_settings_store store { file_system, fixed_clock() };
+    app_settings_service service { store, settings_path };
+    CHECK(service.load().empty());
+
+    file_system.fail_commits = true;
+    const std::vector<diagnostic> failed { service.update([](app_settings& settings) { touch_recent_repository(settings, u8"C:\\work\\alpha", u8"2026-10-20T00:00:00Z"); }) };
+
+    REQUIRE(failed.size() == 1);
+    CHECK(failed[0].code == diagnostic_code::app_settings_write_failed);
+    CHECK(service.has_unsaved_changes());
+    // 저장이 실패해도 방금 한 일은 메모리에 남아 있다.
+    REQUIRE(service.settings().recent_repositories.size() == 1);
+    CHECK(service.settings().recent_repositories[0].path == u8"C:\\work\\alpha");
+    CHECK(file_system.files.empty());
+
+    file_system.fail_commits = false;
+    const std::vector<diagnostic> recovered { service.update([](app_settings& settings) { settings.appearance.theme = theme_preference::light; }) };
+
+    CHECK(recovered.empty());
+    CHECK_FALSE(service.has_unsaved_changes());
+    // 다음 저장이 그동안 밀린 변경까지 함께 쓴다.
+    const app_settings_load_result reloaded { parse_app_settings_json(file_system.files.at(settings_path)) };
+    CHECK(reloaded.settings == service.settings());
+    CHECK(reloaded.settings.recent_repositories.size() == 1);
+}
+
+TEST_CASE("the service round trips through a store and keeps unknown keys across saves", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    file_system.files[settings_path] = u8"{\"from_future\":42}";
+    json_app_settings_store store { file_system, fixed_clock() };
+
+    {
+        app_settings_service service { store, settings_path };
+        static_cast<void>(service.load());
+        static_cast<void>(service.update([](app_settings& settings) { settings = filled_settings(); }));
+        static_cast<void>(service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }));
+    }
+
+    app_settings_service restarted { store, settings_path };
+    CHECK(restarted.load().empty());
+    CHECK(restarted.settings().active_tab == u8"C:\\work\\alpha");
+    CHECK(restarted.settings().recent_repositories == filled_settings().recent_repositories);
+    CHECK(json::parse(text_of(file_system.files.at(settings_path))).at("from_future") == 42);
+}
+
+TEST_CASE("backup timestamp has no characters that are invalid in file names", "[json_app_settings]")
+{
+    const std::chrono::system_clock::time_point time { std::chrono::seconds { 1792488612 } };
+    CHECK(format_backup_timestamp(time) == u8"20261020T093012Z");
+}

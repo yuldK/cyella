@@ -109,19 +109,6 @@ namespace cyella {
             return std::string { std::istreambuf_iterator<char> { stream }, std::istreambuf_iterator<char> {} };
         }
 
-        void write_file(const std::filesystem::path& path, const std::string_view content)
-        {
-            std::filesystem::create_directories(path.parent_path());
-            std::ofstream stream { path, std::ios::binary | std::ios::trunc };
-            stream.write(content.data(), static_cast<std::streamsize>(content.size()));
-        }
-
-        std::string read_file(const std::filesystem::path& path)
-        {
-            std::ifstream stream { path, std::ios::binary };
-            return std::string { std::istreambuf_iterator<char> { stream }, std::istreambuf_iterator<char> {} };
-        }
-
         git_run_result run_git(const std::filesystem::path& working_directory, const std::vector<std::u8string>& arguments, const std::string_view standard_input)
         {
             configure_environment_once();
