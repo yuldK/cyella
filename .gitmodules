@@ -1,0 +1,9 @@
+[submodule "third_party/luil"]
+	path = third_party/luil
+	url = https://github.com/yuldK/luil.git
+[submodule "third_party/nlohmann-json"]
+	path = third_party/nlohmann-json
+	url = https://github.com/nlohmann/json.git
+[submodule "third_party/catch2"]
+	path = third_party/catch2
+	url = https://github.com/catchorg/Catch2.git
