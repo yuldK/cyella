@@ -62,18 +62,23 @@ namespace cyella {
     // - `GIT_SSH_COMMAND`와 `BatchMode`는 건드리지 않는다. 사용자의 `core.sshCommand`와
     //   ssh 설정이 터미널에서와 똑같이 적용되어야 한다.
     // - `GCM_INTERACTIVE`도 건드리지 않는다. Git Credential Manager가 자기 UI를 띄울 수 있다.
-    // - `GIT_OPTIONAL_LOCKS`도 건드리지 않는다. status가 index를 갱신하려면 잠금이 필요하고,
-    //   저장소별 lane이 쓰기와 status를 직렬화해 충돌을 막는다.
-    //
-    // 로캘은 강제하지 않는다. 사용자의 시스템 언어 메시지를 그대로 보여 주고, 오류 분류는
-    // 로캘 독립 신호로만 한다.
+    // - `GIT_OPTIONAL_LOCKS` 환경 변수는 건드리지 않는다. 읽기 조회(`local_query`)는 대신
+    //   `--no-optional-locks` 인자를 받는다(`make_git_process_request`). 읽기는 쓰기와 다른
+    //   lane에서 병렬로 돌므로, status가 index 갱신을 위해 `index.lock`을 잡으면 같은 저장소의
+    //   쓰기가 잠금 오류로 실패한다.
+    // - `LC_ALL=C`: 오류 분류기와 `%(upstream:track)`(`[ahead 1, behind 2]`)가 영어 문구를
+    //   기대한다. 경로는 `core.quotepath=false`로 UTF-8 원문이 나오므로 로캘과 무관하다.
+    // - `GIT_EDITOR=true`: `rebase --continue`·`merge`·`revert`가 편집기를 띄워 worker를
+    //   붙잡지 않게 한다. 메시지는 git의 기본값이나 stdin(`-F -`)으로 정한다.
     [[nodiscard]] std::vector<process_environment_override> git_environment_overrides(std::u8string_view askpass_helper = {});
 
     // 모든 git 명령 앞에 붙는 공통 인자다. `-c gc.auto=0`은 명령이 background 유지보수
     // 프로세스를 띄워 출력 pipe를 물고 늘어지는 것을 막는다.
     [[nodiscard]] std::vector<std::u8string> git_common_arguments();
 
-    // 공통 정책을 적용한 요청을 만든다. `arguments`는 공통 인자 뒤에 붙는다.
+    // 공통 정책을 적용한 요청을 만든다. `arguments`는 공통 인자 뒤에 붙는다. 부류가
+    // `local_query`면 공통 인자 끝에 `--no-optional-locks`를 더한다. git의 배경 읽기
+    // 방식이며 status가 index를 다시 쓰지 않아 `index.lock`을 잡지 않는다.
     [[nodiscard]] process_request make_git_process_request(
         std::u8string_view executable, std::u8string_view working_directory, std::vector<std::u8string> arguments, git_command_class command_class, const git_request_options& options = {});
 } // namespace cyella

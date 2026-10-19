@@ -117,7 +117,7 @@ TEST_CASE("parse_git_refs reports the commit an annotated tag points at", "[git]
     CHECK(annotated->is_annotated_tag);
     // 태그 객체(a71ad86...)가 아니라 그것이 가리키는 커밋이다.
     CHECK(annotated->target_sha == "c1bf80d6a7260e533f88e475f0d4c611194766c2");
-    CHECK_FALSE(annotated->exists_on_remote.has_value());
+    CHECK(annotated->remotes.empty());
 }
 
 TEST_CASE("parse_git_refs reports the remote default branch separately", "[git][ref]")
@@ -172,11 +172,17 @@ TEST_CASE("parse_ls_remote_tags and apply_remote_tags mark tags that exist on th
     CHECK(remote_tags[0].name == "v1.0");
     CHECK(remote_tags[0].sha == "c1bf80d6a7260e533f88e475f0d4c611194766c2");
 
-    cyella::apply_remote_tags(list.refs, remote_tags);
-    CHECK(find_ref(list, "refs/tags/v1.0")->exists_on_remote == true);
-    CHECK(find_ref(list, "refs/tags/v2.0")->exists_on_remote == false);
+    cyella::apply_remote_tags(list.refs, "origin", remote_tags);
+    CHECK(find_ref(list, "refs/tags/v1.0")->remotes == std::vector<std::string> { "origin" });
+    CHECK(find_ref(list, "refs/tags/v2.0")->remotes.empty());
     // 태그가 아닌 ref는 건드리지 않는다.
-    CHECK_FALSE(find_ref(list, "refs/heads/main")->exists_on_remote.has_value());
+    CHECK(find_ref(list, "refs/heads/main")->remotes.empty());
+
+    // 다른 원격의 결과는 따로 합쳐지고, 원격에서 사라지면 그 원격만 빠진다.
+    cyella::apply_remote_tags(list.refs, "upstream", remote_tags);
+    CHECK(find_ref(list, "refs/tags/v1.0")->remotes == std::vector<std::string> { "origin", "upstream" });
+    cyella::apply_remote_tags(list.refs, "origin", {});
+    CHECK(find_ref(list, "refs/tags/v1.0")->remotes == std::vector<std::string> { "upstream" });
 }
 
 TEST_CASE("parse_ls_remote_tags prefers the peeled commit of annotated tags", "[git][ref]")

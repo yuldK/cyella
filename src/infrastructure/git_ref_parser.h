@@ -39,17 +39,8 @@ namespace cyella {
     // 문구가 아니라 목록 안에 추적 ref가 있는지로 판정하므로 지역화와 무관하다.
     [[nodiscard]] git_ref_list parse_git_refs(std::string_view bytes);
 
-    // `git ls-remote --tags <remote>`의 한 줄이다.
-    struct remote_tag
-    {
-        std::string name {};
-        // annotated 태그는 `^{}`가 붙은 줄의 커밋 SHA다. 없으면 태그 객체(=커밋) SHA다.
-        std::string sha {};
-    };
-
+    // `remote_tag`는 domain/ref.h에 있다. 저장소 상태가 원격별 태그 목록을 들고 있어야 해서다.
     [[nodiscard]] std::vector<remote_tag> parse_ls_remote_tags(std::string_view bytes);
 
-    // 태그 ref마다 원격에 같은 이름이 있는지(exists_on_remote)를 채운다. 이름만 같고
-    // 가리키는 커밋이 다른 태그는 원격에 "없는" 것으로 본다. push해도 거절되기 때문이다.
-    void apply_remote_tags(std::span<ref> refs, std::span<const remote_tag> remote_tags);
+    // `apply_remote_tags`는 domain/ref.h에 있다. 저장소 세션이 fetch 사이에 다시 입혀야 해서다.
 } // namespace cyella

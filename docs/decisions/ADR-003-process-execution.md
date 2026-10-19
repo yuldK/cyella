@@ -31,15 +31,9 @@
 
 ### 실행 정책
 
-| 항목 | gitman | cyella |
-| --- | --- | --- |
-| `GIT_SSH_COMMAND` | `ssh -oBatchMode=yes`로 덮어씀 | 건드리지 않음. 사용자의 `core.sshCommand`와 ssh 설정이 터미널과 같게 적용된다 |
-| `GCM_INTERACTIVE` | `Never` | 건드리지 않음. Git Credential Manager가 자기 창을 띄울 수 있다 |
-| `GIT_ASKPASS`·`SSH_ASKPASS` | 항상 삭제 | askpass 도우미 경로가 있으면 설정하고 `SSH_ASKPASS_REQUIRE=force`를 더한다. 없으면 삭제한다. |
-| `GIT_TERMINAL_PROMPT` | `0` | `0` (같음) |
-| `GIT_OPTIONAL_LOCKS` | `0` | 설정하지 않음. `status`가 index를 갱신하려면 잠금이 필요하고, 같은 저장소의 쓰기와 `status`는 한 lane에서 직렬로 실행하므로 충돌하지 않는다 |
-| `DISPLAY` | 삭제 | 건드리지 않음 |
-| 시간 제한 | 조회 600초, 전환 300초, 갱신 무제한 | 로컬 조회 600초, 로컬 쓰기 300초, **네트워크 무제한**(취소만), 도구 확인 5초 |
+이식한 실행기는 모든 프롬프트를 막는 정책이었다(`GIT_SSH_COMMAND`를 `ssh -oBatchMode=yes`로 덮어쓰고,
+`GCM_INTERACTIVE=Never`, askpass 변수와 `DISPLAY` 삭제). cyella는 사용자의 ssh·자격 증명 설정이 터미널과
+같게 적용되고 인증을 앱의 대화 상자로 받아야 하므로 다음과 같이 둔다.
 
 | 항목 | 정책 |
 | --- | --- |
@@ -61,9 +55,13 @@
 몰려 긴 fetch 뒤에서 기다린다. 그래서 저장소별 FIFO lane을 두고, 일이 있는 lane을 노는 worker가
 가져간다.
 
-- 같은 `repository_key`는 접수 순서로 하나씩 실행한다. index·ref를 바꾸는 작업과 `status`가 모두
-  같은 key를 쓴다. 서로 다른 key는 병렬이고 동시 실행 상한은 `min(4, hardware_concurrency)`다.
-- `interactive` 작업(diff, show, log 한 쪽)은 전용 worker가 접수 순서로 실행한다.
+- 같은 `repository_key`는 접수 순서로 하나씩 실행한다. index·ref·작업 트리를 바꾸는 작업이 이
+  lane을 쓴다. ref와 `packed-refs`를 잠그는 **fetch도 여기에 넣는다**. 서로 다른 key는 병렬이고 동시
+  실행 상한은 `min(4, hardware_concurrency)`다.
+- 읽기(`interactive`) 작업은 전용 worker들이 접수 순서로 꺼내 병렬로 실행한다. status, for-each-ref,
+  log, diff, show, ls-remote, rev-list, merge-base가 여기 들어가고 모두 `--no-optional-locks`로 잠금을
+  잡지 않는다. 읽기 worker의 기본 수는 2다. 한 저장소의 10만 커밋 log 스트림이 다른 저장소의 diff를
+  막지 않게 하기 위해서다. 이것이 ADR-001 5번의 "읽기는 병렬"이다.
 - 작업은 `std::function` job이라 scheduler가 git 작업 종류를 모른다. 접수한 job은 종료 중에도
   정확히 한 번 호출되며, 종료가 시작되면 취소된 token을 받는다.
 - 큐 길이 상한은 두지 않는다. job이 작은 closure라서 상한보다 유실을 피하는
@@ -90,3 +88,11 @@
   같은 실행기로 돌린다.
 - 인증 도우미([ADR-004](ADR-004-askpass.md))는 정책의 `askpass_helper` 경로만 채우면 된다.
 - `TerminateJobObject`로 끝낸 git이 `index.lock`을 남길 수 있는 문제(부드러운 취소)는 다루지 않는다.
+
+## 고친 기록
+
+- 2026-10-20: 읽기를 쓰기 lane에서 뺐다. 처음 결정은 `status`가 index를 갱신할 수 있게 쓰기와
+  같은 lane에서 직렬로 돌리는 것이었다. 그러면 긴 fetch나 rebase 동안 상태·그래프 읽기가 모두 그 뒤에
+  줄을 선다. git의 배경 읽기 방식(`--no-optional-locks`)은 index 갱신을 건너뛰어 잠금을 잡지 않으므로,
+  읽기를 병렬 lane으로 옮기고 fetch를 쓰기 lane에 넣었다. 같은 날 `LC_ALL=C`와 `GIT_EDITOR=true`를
+  환경에 더했다.

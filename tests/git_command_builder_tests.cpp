@@ -295,3 +295,50 @@ TEST_CASE("every builder output is free of NUL and not empty", "[git][builder]")
     check_wellformed(make_git_apply_args());
     check_wellformed(make_git_stash_list_args());
 }
+
+TEST_CASE("session builders cover checkout policies, local fast-forward and drag-and-drop queries", "[git][builder]")
+{
+    CHECK(to_text(make_git_switch_args("main", git_switch_mode::normal)) == text_list { "switch", "--", "main" });
+    CHECK(to_text(make_git_switch_args("main", git_switch_mode::discard_changes)) == text_list { "switch", "--discard-changes", "--", "main" });
+    CHECK(to_text(make_git_switch_args("main", git_switch_mode::merge)) == text_list { "switch", "--merge", "--", "main" });
+    CHECK(to_text(make_git_switch_detach_args("abc123", git_switch_mode::merge)) == text_list { "switch", "--detach", "--merge", "--", "abc123" });
+    CHECK(to_text(make_git_switch_create_args("release/1.0", "origin/release/1.0", true, git_switch_mode::discard_changes))
+        == text_list { "switch", "-c", "release/1.0", "--track", "--discard-changes", "--", "origin/release/1.0" });
+
+    // branch -f와 달리 git이 non-fast-forward를 거절하는 길이다.
+    CHECK(to_text(make_git_fetch_fast_forward_args("refs/heads/main", "refs/heads/feature")) == text_list { "fetch", "--", ".", "refs/heads/main:refs/heads/feature" });
+    CHECK(to_text(make_git_is_ancestor_args("main", "feature")) == text_list { "merge-base", "--is-ancestor", "main", "feature" });
+    CHECK(to_text(make_git_count_commits_args("main", "feature")) == text_list { "rev-list", "--count", "main..feature", "--" });
+    CHECK_THROWS_AS(make_git_count_commits_args("--all", "feature"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_fetch_fast_forward_args("refs/heads/main", "-x"), std::invalid_argument);
+}
+
+TEST_CASE("session builders for remotes, conflicts and commit details", "[git][builder]")
+{
+    CHECK(to_text(make_git_remote_list_args()) == text_list { "remote", "-v" });
+    CHECK(to_text(make_git_add_all_args()) == text_list { "add", "--all" });
+    CHECK(to_text(make_git_checkout_conflict_side_args("a b.txt", true)) == text_list { "--literal-pathspecs", "checkout", "--ours", "--", "a b.txt" });
+    CHECK(to_text(make_git_checkout_conflict_side_args("a.txt", false)) == text_list { "--literal-pathspecs", "checkout", "--theirs", "--", "a.txt" });
+    CHECK(to_text(make_git_merge_continue_args()) == text_list { "-c", "core.editor=true", "merge", "--continue" });
+    CHECK(to_text(make_git_cherry_pick_skip_args()) == text_list { "cherry-pick", "--skip" });
+    CHECK(to_text(make_git_revert_skip_args()) == text_list { "revert", "--skip" });
+    CHECK(to_text(make_git_current_branch_args()) == text_list { "symbolic-ref", "--quiet", "--short", "HEAD" });
+    CHECK(to_text(make_git_ref_exists_args("refs/heads/main")) == text_list { "show-ref", "--verify", "--quiet", "refs/heads/main" });
+    CHECK(to_text(make_git_symbolic_full_name_args("main")) == text_list { "rev-parse", "--symbolic-full-name", "main" });
+
+    const std::string sha { "c1bf80d6a7260e533f88e475f0d4c611194766c2" };
+    CHECK(to_text(make_git_commit_info_args(sha)) == text_list { "log", "-1", "-z", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s%x1f%b", sha, "--" });
+    CHECK(to_text(make_git_commit_name_status_args(sha, false)) == text_list { "log", "-1", "-z", "--format=", "--name-status", "--find-renames", sha, "--" });
+    CHECK(to_text(make_git_commit_name_status_args(sha, true)) == text_list { "log", "-1", "-z", "--format=", "--name-status", "--find-renames", "-m", "--first-parent", sha, "--" });
+    CHECK(to_text(make_git_show_file_args(sha, "src/a.cpp", false))
+        == text_list { "--literal-pathspecs", "show", "--format=", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U3", sha, "--", "src/a.cpp" });
+}
+
+TEST_CASE("fetch can keep stale tracking branches and pull can merge", "[git][builder]")
+{
+    git_fetch_options fetch {};
+    fetch.prune = false;
+    fetch.remote = "origin";
+    CHECK(to_text(make_git_fetch_args(fetch)) == text_list { "fetch", "--progress", "--", "origin" });
+    CHECK(to_text(make_git_pull_args(git_pull_mode::merge)) == text_list { "pull", "--no-rebase" });
+}

@@ -59,7 +59,9 @@ TEST_CASE("classify_git_failure recognizes HTTPS prompts that cannot be answered
 
 TEST_CASE("classify_git_failure separates non-fast-forward from other rejections", "[git][error]")
 {
-    CHECK(classify_git_failure(" ! [rejected]        main -> main (fetch first)") == git_failure_kind::push_rejected_non_fast_forward);
+    CHECK(classify_git_failure(" ! [rejected]        main -> main (fetch first)") == git_failure_kind::push_rejected_fetch_first);
+    CHECK(classify_git_failure(" ! [rejected]        main -> main (stale info)") == git_failure_kind::push_rejected_stale_info);
+    CHECK(classify_git_failure(" ! [rejected]        main -> main (non-fast-forward)") == git_failure_kind::push_rejected_non_fast_forward);
     CHECK(classify_git_failure(" ! [rejected]        v1 -> v1 (already exists)") == git_failure_kind::push_rejected);
     CHECK(classify_git_failure(" ! [remote rejected] main -> main (pre-receive hook declined)") == git_failure_kind::push_rejected);
     // 사유 문구가 번역되어도 표지 `[rejected]`는 남아 거절로 분류된다.
@@ -80,10 +82,41 @@ TEST_CASE("classify_git_failure leaves unknown failures unclassified", "[git][er
 
 TEST_CASE("git_failure_kind has a name and a message for every kind", "[git][error]")
 {
-    for (int value { 0 }; value <= static_cast<int>(git_failure_kind::local_changes_would_be_overwritten); ++value)
+    for (int value { 0 }; value <= static_cast<int>(git_failure_kind::not_possible_to_fast_forward); ++value)
     {
         const auto kind { static_cast<git_failure_kind>(value) };
         CHECK_FALSE(cyella::git_failure_kind_name(kind).empty());
         CHECK_FALSE(cyella::git_failure_message(kind).empty());
     }
+}
+
+TEST_CASE("classify_git_failure separates a changed host key from an unknown one", "[git][error]")
+{ // OpenSSH 9.x가 실제로 내는 모양이다. 마지막 줄은 처음 보는 키와 같으므로 경고를 먼저 봐야 한다.
+    const std::string standard_error = "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+                                       "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n"
+                                       "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+                                       "IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n"
+                                       "The fingerprint for the ED25519 key sent by the remote host is\n"
+                                       "SHA256:abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG.\n"
+                                       "Add correct host key in /c/Users/me/.ssh/known_hosts to get rid of this message.\n"
+                                       "Offending ED25519 key in C:/Users/me/.ssh/known_hosts:12\r\n"
+                                       "Host key for github.com has changed and you have requested strict checking.\n"
+                                       "Host key verification failed.\n"
+                                       "fatal: Could not read from remote repository.\n";
+    CHECK(classify_git_failure(standard_error) == git_failure_kind::host_key_changed);
+
+    const auto location { cyella::find_offending_known_hosts_line(standard_error) };
+    REQUIRE(location.has_value());
+    CHECK(location->path == "C:/Users/me/.ssh/known_hosts");
+    CHECK(location->line == 12);
+
+    CHECK_FALSE(cyella::find_offending_known_hosts_line("Host key verification failed.").has_value());
+}
+
+TEST_CASE("classify_git_failure recognizes refused connections and impossible fast-forwards", "[git][error]")
+{
+    CHECK(classify_git_failure("fatal: unable to access 'https://example.com/r.git/': Failed to connect to example.com port 443 after 21 ms: Couldn't connect to server")
+        == git_failure_kind::connection_failed);
+    CHECK(classify_git_failure("ssh: connect to host example.com port 22: Connection refused") == git_failure_kind::connection_failed);
+    CHECK(classify_git_failure("hint: Diverging branches can't be fast-forwarded\nfatal: Not possible to fast-forward, aborting.") == git_failure_kind::not_possible_to_fast_forward);
 }

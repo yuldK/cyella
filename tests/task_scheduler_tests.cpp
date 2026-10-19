@@ -353,3 +353,28 @@ TEST_CASE("destroying an idle scheduler returns promptly", "[scheduler][shutdown
 
     CHECK(std::chrono::steady_clock::now() - started < 5s);
 }
+
+TEST_CASE("the default scheduler runs two read queries in parallel", "[scheduler][lanes]")
+{
+    // 한 저장소의 긴 log 스트림이 다른 저장소의 diff를 막지 않아야 한다. 둘이 같은 지점에
+    // 모이지 못하면 읽기 worker가 하나뿐이라는 뜻이다.
+    task_scheduler scheduler {};
+    rendezvous meeting { 2 };
+    completion_counter done {};
+    std::atomic<int> met { 0 };
+
+    for (operation_id id = 1; id <= 2; ++id)
+    {
+        REQUIRE(scheduler.submit(make_request(
+            id, id == 1 ? "repo-a" : "repo-b",
+            [&](const operation_context&) {
+                if (meeting.arrive_and_wait(10s))
+                    met.fetch_add(1);
+                done.add();
+            },
+            true)));
+    }
+
+    REQUIRE(done.wait_for_count(2, 20s));
+    CHECK(met.load() == 2);
+}

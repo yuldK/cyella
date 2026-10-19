@@ -26,12 +26,45 @@ namespace {
 
 TEST_CASE("git requests start with the common arguments", "[policy]")
 {
-    const process_request request { make_request(git_command_class::local_query) };
+    const process_request request { make_request(git_command_class::local_write) };
 
     const std::vector<std::u8string> expected { u8"-c", u8"core.quotepath=false", u8"-c", u8"gc.auto=0", u8"-c", u8"color.ui=false", u8"--no-pager", u8"status", u8"--porcelain=v2" };
     CHECK(request.arguments == expected);
     CHECK(request.executable == u8"C:/Git/cmd/git.exe");
     CHECK(request.working_directory == u8"C:/work/repo");
+}
+
+TEST_CASE("git read queries skip optional locks so they can run beside writes", "[policy][lanes]")
+{
+    // 읽기는 쓰기와 다른 lane에서 병렬로 돈다. status가 index.lock을 잡지 않아야 한다.
+    const process_request query { make_request(git_command_class::local_query) };
+    std::vector<std::u8string> expected { git_common_arguments() };
+    expected.insert(expected.end(), { u8"--no-optional-locks", u8"status", u8"--porcelain=v2" });
+    CHECK(query.arguments == expected);
+
+    for (const git_command_class command_class : { git_command_class::local_write, git_command_class::network, git_command_class::tool_probe })
+    {
+        const process_request request { make_request(command_class) };
+        CHECK(std::find(request.arguments.begin(), request.arguments.end(), std::u8string { u8"--no-optional-locks" }) == request.arguments.end());
+    }
+}
+
+TEST_CASE("git requests run in the C locale without an editor", "[policy]")
+{
+    for (const std::u8string_view helper : { std::u8string_view {}, std::u8string_view { u8"C:/cyella/askpass.exe" } })
+    {
+        git_request_options options {};
+        options.askpass_helper = helper;
+        const process_request request { make_request(git_command_class::network, options) };
+
+        const process_environment_override* const locale { find_override(request.environment_overrides, u8"LC_ALL") };
+        REQUIRE(locale != nullptr);
+        CHECK(locale->value == std::optional<std::u8string> { u8"C" });
+        const process_environment_override* const editor { find_override(request.environment_overrides, u8"GIT_EDITOR") };
+        REQUIRE(editor != nullptr);
+        CHECK(editor->value == std::optional<std::u8string> { u8"true" });
+        CHECK(validate_process_request(request).empty());
+    }
 }
 
 TEST_CASE("git requests never prompt on the terminal", "[policy]")

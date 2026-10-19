@@ -608,11 +608,12 @@ TEST_CASE("integration: remote commands run against a local bare repository", "[
         CHECK(log_of(one).size() == 2);
     }
 
-    SECTION("a diverged push is rejected as non-fast-forward and force-with-lease replaces it")
+    SECTION("a diverged push is rejected as fetch first and force-with-lease replaces it")
     {
         commit_file(one, "c.txt", "local\n", "local commit");
+        // 원격 커밋을 아직 가져오지 않았으므로 git은 `(fetch first)`로 거절한다.
         const git_run_result rejected { run_failing(one, make_git_push_args()) };
-        CHECK(classify_git_failure(rejected.standard_error, rejected.standard_output) == git_failure_kind::push_rejected_non_fast_forward);
+        CHECK(classify_git_failure(rejected.standard_error, rejected.standard_output) == git_failure_kind::push_rejected_fetch_first);
 
         // 가져와서 rebase로 통합한 뒤 push한다.
         run_ok(one, make_git_fetch_args());
@@ -636,25 +637,25 @@ TEST_CASE("integration: remote commands run against a local bare repository", "[
 
         auto apply_remote_state = [&] {
             const std::string output { run_ok(one, make_git_ls_remote_tags_args("origin")).standard_output };
-            apply_remote_tags(list.refs, parse_ls_remote_tags(output));
+            apply_remote_tags(list.refs, "origin", parse_ls_remote_tags(output));
         };
         apply_remote_state();
-        CHECK(find_ref(list, "refs/tags/v1.0")->exists_on_remote == false);
-        CHECK(find_ref(list, "refs/tags/v2.0")->exists_on_remote == false);
+        CHECK(find_ref(list, "refs/tags/v1.0")->remotes.empty());
+        CHECK(find_ref(list, "refs/tags/v2.0")->remotes.empty());
 
         run_ok(one, make_git_push_tag_args("origin", "v1.0"));
         apply_remote_state();
-        CHECK(find_ref(list, "refs/tags/v1.0")->exists_on_remote == true);
+        CHECK(find_ref(list, "refs/tags/v1.0")->remotes == strings { "origin" });
         // annotated 태그는 태그 객체가 아니라 커밋으로 비교하므로 여전히 올바르게 구분된다.
-        CHECK(find_ref(list, "refs/tags/v2.0")->exists_on_remote == false);
+        CHECK(find_ref(list, "refs/tags/v2.0")->remotes.empty());
 
         run_ok(one, make_git_push_all_tags_args("origin"));
         apply_remote_state();
-        CHECK(find_ref(list, "refs/tags/v2.0")->exists_on_remote == true);
+        CHECK(find_ref(list, "refs/tags/v2.0")->remotes == strings { "origin" });
 
         run_ok(one, make_git_delete_remote_tag_args("origin", "v1.0"));
         apply_remote_state();
-        CHECK(find_ref(list, "refs/tags/v1.0")->exists_on_remote == false);
+        CHECK(find_ref(list, "refs/tags/v1.0")->remotes.empty());
         run_ok(one, make_git_delete_tag_args("v1.0"));
         CHECK(find_ref(refs_of(one), "refs/tags/v1.0") == nullptr);
     }

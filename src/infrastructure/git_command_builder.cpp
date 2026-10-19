@@ -14,6 +14,7 @@ namespace cyella {
         constexpr std::string_view for_each_ref_format { "--format=%(refname)%1f%(objectname)%1f%(*objectname)%1f%(HEAD)%1f%(upstream)%1f%(upstream:short)%1f%(upstream:track)%1f%(symref)" };
         constexpr std::string_view log_format { "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s" };
         constexpr std::string_view log_format_with_body { "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s%x1f%b" };
+        constexpr std::string_view literal_pathspecs { "--literal-pathspecs" };
         constexpr std::string_view stash_format { "--format=%gd%x1f%H%x1f%P%x1f%ct%x1f%gs" };
 
         void push_text(git_arguments& arguments, const std::string_view value)
@@ -365,7 +366,10 @@ namespace cyella {
     git_arguments make_git_fetch_args(const git_fetch_options& options)
     {
         git_arguments arguments {};
-        push_all(arguments, { "fetch", "--prune", "--progress" });
+        push_text(arguments, "fetch");
+        if (options.prune)
+            push_text(arguments, "--prune");
+        push_text(arguments, "--progress");
         if (options.tags)
             push_text(arguments, "--tags");
         if (options.all)
@@ -378,7 +382,7 @@ namespace cyella {
     git_arguments make_git_pull_args(const git_pull_mode mode, const std::string_view remote, const std::string_view branch)
     {
         git_arguments arguments {};
-        push_all(arguments, { "pull", mode == git_pull_mode::rebase ? "--rebase" : "--ff-only" });
+        push_all(arguments, { "pull", mode == git_pull_mode::rebase ? "--rebase" : mode == git_pull_mode::merge ? "--no-rebase" : "--ff-only" });
         if (remote.empty() == false)
         {
             push_all(arguments, { "--", require_revision(remote, "remote") });
@@ -631,6 +635,159 @@ namespace cyella {
     {
         git_arguments arguments {};
         push_all(arguments, { "stash", "drop", stash_selector(index) });
+        return arguments;
+    }
+
+    // ------------------------------------------------------------------ 저장소 세션
+
+    namespace {
+        void push_switch_mode(git_arguments& arguments, const git_switch_mode mode)
+        {
+            if (mode == git_switch_mode::discard_changes)
+                push_text(arguments, "--discard-changes");
+            else if (mode == git_switch_mode::merge)
+                push_text(arguments, "--merge");
+        }
+    } // namespace
+
+    git_arguments make_git_switch_args(const std::string_view branch, const git_switch_mode mode)
+    {
+        git_arguments arguments {};
+        push_text(arguments, "switch");
+        push_switch_mode(arguments, mode);
+        push_all(arguments, { "--", require_revision(branch, "branch") });
+        return arguments;
+    }
+
+    git_arguments make_git_switch_detach_args(const std::string_view revision, const git_switch_mode mode)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "switch", "--detach" });
+        push_switch_mode(arguments, mode);
+        push_all(arguments, { "--", require_revision(revision, "revision") });
+        return arguments;
+    }
+
+    git_arguments make_git_switch_create_args(const std::string_view new_branch, const std::string_view start_point, const bool track, const git_switch_mode mode)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "switch", "-c", require_new_ref_name(new_branch, "branch name") });
+        if (track)
+            push_text(arguments, "--track");
+        push_switch_mode(arguments, mode);
+        if (start_point.empty() == false)
+            push_all(arguments, { "--", require_revision(start_point, "start point") });
+        return arguments;
+    }
+
+    git_arguments make_git_fetch_fast_forward_args(const std::string_view source_ref, const std::string_view target_ref)
+    {
+        std::string refspec { require_revision(source_ref, "source ref") };
+        refspec.push_back(':');
+        refspec.append(require_revision(target_ref, "target ref"));
+        git_arguments arguments {};
+        push_all(arguments, { "fetch", "--", ".", refspec });
+        return arguments;
+    }
+
+    git_arguments make_git_is_ancestor_args(const std::string_view ancestor, const std::string_view descendant)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "merge-base", "--is-ancestor", require_revision(ancestor, "ancestor"), require_revision(descendant, "descendant") });
+        return arguments;
+    }
+
+    git_arguments make_git_count_commits_args(const std::string_view from, const std::string_view to)
+    {
+        std::string range { require_revision(from, "from") };
+        range.append("..").append(require_revision(to, "to"));
+        git_arguments arguments {};
+        push_all(arguments, { "rev-list", "--count", range, "--" });
+        return arguments;
+    }
+
+    git_arguments make_git_remote_list_args()
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "remote", "-v" });
+        return arguments;
+    }
+
+    git_arguments make_git_add_all_args()
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "add", "--all" });
+        return arguments;
+    }
+
+    git_arguments make_git_checkout_conflict_side_args(const std::string_view path, const bool ours)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { literal_pathspecs, "checkout", ours ? "--ours" : "--theirs", "--", require_path(path) });
+        return arguments;
+    }
+
+    git_arguments make_git_merge_continue_args()
+    {
+        return make_sequence_control_args("merge", "--continue", true);
+    }
+
+    git_arguments make_git_cherry_pick_skip_args()
+    {
+        return make_sequence_control_args("cherry-pick", "--skip", false);
+    }
+
+    git_arguments make_git_revert_skip_args()
+    {
+        return make_sequence_control_args("revert", "--skip", false);
+    }
+
+    git_arguments make_git_commit_info_args(const std::string_view sha)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "log", "-1", "-z", log_format_with_body, require_revision(sha, "commit"), "--" });
+        return arguments;
+    }
+
+    git_arguments make_git_commit_name_status_args(const std::string_view sha, const bool is_merge)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "log", "-1", "-z", "--format=", "--name-status", "--find-renames" });
+        if (is_merge)
+            push_all(arguments, { "-m", "--first-parent" });
+        push_all(arguments, { require_revision(sha, "commit"), "--" });
+        return arguments;
+    }
+
+    git_arguments make_git_show_file_args(const std::string_view sha, const std::string_view path, const bool is_merge, const std::uint32_t context_lines)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { literal_pathspecs, "show", "--format=" });
+        if (is_merge)
+            push_all(arguments, { "-m", "--first-parent" });
+        push_diff_basics(arguments, context_lines);
+        push_all(arguments, { require_revision(sha, "commit"), "--", require_path(path) });
+        return arguments;
+    }
+
+    git_arguments make_git_current_branch_args()
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "symbolic-ref", "--quiet", "--short", "HEAD" });
+        return arguments;
+    }
+
+    git_arguments make_git_ref_exists_args(const std::string_view full_ref)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "show-ref", "--verify", "--quiet", require_revision(full_ref, "ref") });
+        return arguments;
+    }
+
+    git_arguments make_git_symbolic_full_name_args(const std::string_view revision)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "rev-parse", "--symbolic-full-name", require_revision(revision, "revision") });
         return arguments;
     }
 } // namespace cyella

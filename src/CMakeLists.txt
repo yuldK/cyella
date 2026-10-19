@@ -48,10 +48,16 @@ cyella_add_source_filter(cyella_lib_files "domain/model"
     domain/commit_info.h
     domain/diff_file.h
     domain/file_change.h
+    domain/ref.cpp
     domain/ref.h
     domain/repository_summary.cpp
     domain/repository_summary.h
     domain/stash_entry.h)
+
+# operation 하나의 상태(contract의 operation_status)와 실패·입력 종류다.
+cyella_add_source_filter(cyella_lib_files "domain/operations"
+    domain/operation_status.cpp
+    domain/operation_status.h)
 
 cyella_add_source_filter(cyella_lib_files "domain/rules"
     domain/ref_name.cpp
@@ -66,6 +72,8 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/git_parsers"
     infrastructure/git_error_classifier.h
     infrastructure/git_log_parser.cpp
     infrastructure/git_log_parser.h
+    infrastructure/git_query_parser.cpp
+    infrastructure/git_query_parser.h
     infrastructure/git_ref_parser.cpp
     infrastructure/git_ref_parser.h
     infrastructure/git_stash_parser.cpp
@@ -129,6 +137,19 @@ cyella_add_source_filter(cyella_lib_files "application/watching"
     application/repository_change_classifier.h
     application/repository_watcher.h)
 
+# 저장소 세션: operation 요청 값, worker 사건, 탭별 상태와 operation 표다. git을 직접
+# 실행하지 않고 실행기 계약(git_operation_executor)을 부른다.
+cyella_add_source_filter(cyella_lib_files "application/repository"
+    application/git_operation.cpp
+    application/git_operation.h
+    application/git_operation_executor.h
+    application/git_workspace.cpp
+    application/git_workspace.h
+    application/operation_events.h
+    application/repository_session.cpp
+    application/repository_session.h
+    application/workspace_files.h)
+
 # infrastructure: application 계약의 구현이다 (Git 호출 등). Win32 API를 직접 부르지 않는다.
 cyella_add_source_filter(cyella_lib_files "infrastructure/process"
     infrastructure/command_line_builder.cpp
@@ -160,6 +181,15 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/authentication"
     infrastructure/ssh_tools.cpp
     infrastructure/ssh_tools.h)
 
+# operation을 git 명령으로 바꿔 실행하는 실행기다. 명령 조립기·해석기·process runner를 잇는다.
+cyella_add_source_filter(cyella_lib_files "infrastructure/git_operations"
+    infrastructure/git_operation_context.cpp
+    infrastructure/git_operation_context.h
+    infrastructure/git_operation_runner.cpp
+    infrastructure/git_operation_runner.h
+    infrastructure/git_read_operations.cpp
+    infrastructure/git_write_operations.cpp)
+
 # presentation: view snapshot을 luil element tree로 짓는 앱 element 계층이다.
 cyella_add_source_filter(cyella_lib_files "presentation/start_page"
     presentation/start_page_view.cpp
@@ -180,7 +210,9 @@ cyella_add_source_filter(cyella_lib_files "platform/process"
     platform/win32/win32_process_runner.cpp
     platform/win32/win32_process_runner.h
     platform/win32/win32_text_transcoder.cpp
-    platform/win32/win32_text_transcoder.h)
+    platform/win32/win32_text_transcoder.h
+    platform/win32/win32_workspace_files.cpp
+    platform/win32/win32_workspace_files.h)
 
 cyella_add_source_filter(cyella_lib_files "platform/settings"
     platform/win32/win32_app_settings_path.cpp

@@ -80,12 +80,24 @@ cyella_add_source_filter(cyella_test_files "infrastructure/git_parsers"
     git_diff_parser_tests.cpp
     git_error_classifier_tests.cpp
     git_log_parser_tests.cpp
+    git_query_parser_tests.cpp
     git_ref_parser_tests.cpp
     git_stash_parser_tests.cpp
     git_status_parser_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "infrastructure/git_commands"
     git_command_builder_tests.cpp)
+
+# 저장소 세션: 가짜 runner(정해 둔 응답)와 수동 dispatcher로 명령 순서, 상태 전이, 늦은 결과
+# 버리기, needs_input, 실패 분류를 검증한다. git과 디스크가 필요 없다.
+cyella_add_source_filter(cyella_test_files "application/repository"
+    fake_git_runner.h
+    git_operation_runner_tests.cpp
+    git_workspace_tests.cpp)
+
+# 저장소 세션을 실제 git과 임시 저장소(로컬 bare 원격)로 끝까지 돌린다.
+cyella_add_source_filter(cyella_test_files "application/repository_integration"
+    repository_session_integration_tests.cpp)
 
 # 실제 git으로 임시 저장소를 만들어 조립기와 해석기를 이어서 검증한다.
 cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"

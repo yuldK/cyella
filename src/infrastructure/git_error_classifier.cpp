@@ -66,7 +66,10 @@ namespace cyella {
         git_failure_kind classify_text(const std::string_view text) noexcept
         {
             // OpenSSH가 만드는 문구라 번역되지 않는다. 호스트 키는 인증 문제와 다르게
-            // 안내해야 해서 따로 가른다.
+            // 안내해야 해서 따로 가른다. 바뀐 키도 끝에 `Host key verification failed`가
+            // 붙으므로 먼저 본다.
+            if (contains_ignoring_case(text, "REMOTE HOST IDENTIFICATION HAS CHANGED"))
+                return git_failure_kind::host_key_changed;
             if (contains_ignoring_case(text, "Host key verification failed"))
                 return git_failure_kind::host_key_verification_failed;
             constexpr std::array publickey {
@@ -84,6 +87,17 @@ namespace cyella {
             };
             if (contains_any(text, resolve))
                 return git_failure_kind::could_not_resolve_host;
+            constexpr std::array connect {
+                std::string_view { "Failed to connect to" },
+                std::string_view { "Could not connect to server" },
+                std::string_view { "Couldn't connect to server" },
+                std::string_view { "Connection refused" },
+                std::string_view { "Connection timed out" },
+                std::string_view { "Network is unreachable" },
+                std::string_view { "No route to host" },
+            };
+            if (contains_any(text, connect))
+                return git_failure_kind::connection_failed;
 
             if (contains_http_status(text, "401") || contains_http_status(text, "403"))
                 return git_failure_kind::authentication_required;
@@ -95,7 +109,13 @@ namespace cyella {
             // 뒤의 사유 문구만 번역된다. 영어 사유로 non-fast-forward를 더 좁힌다.
             if (contains_ignoring_case(text, "[rejected]") || contains_ignoring_case(text, "[remote rejected]"))
             {
-                if (contains_ignoring_case(text, "non-fast-forward") || contains_ignoring_case(text, "fetch first"))
+                // UI가 조치를 다르게 보인다. fetch first는 Pull, non-fast-forward는 rebase나
+                // 강제 push, stale info는 다시 가져온 뒤 강제 push다.
+                if (contains_ignoring_case(text, "(fetch first)"))
+                    return git_failure_kind::push_rejected_fetch_first;
+                if (contains_ignoring_case(text, "(stale info)"))
+                    return git_failure_kind::push_rejected_stale_info;
+                if (contains_ignoring_case(text, "non-fast-forward"))
                     return git_failure_kind::push_rejected_non_fast_forward;
                 return git_failure_kind::push_rejected;
             }
@@ -111,6 +131,9 @@ namespace cyella {
             };
             if (contains_any(text, overwritten))
                 return git_failure_kind::local_changes_would_be_overwritten;
+
+            if (contains_ignoring_case(text, "Not possible to fast-forward"))
+                return git_failure_kind::not_possible_to_fast_forward;
 
             constexpr std::array conflict {
                 std::string_view { "CONFLICT (" },
@@ -140,6 +163,51 @@ namespace cyella {
             return git_failure_kind::unclassified;
         }
     } // namespace
+
+    std::optional<known_hosts_location> find_offending_known_hosts_line(const std::string_view standard_error)
+    {
+        if (contains_ignoring_case(standard_error, "REMOTE HOST IDENTIFICATION HAS CHANGED") == false)
+            return std::nullopt;
+
+        // `Offending ECDSA key in /c/Users/me/.ssh/known_hosts:3`. 경로에 `:`가 들어갈 수
+        // 있어(`C:/...`) 마지막 `:` 뒤의 숫자를 줄 번호로 읽는다.
+        std::string_view rest { standard_error };
+        while (rest.empty() == false)
+        {
+            const std::size_t end { rest.find('\n') };
+            std::string_view line { rest.substr(0, end) };
+            rest = end == std::string_view::npos ? std::string_view {} : rest.substr(end + 1);
+            if (line.empty() == false && line.back() == '\r')
+                line.remove_suffix(1);
+
+            const std::size_t offending { line.find("Offending ") };
+            if (offending == std::string_view::npos)
+                continue;
+            const std::size_t in { line.find(" in ", offending) };
+            if (in == std::string_view::npos)
+                continue;
+            const std::string_view location { line.substr(in + 4) };
+            const std::size_t colon { location.rfind(':') };
+            if (colon == std::string_view::npos || colon + 1 >= location.size())
+                continue;
+
+            std::uint32_t number { 0 };
+            bool digits { true };
+            for (const char value : location.substr(colon + 1))
+            {
+                if (is_ascii_digit(value) == false)
+                {
+                    digits = false;
+                    break;
+                }
+                number = number * 10u + static_cast<std::uint32_t>(value - '0');
+            }
+            if (digits == false || number == 0)
+                continue;
+            return known_hosts_location { std::string { location.substr(0, colon) }, number };
+        }
+        return known_hosts_location {};
+    }
 
     git_failure_kind classify_git_failure(const std::string_view standard_error, const std::string_view standard_output) noexcept
     {
@@ -177,6 +245,16 @@ namespace cyella {
             return "index_lock_exists";
         case git_failure_kind::local_changes_would_be_overwritten:
             return "local_changes_would_be_overwritten";
+        case git_failure_kind::push_rejected_fetch_first:
+            return "push_rejected_fetch_first";
+        case git_failure_kind::push_rejected_stale_info:
+            return "push_rejected_stale_info";
+        case git_failure_kind::host_key_changed:
+            return "host_key_changed";
+        case git_failure_kind::connection_failed:
+            return "connection_failed";
+        case git_failure_kind::not_possible_to_fast_forward:
+            return "not_possible_to_fast_forward";
         }
         return "unclassified";
     }
@@ -207,6 +285,16 @@ namespace cyella {
             return u8"다른 git 작업이 저장소를 잠그고 있습니다.";
         case git_failure_kind::local_changes_would_be_overwritten:
             return u8"작업 트리의 변경이 덮어써질 수 있어 중단되었습니다.";
+        case git_failure_kind::push_rejected_fetch_first:
+            return u8"원격에 내게 없는 커밋이 있어 push가 거절되었습니다. 먼저 가져오세요.";
+        case git_failure_kind::push_rejected_stale_info:
+            return u8"원격 브랜치가 마지막으로 가져온 뒤 바뀌어 강제 push가 거절되었습니다.";
+        case git_failure_kind::host_key_changed:
+            return u8"SSH 호스트 키가 known_hosts에 기록된 키와 다릅니다.";
+        case git_failure_kind::connection_failed:
+            return u8"원격에 연결하지 못했습니다.";
+        case git_failure_kind::not_possible_to_fast_forward:
+            return u8"fast-forward로 옮길 수 없습니다.";
         }
         return u8"명령이 실패했습니다.";
     }

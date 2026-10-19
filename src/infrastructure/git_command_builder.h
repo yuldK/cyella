@@ -167,18 +167,22 @@ namespace cyella {
         bool all { false };
         // 모든 태그를 가져온다(`--tags`). 원격 태그 표시를 새로 하려 할 때 쓴다.
         bool tags { false };
+        // 원격에서 사라진 추적 브랜치를 지운다(`--prune`).
+        bool prune { true };
     };
 
-    // `fetch --prune --progress [--tags] [--all | -- <remote>]`.
+    // `fetch [--prune] --progress [--tags] [--all | -- <remote>]`.
     [[nodiscard]] git_arguments make_git_fetch_args(const git_fetch_options& options = {});
 
     enum class git_pull_mode
     {
         fast_forward_only,
         rebase,
+        // 갈라졌으면 병합 커밋을 만든다(`--no-rebase`). 사용자 설정 `pull.rebase`를 덮는다.
+        merge,
     };
 
-    // `pull --ff-only|--rebase [-- <remote> [<branch>]]`.
+    // `pull --ff-only|--rebase|--no-rebase [-- <remote> [<branch>]]`.
     [[nodiscard]] git_arguments make_git_pull_args(git_pull_mode mode, std::string_view remote = {}, std::string_view branch = {});
 
     struct git_push_options
@@ -302,4 +306,70 @@ namespace cyella {
 
     // `stash drop stash@{N}`.
     [[nodiscard]] git_arguments make_git_stash_drop_args(std::uint32_t index);
+
+    // ------------------------------------------------------------------ 저장소 세션
+
+    // 체크아웃이 작업 트리의 변경을 어떻게 다룰지다.
+    enum class git_switch_mode
+    {
+        // 겹치지 않는 변경은 가지고 가고, 덮어써질 변경이 있으면 거절한다.
+        normal,
+        // 추적 파일의 변경을 버린다(`--discard-changes`). 추적하지 않는 파일은 남는다.
+        discard_changes,
+        // 덮어써질 변경을 3-way로 합쳐 가지고 간다(`--merge`). 충돌이 남을 수 있다.
+        merge,
+    };
+
+    // `switch [--discard-changes|--merge] -- <branch>`.
+    [[nodiscard]] git_arguments make_git_switch_args(std::string_view branch, git_switch_mode mode);
+
+    // `switch --detach [--discard-changes|--merge] -- <revision>`.
+    [[nodiscard]] git_arguments make_git_switch_detach_args(std::string_view revision, git_switch_mode mode);
+
+    // `switch -c <new_branch> [--track] [--discard-changes|--merge] [-- <start_point>]`.
+    [[nodiscard]] git_arguments make_git_switch_create_args(std::string_view new_branch, std::string_view start_point, bool track, git_switch_mode mode);
+
+    // `fetch -- . <source>:<target>`. 체크아웃하지 않은 로컬 브랜치를 fast-forward한다.
+    // `branch -f`와 달리 git이 non-fast-forward 갱신을 거절한다. 둘 다 전체 ref 이름을 준다
+    // (`refs/heads/main`, `refs/remotes/origin/main`). 대상이 체크아웃된 브랜치면 git이 거절한다.
+    [[nodiscard]] git_arguments make_git_fetch_fast_forward_args(std::string_view source_ref, std::string_view target_ref);
+
+    // `merge-base --is-ancestor <ancestor> <descendant>`. 종료 코드 0이면 조상, 1이면 아니다.
+    [[nodiscard]] git_arguments make_git_is_ancestor_args(std::string_view ancestor, std::string_view descendant);
+
+    // `rev-list --count <from>..<to> --`. from에서 닿지 않고 to에서 닿는 커밋 수다.
+    [[nodiscard]] git_arguments make_git_count_commits_args(std::string_view from, std::string_view to);
+
+    // `remote -v`. 원격마다 fetch·push 두 줄이 나온다.
+    [[nodiscard]] git_arguments make_git_remote_list_args();
+
+    // `add --all`. 추적하지 않는 파일과 삭제까지 모두 stage한다.
+    [[nodiscard]] git_arguments make_git_add_all_args();
+
+    // `checkout --ours|--theirs -- <path>`. 충돌 파일을 한쪽 판으로 덮는다. 이어서 `add`가 필요하다.
+    [[nodiscard]] git_arguments make_git_checkout_conflict_side_args(std::string_view path, bool ours);
+
+    // `merge --continue`. 메시지는 git이 준비한 MERGE_MSG를 쓴다(GIT_EDITOR=true).
+    [[nodiscard]] git_arguments make_git_merge_continue_args();
+    [[nodiscard]] git_arguments make_git_cherry_pick_skip_args();
+    [[nodiscard]] git_arguments make_git_revert_skip_args();
+
+    // `log -1 -z --format=<본문 포함 log 형식> <sha> --`. git_log_parser(has_body=true)로 읽는다.
+    [[nodiscard]] git_arguments make_git_commit_info_args(std::string_view sha);
+
+    // `log -1 -z --format= --name-status --find-renames [-m --first-parent] <sha> --`.
+    // 상태 글자(A·M·D·R)와 경로를 NUL로 나눠 준다. 이름 변경은 `R100\0old\0new\0`이다.
+    [[nodiscard]] git_arguments make_git_commit_name_status_args(std::string_view sha, bool is_merge);
+
+    // 한 커밋에서 파일 하나의 diff다. `show --format= [-m --first-parent] ... <sha> -- <path>`.
+    [[nodiscard]] git_arguments make_git_show_file_args(std::string_view sha, std::string_view path, bool is_merge, std::uint32_t context_lines = 3);
+
+    // `symbolic-ref --quiet --short HEAD`. 현재 브랜치 이름이다. detached면 종료 코드가 1이다.
+    [[nodiscard]] git_arguments make_git_current_branch_args();
+
+    // `show-ref --verify --quiet <full_ref>`. ref가 있으면 0, 없으면 1이다.
+    [[nodiscard]] git_arguments make_git_ref_exists_args(std::string_view full_ref);
+
+    // `rev-parse --symbolic-full-name <revision>`. ref면 전체 이름, SHA면 빈 출력이다.
+    [[nodiscard]] git_arguments make_git_symbolic_full_name_args(std::string_view revision);
 } // namespace cyella

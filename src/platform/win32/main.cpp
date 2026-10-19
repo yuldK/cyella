@@ -1,11 +1,32 @@
 #include "platform/win32/cyella_delegate.h"
 #include "platform/win32/cyella_driver.h"
+#include "platform/win32/utf8.h"
 #include "presentation/ui/cyella_caption.h"
 
 #include "luil/luil.h"
 #include "luil/text/fonts.h"
 
 #include <windows.h>
+
+#include <shellapi.h>
+
+#include <string>
+
+namespace {
+    // 첫 명령줄 인자를 시작 저장소로 받는다. 시작 페이지 전까지 상태를 확인하는 길이다.
+    std::u8string initial_repository_argument()
+    {
+        int count { 0 };
+        LPWSTR* const arguments { ::CommandLineToArgvW(::GetCommandLineW(), &count) };
+        if (arguments == nullptr)
+            return {};
+        std::u8string path {};
+        if (count > 1)
+            path = cyella::win32::utf16_to_utf8(arguments[1]).value.value_or(std::u8string {});
+        ::LocalFree(arguments);
+        return path;
+    }
+} // namespace
 
 int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
 {
@@ -30,10 +51,10 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
     config.resize_border_thickness = 4;
     config.resize_corner_thickness = 10;
 
-    // driver와 delegate는 창이 도는 동안 살아 있어야 한다. policy는 텍스트 입력·휠·
-    // 단축키가 생길 때 더하며 지금은 nullptr로 둔다.
-    cyella::win32::cyella_driver driver {};
-    cyella::win32::cyella_delegate delegate {};
+    // driver와 delegate는 창이 도는 동안 살아 있어야 한다. delegate는 driver의 relay를 host에
+    // 묶는다. policy는 텍스트 입력·휠·단축키가 생길 때 더하며 지금은 nullptr로 둔다.
+    cyella::win32::cyella_driver driver { initial_repository_argument() };
+    cyella::win32::cyella_delegate delegate { &driver.relay() };
     luil::win32::window_environment environment {};
     environment.driver = &driver;
     environment.delegate = &delegate;

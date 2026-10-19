@@ -25,4 +25,21 @@ namespace cyella {
             return false;
         return is_ascii_letter(path[0]) && path[1] == u8':' && is_path_separator(path[2]);
     }
+
+    std::u8string normalize_path_key(const std::u8string_view path)
+    {
+        std::u8string key {};
+        key.reserve(path.size());
+        for (const char8_t value : path)
+            if (is_path_separator(value))
+                key.push_back(u8'/');
+            else if (value >= u8'A' && value <= u8'Z')
+                key.push_back(static_cast<char8_t>(value - u8'A' + u8'a'));
+            else
+                key.push_back(value);
+        // `C:/`의 구분자는 루트라서 남긴다.
+        while (key.size() > 3 && key.back() == u8'/')
+            key.pop_back();
+        return key;
+    }
 } // namespace cyella

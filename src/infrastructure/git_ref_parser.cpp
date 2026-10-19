@@ -210,20 +210,4 @@ namespace cyella {
         }
         return tags;
     }
-
-    void apply_remote_tags(const std::span<ref> refs, const std::span<const remote_tag> remote_tags)
-    {
-        std::unordered_map<std::string_view, std::string_view> sha_by_name {};
-        sha_by_name.reserve(remote_tags.size());
-        for (const remote_tag& tag : remote_tags)
-            sha_by_name.emplace(tag.name, tag.sha);
-
-        for (ref& entry : refs)
-        {
-            if (entry.kind != ref_kind::tag)
-                continue;
-            const auto found { sha_by_name.find(entry.name) };
-            entry.exists_on_remote = found != sha_by_name.end() && found->second == entry.target_sha;
-        }
-    }
 } // namespace cyella

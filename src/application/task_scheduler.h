@@ -16,22 +16,27 @@ namespace cyella {
     // 일반 worker 수의 기본값이다. `min(4, hardware_concurrency)`이며 최소 1이다.
     [[nodiscard]] std::size_t default_scheduler_worker_count() noexcept;
 
+    // 읽기 lane worker 수의 기본값이다.
+    inline constexpr std::size_t default_interactive_worker_count { 2 };
+
     struct task_scheduler_options
     {
         // 저장소 lane을 실행하는 worker 수다. 0이면 1로 본다.
         std::size_t worker_count { default_scheduler_worker_count() };
-        // 대화형 조회 전용 worker 수다. 같은 큐를 나눠 먹는다. 0이면 1로 본다.
-        std::size_t interactive_worker_count { 1 };
+        // 읽기 조회 전용 worker 수다. 같은 큐를 나눠 먹는다. 0이면 1로 본다. 기본이 둘인 이유는
+        // 한 저장소의 10만 커밋 log 스트림이 다른 저장소의 diff를 막지 않게 하기 위해서다.
+        std::size_t interactive_worker_count { default_interactive_worker_count };
     };
 
     // lane 규칙이다.
     //
-    // - 같은 `repository_key`의 작업은 접수 순서대로 하나씩 실행한다. git의 index.lock 때문에
-    //   index·ref를 바꾸는 작업과 `status`는 모두 같은 키로 보낸다.
+    // - 같은 `repository_key`의 작업은 접수 순서대로 하나씩 실행한다. index·ref·작업 트리를
+    //   바꾸는 작업(fetch 포함)을 저장소마다 같은 키로 보낸다. 읽기(status·log·diff)는
+    //   `--no-optional-locks`로 잠금을 잡지 않으므로 이 lane에 넣지 않는다(ADR-003).
     // - 서로 다른 키는 병렬이다. 동시 실행 상한은 일반 worker 수다. lane을 worker에 고정하지
     //   않고 일이 있는 lane을 노는 worker가 가져가므로, 서로 다른 저장소가 우연히 같은
     //   worker에 몰려 서로를 기다리는 일이 없다. 준비된 lane은 접수 순서로 돌아가며 실행한다.
-    // - `interactive` 작업은 전용 worker가 접수 순서로 실행한다.
+    // - `interactive` 작업(읽기)은 전용 worker들이 접수 순서로 꺼내 병렬로 실행한다.
     //
     // 접수한 job은 종료 중에도 반드시 한 번 호출된다 (취소된 token과 함께).
     class task_scheduler final

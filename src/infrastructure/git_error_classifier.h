@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
+#include <string>
 #include <string_view>
 
 namespace cyella {
@@ -21,7 +24,29 @@ namespace cyella {
         index_lock_exists,
         // 작업 트리의 변경이 체크아웃·병합으로 덮어써질 뻔했다.
         local_changes_would_be_overwritten,
+        // push 거절 중 원격에 내게 없는 커밋이 있는 경우다(`(fetch first)`). 먼저 가져오면 된다.
+        push_rejected_fetch_first,
+        // `--force-with-lease`의 기대값이 원격과 달라 거절되었다(`(stale info)`).
+        push_rejected_stale_info,
+        // known_hosts의 키와 서버 키가 다르다. ssh는 묻지 않고 실패하므로 askpass를 거치지 않는다.
+        host_key_changed,
+        // 호스트 이름은 찾았지만 연결하지 못했다(거부, 시간 초과, 경로 없음).
+        connection_failed,
+        // `merge --ff-only`·`pull --ff-only`가 fast-forward로 옮길 수 없다.
+        not_possible_to_fast_forward,
     };
+
+    // `@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@` 뒤의 `Offending ... key in
+    // <path>:<line>` 줄이 가리키는 known_hosts 위치다. 대화 상자가 지울 줄을 보인다.
+    struct known_hosts_location
+    {
+        std::string path {};
+        std::uint32_t line { 0 };
+    };
+
+    // OpenSSH가 만든 문구라 번역되지 않는다. 바뀐 호스트 키 경고가 아니면 값이 없다. 경고는
+    // 있는데 위치 줄을 읽지 못하면 빈 위치를 돌려준다.
+    [[nodiscard]] std::optional<known_hosts_location> find_offending_known_hosts_line(std::string_view standard_error);
 
     // git 실패 출력을 분류한다. 입력은 종료 코드가 0이 아닌 명령의 stderr이며, 병합
     // 충돌처럼 stdout으로 나오는 문구(`CONFLICT (...)`)를 위해 stdout도 받는다.

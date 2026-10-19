@@ -46,6 +46,10 @@ namespace cyella {
     {
         std::vector<process_environment_override> overrides {};
         overrides.push_back(set_variable(u8"GIT_TERMINAL_PROMPT", u8"0"));
+        // 분류기와 track 문구가 영어를 기대한다. 경로 출력은 quotepath 설정이 정하므로 영향이 없다.
+        overrides.push_back(set_variable(u8"LC_ALL", u8"C"));
+        // continue·merge·revert가 편집기를 기다리며 worker를 붙잡지 않게 한다.
+        overrides.push_back(set_variable(u8"GIT_EDITOR", u8"true"));
 
         if (askpass_helper.empty())
         {
@@ -88,6 +92,10 @@ namespace cyella {
         request.executable = executable;
         request.working_directory = working_directory;
         request.arguments = git_common_arguments();
+        // 읽기는 쓰기와 병렬로 돈다. status가 index를 고쳐 쓰려고 잠금을 잡으면 같은 저장소의
+        // 쓰기가 `index.lock` 오류로 실패하므로 git의 배경 읽기 방식을 쓴다.
+        if (command_class == git_command_class::local_query)
+            request.arguments.emplace_back(u8"--no-optional-locks");
         request.arguments.reserve(request.arguments.size() + arguments.size());
         for (std::u8string& argument : arguments)
             request.arguments.push_back(std::move(argument));
@@ -98,7 +106,7 @@ namespace cyella {
         request.timeout = limits.timeout;
         request.maximum_captured_bytes_per_stream = options.maximum_captured_bytes_per_stream.value_or(limits.maximum_captured_bytes_per_stream);
         request.maximum_record_bytes = std::max(options.maximum_record_bytes, minimum_process_record_byte_limit);
-        // 로캘을 강제하지 않으므로 git이 시스템 언어 메시지를 낼 수 있다. Windows에서 그
+        // `LC_ALL=C`여도 hook이나 credential helper가 시스템 언어로 stderr를 낼 수 있다. 그
         // 인코딩은 UTF-8일 수도 활성 code page일 수도 있어 fallback 모드를 쓴다. 유효한
         // UTF-8 레코드는 변환하지 않으므로 기계 판독 출력에는 영향이 없다.
         request.text_encoding = process_text_encoding::active_code_page_fallback;

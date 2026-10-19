@@ -30,13 +30,14 @@ namespace cyella {
     struct operation_request
     {
         operation_id id {};
-        // 이 작업이 index나 ref를 바꾸거나 `status`처럼 index 잠금을 잡을 수 있는 저장소다.
-        // 같은 키의 작업은 접수 순서대로 하나씩 실행한다. 비어 있으면 저장소와 무관한
-        // 작업(설정 파일 입출력 등)이며 하나의 공용 lane에서 직렬로 실행한다.
+        // 이 작업이 index·ref·작업 트리를 바꾸는 저장소다(fetch 포함). 같은 키의 작업은 접수
+        // 순서대로 하나씩 실행한다. 비어 있으면 저장소와 무관한 작업(설정 파일 입출력 등)이며
+        // 하나의 공용 lane에서 직렬로 실행한다.
         std::string repository_key {};
-        // 저장소를 바꾸지 않는 대화형 조회(diff, show, log 한 쪽)다. 저장소 lane과 분리된
-        // 전용 lane에서 실행하므로 오래 걸리는 fetch 뒤에 줄 서지 않는다. 이 값이 true면
-        // `repository_key`는 lane 배정에 쓰이지 않는다.
+        // 저장소를 바꾸지 않는 읽기 조회(status, for-each-ref, log, diff, show, ls-remote)다.
+        // `--no-optional-locks`로 잠금을 잡지 않으므로 쓰기 lane과 분리된 전용 lane에서 병렬로
+        // 실행하고, 오래 걸리는 fetch 뒤에 줄 서지 않는다. 이 값이 true면 `repository_key`는
+        // lane 배정에 쓰이지 않는다.
         bool interactive { false };
         operation_job job {};
     };
