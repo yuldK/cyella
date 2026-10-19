@@ -1,0 +1,120 @@
+diff --git a/before_rename.txt b/before_rename.txt
+new file mode 100644
+index 0000000..77b5c0a
+--- /dev/null
++++ b/before_rename.txt
+@@ -0,0 +1,7 @@
++rename me
++with
++some
++content
++lines
++here
++and there
+diff --git a/blob.bin b/blob.bin
+new file mode 100644
+index 0000000..c94be36
+Binary files /dev/null and b/blob.bin differ
+diff --git a/code.c b/code.c
+new file mode 100644
+index 0000000..18acd49
+--- /dev/null
++++ b/code.c
+@@ -0,0 +1,35 @@
++#include <stdio.h>
++
++int add(int a, int b)
++{
++    /* pad 1 */
++    /* pad 2 */
++    /* pad 3 */
++    /* pad 4 */
++    /* pad 5 */
++    /* pad 6 */
++    /* pad 7 */
++    /* pad 8 */
++    /* pad 9 */
++    /* pad 10 */
++    /* pad 11 */
++    /* pad 12 */
++    return a + b;
++}
++
++int sub(int a, int b)
++{
++    /* pad2 1 */
++    /* pad2 2 */
++    /* pad2 3 */
++    /* pad2 4 */
++    /* pad2 5 */
++    /* pad2 6 */
++    /* pad2 7 */
++    /* pad2 8 */
++    /* pad2 9 */
++    /* pad2 10 */
++    /* pad2 11 */
++    /* pad2 12 */
++    return a - b;
++}
+diff --git a/crlf.txt b/crlf.txt
+new file mode 100644
+index 0000000..bf355ba
+--- /dev/null
++++ b/crlf.txt
+@@ -0,0 +1,3 @@
++keep
++me
++CRLF
+diff --git a/deleted.txt b/deleted.txt
+new file mode 100644
+index 0000000..c118916
+--- /dev/null
++++ b/deleted.txt
+@@ -0,0 +1 @@
++del me
+diff --git a/nonl.txt b/nonl.txt
+new file mode 100644
+index 0000000..2802503
+--- /dev/null
++++ b/nonl.txt
+@@ -0,0 +1 @@
++no newline at end
+\ No newline at end of file
+diff --git a/one_line.txt b/one_line.txt
+new file mode 100644
+index 0000000..4994d72
+--- /dev/null
++++ b/one_line.txt
+@@ -0,0 +1 @@
++single
+diff --git a/pure_before.txt b/pure_before.txt
+new file mode 100644
+index 0000000..9335399
+--- /dev/null
++++ b/pure_before.txt
+@@ -0,0 +1,3 @@
++pure rename
++body
++body2
+diff --git a/script.sh b/script.sh
+new file mode 100644
+index 0000000..4163036
+--- /dev/null
++++ b/script.sh
+@@ -0,0 +1,2 @@
++#!/bin/sh
++echo hi
+diff --git a/with space.txt b/with space.txt
+new file mode 100644
+index 0000000..9495c3c
+--- /dev/null
++++ b/with space.txt	
+@@ -0,0 +1 @@
++space
+diff --git "a/\355\225\234\352\270\200.txt" "b/\355\225\234\352\270\200.txt"
+new file mode 100644
+index 0000000..69c04c6
+--- /dev/null
++++ "b/\355\225\234\352\270\200.txt"
+@@ -0,0 +1 @@
++korean

@@ -44,6 +44,40 @@ cyella_add_source_filter(cyella_lib_files "domain/git"
     domain/git_tool.cpp
     domain/git_tool.h)
 
+cyella_add_source_filter(cyella_lib_files "domain/model"
+    domain/commit_info.h
+    domain/diff_file.h
+    domain/file_change.h
+    domain/ref.h
+    domain/repository_summary.cpp
+    domain/repository_summary.h
+    domain/stash_entry.h)
+
+cyella_add_source_filter(cyella_lib_files "domain/rules"
+    domain/ref_name.cpp
+    domain/ref_name.h)
+
+# infrastructure: application 계약의 구현이다. git 출력 해석기와 명령줄 조립기는
+# 프로세스를 실행하지 않는 순수 함수다 (실행은 process runner가 맡는다).
+cyella_add_source_filter(cyella_lib_files "infrastructure/git_parsers"
+    infrastructure/git_diff_parser.cpp
+    infrastructure/git_diff_parser.h
+    infrastructure/git_error_classifier.cpp
+    infrastructure/git_error_classifier.h
+    infrastructure/git_log_parser.cpp
+    infrastructure/git_log_parser.h
+    infrastructure/git_ref_parser.cpp
+    infrastructure/git_ref_parser.h
+    infrastructure/git_stash_parser.cpp
+    infrastructure/git_stash_parser.h
+    infrastructure/git_status_parser.cpp
+    infrastructure/git_status_parser.h
+    infrastructure/git_text.h)
+
+cyella_add_source_filter(cyella_lib_files "infrastructure/git_commands"
+    infrastructure/git_command_builder.cpp
+    infrastructure/git_command_builder.h)
+
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
 # UI 헤더를 include하지 않는다.
 cyella_add_source_filter(cyella_lib_files "application/logic"

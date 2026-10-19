@@ -42,6 +42,30 @@ target_link_libraries(cyella_test_child
         cyella_project_options)
 cyella_disable_automatic_windows_manifest(cyella_test_child)
 
+# domain: 값 타입과 규칙의 test다. git이 필요 없다.
+cyella_add_source_filter(cyella_test_files "domain"
+    ref_name_tests.cpp
+    repository_summary_tests.cpp)
+
+# infrastructure: git 출력 해석기는 실제 git으로 만든 고정 출력(tests/data/git)을
+# 읽어 검증한다. 명령줄 조립기는 순수 함수라 인자 목록만 비교한다.
+cyella_add_source_filter(cyella_test_files "infrastructure/git_parsers"
+    git_diff_parser_tests.cpp
+    git_error_classifier_tests.cpp
+    git_log_parser_tests.cpp
+    git_ref_parser_tests.cpp
+    git_stash_parser_tests.cpp
+    git_status_parser_tests.cpp)
+
+cyella_add_source_filter(cyella_test_files "infrastructure/git_commands"
+    git_command_builder_tests.cpp)
+
+# 실제 git으로 임시 저장소를 만들어 조립기와 해석기를 이어서 검증한다.
+cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"
+    git_integration_tests.cpp
+    git_test_support.cpp
+    git_test_support.h)
+
 add_executable(cyella_tests ${cyella_test_files})
 # test가 도우미를 먼저 빌드하게 하고, 경로는 생성 시점의 target 파일로 받는다.
 add_dependencies(cyella_tests cyella_test_child)
@@ -52,6 +76,9 @@ target_include_directories(cyella_tests
     PRIVATE
         "${CYELLA_SOURCE_DIRECTORY}"
         "${CYELLA_TEST_DIRECTORY}")
+target_compile_definitions(cyella_tests
+    PRIVATE
+        CYELLA_TEST_DATA_DIRECTORY="${CYELLA_TEST_DIRECTORY}/data")
 target_link_libraries(cyella_tests
     PRIVATE
         cyella_lib

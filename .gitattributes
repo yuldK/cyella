@@ -21,3 +21,6 @@ CMakeLists.txt text eol=crlf
 
 # submodule로 가져오는 제3자 소스는 정규화하지 않는다.
 /third_party/luil/** -text
+
+# git 출력 고정 데이터는 줄 끝(LF·CRLF)까지 바이트 그대로 둔다.
+/tests/data/** -text

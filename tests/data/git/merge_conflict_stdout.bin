@@ -1,0 +1,7 @@
+Auto-merging both.txt
+CONFLICT (content): Merge conflict in both.txt
+Auto-merging both_added.txt
+CONFLICT (add/add): Merge conflict in both_added.txt
+CONFLICT (modify/delete): del_ours.txt deleted in topic and modified in HEAD.  Version HEAD of del_ours.txt left in tree.
+CONFLICT (modify/delete): del_theirs.txt deleted in HEAD and modified in topic.  Version topic of del_theirs.txt left in tree.
+Automatic merge failed; fix conflicts and then commit the result.

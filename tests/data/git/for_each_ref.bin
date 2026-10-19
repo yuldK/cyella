@@ -1,0 +1,8 @@
+refs/heads/feature2d0b877cfe6e7db2eba8c62f8b9db4994d21bd47 refs/remotes/origin/featureorigin/feature
+refs/heads/gone-branchc1bf80d6a7260e533f88e475f0d4c611194766c2 refs/remotes/origin/staleorigin/stale[gone]
+refs/heads/mainc1bf80d6a7260e533f88e475f0d4c611194766c2*refs/remotes/origin/mainorigin/main[ahead 2, behind 1]
+refs/remotes/origin/HEADb0e5395bb8548964e185a8580d1971ec6b7c3ccc refs/remotes/origin/main
+refs/remotes/origin/feature2d0b877cfe6e7db2eba8c62f8b9db4994d21bd47 
+refs/remotes/origin/mainb0e5395bb8548964e185a8580d1971ec6b7c3ccc 
+refs/tags/v1.0c1bf80d6a7260e533f88e475f0d4c611194766c2 
+refs/tags/v2.0a71ad86a1dbc27717d616bf766102ed0f7da48e5c1bf80d6a7260e533f88e475f0d4c611194766c2 

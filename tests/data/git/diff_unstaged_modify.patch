@@ -1,0 +1,12 @@
+diff --git a/dir/b.txt b/dir/b.txt
+index c9e9e05..6b1e723 100644
+--- a/dir/b.txt
++++ b/dir/b.txt
+@@ -1,6 +1,6 @@
+ one
+ two
+-three
++THREE
+ four
+ five
+ six
