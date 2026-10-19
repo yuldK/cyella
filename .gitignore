@@ -1,0 +1,6 @@
+/bin/
+/build/
+/out/
+/.vs/
+/CMakeUserPresets.json
+node_modules/

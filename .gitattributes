@@ -1,0 +1,23 @@
+* text=auto
+
+*.cmake text eol=crlf
+*.cpp text eol=crlf
+*.h text eol=crlf
+*.json text eol=crlf
+*.md text eol=crlf
+*.ps1 text eol=crlf
+*.rc text eol=crlf
+*.xml text eol=crlf
+*.html text eol=crlf
+*.css text eol=crlf
+*.js text eol=crlf
+CMakeLists.txt text eol=crlf
+.clang-format text eol=crlf
+.clang-tidy text eol=crlf
+.gitignore text eol=crlf
+
+*.ttf binary
+*.ico binary
+
+# submodule로 가져오는 제3자 소스는 정규화하지 않는다.
+/third_party/luil/** -text
