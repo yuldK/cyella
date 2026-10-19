@@ -14,6 +14,10 @@ namespace cyella {
         settings_ = std::move(result.settings);
         shadow_source_json_ = std::move(result.shadow_source_json);
         unsaved_ = false;
+        read_only_ = result.read_failed;
+        read_error_.reset();
+        if (read_only_ && result.diagnostics.empty() == false)
+            read_error_ = result.diagnostics.front().native_error;
         return std::move(result.diagnostics);
     }
 
@@ -26,6 +30,20 @@ namespace cyella {
 
     std::vector<diagnostic> app_settings_service::save()
     {
+        if (read_only_)
+        {
+            // 읽지 못한 파일이 사용자의 진짜 설정일 수 있다. 쓰지 않고 메모리만 앞서 둔다.
+            unsaved_ = true;
+            diagnostic skipped {};
+            skipped.code = diagnostic_code::app_settings_write_failed;
+            skipped.severity = diagnostic_severity::warning;
+            skipped.message = u8"앱 설정 파일을 읽지 못했으므로 기존 파일을 덮어쓰지 않도록 저장하지 않았습니다. 이번 실행 동안은 메모리의 설정만 씁니다.";
+            skipped.native_error = read_error_;
+            std::vector<diagnostic> diagnostics {};
+            diagnostics.push_back(std::move(skipped));
+            return diagnostics;
+        }
+
         app_settings_save_result result { store_->save(path_, settings_, shadow_source_json_) };
         if (result.succeeded == false)
         {
@@ -48,6 +66,11 @@ namespace cyella {
     bool app_settings_service::has_unsaved_changes() const noexcept
     {
         return unsaved_;
+    }
+
+    bool app_settings_service::is_read_only() const noexcept
+    {
+        return read_only_;
     }
 
     const std::u8string& app_settings_service::path() const noexcept

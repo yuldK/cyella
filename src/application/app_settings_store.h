@@ -17,6 +17,10 @@ namespace cyella {
         std::vector<diagnostic> diagnostics {};
         // JSON으로 읽을 수 없는 파일이었다는 뜻이다. 필드 몇 개가 틀린 정도는 해당하지 않는다.
         bool corrupt { false };
+        // 파일이 있을 수 있는데 읽지 못했다는 뜻이다 (잠김, 접근 거부 등). 없는 파일은 해당하지
+        // 않는다. 내용을 모르는 채로 기본값을 쓰면 사용자의 진짜 파일을 덮어쓰게 되므로 소비자는
+        // 이번 실행 동안 저장하지 않아야 한다. 깨진 파일(`corrupt`)은 백업으로 보호되니 다르다.
+        bool read_failed { false };
     };
 
     struct app_settings_save_result
@@ -41,7 +45,8 @@ namespace cyella {
         app_settings_store& operator=(app_settings_store&&) = delete;
         virtual ~app_settings_store() = default;
 
-        // 파일이 없으면 기본값과 진단 없이 돌아온다. 어떤 실패도 앱 시작을 막지 않는다.
+        // 파일이 없으면 기본값과 진단 없이 돌아온다. 어떤 실패도 앱 시작을 막지 않는다. 읽기에
+        // 실패하면 기본값과 `read_failed`로 돌아온다.
         [[nodiscard]] virtual app_settings_load_result load(std::u8string_view path) noexcept = 0;
         [[nodiscard]] virtual app_settings_save_result save(std::u8string_view path, const app_settings& settings, std::u8string_view shadow_source_json) noexcept = 0;
     };

@@ -74,7 +74,21 @@ namespace {
         return options;
     }
 
-    // 최소한의 `.git` 디렉터리가 있는 작업 트리를 만든다.
+    // 방금 만든 디렉터리 트리의 마지막 쓰기 시각 갱신을 디스크에 확정시킨다. NTFS는 디렉터리의
+    // 시각을 늦게 반영해서, 이걸 하지 않으면 감시를 시작한 뒤 첫 쓰기에 딸려 `.git\refs` 같은
+    // 상위 디렉터리의 MODIFIED 알림이 한 번 뒤늦게 올라온다. 이 알림은 `refs/**`로 분류돼
+    // `repository_state_changed`가 되므로 "이벤트 없음"을 검사하는 test가 부하에 따라 깨진다.
+    // 기다린다고 사라지는 알림이 아니라(쓰기가 없으면 오지 않는다) 감시를 걸기 전에 미리 치른다.
+    void settle_directory_timestamps(const std::filesystem::path& root)
+    {
+        static_cast<void>(std::filesystem::last_write_time(root));
+        for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator { root })
+            if (entry.is_directory())
+                static_cast<void>(std::filesystem::last_write_time(entry.path()));
+    }
+
+    // 최소한의 `.git` 디렉터리가 있는 작업 트리를 만든다. 감시를 걸기 직전에 부르는 함수이므로
+    // 디렉터리 시각도 확정해 둔다.
     std::filesystem::path make_repository(const std::filesystem::path& root)
     {
         const std::filesystem::path repository { root / "repo" };
@@ -83,6 +97,7 @@ namespace {
         std::filesystem::create_directories(repository / ".git" / "logs");
         test::write_file(repository / ".git" / "HEAD", "ref: refs/heads/main\n");
         test::write_file(repository / "tracked.txt", "one");
+        settle_directory_timestamps(repository);
         return repository;
     }
 
@@ -243,6 +258,7 @@ TEST_CASE("a .git file with a relative gitdir is resolved", "[integration][watch
     const std::filesystem::path worktree { directory.path() / "super" / "sub" };
     std::filesystem::create_directories(worktree);
     test::write_file(worktree / ".git", "gitdir: ../../store/modules/sub\n");
+    settle_directory_timestamps(directory.path());
 
     event_collector collector {};
     started_watcher started { start_watching(worktree, collector) };
@@ -279,6 +295,7 @@ TEST_CASE("a linked worktree also watches the common directory refs", "[integrat
     std::filesystem::create_directories(worktree);
     // worktree는 gitdir을 절대 경로로 쓴다.
     test::write_file(worktree / ".git", "gitdir: " + gitdir.generic_string() + "\n");
+    settle_directory_timestamps(directory.path());
 
     event_collector collector {};
     started_watcher started { start_watching(worktree, collector) };

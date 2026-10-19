@@ -206,6 +206,7 @@ TEST_CASE("a missing file gives defaults without diagnostics", "[json_app_settin
     CHECK(loaded.settings == app_settings {});
     CHECK(loaded.diagnostics.empty());
     CHECK_FALSE(loaded.corrupt);
+    CHECK_FALSE(loaded.read_failed);
     CHECK(file_system.renames.empty());
 }
 
@@ -231,9 +232,13 @@ TEST_CASE("an unreadable file gives defaults and one diagnostic", "[json_app_set
     const app_settings_load_result loaded { store.load(settings_path) };
 
     CHECK(loaded.settings == app_settings {});
+    CHECK(loaded.read_failed);
+    CHECK_FALSE(loaded.corrupt);
     REQUIRE(loaded.diagnostics.size() == 1);
     CHECK(loaded.diagnostics[0].code == diagnostic_code::app_settings_read_failed);
     CHECK(loaded.diagnostics[0].native_error == 5u);
+    // 읽지 못한 파일은 옮기지도 않는다.
+    CHECK(file_system.renames.empty());
 }
 
 TEST_CASE("a corrupt file is backed up and replaced with defaults", "[json_app_settings]")
@@ -478,6 +483,90 @@ TEST_CASE("the service round trips through a store and keeps unknown keys across
     CHECK(restarted.settings().active_tab == u8"C:\\work\\alpha");
     CHECK(restarted.settings().recent_repositories == filled_settings().recent_repositories);
     CHECK(json::parse(text_of(file_system.files.at(settings_path))).at("from_future") == 42);
+}
+
+TEST_CASE("the service never overwrites a file it could not read", "[json_app_settings]")
+{
+    const std::u8string original { u8"{\"git_executable\":\"C:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\"}" };
+    fake_file_system file_system {};
+    file_system.files[settings_path] = original;
+    file_system.fail_reads = true;
+    json_app_settings_store store { file_system, fixed_clock() };
+    app_settings_service service { store, settings_path };
+
+    const std::vector<diagnostic> loaded { service.load() };
+
+    REQUIRE(loaded.size() == 1);
+    CHECK(loaded[0].code == diagnostic_code::app_settings_read_failed);
+    CHECK(service.is_read_only());
+
+    // 잠금이 풀려도 이번 실행에서는 이미 기본값으로 시작했으니 저장하지 않는다.
+    file_system.fail_reads = false;
+    const std::vector<diagnostic> first { service.update([](app_settings& settings) { touch_recent_repository(settings, u8"C:\\work\\alpha", u8"2026-10-20T00:00:00Z"); }) };
+    const std::vector<diagnostic> second { service.save() };
+
+    REQUIRE(first.size() == 1);
+    CHECK(first[0].code == diagnostic_code::app_settings_write_failed);
+    CHECK(first[0].native_error == 5u);
+    REQUIRE(second.size() == 1);
+    CHECK(file_system.commit_count == 0);
+    CHECK(file_system.renames.empty());
+    CHECK(file_system.files.at(settings_path) == original);
+    CHECK(service.has_unsaved_changes());
+    // 메모리 상태는 평소처럼 바뀐다.
+    REQUIRE(service.settings().recent_repositories.size() == 1);
+    CHECK(service.settings().recent_repositories[0].path == u8"C:\\work\\alpha");
+}
+
+TEST_CASE("loading again after a read failure lifts the read only state", "[json_app_settings]")
+{
+    fake_file_system file_system {};
+    file_system.files[settings_path] = u8"{\"appearance\":{\"theme\":\"dark\"}}";
+    file_system.fail_reads = true;
+    json_app_settings_store store { file_system, fixed_clock() };
+    app_settings_service service { store, settings_path };
+    static_cast<void>(service.load());
+    REQUIRE(service.is_read_only());
+
+    file_system.fail_reads = false;
+    CHECK(service.load().empty());
+    CHECK_FALSE(service.is_read_only());
+    CHECK(service.settings().appearance.theme == theme_preference::dark);
+
+    CHECK(service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }).empty());
+    CHECK(file_system.commit_count == 1);
+    CHECK_FALSE(service.has_unsaved_changes());
+}
+
+TEST_CASE("a missing or corrupt file does not make the service read only", "[json_app_settings]")
+{
+    SECTION("missing")
+    {
+        fake_file_system file_system {};
+        json_app_settings_store store { file_system, fixed_clock() };
+        app_settings_service service { store, settings_path };
+
+        CHECK(service.load().empty());
+        CHECK_FALSE(service.is_read_only());
+        CHECK(service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }).empty());
+        CHECK(file_system.commit_count == 1);
+        CHECK(file_system.files.contains(settings_path));
+    }
+
+    SECTION("corrupt")
+    {
+        fake_file_system file_system {};
+        file_system.files[settings_path] = u8"not json at all";
+        json_app_settings_store store { file_system, fixed_clock() };
+        app_settings_service service { store, settings_path };
+
+        // 깨진 파일은 `.bad-<시각>`으로 옮겨 두었으니 새로 쓰는 것이 안전하다.
+        REQUIRE(service.load().size() == 1);
+        CHECK_FALSE(service.is_read_only());
+        CHECK(service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }).empty());
+        CHECK(file_system.commit_count == 1);
+        CHECK(file_system.files.contains(settings_path + u8".bad-20261020T093012Z"));
+    }
 }
 
 TEST_CASE("backup timestamp has no characters that are invalid in file names", "[json_app_settings]")

@@ -4,7 +4,9 @@
 #include "domain/app_settings.h"
 #include "domain/diagnostic.h"
 
+#include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,21 +16,29 @@ namespace cyella {
     // 저장이 실패해도 메모리 상태는 그대로 유지한다. 디스크가 잠깐 막혔다고 사용자가 방금 한
     // 일(저장소 열기, 고정)이 화면에서 사라지면 안 되기 때문이다. 실패는 진단 하나로 알리고,
     // 다음 변경이나 `save()`가 그때까지의 상태를 한꺼번에 다시 쓴다.
+    //
+    // 예외는 파일이 있는데 읽지 못한 경우다 (잠김, 접근 거부). 기본값으로 시작한 뒤 저장하면 읽지
+    // 못한 진짜 파일을 덮어쓰므로, 이번 실행 동안은 읽기 전용으로 두고 저장은 파일을 건드리지
+    // 않은 채 진단 하나만 돌려준다. 메모리 상태는 평소처럼 바뀐다. 깨진 파일은 읽기는 했고 백업도
+    // 되므로 여기에 해당하지 않는다.
     class app_settings_service
     {
     public:
         app_settings_service(app_settings_store& store, std::u8string path);
 
-        // 파일에서 읽어 메모리 상태를 바꾼다. 어떤 경우에도 쓸 수 있는 상태가 된다.
+        // 파일에서 읽어 메모리 상태를 바꾼다. 어떤 경우에도 앱은 쓸 수 있는 상태가 된다. 파일을
+        // 읽지 못했다면 읽기 전용이 되고, 다시 `load()`해서 읽으면 풀린다.
         std::vector<diagnostic> load();
         // 변경을 메모리에 적용하고 곧바로 저장한다. 저장이 실패하면 진단 하나를 돌려준다.
         std::vector<diagnostic> update(const std::function<void(app_settings&)>& change);
-        // 지금 상태를 저장한다.
+        // 지금 상태를 저장한다. 읽기 전용이면 파일을 건드리지 않고 진단 하나를 돌려준다.
         std::vector<diagnostic> save();
 
         [[nodiscard]] const app_settings& settings() const noexcept;
-        // 마지막 저장이 실패해 디스크가 메모리보다 뒤처져 있다.
+        // 마지막 저장이 실패해(또는 읽기 전용이라 건너뛰어) 디스크가 메모리보다 뒤처져 있다.
         [[nodiscard]] bool has_unsaved_changes() const noexcept;
+        // 파일을 읽지 못해 이번 실행 동안 저장하지 않는다.
+        [[nodiscard]] bool is_read_only() const noexcept;
         [[nodiscard]] const std::u8string& path() const noexcept;
 
     private:
@@ -37,5 +47,8 @@ namespace cyella {
         app_settings settings_ {};
         std::u8string shadow_source_json_ {};
         bool unsaved_ { false };
+        bool read_only_ { false };
+        // 읽기 전용이 된 이유다. 저장을 건너뛸 때 진단에 그대로 싣는다.
+        std::optional<std::uint32_t> read_error_ {};
     };
 } // namespace cyella

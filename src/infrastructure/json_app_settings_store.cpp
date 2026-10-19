@@ -435,7 +435,8 @@ namespace cyella {
             if (source.state == settings_file_read_state::failed)
             {
                 app_settings_load_result result {};
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning, u8"앱 설정 파일을 읽지 못해 기본값을 사용합니다.", source.native_error));
+                result.read_failed = true;
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning, u8"앱 설정 파일을 읽지 못해 기본값을 사용합니다. 파일을 덮어쓰지 않도록 이번 실행 동안은 설정을 저장하지 않습니다.", source.native_error));
                 return result;
             }
             // 빈 파일은 깨진 것이 아니라 아직 아무것도 쓰지 않은 것이다. 백업할 내용이 없다.
@@ -483,10 +484,12 @@ namespace cyella {
         }
         catch (...)
         {
+            // 파일 상태를 모르는 채 끝났으므로 읽기 실패와 같게 다룬다.
             app_settings_load_result result {};
+            result.read_failed = true;
             try
             {
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning, u8"앱 설정 파일을 읽는 중 예기치 않은 오류가 발생했습니다."));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning, u8"앱 설정 파일을 읽는 중 예기치 않은 오류가 발생했습니다. 파일을 덮어쓰지 않도록 이번 실행 동안은 설정을 저장하지 않습니다."));
             }
             catch (...)
             {}
