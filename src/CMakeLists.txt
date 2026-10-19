@@ -86,6 +86,10 @@ cyella_add_source_filter(cyella_lib_files "domain/settings"
     domain/repository_path.cpp
     domain/repository_path.h)
 
+cyella_add_source_filter(cyella_lib_files "domain/authentication"
+    domain/credential_prompt.cpp
+    domain/credential_prompt.h)
+
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
 # UI 헤더를 include하지 않는다.
 cyella_add_source_filter(cyella_lib_files "application/logic"
@@ -101,6 +105,9 @@ cyella_add_source_filter(cyella_lib_files "application/process"
     application/process_request.h
     application/process_runner.h
     application/text_transcoder.h)
+
+cyella_add_source_filter(cyella_lib_files "application/authentication"
+    application/askpass_service.h)
 
 cyella_add_source_filter(cyella_lib_files "application/scheduling"
     application/operation_executor.h
@@ -147,6 +154,12 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/settings"
     infrastructure/json_app_settings_store.cpp
     infrastructure/json_app_settings_store.h)
 
+cyella_add_source_filter(cyella_lib_files "infrastructure/authentication"
+    infrastructure/askpass_environment.cpp
+    infrastructure/askpass_environment.h
+    infrastructure/ssh_tools.cpp
+    infrastructure/ssh_tools.h)
+
 # presentation: view snapshot을 luil element tree로 짓는 앱 element 계층이다.
 cyella_add_source_filter(cyella_lib_files "presentation/start_page"
     presentation/start_page_view.cpp
@@ -181,6 +194,16 @@ cyella_add_source_filter(cyella_lib_files "platform/watching"
     platform/win32/win32_repository_watcher.cpp
     platform/win32/win32_repository_watcher.h)
 
+cyella_add_source_filter(cyella_lib_files "platform/authentication"
+    platform/win32/askpass_helper_path.cpp
+    platform/win32/askpass_helper_path.h
+    platform/win32/askpass_protocol.cpp
+    platform/win32/askpass_protocol.h
+    platform/win32/win32_askpass_server.cpp
+    platform/win32/win32_askpass_server.h
+    platform/win32/win32_ssh_environment.cpp
+    platform/win32/win32_ssh_environment.h)
+
 cyella_add_source_filter(cyella_lib_files "platform/host"
     platform/win32/cyella_delegate.cpp
     platform/win32/cyella_delegate.h
@@ -198,9 +221,12 @@ target_link_libraries(cyella_lib
         cyella_project_options
         nlohmann_json::nlohmann_json
         luil::luil
-        # SHGetKnownFolderPath(shell32)와 CoTaskMemFree(ole32). 설정 파일 위치에 쓴다.
-        shell32
-        ole32)
+        # askpass 서버(난수·보안 기술자·서비스 제어 관리자)와 설정 파일 위치
+        # (SHGetKnownFolderPath·CoTaskMemFree)가 직접 쓰는 시스템 라이브러리다.
+        bcrypt
+        advapi32
+        ole32
+        shell32)
 
 # resource는 두 .rc다: luil 조각(코디콘 폰트·라이선스·고지, ID 101~104)과 cyella
 # 조각(manifest·VERSIONINFO).
@@ -214,4 +240,25 @@ add_executable(cyella WIN32 ${cyella_app_files})
 target_link_libraries(cyella PRIVATE cyella_lib)
 cyella_disable_automatic_windows_manifest(cyella)
 
-install(TARGETS cyella RUNTIME DESTINATION .)
+# askpass 도우미다. git과 OpenSSH가 비밀이 필요할 때 실행하는 작은 프로그램이며 앱의 named pipe에
+# 묻는다. luil·Skia에 링크하지 않으려고 앱 라이브러리와 별개로 필요한 소스만 직접 컴파일한다.
+# 콘솔 창이 뜨지 않도록 WIN32 subsystem이고, 앱이 실행 파일 옆에서 찾으므로 이름이 고정이다.
+set(cyella_askpass_files)
+cyella_add_source_filter(cyella_askpass_files "askpass"
+    platform/win32/askpass_helper_main.cpp
+    platform/win32/askpass_protocol.cpp
+    platform/win32/askpass_protocol.h
+    platform/win32/utf8.cpp
+    platform/win32/utf8.h)
+add_executable(cyella_askpass WIN32 ${cyella_askpass_files})
+set_target_properties(cyella_askpass PROPERTIES OUTPUT_NAME "cyella-askpass")
+target_include_directories(cyella_askpass PRIVATE "${CYELLA_SOURCE_DIRECTORY}")
+target_link_libraries(cyella_askpass
+    PRIVATE
+        cyella_project_options
+        shell32)
+cyella_disable_automatic_windows_manifest(cyella_askpass)
+
+# 앱이 도우미를 자기 옆에서 찾으므로 둘을 같은 디렉터리에 설치한다.
+add_dependencies(cyella cyella_askpass)
+install(TARGETS cyella cyella_askpass RUNTIME DESTINATION .)

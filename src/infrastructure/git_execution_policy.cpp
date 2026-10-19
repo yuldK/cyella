@@ -92,6 +92,8 @@ namespace cyella {
         for (std::u8string& argument : arguments)
             request.arguments.push_back(std::move(argument));
         request.environment_overrides = git_environment_overrides(options.askpass_helper);
+        for (process_environment_override& entry : askpass_session_overrides(options.askpass_helper.empty() == false, options.askpass))
+            request.environment_overrides.push_back(std::move(entry));
         request.standard_input = options.standard_input;
         request.timeout = limits.timeout;
         request.maximum_captured_bytes_per_stream = options.maximum_captured_bytes_per_stream.value_or(limits.maximum_captured_bytes_per_stream);

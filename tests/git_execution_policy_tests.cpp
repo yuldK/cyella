@@ -126,3 +126,36 @@ TEST_CASE("git requests default to line output with the class capture limit", "[
     CHECK(request.standard_input.empty());
     CHECK(request.maximum_captured_bytes_per_stream == git_limits_for(git_command_class::local_query).maximum_captured_bytes_per_stream);
 }
+
+TEST_CASE("git requests carry the askpass session only together with the helper", "[policy][askpass]")
+{
+    git_request_options options {};
+    options.askpass.pipe_name = u8"\\\\.\\pipe\\cyella-askpass-1-abc";
+    options.askpass.token = u8"0123456789abcdef";
+    options.askpass.operation_id = u8"op-9";
+
+    // 도우미가 없으면 세션 값을 주지 않고 사용자 환경의 값도 지운다.
+    const process_request without_helper { make_request(git_command_class::network, options) };
+    for (const std::u8string_view name : { u8"CYELLA_ASKPASS_PIPE", u8"CYELLA_ASKPASS_TOKEN", u8"CYELLA_ASKPASS_OPERATION" })
+    {
+        const process_environment_override* const entry { find_override(without_helper.environment_overrides, name) };
+        REQUIRE(entry != nullptr);
+        CHECK_FALSE(entry->value.has_value());
+    }
+
+    options.askpass_helper = u8"C:/cyella/bin/cyella-askpass.exe";
+    const process_request with_helper { make_request(git_command_class::network, options) };
+    const process_environment_override* const pipe { find_override(with_helper.environment_overrides, u8"CYELLA_ASKPASS_PIPE") };
+    const process_environment_override* const token { find_override(with_helper.environment_overrides, u8"CYELLA_ASKPASS_TOKEN") };
+    const process_environment_override* const operation { find_override(with_helper.environment_overrides, u8"CYELLA_ASKPASS_OPERATION") };
+    REQUIRE(pipe != nullptr);
+    REQUIRE(token != nullptr);
+    REQUIRE(operation != nullptr);
+    CHECK(pipe->value == std::u8string { u8"\\\\.\\pipe\\cyella-askpass-1-abc" });
+    CHECK(token->value == std::u8string { u8"0123456789abcdef" });
+    CHECK(operation->value == std::u8string { u8"op-9" });
+    CHECK(validate_process_request(with_helper).empty());
+    // 토큰은 환경에만 있고 명령줄 기록에는 나오지 않는다.
+    for (const std::u8string& argument : with_helper.arguments)
+        CHECK(argument.find(u8"0123456789abcdef") == std::u8string::npos);
+}

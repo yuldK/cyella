@@ -27,7 +27,15 @@ cyella_add_source_filter(cyella_test_files "platform/settings"
 cyella_add_source_filter(cyella_test_files "platform/watching"
     win32_repository_watcher_tests.cpp)
 
+cyella_add_source_filter(cyella_test_files "domain/authentication"
+    credential_prompt_tests.cpp)
+
+cyella_add_source_filter(cyella_test_files "platform/authentication"
+    askpass_git_integration_tests.cpp
+    askpass_server_tests.cpp)
+
 cyella_add_source_filter(cyella_test_files "support"
+    askpass_test_support.h
     process_test_support.h
     temporary_directory_support.h)
 
@@ -43,7 +51,8 @@ cyella_add_source_filter(cyella_test_files "infrastructure"
     git_progress_parser_tests.cpp
     git_tool_discovery_tests.cpp
     json_app_settings_store_tests.cpp
-    secret_masking_tests.cpp)
+    secret_masking_tests.cpp
+    ssh_tools_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "presentation"
     start_page_view_tests.cpp)
@@ -86,10 +95,11 @@ cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"
 
 add_executable(cyella_tests ${cyella_test_files})
 # test가 도우미를 먼저 빌드하게 하고, 경로는 생성 시점의 target 파일로 받는다.
-add_dependencies(cyella_tests cyella_test_child)
+add_dependencies(cyella_tests cyella_test_child cyella_askpass)
 target_compile_definitions(cyella_tests
     PRIVATE
-        "CYELLA_TEST_CHILD_PATH=\"$<TARGET_FILE:cyella_test_child>\"")
+        "CYELLA_TEST_CHILD_PATH=\"$<TARGET_FILE:cyella_test_child>\""
+        "CYELLA_ASKPASS_PATH=\"$<TARGET_FILE:cyella_askpass>\"")
 target_include_directories(cyella_tests
     PRIVATE
         "${CYELLA_SOURCE_DIRECTORY}"

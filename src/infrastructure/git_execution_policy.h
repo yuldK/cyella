@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/process_request.h"
+#include "infrastructure/askpass_environment.h"
 
 #include <chrono>
 #include <cstddef>
@@ -39,6 +40,8 @@ namespace cyella {
         // 인증 도우미 실행 파일의 절대 경로다. 비어 있으면 askpass 변수를 환경에서 지운다.
         // 도우미가 없는 상태에서 인증이 필요하면 `GIT_TERMINAL_PROMPT=0` 때문에 즉시 실패한다.
         std::u8string askpass_helper {};
+        // 도우미가 앱에 접속하는 값이다. `askpass_helper`가 있을 때만 `CYELLA_ASKPASS_*`로 전달한다.
+        askpass_session askpass {};
         // 자식의 표준 입력이다 (`commit -F -`, `apply --cached`, `cat-file --batch`).
         std::string standard_input {};
         // 기본값을 넘길 수 있는 줄(rename 항목을 담은 status 등)만 올린다.
