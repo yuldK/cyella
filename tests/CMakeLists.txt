@@ -10,6 +10,9 @@ cyella_add_source_filter(cyella_test_files "resource"
     "${CYELLA_GENERATED_LUIL_RESOURCE}"
     "${CYELLA_GENERATED_RESOURCE}")
 
+cyella_add_source_filter(cyella_test_files "domain/graph"
+    commit_graph_layout_tests.cpp)
+
 cyella_add_source_filter(cyella_test_files "platform/host"
     cyella_driver_tests.cpp)
 
@@ -26,7 +29,9 @@ cyella_disable_automatic_windows_manifest(cyella_tests)
 
 # hang 유형의 회귀가 CI에서 무기한 대기 대신 실패로 드러나도록 모든 Catch2 test에
 # timeout을 부여한다.
-catch_discover_tests(cyella_tests PROPERTIES TIMEOUT 120)
+# `[perf]` 측정(10만 커밋 레이아웃 등)은 숨김 태그라 기본 목록에 없고 ctest에도 넣지 않는다.
+# 직접 부른다:  cyella_tests.exe "[perf]"
+catch_discover_tests(cyella_tests TEST_SPEC "~[perf]" PROPERTIES TIMEOUT 120)
 
 add_test(NAME cyella_source_style
     COMMAND "${CMAKE_COMMAND}"

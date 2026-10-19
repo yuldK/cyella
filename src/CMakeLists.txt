@@ -25,7 +25,11 @@ set_source_files_properties(
 # **하는 일**이다.
 set(cyella_lib_files)
 
-# domain: 순수 규칙과 값 타입이다. 다른 계층에 의존하지 않는다. 아직 파일이 없다.
+# domain: 순수 규칙과 값 타입이다. 다른 계층에 의존하지 않는다.
+cyella_add_source_filter(cyella_lib_files "domain/graph"
+    domain/commit_graph_layout.cpp
+    domain/commit_graph_layout.h)
+
 # infrastructure: application 계약의 구현이다 (Git 호출 등). 아직 파일이 없다.
 
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
