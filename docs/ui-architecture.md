@@ -39,6 +39,9 @@ cyella_driver::make_frame
 | 셸 전체 | 사이드바·상세 폭, 작업 로그 열림, 시작 페이지 검색 초안·스크롤, 서랍 열림, 아이콘 막대에서 연 구역, Clone 대화 상자 초안, 안내 한 줄, IME 조합 |
 
 - 탭 목록의 정본은 `repository_tabs`, git 상태의 정본은 workspace·세션, 설정의 정본은 `app_settings_service`다.
+- 탭 줄은 `repository_tabs_element`가 luil 탭 막대와 끝의 추가 단추를 한 가로 띠에 담는다. 넘칠 때만 가로 스크롤 막대를 보이고,
+  선택·추가·창 너비 변경 때 선택 탭을 화면 안으로 들인다. 수동 스크롤은 그대로 유지하며, 배치에서 다듬은 위치를 `frame_feedback`으로 되돌린다.
+  탭 경계와 선택 테두리를 표시하고, 끌어 놓으면 이동할 대상 앞·뒤 가장자리를 강조한다.
 - 판 폭은 `app_settings::ui.pane_widths`에 남긴다. 손잡이에 "놓았다"는 사건이 없어서 끄는 동안(`resize_pane_intent`)은 쓸 시각만 500 ms 뒤로 미루고,
   `shell_controller::tick`(driver의 `next_tick`)이 한 번 쓴다. 앱을 닫을 때는 `flush`가 바로 쓴다. 시작할 때 저장된 폭을 범위로 다듬어 되살린다.
 - 텍스트 칸은 luil 규약 그대로다. `cyella_policy::text_target_of`가 kind → `text_target`을 답하고, 편집은
@@ -154,11 +157,13 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 ```
 
 - **구획**: 관련 항목은 제목·여백·테두리를 공유하는 카드로 묶는다. 창이 좁으면 왼쪽 탐색을 아이콘으로 줄인다.
+  제목과 필드 이름 아래에는 간격을 두고 한 줄 입력 칸은 24 논리 픽셀이다. 스크롤 영역 바깥의 8 논리 픽셀 여백이 막대를 대화 상자 테두리에서 떼어 둔다.
 - **일반**: 밝게·시스템·어둡게 미리보기 카드(시스템은 밝고 어두운 화면을 대각선으로 나눔), UI·코드 글꼴, 작성자 사진, git 실행 파일을 각각 구획으로 보인다.
   글꼴은 입력 가능한 콤보 상자(`settings-ui-font`, `settings-code-font`)와 검색 목록이며 `appearance.ui_font`·`appearance.code_font`에 저장한다.
   목록 선택은 바로, 직접 입력은 Enter나 [글꼴 적용]으로 반영한다. 빈 이름·설치되지 않은 이름은 기본 글꼴로 표시하며 설정값은 보존한다. diff 웹뷰도 같은 글꼴을 쓴다.
   테마와 보기 전환은 여러 독립 단추 대신 전용 선택 컨트롤(`segmented_control_element`)을 쓰고 UIA Selection으로 현재 값을 공개한다.
   git 실행 파일은 이번 실행이 찾은 경로·버전·자동 탐색/직접 지정, 경로 초안과 [찾아보기…]·[적용]·[자동 탐색으로 되돌리기]를 보인다.
+  바꿀 경로와 단추를 먼저 배치하고, 현재 사용 중인 경로·버전은 아래의 읽기 전용 상태 영역으로 구분한다.
   경로는 절대 경로의 존재하는 파일이어야 저장한다. 이번 실행의 git은 이미 정해졌으므로 다음 실행부터 적용된다고 알린다.
 - **diff 도구**: `app_settings.external_diff_tools` 표(확장자·실행 파일·인자 템플릿)와 추가·편집·삭제. 편집 상자에서 토큰(`{left}` `{right}` `{base}` `{path}`)을 누르면 인자 끝에 붙고,
   샘플 경로로 푼 **argv 미리보기**를 한 줄에 하나씩 보인다(공백이 든 경로가 한 인자로 남는지 눈으로 확인). 확장자·실행 파일이 비었거나 템플릿의 따옴표가 닫히지 않았으면 저장할 수 없고,
@@ -512,3 +517,6 @@ identity: shell_controller ── request_identity ─▶ driver ─ scheduler("
 - 설정 키(`profiles`·`profile_rules`·`profile_assignments`·`shortcuts`·`command_history`)는 `infrastructure/json_command_settings.*`가 읽고 쓴다. 값이 없으면 키를 쓰지 않고, 알 수 없는 키는 shadow로 보존된다.
 - 텍스트 대상은 300번대(`palette_filter`·`settings_shortcut_input`·`settings_profile_*`·`settings_rule_prefix`), element kind도 300번대(`kind_palette_*`·`kind_shortcut_input`·`kind_profile_*`·`kind_command_marker`)다.
 - 팔레트의 보이는 항목이 14개라 고른 항목의 메뉴 명령(명령 뒤에 선다)은 거르기 전에는 보이지 않을 수 있다.
+- 키 입력 몸짓(Ctrl+Shift+P·Ctrl+P, 팔레트의 ↑↓·Enter, 단축키 입력 칸의 실제 키)과 우클릭 메뉴는 UI Automation으로 닿지 않는다. 팔레트는 탭 줄의 단추로, 입력 칸은 SetValue로 닿는다.
+  같은 몸짓이 내는 메시지와 정책은 `tests/palette_profile_shell_tests.cpp`가 `cyella_policy::on_key`와 controller를 직접 불러 확인한다(레지스트리 표를 실은 tree에서 키 → `run_command_intent`, 팔레트 표식의 Enter,
+  단축키 입력 칸의 `capture_shortcut_intent`, 고른 항목의 메뉴 명령).

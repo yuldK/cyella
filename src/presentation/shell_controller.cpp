@@ -150,6 +150,7 @@ namespace cyella {
 
     void shell_controller::save_tabs()
     {
+        ui_.reveal_selected_tab = true;
         update_settings([this](app_settings& value) { capture_open_tabs(tabs_, value); });
     }
 
@@ -664,7 +665,8 @@ namespace cyella {
         }
         if (const auto* const intent { message.get<scroll_tabs_intent>() }; intent != nullptr)
         {
-            ui_.tab_scroll = std::max(ui_.tab_scroll + intent->delta, 0.0f);
+            ui_.tab_scroll = std::max(intent->absolute ? intent->delta : ui_.tab_scroll + intent->delta, 0.0f);
+            ui_.reveal_selected_tab = false;
             return true;
         }
         if (message.get<cycle_theme_intent>() != nullptr)
@@ -1174,6 +1176,12 @@ namespace cyella {
 
     view_snapshot shell_controller::make_view(const float width, const float height, const float scale)
     {
+        const float logical_width { width / (scale > 0.0f ? scale : 1.0f) };
+        if (logical_width != last_logical_width_)
+        {
+            ui_.reveal_selected_tab = true;
+            last_logical_width_ = logical_width;
+        }
         last_scale_ = scale;
         sync_form_inputs();
         view_inputs inputs {};
@@ -1241,6 +1249,11 @@ namespace cyella {
     {
         feedback_ = feedback;
         settings_.apply_scroll_maximum(feedback.settings_maximum);
+        if (feedback.tab_scroll.has_value())
+        {
+            ui_.tab_scroll = *feedback.tab_scroll;
+            ui_.reveal_selected_tab = false;
+        }
     }
 
     std::optional<diff_target> shell_controller::current_diff_target() const

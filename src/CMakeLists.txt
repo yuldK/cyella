@@ -451,6 +451,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
     presentation/ui/element_kinds.h
     presentation/ui/segmented_control.cpp
     presentation/ui/segmented_control.h
+    presentation/ui/repository_tabs_element.cpp
+    presentation/ui/repository_tabs_element.h
     presentation/ui/settings/appearance_ui.cpp
     presentation/ui/settings/appearance_ui.h
     presentation/ui/ui_helpers.cpp

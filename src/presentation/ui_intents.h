@@ -87,6 +87,7 @@ namespace cyella {
     struct scroll_tabs_intent
     {
         float delta { 0.0f };
+        bool absolute { false };
     };
 
     // ------------------------------------------------------------------ 셸

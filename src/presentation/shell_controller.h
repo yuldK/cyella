@@ -304,6 +304,7 @@ namespace cyella {
         std::map<repository_tab_id, std::string> tab_repositories_ {};
         ui_state ui_ {};
         frame_feedback feedback_ {};
+        float last_logical_width_ { 0.0f };
         // 마지막 frame의 배치다. 커밋을 고를 때 서랍을 열지 정한다.
         layout_mode last_mode_ { layout_mode::wide };
         std::map<std::string, graph_cache_entry> graph_cache_ {};

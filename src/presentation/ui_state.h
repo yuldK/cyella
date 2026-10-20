@@ -200,6 +200,7 @@ namespace cyella {
         bool operation_log_open { false };
         float log_scroll { 0.0f };
         float tab_scroll { 0.0f };
+        bool reveal_selected_tab { true };
         luil::text::text_edit_state start_search {};
         float start_scroll { 0.0f };
         // medium·narrow에서 상세 서랍이 열려 있다.

@@ -468,6 +468,7 @@ namespace cyella {
         std::vector<tab_view> tabs {};
         repository_tab_id selected_tab { 0 };
         float tab_scroll { 0.0f };
+        bool reveal_selected_tab { false };
         std::optional<start_page_snapshot> start {};
         std::optional<repository_view> repository {};
         toolbar_view toolbar {};

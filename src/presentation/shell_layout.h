@@ -13,7 +13,7 @@ namespace cyella {
     };
 
     // 셸의 고정 치수다 (논리 픽셀).
-    inline constexpr float shell_tab_row_height { 32.0f };
+    inline constexpr float shell_tab_row_height { 40.0f };
     inline constexpr float shell_toolbar_height { 44.0f };
     inline constexpr float shell_status_height { 24.0f };
     inline constexpr float shell_banner_height { 32.0f };

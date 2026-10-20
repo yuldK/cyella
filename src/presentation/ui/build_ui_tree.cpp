@@ -13,6 +13,7 @@
 #include "presentation/ui/palette_ui.h"
 #include "presentation/ui/rebase/rebase_editor_ui.h"
 #include "presentation/ui/ref_chip_element.h"
+#include "presentation/ui/repository_tabs_element.h"
 #include "presentation/ui/settings/appearance_ui.h"
 #include "presentation/ui/settings/settings_ui.h"
 #include "presentation/ui/ui_helpers.h"
@@ -136,7 +137,7 @@ namespace cyella::ui {
 
         // ---------------------------------------------------------------- 탭 줄
 
-        std::unique_ptr<luil::ui_element> build_tab_row(const view_snapshot& view)
+        std::unique_ptr<luil::ui_element> build_tab_row(const view_snapshot& view, feedback_sources& sources)
         {
             luil::tab_bar_config config {};
             config.owner = u8"tabs";
@@ -156,15 +157,17 @@ namespace cyella::ui {
             config.close = [](const std::u8string& key) { return message(close_tab_intent { tab_id_of(key) }); };
             config.reorder = [](const std::u8string& moved, const std::u8string& target) { return message(reorder_tab_intent { tab_id_of(moved), tab_id_of(target) }); };
             config.scroll = [](const float delta) { return message(scroll_tabs_intent { delta }); };
-            auto tab_bar { std::make_unique<luil::tab_bar_element>(std::move(config)) };
+            const float viewport_width { std::max(view.logical_width - tab_row_button_width * 3.0f - 4.0f, 0.0f) };
+            auto add { make_icon_button(u8"new-tab", codicons::icon_add, u8"새 탭 (시작 페이지)", message(new_tab_intent {})) };
+            auto tab_bar { std::make_unique<repository_tabs_element>(std::move(config), std::move(add), viewport_width, view.reveal_selected_tab) };
+            sources.tabs = tab_bar.get();
             std::u8string names {};
             for (const tab_view& tab : view.tabs)
                 names += (names.empty() ? u8"" : u8", ") + tab.label + marker_text(tab.marker);
-            tab_bar->set_access_name(u8"탭: " + names);
+            tab_bar->set_tabs_name(u8"탭: " + names);
 
             auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"tab-row" }, luil::stack_config { .direction = luil::stack_direction::row }) };
             row->add_flexible(std::move(tab_bar));
-            row->add(make_icon_button(u8"new-tab", codicons::icon_add, u8"새 탭 (시작 페이지)", message(new_tab_intent {})), tab_row_button_width);
             row->add(make_icon_button(u8"command-palette", codicons::icon_terminal, palette_tooltip(view), message(open_palette_intent {}), true, view.palette.has_value()), tab_row_button_width);
             row->add(make_icon_button(u8"theme", codicons::icon_color_mode, theme_tooltip(view.theme), message(cycle_theme_intent {})), tab_row_button_width);
             row->add(make_icon_button(u8"settings", codicons::icon_settings_gear, u8"환경 설정", message(open_settings_intent {})), tab_row_button_width);
@@ -609,7 +612,7 @@ namespace cyella::ui {
         if (view.log_open)
             root->place(build_log(view, sources), rects.log);
         root->place(build_status(view), rects.status);
-        root->place(build_tab_row(view), rects.tab_row);
+        root->place(build_tab_row(view, sources), rects.tab_row);
         if (window_caption)
         {
             root->place(std::make_unique<luil::caption_element>(caption_config), { 0.0f, 0.0f, view.logical_width, caption_height });
@@ -663,6 +666,8 @@ namespace cyella::ui {
             built.feedback.start_maximum = sources.start->metrics().maximum_scroll;
         if (sources.settings != nullptr)
             built.feedback.settings_maximum = sources.settings->metrics().maximum_scroll;
+        if (sources.tabs != nullptr)
+            built.feedback.tab_scroll = sources.tabs->scroll_offset();
         return built;
     }
 } // namespace cyella::ui

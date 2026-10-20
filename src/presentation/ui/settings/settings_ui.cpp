@@ -32,6 +32,8 @@ namespace cyella::ui {
         constexpr float dialog_margin { 24.0f };
         constexpr float navigation_width { 170.0f };
         constexpr float content_padding { 16.0f };
+        constexpr float content_right_padding { 10.0f };
+        constexpr float scroll_inset { 8.0f };
         constexpr float banner_height { 34.0f };
         constexpr float footer_height { 26.0f };
         // 미리보기가 한 줄씩 보이는 인자의 상한이다.
@@ -134,36 +136,49 @@ namespace cyella::ui {
 
             const git_settings_view& git { view.git };
             page.add(section_title(u8"settings-section-git", u8"Git"), section_height);
-            if (git.problem.empty())
-            {
-                page.add(field_label(u8"settings-git-using-label", u8"사용 중인 git"), label_height);
-                page.add(make_text(u8"settings-git-using", git.executable, text_style { .size = 12.0f, .code = true }), line_height);
-                page.add(help_line(u8"settings-git-version", git.version + u8" · " + git.origin), line_height);
-            }
-            else
-            {
-                page.add(make_text(u8"settings-git-problem", git.problem, text_style { .size = 12.0f, .color = tone_color(tone::bad) }), line_height);
-                page.add(help_line(u8"settings-git-version", u8"아래에서 git 경로를 직접 지정할 수 있습니다."), line_height);
-            }
-            page.gap(small_gap);
-            page.add(field_label(u8"settings-git-path-label", u8"git 실행 파일 경로 (비워 두면 자동 탐색)"), label_height);
+            page.add(field_label(u8"settings-git-path-label", u8"Git 실행 파일 경로"), label_height);
             auto path_row { make_row(u8"settings-git-path-row") };
-            path_row->add_flexible(input_of(kind_settings_git_path_input, u8"settings-git-path", git.path, u8"C:\\Program Files\\Git\\cmd\\git.exe"));
+            path_row->add_flexible(input_of(kind_settings_git_path_input, u8"settings-git-path", git.path, u8"자동 탐색 · 다른 git.exe 경로 입력", u8"Git 실행 파일 경로"));
             path_row->add(
                 button_of(u8"settings-git-browse", u8"찾아보기…", ui_command(static_cast<std::uint32_t>(ui_command_id::choose_git_executable))), { .length = 88.0f, .cross_length = button_height });
-            path_row->add(
-                button_of(u8"settings-git-apply", u8"적용", message(apply_git_path_intent {}), git.can_apply, luil::text_button_visual::accent), { .length = 56.0f, .cross_length = button_height });
             page.add(std::move(path_row), input_height);
+            page.gap(4.0f);
             if (git.validation.empty() == false)
                 page.add(help_line(u8"settings-git-validation", git.validation, tone_color(tone::bad)), line_height);
             else if (git.dirty)
                 page.add(help_line(u8"settings-git-validation", u8"[적용]을 누르면 저장하고 다음 실행부터 씁니다."), line_height);
             else
-                page.add(help_line(u8"settings-git-validation", git.configured ? u8"직접 지정한 경로입니다." : u8"지정한 경로가 없어 자동으로 찾습니다."), line_height);
+                page.add(help_line(u8"settings-git-validation", git.configured ? u8"직접 지정한 경로입니다. 다음 실행부터 사용합니다." : u8"비워 두면 자동으로 찾습니다. 다음 실행부터 적용됩니다."),
+                    line_height);
+            page.gap(small_gap);
             auto reset_row { make_row(u8"settings-git-reset-row") };
             reset_row->add(button_of(u8"settings-git-reset", u8"자동 탐색으로 되돌리기", message(reset_git_path_intent {}), git.configured),
                 { .length = text_button_width(u8"자동 탐색으로 되돌리기"), .cross_length = button_height });
+            reset_row->add_flexible_gap();
+            reset_row->add(
+                button_of(u8"settings-git-apply", u8"적용", message(apply_git_path_intent {}), git.can_apply, luil::text_button_visual::accent), { .length = 56.0f, .cross_length = button_height });
             page.add(std::move(reset_row), input_height);
+            page.gap(large_gap);
+
+            const luil::stack_config status_config { .padding = luil::edge_insets::all(10.0f) };
+            auto status { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-git-status-content" }, status_config) };
+            status->add(help_line(u8"settings-git-using-label", u8"현재 사용 중인 Git"), line_height);
+            if (git.problem.empty())
+            {
+                status->add(make_text(u8"settings-git-using", git.executable, text_style { .size = 12.0f, .code = true }), 22.0f);
+                status->add(help_line(u8"settings-git-version", git.version + u8" · " + git.origin), line_height);
+            }
+            else
+            {
+                status->add(make_text(u8"settings-git-problem", git.problem, text_style { .size = 12.0f, .color = tone_color(tone::bad) }), 22.0f);
+                status->add(help_line(u8"settings-git-version", u8"위에서 Git 경로를 지정해 주세요."), line_height);
+            }
+            luil::panel_config status_panel {};
+            status_panel.background = [](const luil::ui_color_palette& palette) { return palette.window_background; };
+            status_panel.corner_radius = 6.0f;
+            auto current { std::make_unique<luil::panel_element>(luil::ui_element_id { kind_panel, u8"settings-git-status" }, std::move(status_panel)) };
+            current->set_content(std::move(status));
+            page.add(std::move(current), 20.0f + line_height * 2.0f + 22.0f);
         }
 
         // ------------------------------------------------------------------ diff 도구
@@ -535,7 +550,7 @@ namespace cyella::ui {
         switch (view.page)
         {
         case settings_page::general:
-            build_general(page, view, width - navigation_extent - content_padding - 12.0f - section_padding * 2.0f);
+            build_general(page, view, width - navigation_extent - scroll_inset - luil::scroll_area_bar_width - content_padding - content_right_padding - section_padding * 2.0f);
             break;
         case settings_page::diff_tools:
             build_diff_tools(page, view);
@@ -566,19 +581,22 @@ namespace cyella::ui {
         }
         luil::scroll_area_config scroll {};
         scroll.owner = u8"settings-scroll";
-        scroll.content_height = page.height() + content_padding;
+        scroll.content_height = page.height() + large_gap;
         scroll.scroll_offset = view.scroll;
         scroll.scroll = [](const float delta) { return message(settings_scroll_intent { .value = delta, .absolute = false }); };
         scroll.scroll_to = [](const float offset) { return message(settings_scroll_intent { .value = offset, .absolute = true }); };
         scroll.edges = luil::scroll_edges { .shadows = true };
         auto area { std::make_unique<luil::scroll_area_element>(std::move(scroll)) };
         luil::ui_element_id padded_id { kind_layout, u8"settings-page-padding" };
-        const luil::stack_config padded_config { .padding = luil::edge_insets { content_padding, 10.0f, 12.0f, 0.0f } };
+        const luil::stack_config padded_config { .padding = luil::edge_insets { content_padding, 0.0f, content_right_padding, large_gap } };
         auto padded { std::make_unique<luil::stack_element>(std::move(padded_id), padded_config) };
         padded->add(page.take(), page.height());
         area->set_content(std::move(padded));
         sources.settings = area.get();
-        content->add_flexible(std::move(area));
+        const luil::stack_config scroll_padding { .padding = luil::edge_insets { 0.0f, scroll_inset, scroll_inset, scroll_inset } };
+        auto inset { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-scroll-inset" }, scroll_padding) };
+        inset->add_flexible(std::move(area));
+        content->add_flexible(std::move(inset));
 
         content->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-footer-bar" }, bar_style { .divider_top = true },
                          make_text(u8"settings-message", view.message, text_style { .size = 11.0f, .color = dim })),

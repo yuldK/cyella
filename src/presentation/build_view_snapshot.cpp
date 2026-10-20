@@ -951,6 +951,7 @@ namespace cyella {
         view.mode = select_layout_mode(view.logical_width);
         view.theme = settings.appearance.theme;
         view.tab_scroll = ui.tab_scroll;
+        view.reveal_selected_tab = ui.reveal_selected_tab;
         view.log_open = ui.operation_log_open;
         view.log_scroll = ui.log_scroll;
         view.sidebar_width = ui.sidebar_width;

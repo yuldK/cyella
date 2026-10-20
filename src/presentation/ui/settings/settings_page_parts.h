@@ -14,11 +14,11 @@
 
 namespace cyella::ui::pages {
     // 환경 설정 쪽들이 같이 쓰는 치수와 조립기다. `settings_ui.cpp`의 같은 이름 조각과 값이 같다 (그 파일의 조각은 익명 namespace라 새 쪽이 빌려 쓰지 못한다).
-    inline constexpr float section_height { 30.0f };
+    inline constexpr float section_height { 34.0f };
     inline constexpr float line_height { 18.0f };
-    inline constexpr float label_height { 17.0f };
-    inline constexpr float input_height { 28.0f };
-    inline constexpr float button_height { 26.0f };
+    inline constexpr float label_height { 24.0f };
+    inline constexpr float input_height { 24.0f };
+    inline constexpr float button_height { 24.0f };
     inline constexpr float row_height { 30.0f };
     inline constexpr float small_gap { 6.0f };
     inline constexpr float large_gap { 14.0f };
@@ -68,6 +68,11 @@ namespace cyella::ui::pages {
             if (child->id().kind == kind_settings_section)
                 flush_section();
             ensure_section();
+            if (child->id().kind == kind_settings_field && section_height_ > section_height)
+            {
+                section_->add_gap(small_gap);
+                section_height_ += small_gap;
+            }
             section_->add(std::move(child), height);
             section_height_ += height;
         }
@@ -145,7 +150,8 @@ namespace cyella::ui::pages {
     {
         auto title { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_settings_section, owner }, luil::stack_config {}) };
         title->set_hit_opaque(false);
-        title->add_flexible(make_text(owner + u8"-label", std::move(text), text_style { .size = 14.0f, .bold = true }));
+        title->add(make_text(owner + u8"-label", std::move(text), text_style { .size = 14.0f, .bold = true }), 22.0f);
+        title->add_gap(section_height - 22.0f);
         return title;
     }
 
@@ -156,7 +162,11 @@ namespace cyella::ui::pages {
 
     inline std::unique_ptr<luil::ui_element> field_label(std::u8string owner, std::u8string text)
     {
-        return make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .color = dim, .bold = true });
+        const luil::stack_config config { .padding = luil::edge_insets { 0.0f, 0.0f, 0.0f, small_gap } };
+        auto label { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_settings_field, owner + u8"-field" }, config) };
+        label->set_hit_opaque(false);
+        label->add_flexible(make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .bold = true }));
+        return label;
     }
 
     inline std::unique_ptr<luil::ui_element> code_line(std::u8string owner, std::u8string text)

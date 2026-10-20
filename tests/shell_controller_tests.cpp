@@ -4,6 +4,7 @@
 #include "infrastructure/git_operation_runner.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/shell_controller.h"
+#include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui_intents.h"
 
 #include "fake_git_runner.h"
@@ -60,6 +61,27 @@ namespace {
         return buffer;
     }
 } // namespace
+
+TEST_CASE("resizing reveals the selected tab while manual scrolling keeps its position", "[presentation][controller][tabs]")
+{
+    controller_harness test {};
+    for (int index { 0 }; index < 7; ++index)
+        REQUIRE(test.send(new_tab_intent {}));
+    const auto wide { ui::build_ui_tree(test.controller.make_view(1440.0f, 900.0f, 1.0f)) };
+    test.controller.apply_feedback(wide.feedback);
+    REQUIRE(test.send(scroll_tabs_intent { 0.0f, true }));
+    const view_snapshot manual { test.controller.make_view(1440.0f, 900.0f, 1.0f) };
+    CHECK_FALSE(manual.reveal_selected_tab);
+    CHECK(manual.tab_scroll == 0.0f);
+    const auto unchanged { ui::build_ui_tree(manual) };
+    CHECK(unchanged.feedback.tab_scroll == 0.0f);
+    test.controller.apply_feedback(unchanged.feedback);
+    const view_snapshot narrow { test.controller.make_view(480.0f, 900.0f, 1.0f) };
+    CHECK(narrow.reveal_selected_tab);
+    const auto resized { ui::build_ui_tree(narrow) };
+    REQUIRE(resized.feedback.tab_scroll.has_value());
+    CHECK(*resized.feedback.tab_scroll > 0.0f);
+}
 
 TEST_CASE("opening a repository replaces the start tab and records it as recent", "[presentation][controller]")
 {

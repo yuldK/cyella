@@ -17,6 +17,7 @@ namespace cyella {
         std::optional<float> start_maximum {};
         std::optional<float> log_maximum {};
         std::optional<float> settings_maximum {};
+        std::optional<float> tab_scroll {};
         // 그래프 창 높이다 (논리 픽셀). 끝에 가까워지면 다음 쪽을 읽는 판정이 쓴다.
         float graph_viewport { 0.0f };
     };

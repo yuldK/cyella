@@ -1,14 +1,18 @@
 // 대화 상자·메뉴·라벨 칩·충돌 화면의 luil tree다. snapshot에서 배치까지 지은 tree를 읽어, 눌림·끌기·놓기가 element에 서 있는지와
-// 자리가 겹치지 않는지를 검증한다 (그림은 보지 않는다).
+// 자리가 겹치지 않는지와 탭의 삽입 방향 강조를 검증한다.
 #include "presentation/dialog_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
 #include "view_snapshot_support.h"
 
 #include <catch2/catch_test_macros.hpp>
+
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
 
 #include <string>
 #include <vector>
@@ -72,6 +76,86 @@ TEST_CASE("toolbar controls stay inside the window at every responsive boundary"
             if (view.toolbar.show_detail_toggle)
                 check(cyella::ui::kind_button, u8"detail-toggle");
         }
+}
+
+TEST_CASE("repository tabs scroll with their add button and reveal the selected tab", "[presentation][ui][tabs]")
+{
+    tree_fixture fixture {};
+    view_snapshot view { fixture.harness.build(760.0f) };
+    view.tabs.clear();
+    for (repository_tab_id id { 1 }; id <= 8; ++id)
+        view.tabs.push_back({ .id = id, .label = u8"저장소 " + cyella::ui::number_text(id) });
+    view.selected_tab = 8;
+    view.reveal_selected_tab = true;
+    const cyella::ui::built_tree end { cyella::ui::build_ui_tree(view) };
+    CHECK(end.tree->duplicate_ids().empty());
+    CHECK(end.tree->unarranged().empty());
+    const auto* const last { find_element(end, luil::ui_element_kind::tab, u8"tab-8") };
+    const auto* const add { find_element(end, cyella::ui::kind_button, u8"new-tab") };
+    const auto* const lane { find_element(end, cyella::ui::kind_layout, u8"tabs-lane") };
+    const auto* const scroll { find_element(end, luil::ui_element_kind::scroll_area_bar, u8"tabs-scroll") };
+    REQUIRE(last != nullptr);
+    REQUIRE(add != nullptr);
+    REQUIRE(lane != nullptr);
+    REQUIRE(scroll != nullptr);
+    CHECK(add->bounds().x == last->bounds().x + last->bounds().width);
+    CHECK(add->bounds().x + add->bounds().width <= lane->bounds().x + lane->bounds().width);
+    REQUIRE(scroll->accessibility().range.has_value());
+    CHECK(scroll->accessibility().range->value == scroll->accessibility().range->maximum);
+    REQUIRE(scroll->pointer_drag() != nullptr);
+    CHECK(scroll->pointer_drag()->follows_pointer);
+    CHECK(scroll->key_step()->axis == luil::focus_axis::horizontal);
+    const auto changed { scroll->access_actions({ .command = luil::access_command::set_value, .value = 0.0f }) };
+    REQUIRE(changed.has_value());
+    REQUIRE(changed->size() == 1);
+    const auto* const action { std::get_if<luil::app_message>(&changed->front()) };
+    REQUIRE(action != nullptr);
+    const auto* const intent { action->get<scroll_tabs_intent>() };
+    REQUIRE(intent != nullptr);
+    CHECK(intent->absolute);
+    CHECK(intent->delta == 0.0f);
+
+    view.selected_tab = 1;
+    view.tab_scroll = *end.feedback.tab_scroll;
+    const cyella::ui::built_tree start { cyella::ui::build_ui_tree(view) };
+    CHECK(start.feedback.tab_scroll == 0.0f);
+    const auto* const first { find_element(start, luil::ui_element_kind::tab, u8"tab-1") };
+    REQUIRE(first != nullptr);
+    CHECK(first->bounds().x == 0.0f);
+    view.tabs.resize(1);
+    const cyella::ui::built_tree short_row { cyella::ui::build_ui_tree(view) };
+    CHECK(find_element(short_row, luil::ui_element_kind::scroll_area_bar, u8"tabs-scroll") == nullptr);
+}
+
+TEST_CASE("tab dragging paints the insertion edge that matches the reorder direction", "[presentation][ui][tabs][drag]")
+{
+    tree_fixture fixture {};
+    view_snapshot view { fixture.harness.build() };
+    view.tabs = { { .id = 1, .label = u8"하나" }, { .id = 2, .label = u8"둘" }, { .id = 3, .label = u8"셋" } };
+    view.selected_tab = 2;
+    const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
+    const auto* const strip { find_element(built, cyella::ui::kind_layout, u8"repository-tabs") };
+    REQUIRE(strip != nullptr);
+    const luil::ui_color_palette palette { luil::color_palette_for(luil::color_theme::dark) };
+    for (const bool forward : { true, false })
+    {
+        const auto* const target { find_element(built, luil::ui_element_kind::tab, forward ? u8"tab-3" : u8"tab-1") };
+        REQUIRE(target != nullptr);
+        luil::interaction_snapshot interaction {};
+        interaction.drag = luil::drag_visual { .payload = { .dragged_owner = forward ? u8"tab-1" : u8"tab-3" }, .hovered_drop_target = target->id() };
+        SkBitmap bitmap {};
+        bitmap.allocN32Pixels(1440, 100);
+        bitmap.eraseColor(palette.window_background);
+        SkCanvas canvas { bitmap };
+        luil::draw_context context { .canvas = canvas, .palette = palette };
+        strip->draw(context, interaction);
+        const luil::rect_f box { target->bounds() };
+        const int left { static_cast<int>(box.x) };
+        const int right { static_cast<int>(box.x + box.width) - 1 };
+        const int y { static_cast<int>(box.y) + 6 };
+        CHECK(bitmap.getColor(forward ? right : left, y) == palette.accent);
+        CHECK(bitmap.getColor(forward ? left : right, y) != palette.accent);
+    }
 }
 
 TEST_CASE("splitter capture survives a rebuilt layout and movement outside the pane until release", "[presentation][ui][resize]")

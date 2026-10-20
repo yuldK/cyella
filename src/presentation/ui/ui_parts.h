@@ -11,6 +11,7 @@
 #include <memory>
 
 namespace cyella::ui {
+    class repository_tabs_element;
     // 배치가 끝난 뒤 치수를 읽을 element들이다. tree가 소유하고 여기는 빌리기만 한다.
     struct feedback_sources
     {
@@ -23,6 +24,7 @@ namespace cyella::ui {
         // 커밋 상세의 메시지·메타 칸이다. 넘칠 때만 흘리는 창이 선다.
         const luil::scroll_area_element* commit_meta { nullptr };
         const luil::scroll_area_element* settings { nullptr };
+        const repository_tabs_element* tabs { nullptr };
     };
 
     // 셸의 판마다 짓는 함수다. 자리는 셸이 정하므로 각 판은 받은 자리 전체를 채운다.
