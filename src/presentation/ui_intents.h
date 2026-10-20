@@ -27,6 +27,8 @@ namespace cyella {
         // 환경 설정의 파일 고르기다. 결과는 `settings_file_chosen_intent`다.
         choose_git_executable,
         choose_tool_executable,
+        // 없어진 최근 저장소의 새 위치를 고른다. 명령 인자가 옛 경로이고, 결과는 `folder_chosen_intent{locate}`다.
+        locate_folder,
     };
 
     enum class folder_purpose
@@ -34,6 +36,7 @@ namespace cyella {
         open,
         init,
         clone_target,
+        locate,
     };
 
     // UI thread의 폴더 대화 상자 결과다. 취소했으면 오지 않는다.
@@ -41,6 +44,8 @@ namespace cyella {
     {
         folder_purpose purpose { folder_purpose::open };
         std::u8string path {};
+        // `locate`일 때 위치를 찾는 최근 저장소의 옛 경로다.
+        std::u8string origin {};
     };
 
     // ------------------------------------------------------------------ 탭

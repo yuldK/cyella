@@ -62,6 +62,7 @@ namespace {
 
     constexpr auto working_tree_changed { repository_change_kind::working_tree_changed };
     constexpr auto repository_state_changed { repository_change_kind::repository_state_changed };
+    constexpr auto watch_lost { repository_change_kind::watch_lost };
 
     // 이벤트가 없어야 하는 검사에서 기다리는 시간이다. 디바운스 창(50 ms)의 열 배가 넘는다.
     constexpr auto quiet_period { 700ms };
@@ -508,4 +509,44 @@ TEST_CASE("a buffer overflow while the consumer is busy reports both kinds", "[i
     // `.git` 안은 건드리지 않았으므로 상태 변경 알림은 넘침 처리에서만 나온다.
     CHECK(collector.wait_for(repository_state_changed, 3s));
     CHECK(collector.wait_for(working_tree_changed, 3s));
+}
+
+TEST_CASE("a watched folder that disappears is reported once as watch_lost", "[integration][watcher]")
+{
+    test::temporary_directory directory { "watch-lost" };
+    const std::filesystem::path repository { make_repository(directory.path()) };
+    event_collector collector {};
+    started_watcher started { start_watching(repository, collector) };
+    REQUIRE(started.watcher != nullptr);
+    CHECK(collector.count(watch_lost) == 0);
+
+    // 감시 중인 작업 트리를 통째로 지운다. 감시 핸들은 삭제를 막지 않고, 지워진 뒤에는 읽기를 다시 걸 수 없다.
+    std::error_code ignored {};
+    std::filesystem::remove_all(repository, ignored);
+
+    CHECK(collector.wait_for(watch_lost, 3s));
+    // 놓친 변경이 있을 수 있어 두 종류도 따로 온다.
+    CHECK(collector.wait_for(working_tree_changed, 3s));
+    CHECK(collector.wait_for(repository_state_changed, 3s));
+    std::this_thread::sleep_for(quiet_period);
+    // 뿌리마다 한 번이다.
+    CHECK(collector.count(watch_lost) == 1);
+}
+
+TEST_CASE("a healthy watcher never reports watch_lost", "[integration][watcher]")
+{
+    test::temporary_directory directory { "watch-healthy" };
+    const std::filesystem::path repository { make_repository(directory.path()) };
+    event_collector collector {};
+    started_watcher started { start_watching(repository, collector) };
+    REQUIRE(started.watcher != nullptr);
+
+    for (int index { 0 }; index < 5; ++index)
+    {
+        test::write_file(repository / ("file" + std::to_string(index) + ".txt"), "x");
+        std::this_thread::sleep_for(120ms);
+    }
+    CHECK(collector.wait_for(working_tree_changed, 2s));
+    std::this_thread::sleep_for(quiet_period);
+    CHECK(collector.count(watch_lost) == 0);
 }

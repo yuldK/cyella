@@ -1,5 +1,10 @@
 #include "platform/win32/win32_workspace_files.h"
 
+#include <windows.h>
+
+#include <objbase.h>
+#include <shellapi.h>
+
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -66,6 +71,41 @@ namespace cyella::win32 {
                         return false;
                     stream.write(text.data(), static_cast<std::streamsize>(text.size()));
                     return static_cast<bool>(stream);
+                }
+                catch (...)
+                {
+                    return false;
+                }
+            }
+
+            [[nodiscard]] bool move_to_recycle_bin(const std::span<const std::u8string> absolute_paths) noexcept override
+            {
+                try
+                {
+                    if (absolute_paths.empty())
+                        return false;
+                    // 이중 NUL로 끝나는 목록이다. SHFileOperation은 `/`를 받지 않으므로 `\`로 바꾼다.
+                    std::wstring list {};
+                    for (const std::u8string& path : absolute_paths)
+                    {
+                        std::filesystem::path native { to_path(path) };
+                        native.make_preferred();
+                        list.append(native.wstring());
+                        list.push_back(L'\0');
+                    }
+                    list.push_back(L'\0');
+
+                    // 작업자 스레드는 COM을 켜 두지 않았을 수 있다. 셸이 COM을 쓰므로 이 호출 동안만 켠다.
+                    const HRESULT initialized { CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
+                    SHFILEOPSTRUCTW operation {};
+                    operation.wFunc = FO_DELETE;
+                    operation.pFrom = list.c_str();
+                    // FOF_ALLOWUNDO가 휴지통으로 보내는 조건이다. 확인과 오류 상자는 앱이 이미 거쳤으므로 띄우지 않는다.
+                    operation.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+                    const int result { SHFileOperationW(&operation) };
+                    if (SUCCEEDED(initialized))
+                        CoUninitialize();
+                    return result == 0 && operation.fAnyOperationsAborted == FALSE;
                 }
                 catch (...)
                 {

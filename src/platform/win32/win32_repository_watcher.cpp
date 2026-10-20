@@ -55,6 +55,8 @@ namespace cyella::win32 {
             alignas(DWORD) std::array<std::byte, notification_buffer_size> buffer {};
             // 읽기가 걸려 있는가. 걸려 있는 동안은 버퍼와 OVERLAPPED를 건드리면 안 된다.
             bool pending { false };
+            // 읽기를 다시 걸지 못해 이 뿌리를 더는 감시하지 못한다. 소비자에게 한 번 알렸다.
+            bool lost { false };
 
             // 읽기를 건다. 실패하면 false다.
             bool issue_read() noexcept
@@ -271,6 +273,7 @@ namespace cyella::win32 {
                         // 기다리기 자체가 실패했다. 이벤트를 놓칠 수 있으므로 한 번 알리고 그만둔다.
                         debouncer_.note_overflow(change_debouncer::clock::now());
                         flush();
+                        notify(repository_change_kind::watch_lost);
                         return;
                     }
 
@@ -292,13 +295,13 @@ namespace cyella::win32 {
                     // 버퍼가 넘쳤다(ERROR_NOTIFY_ENUM_DIR). 그 밖의 오류(폴더가 지워짐 등)는 읽기를 다시
                     // 걸어도 실패하므로 아래 재시도에서 감시를 포기한다. 어느 쪽이든 놓친 변경이 있다.
                     debouncer_.note_overflow(now);
-                    static_cast<void>(root.issue_read());
+                    reissue_read(root);
                     return;
                 }
                 if (bytes == 0)
                 {
                     debouncer_.note_overflow(now);
-                    static_cast<void>(root.issue_read());
+                    reissue_read(root);
                     return;
                 }
 
@@ -319,8 +322,20 @@ namespace cyella::win32 {
 
                 // 버퍼를 다 읽었으니 다음 변경을 받을 읽기를 다시 건다. 실패하면 이 뿌리는 더는 감시되지
                 // 않으므로 마지막으로 모두 알려 소비자가 다시 읽게 한다.
-                if (root.issue_read() == false)
-                    debouncer_.note_overflow(now);
+                reissue_read(root);
+            }
+
+            // 읽기를 다시 건다. 실패하면 이 뿌리는 더는 감시되지 않는다. 놓친 변경을 모두 알리고(`note_overflow`), 감시가 끊겼다는
+            // 사실을 뿌리마다 한 번 곧바로 알린다 (디바운스 뒤로 미루면 소비자가 끊김을 늦게 안다).
+            void reissue_read(watched_root& root)
+            {
+                if (root.issue_read())
+                    return;
+                debouncer_.note_overflow(change_debouncer::clock::now());
+                if (root.lost)
+                    return;
+                root.lost = true;
+                notify(repository_change_kind::watch_lost);
             }
 
             void flush()

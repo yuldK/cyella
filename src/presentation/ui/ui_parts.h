@@ -37,6 +37,8 @@ namespace cyella::ui {
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_form_dialog(const form_view& form, float logical_width, float logical_height);
     // 우클릭 메뉴 popup이다. 좌표는 논리 픽셀이고 크기는 항목 글로 짐작한다.
     [[nodiscard]] built_popup build_menu_popup(const menu_view& menu, float scale);
+    // 툴바 저장소·브랜치 선택 상자의 목록 popup이다. 거르는 칸이 위에 서고 항목은 메뉴 항목이다. 좌표는 논리 픽셀이다.
+    [[nodiscard]] built_popup build_selector_popup(const selector_view& selector, float scale);
     // 끄는 동안 대상 위에 뜨는 문구다. 창 전체를 덮는 투명한 element이고 누름을 받지 않는다.
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_drag_hint_overlay(std::shared_ptr<const drop_hint_data> hints);
     // 그래프 자리를 덮는 충돌 해결 화면이다.

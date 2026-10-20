@@ -444,6 +444,81 @@ TEST_CASE("the push dialog defaults to set-upstream without an upstream and warn
     CHECK(request->force_with_lease);
 }
 
+TEST_CASE("the set-upstream dialog needs an existing remote branch and sets the upstream without pushing", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load();
+    // feature/graph에는 upstream이 없고 origin/feature/graph도 없다.
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "feature/graph", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"set_upstream" });
+    view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->id == u8"set-upstream-dialog");
+    REQUIRE(view.form->choices.size() == 1);
+    CHECK_FALSE(view.form->error.empty());
+    CHECK_FALSE(view.form->buttons.back().enabled);
+    CHECK(view.form->preview == u8"git branch --set-upstream-to=origin/feature/graph feature/graph");
+
+    // 원격 브랜치가 있는 이름(main은 origin/main을 가진다)이면 단추가 켜지고, push가 아니라 set_upstream을 낸다.
+    test.press(u8"cancel");
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "main", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"set_upstream" });
+    view = test.view();
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->error.empty());
+    REQUIRE(view.form->buttons.back().enabled);
+    CHECK(view.form->fields[0].view.text == u8"main");
+    const std::size_t before { test.operation_count() };
+    test.press(u8"submit");
+    REQUIRE(test.operation_count() == before + 1);
+    const auto* const request { test.last_request<set_upstream_request>() };
+    REQUIRE(request != nullptr);
+    CHECK(request->branch == "main");
+    CHECK(request->remote == "origin");
+    CHECK(request->remote_branch == "main");
+    CHECK(test.last_request<push_execute_request>() == nullptr);
+    CHECK_FALSE(test.controller.state().dialog.has_value());
+}
+
+TEST_CASE("unsetting the upstream goes straight to a branch operation", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load();
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "main", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    const std::size_t before { test.operation_count() };
+    test.send(menu_select_intent { u8"unset_upstream" });
+    REQUIRE(test.operation_count() == before + 1);
+    const auto* const request { test.last_request<unset_upstream_request>() };
+    REQUIRE(request != nullptr);
+    CHECK(request->branch == "main");
+}
+
+TEST_CASE("an untracked file goes to the recycle bin after a confirmation that says so", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load();
+    test.send(discard_files_intent { { "new.txt" }, true });
+    view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->title == u8"파일을 휴지통으로 보낼까요?");
+    bool says_recycle_bin { false };
+    for (const form_note& note : view.form->notes)
+        says_recycle_bin = says_recycle_bin || note.text.find(u8"휴지통으로 보냅니다") != std::u8string::npos;
+    CHECK(says_recycle_bin);
+    CHECK(test.last_request<discard_files_request>() == nullptr);
+    test.press(u8"submit");
+    const auto* const request { test.last_request<trash_files_request>() };
+    REQUIRE(request != nullptr);
+    CHECK(request->paths == std::vector<std::string> { "new.txt" });
+
+    // 추적 중인 파일은 그대로 restore다.
+    test.send(discard_files_intent { { "tracked.txt" }, false });
+    view = test.view();
+    CHECK(view.form->title == u8"변경을 버릴까요?");
+    test.press(u8"submit");
+    CHECK(test.last_request<discard_files_request>() != nullptr);
+}
+
 TEST_CASE("the toolbar push opens the dialog only when there is no upstream", "[presentation][dialogs]")
 {
     harness test {};
@@ -1110,4 +1185,228 @@ TEST_CASE("amending an already pushed commit shows a warning", "[presentation][d
     REQUIRE(session.apply(snapshot_loaded { next, snapshot }));
     REQUIRE(session.apply(commits_loaded { .generation = next, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
     CHECK_FALSE(test.view().repository->working->amend_warning);
+}
+namespace {
+    // 선택 상자의 거르는 칸에 글을 넣는다 (사용자가 친 것과 같다).
+    void type_into_selector(harness& test, const std::u8string& text)
+    {
+        luil::text_edit_request request {};
+        request.target = to_luil_target(text_target::selector_filter);
+        request.command = luil::text::text_edit_command::insert;
+        request.text = text;
+        test.send(edit_text_intent { request });
+    }
+
+    std::vector<std::u8string> selector_keys(const view_snapshot& view)
+    {
+        std::vector<std::u8string> keys {};
+        if (view.selector.has_value())
+            for (const menu_entry& entry : view.selector->entries)
+                keys.push_back(entry.key);
+        return keys;
+    }
+} // namespace
+
+TEST_CASE("the branch selector opens at the toolbar, filters by typing and checks out the picked branch", "[presentation][selector]")
+{
+    harness test {};
+    test.load();
+    CHECK_FALSE(test.view().selector.has_value());
+
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    view_snapshot view { test.view() };
+    REQUIRE(view.selector.has_value());
+    CHECK(view.selector->kind == selector_kind::branch);
+    CHECK(view.selector->x == 200.0f);
+    CHECK(view.selector->y == 60.0f);
+    CHECK(view.selector->width == 220.0f);
+    CHECK(selector_keys(view) == std::vector<std::u8string> { u8"branch:main", u8"branch:feature/graph" });
+    // 현재 브랜치(main)는 고를 수 없다.
+    CHECK_FALSE(view.selector->entries[0].enabled);
+    CHECK(view.selector->entries[1].enabled);
+
+    type_into_selector(test, u8"GRAPH");
+    view = test.view();
+    CHECK(view.selector->filter.text == u8"GRAPH");
+    CHECK(selector_keys(view) == std::vector<std::u8string> { u8"branch:feature/graph" });
+
+    const std::size_t before { test.operation_count() };
+    test.send(selector_select_intent { u8"branch:feature/graph" });
+    CHECK_FALSE(test.view().selector.has_value());
+    REQUIRE(test.operation_count() == before + 1);
+    const auto* const request { test.last_request<checkout_branch_request>() };
+    REQUIRE(request != nullptr);
+    CHECK(request->name == "feature/graph");
+    CHECK(request->policy == checkout_policy::ask);
+
+    // 열 때마다 거르는 글은 비어 있다.
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    CHECK(test.view().selector->filter.text.empty());
+}
+
+TEST_CASE("a checkout blocked by local changes goes through the existing policy dialog", "[presentation][selector]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    test.send(selector_select_intent { u8"branch:feature/graph" });
+    const operation_id id { test.last_operation() };
+    REQUIRE(id != 0);
+    input_request blocked {};
+    blocked.kind = input_kind::dirty_worktree;
+    blocked.target = "feature/graph";
+    blocked.files = { "a.txt" };
+    test.start(id);
+    test.finish(id, operation_state::needs_input, std::nullopt, blocked);
+    const view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->id == u8"dirty-dialog");
+}
+
+TEST_CASE("picking the current branch from the selector does nothing", "[presentation][selector]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    const std::size_t before { test.operation_count() };
+    test.send(selector_select_intent { u8"branch:main" });
+    CHECK(test.operation_count() == before);
+    CHECK_FALSE(test.view().selector.has_value());
+}
+
+TEST_CASE("pressing the selector again closes it and an outside press does not reopen it on release", "[presentation][selector]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    REQUIRE(test.view().selector.has_value());
+    // 열린 상자를 다시 누르면 닫힌다.
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    CHECK_FALSE(test.view().selector.has_value());
+
+    // 바깥 누름(popup dismiss)이 먼저 닫고 곧바로 같은 상자의 뗌이 열기를 청한다: 닫힌 채 둔다.
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    test.send(close_selector_intent {});
+    CHECK_FALSE(test.view().selector.has_value());
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    CHECK_FALSE(test.view().selector.has_value());
+    // 다른 상자는 그대로 열린다.
+    test.send(open_selector_intent { selector_kind::repository, 0.0f, 0.0f, 100.0f });
+    CHECK(test.view().selector.has_value());
+    // 한 상자가 열려 있는 동안 다른 상자를 열면 바뀐다.
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    REQUIRE(test.view().selector.has_value());
+    CHECK(test.view().selector->kind == selector_kind::branch);
+}
+
+TEST_CASE("Esc, a context menu, a tab change and a chosen folder all close the selector", "[presentation][selector]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    test.send(close_overlays_intent {});
+    CHECK_FALSE(test.view().selector.has_value());
+
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::commit, .sha = snap::sha_of(2) }, 10.0f, 10.0f });
+    CHECK_FALSE(test.view().selector.has_value());
+    CHECK(test.view().menu.has_value());
+
+    test.send(close_menu_intent {});
+    test.send(open_selector_intent { selector_kind::repository, 0.0f, 0.0f, 100.0f });
+    test.send(folder_chosen_intent { folder_purpose::open, u8"C:\\work\\nowhere" });
+    CHECK_FALSE(test.view().selector.has_value());
+}
+
+TEST_CASE("the repository selector switches between open tabs and reopens recent repositories", "[presentation][selector]")
+{
+    harness test {};
+    test.load();
+    const repository_tab_id first { test.controller.tabs().selected().id };
+    test.controller.open_repository(u8"C:\\work\\other");
+    const repository_tab_id second { test.controller.tabs().selected().id };
+    REQUIRE(first != second);
+
+    test.send(open_selector_intent { selector_kind::repository, 0.0f, 0.0f, 150.0f });
+    view_snapshot view { test.view() };
+    REQUIRE(view.selector.has_value());
+    const auto tab_key = [](const repository_tab_id id) {
+        const std::string digits { std::to_string(id) };
+        return u8"tab:" + std::u8string { digits.begin(), digits.end() };
+    };
+    CHECK(selector_keys(view) == std::vector<std::u8string> { tab_key(first), tab_key(second), u8"open_folder" });
+
+    // 다른 탭을 고르면 그 탭이 선택된다.
+    test.send(selector_select_intent { tab_key(first) });
+    CHECK(test.controller.tabs().selected().id == first);
+    CHECK_FALSE(test.view().selector.has_value());
+
+    // 탭을 닫으면 최근 목록에 남아 있고 고르면 다시 탭으로 열린다.
+    test.send(close_tab_intent { second });
+    test.send(open_selector_intent { selector_kind::repository, 0.0f, 0.0f, 150.0f });
+    view = test.view();
+    CHECK(selector_keys(view) == std::vector<std::u8string> { tab_key(first), u8"recent:C:\\work\\other", u8"open_folder" });
+    test.send(selector_select_intent { u8"recent:C:\\work\\other" });
+    CHECK(test.controller.tabs().tabs().size() == 2);
+    CHECK(test.controller.tabs().selected().path == u8"C:\\work\\other");
+}
+
+TEST_CASE("the branch selector is not offered on the start page", "[presentation][selector]")
+{
+    harness test {};
+    test.load();
+    test.send(new_tab_intent {});
+    REQUIRE(test.controller.tabs().selected().kind == repository_tab_kind::start);
+    test.send(open_selector_intent { selector_kind::branch, 0.0f, 0.0f, 100.0f });
+    CHECK_FALSE(test.view().selector.has_value());
+}
+namespace {
+    // 경로 검사(`inspect_path`)를 돌려 사건을 반영한다.
+    void settle_inspection(harness& test)
+    {
+        while (test.dispatcher.run())
+        {
+        }
+        for (const operation_event& event : test.events.take())
+            test.workspace.apply(event);
+        test.controller.after_events();
+    }
+} // namespace
+
+TEST_CASE("locating a missing recent repository replaces its path once the chosen folder proves to be a repository", "[presentation][locate]")
+{
+    harness test {};
+    // 열어 둔 저장소(C:\work\repo)의 최근 항목을 옮긴 폴더로 바꾼다.
+    const std::u8string old_path { u8"C:\\work\\repo" };
+    REQUIRE(test.controller.settings().recent_repositories.empty() == false);
+    REQUIRE(test.controller.settings().recent_repositories.front().path == old_path);
+
+    test.files.add_directory(u8"C:/moved/place");
+    test.process.when({ "rev-parse" }, test::scripted_response { 0, "C:/moved/place/.git\nC:/moved/place\n" });
+    test.send(folder_chosen_intent { folder_purpose::locate, u8"C:\\moved\\place", old_path });
+    settle_inspection(test);
+
+    REQUIRE(test.controller.settings().recent_repositories.empty() == false);
+    CHECK(test.controller.settings().recent_repositories.front().path == u8"C:\\moved\\place");
+    CHECK(test.controller.settings().recent_repositories.front().display_name == u8"place");
+    REQUIRE(test.controller.state().notice.has_value());
+    CHECK_FALSE(test.controller.state().notice->warning);
+    CHECK(test.controller.state().notice->text.find(u8"위치를 바꿨습니다") != std::u8string::npos);
+}
+
+TEST_CASE("locating to a folder that is not a repository changes nothing and says so", "[presentation][locate]")
+{
+    harness test {};
+    const std::u8string old_path { u8"C:\\work\\repo" };
+    test.files.add_directory(u8"C:/plain/folder");
+    // rev-parse가 실패하면(저장소가 아님) 그냥 폴더다.
+    test.process.when({ "rev-parse" }, test::scripted_response { 128, "" });
+    test.send(folder_chosen_intent { folder_purpose::locate, u8"C:\\plain\\folder", old_path });
+    settle_inspection(test);
+
+    REQUIRE(test.controller.settings().recent_repositories.empty() == false);
+    CHECK(test.controller.settings().recent_repositories.front().path == old_path);
+    REQUIRE(test.controller.state().notice.has_value());
+    CHECK(test.controller.state().notice->warning);
+    CHECK(test.controller.state().notice->text.find(u8"Git 저장소가 아니라서") != std::u8string::npos);
 }

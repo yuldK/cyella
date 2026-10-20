@@ -15,6 +15,10 @@ namespace cyella {
         working_tree_changed,
         // HEAD·index·ref·진행 중 작업 상태가 바뀌었다.
         repository_state_changed,
+        // 감시 뿌리 하나를 더는 감시할 수 없다(폴더가 지워지거나 이름이 바뀜, 읽기를 다시 걸지 못함). 뿌리마다 한 번만, 디바운스 없이
+        // 곧바로 온다. 이 알림 전후로 놓친 변경이 있을 수 있어 `repository_state_changed`와 `working_tree_changed`도 따로 온다.
+        // 소비자는 이 저장소의 감시를 포기하고 다른 계기(창 초점)로 다시 읽어야 한다.
+        watch_lost,
     };
 
     // 감시 스레드에서 불린다. 오래 걸리거나 감시기를 멈추면 안 된다. 소비자는 보통 앱 메시지를

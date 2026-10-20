@@ -60,7 +60,7 @@ namespace {
         context.head_sha = sha_of(7);
         context.remotes = { "origin" };
         context.refs = {
-            { .kind = ref_kind::local, .name = "main", .target_sha = sha_of(7), .is_current = true },
+            { .kind = ref_kind::local, .name = "main", .target_sha = sha_of(7), .upstream = "origin/main", .is_current = true },
             { .kind = ref_kind::local, .name = "feature", .target_sha = sha_of(9) },
             { .kind = ref_kind::remote, .name = "origin/main", .target_sha = sha_of(5) },
             { .kind = ref_kind::tag, .name = "v1", .target_sha = sha_of(5), .remotes = { "origin" } },
@@ -295,6 +295,11 @@ TEST_CASE("context menu entries depend on the target", "[presentation][menu]")
         CHECK(entry_enabled(other, u8"checkout"));
         CHECK(entry_enabled(other, u8"delete"));
         CHECK(other.entries.front().label == u8"체크아웃");
+        // upstream 해제는 upstream이 있는 브랜치에서만 켜진다 (main은 origin/main을 가진다).
+        CHECK(has_entry(other, u8"unset_upstream"));
+        CHECK_FALSE(entry_enabled(other, u8"unset_upstream"));
+        const menu_model tracked { build_context_menu({ .kind = menu_target_kind::local_branch, .name = "main", .sha = sha_of(7) }, context) };
+        CHECK(entry_enabled(tracked, u8"unset_upstream"));
         // 현재 브랜치는 체크아웃·삭제·자기 자신에게 merge가 꺼진다.
         const menu_model current { build_context_menu({ .kind = menu_target_kind::local_branch, .name = "main", .sha = sha_of(7) }, context) };
         CHECK_FALSE(entry_enabled(current, u8"checkout"));
@@ -364,9 +369,12 @@ TEST_CASE("context menu entries depend on the target", "[presentation][menu]")
         CHECK(has_entry(staged, u8"unstage"));
         CHECK_FALSE(has_entry(staged, u8"discard"));
 
-        // 추적하지 않는 파일은 버릴 수 없다.
+        // 추적하지 않는 파일은 git으로 버릴 수 없어 휴지통으로 보낸다.
         const menu_model untracked { build_context_menu({ .kind = menu_target_kind::file, .name = "new.txt", .side = change_side::unstaged, .untracked = true }, context) };
-        CHECK_FALSE(entry_enabled(untracked, u8"discard"));
+        CHECK(entry_enabled(untracked, u8"discard"));
+        const auto trash_entry { std::ranges::find(untracked.entries, std::u8string { u8"discard" }, &menu_entry::key) };
+        REQUIRE(trash_entry != untracked.entries.end());
+        CHECK(trash_entry->label == u8"휴지통으로 보내기…");
         CHECK_FALSE(entry_enabled(untracked, u8"open_external_diff"));
 
         const menu_model conflicted { build_context_menu({ .kind = menu_target_kind::file, .name = "c.cpp", .conflicted = true }, context) };

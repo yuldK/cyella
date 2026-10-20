@@ -17,6 +17,9 @@ namespace cyella {
     inline constexpr std::size_t recent_repository_capacity { 20 };
     // `%APPDATA%\cyella` 아래의 설정 파일 이름이다.
     inline constexpr std::u8string_view app_settings_file_name { u8"settings.json" };
+    // git의 기본 문맥 줄 수다. 설정이 이 범위(0~25)를 벗어나면 경고하고 기본값을 쓴다.
+    inline constexpr std::uint32_t default_diff_context_lines { 3 };
+    inline constexpr std::uint32_t maximum_diff_context_lines { 25 };
 
     // 최근에 연 저장소 하나다. 시각은 도메인이 시계를 모르도록 이미 만들어진 ISO 8601 UTC
     // 문자열로 받는다.
@@ -80,6 +83,21 @@ namespace cyella {
         [[nodiscard]] bool operator==(const ui_settings&) const noexcept = default;
     };
 
+    enum class diff_layout_preference
+    {
+        inline_view,
+        split,
+    };
+
+    // diff를 처음 열 때의 보기와 hunk 둘레의 문맥 줄 수다. 문맥 줄 수는 `git diff -U<n>`에 그대로 간다.
+    struct diff_settings
+    {
+        diff_layout_preference layout { diff_layout_preference::inline_view };
+        std::uint32_t context_lines { default_diff_context_lines };
+
+        [[nodiscard]] bool operator==(const diff_settings&) const noexcept = default;
+    };
+
     // 문서 밖에 남는 앱 단위 설정이다. `%APPDATA%\cyella\settings.json` 한 파일에 저장한다.
     struct app_settings
     {
@@ -97,6 +115,7 @@ namespace cyella {
         appearance_settings appearance {};
         std::optional<window_placement> window {};
         ui_settings ui {};
+        diff_settings diff {};
 
         [[nodiscard]] bool operator==(const app_settings&) const noexcept = default;
     };
@@ -105,6 +124,10 @@ namespace cyella {
     // 시각을 갱신하고 **고정 여부는 보존한다** — 고정한 저장소를 다시 열었다고 고정이 풀리면
     // 놀랍다. 비고정이 상한을 넘으면 뒤에서 버린다. 빈 경로는 무시한다.
     void touch_recent_repository(app_settings& settings, std::u8string_view path, std::u8string opened_at);
+    // 최근 항목의 경로를 새 위치로 바꾼다 (저장소 폴더를 옮겼을 때). 고정 여부와 위치는 그대로 두고, 표시 이름은 새 경로의 마지막 구성
+    // 요소로 고친다. 새 경로를 이미 가진 다른 항목이 있으면 그것을 지운다 (같은 저장소가 둘이 되면 안 된다). 옛 경로가 목록에 없으면
+    // 아무것도 바꾸지 않고 false다.
+    bool relocate_recent_repository(app_settings& settings, std::u8string_view old_path, std::u8string new_path);
     // 목록에서 저장소를 지운다. 지운 항목이 있으면 true다.
     bool remove_recent_repository(app_settings& settings, std::u8string_view path);
     // 고정을 켜거나 끈다. 바뀐 것이 있으면 true다. 어느 쪽으로 바꾸든 그 항목은 새 무리의
@@ -116,6 +139,9 @@ namespace cyella {
 
     [[nodiscard]] std::u8string_view theme_preference_name(theme_preference theme) noexcept;
     [[nodiscard]] std::optional<theme_preference> parse_theme_preference(std::u8string_view name) noexcept;
+
+    [[nodiscard]] std::u8string_view diff_layout_preference_name(diff_layout_preference layout) noexcept;
+    [[nodiscard]] std::optional<diff_layout_preference> parse_diff_layout_preference(std::u8string_view name) noexcept;
 
     // `2026-10-20T09:30:12Z` 형식의 UTC 문자열이다. 변환에 실패하면 빈 값이다.
     [[nodiscard]] std::u8string format_utc_timestamp(std::chrono::system_clock::time_point time);

@@ -98,6 +98,11 @@ namespace cyella {
         // 인터랙티브 rebase: 편집기를 채울 범위 읽기와 실행이다.
         load_rebase_plan,
         interactive_rebase,
+        // 작업 트리 변경만 다시 읽는 가벼운 새로 고침(읽기 lane), upstream 설정·해제, 추적하지 않는 파일을 휴지통으로.
+        refresh_status,
+        set_upstream,
+        unset_upstream,
+        trash_files,
     };
 
     enum class operation_state

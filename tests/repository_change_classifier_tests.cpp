@@ -41,14 +41,14 @@ TEST_CASE("empty paths and the git directory itself are ignored", "[repository_w
 TEST_CASE("working tree changes under .git are not working tree changes", "[repository_watch]")
 {
     CHECK(classify_repository_change(working_tree, u8".git\\hooks\\pre-commit") == ignored);
-    CHECK(classify_repository_change(working_tree, u8".git\\config") == ignored);
+    CHECK(classify_repository_change(working_tree, u8".git\\config.lock") == ignored);
     CHECK(classify_repository_change(working_tree, u8".git\\COMMIT_EDITMSG") == ignored);
     CHECK(classify_repository_change(working_tree, u8".GIT\\objects\\ab\\cdef") == ignored);
 }
 
 TEST_CASE("state files under .git are repository state changes", "[repository_watch]")
 {
-    for (const std::u8string name : { u8"HEAD", u8"index", u8"packed-refs", u8"FETCH_HEAD", u8"ORIG_HEAD", u8"MERGE_HEAD", u8"CHERRY_PICK_HEAD", u8"REVERT_HEAD" })
+    for (const std::u8string name : { u8"config", u8"HEAD", u8"index", u8"packed-refs", u8"FETCH_HEAD", u8"ORIG_HEAD", u8"MERGE_HEAD", u8"CHERRY_PICK_HEAD", u8"REVERT_HEAD" })
     {
         INFO(std::string(name.begin(), name.end()));
         CHECK(classify_repository_change(working_tree, u8".git\\" + name) == state_change);

@@ -604,3 +604,49 @@ TEST_CASE("an image whose sides could not be extracted falls back to the card", 
     REQUIRE(ui.controller.poll());
     CHECK(ui.latest().at("type") == "show_binary");
 }
+TEST_CASE("a textconv file shows no stage or discard buttons because its hunks do not match the file", "[diff][controller]")
+{
+    page ui {};
+    file_diff plain { modified_diff() };
+    static_cast<void>(ui.controller.show(plain, u8"C:\\repo"));
+    REQUIRE(ui.controller.poll());
+    CHECK(ui.controller.can_stage());
+    CHECK(ui.controller.textconv_driver().empty());
+    CHECK(ui.latest().at("can_stage") == true);
+
+    file_diff converted { modified_diff() };
+    converted.textconv_driver = "word";
+    static_cast<void>(ui.controller.show(converted, u8"C:\\repo"));
+    REQUIRE(ui.controller.poll());
+    CHECK(ui.controller.textconv_driver() == "word");
+    CHECK_FALSE(ui.controller.can_stage());
+    CHECK_FALSE(ui.controller.can_discard());
+    CHECK(ui.latest().at("can_stage") == false);
+    // 웹뷰가 단추 없이도 보낸 동작은 거절한다.
+    const web_message_result refused { ui.controller.handle_web_message(ui.action({ { "type", "stage_hunk" }, { "hunk", 0 } })) };
+    CHECK_FALSE(refused.accepted);
+
+    // 다음 파일(textconv 없음)로 넘어가면 다시 켜진다.
+    static_cast<void>(ui.controller.show(plain, u8"C:\\repo"));
+    CHECK(ui.controller.can_stage());
+    CHECK(ui.controller.textconv_driver().empty());
+}
+
+TEST_CASE("a diff read without context needs --unidiff-zero to be applied", "[diff][controller]")
+{
+    page ui {};
+    file_diff diff { modified_diff() };
+    diff.request.context_lines = 0;
+    static_cast<void>(ui.controller.show(diff, u8"C:\\repo"));
+    REQUIRE(ui.controller.poll());
+    const web_message_result zero { ui.controller.handle_web_message(ui.action({ { "type", "stage_hunk" }, { "hunk", 0 } })) };
+    REQUIRE(zero.accepted);
+    CHECK(effect_of<apply_patch_effect>(zero).request.unidiff_zero);
+
+    page normal {};
+    static_cast<void>(normal.controller.show(modified_diff(), u8"C:\\repo"));
+    REQUIRE(normal.controller.poll());
+    const web_message_result with_context { normal.controller.handle_web_message(normal.action({ { "type", "stage_hunk" }, { "hunk", 0 } })) };
+    REQUIRE(with_context.accepted);
+    CHECK_FALSE(effect_of<apply_patch_effect>(with_context).request.unidiff_zero);
+}

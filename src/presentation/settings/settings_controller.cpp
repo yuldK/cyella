@@ -287,7 +287,7 @@ namespace cyella {
                 || message.get<edit_tool_intent>() != nullptr || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr
                 || message.get<cancel_tool_edit_intent>() != nullptr || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr
                 || message.get<refresh_ssh_intent>() != nullptr || message.get<create_ssh_key_intent>() != nullptr || message.get<copy_public_key_intent>() != nullptr
-                || message.get<test_ssh_connection_intent>() != nullptr;
+                || message.get<test_ssh_connection_intent>() != nullptr || message.get<set_diff_layout_default_intent>() != nullptr || message.get<set_diff_context_lines_intent>() != nullptr;
         };
         if (settings_message() == false)
             return false;
@@ -314,6 +314,16 @@ namespace cyella {
         {
             const theme_preference theme { theme_intent->theme };
             update_settings([theme](app_settings& settings) { settings.appearance.theme = theme; });
+        }
+        else if (const auto* const layout_intent { message.get<set_diff_layout_default_intent>() }; layout_intent != nullptr)
+        {
+            const diff_layout_preference layout { layout_intent->layout };
+            update_settings([layout](app_settings& settings) { settings.diff.layout = layout; });
+        }
+        else if (const auto* const context_intent { message.get<set_diff_context_lines_intent>() }; context_intent != nullptr)
+        {
+            const std::uint32_t lines { std::min(context_intent->lines, maximum_diff_context_lines) };
+            update_settings([lines](app_settings& settings) { settings.diff.context_lines = lines; });
         }
         else if (message.get<apply_git_path_intent>() != nullptr)
             apply_git_path();
@@ -373,6 +383,13 @@ namespace cyella {
             return;
         // 키를 만들었으면 목록에 나타나야 한다. 실패해도 한 번 다시 읽는다 (일부 파일이 남았을 수 있다).
         refreshed_after_ = keygen;
+        // 만든 이름을 그대로 두면 곧바로 "같은 이름의 키가 이미 있습니다"가 보인다. 이름 초안을 비우고, 목록을 다시 읽으면
+        // (`ssh_info_loaded_intent`) 겹치지 않는 이름으로 채운다. 실패했으면 사용자가 고치던 이름을 그대로 둔다.
+        if (status->state == operation_state::succeeded)
+        {
+            set_text(state_->key_name, {});
+            state_->suggested_key_name.clear();
+        }
         request_ssh_info();
     }
 

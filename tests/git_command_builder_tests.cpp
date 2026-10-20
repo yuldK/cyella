@@ -87,6 +87,8 @@ TEST_CASE("branch builders put the names after double dash", "[git][builder]")
     CHECK(to_text(make_git_branch_rename_args("old", "new")) == text_list { "branch", "-m", "--", "old", "new" });
     CHECK(to_text(make_git_branch_delete_args("old", false)) == text_list { "branch", "-d", "--", "old" });
     CHECK(to_text(make_git_branch_delete_args("old", true)) == text_list { "branch", "-D", "--", "old" });
+    CHECK(to_text(make_git_branch_set_upstream_args("feature/x", "origin", "release/1.0")) == text_list { "branch", "--set-upstream-to=origin/release/1.0", "--", "feature/x" });
+    CHECK(to_text(make_git_branch_unset_upstream_args("feature/x")) == text_list { "branch", "--unset-upstream", "--", "feature/x" });
 }
 
 TEST_CASE("commit builders read the message from stdin", "[git][builder]")
@@ -259,6 +261,11 @@ TEST_CASE("builders reject names that git would read as options", "[git][builder
     CHECK_THROWS_AS(make_git_switch_create_args("topic", "--force"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_branch_rename_args("old", "--new"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_branch_delete_args("-D", false), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_branch_set_upstream_args("-x", "origin", "main"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_branch_set_upstream_args("x", "--origin", "main"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_branch_set_upstream_args("x", "origin", "--main"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_branch_set_upstream_args("x", "", "main"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_branch_unset_upstream_args("--all"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_merge_args("--abort"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_rebase_args("--root"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_reset_args(git_reset_mode::hard, "--help"), std::invalid_argument);
@@ -341,4 +348,13 @@ TEST_CASE("fetch can keep stale tracking branches and pull can merge", "[git][bu
     fetch.remote = "origin";
     CHECK(to_text(make_git_fetch_args(fetch)) == text_list { "fetch", "--progress", "--", "origin" });
     CHECK(to_text(make_git_pull_args(git_pull_mode::merge)) == text_list { "pull", "--no-rebase" });
+}
+TEST_CASE("textconv detection builders", "[git][builder]")
+{
+    CHECK(to_text(make_git_check_attr_diff_args("dir/a.docx")) == text_list { "check-attr", "-z", "diff", "--", "dir/a.docx" });
+    CHECK(to_text(make_git_config_get_args("diff.word.textconv")) == text_list { "config", "--get", "diff.word.textconv" });
+    CHECK_THROWS_AS(make_git_check_attr_diff_args(""), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_config_get_args(""), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_config_get_args("--global"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_config_get_args("diff.a\nb.textconv"), std::invalid_argument);
 }

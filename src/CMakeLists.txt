@@ -162,7 +162,10 @@ cyella_add_source_filter(cyella_lib_files "application/tabs"
 cyella_add_source_filter(cyella_lib_files "application/watching"
     application/repository_change_classifier.cpp
     application/repository_change_classifier.h
-    application/repository_watcher.h)
+    application/repository_watcher.h
+    application/watch_messages.h
+    application/watch_refresh_policy.cpp
+    application/watch_refresh_policy.h)
 
 # 저장소 세션: operation 요청 값, worker 사건, 탭별 상태와 operation 표다. git을 직접
 # 실행하지 않고 실행기 계약(git_operation_executor)을 부른다.
@@ -313,7 +316,11 @@ cyella_add_source_filter(cyella_lib_files "presentation/dialogs"
     presentation/korean_josa.h
     presentation/menu_model.cpp
     presentation/menu_model.h
+    presentation/selector_intents.h
+    presentation/selector_model.cpp
+    presentation/selector_model.h
     presentation/shell_controller_dialogs.cpp
+    presentation/shell_controller_selectors.cpp
     presentation/snapshot_dialogs.cpp
     presentation/snapshot_dialogs.h)
 
@@ -341,6 +348,7 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/dialogs"
     presentation/ui/conflict_ui.cpp
     presentation/ui/form_ui.cpp
     presentation/ui/overlay_ui.cpp
+    presentation/ui/selector_ui.cpp
     presentation/ui/ref_chip_element.cpp
     presentation/ui/ref_chip_element.h)
 
@@ -407,6 +415,8 @@ cyella_add_source_filter(cyella_lib_files "platform/settings"
     platform/win32/win32_settings_file_system.h)
 
 cyella_add_source_filter(cyella_lib_files "platform/watching"
+    platform/win32/win32_foreground_monitor.cpp
+    platform/win32/win32_foreground_monitor.h
     platform/win32/win32_repository_watcher.cpp
     platform/win32/win32_repository_watcher.h)
 

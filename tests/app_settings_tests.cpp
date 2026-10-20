@@ -240,3 +240,44 @@ TEST_CASE("timestamp is ISO 8601 UTC", "[app_settings]")
     const std::chrono::system_clock::time_point epoch_plus { std::chrono::seconds { 1760952612 } };
     CHECK(format_utc_timestamp(epoch_plus) == u8"2025-10-20T09:30:12Z");
 }
+TEST_CASE("relocating a recent repository keeps its place, pin and time and renames it", "[settings][recent]")
+{
+    app_settings settings {};
+    settings.recent_repositories.push_back({ u8"C:\\work\\pinned", u8"pinned", u8"2026-10-20T09:00:00Z", true });
+    settings.recent_repositories.push_back({ u8"C:\\work\\moved", u8"moved", u8"2026-10-19T09:00:00Z", false });
+    settings.recent_repositories.push_back({ u8"C:\\work\\last", u8"last", u8"2026-10-18T09:00:00Z", false });
+
+    CHECK(relocate_recent_repository(settings, u8"c:/WORK/moved/", u8"D:\\archive\\renamed\\"));
+    REQUIRE(settings.recent_repositories.size() == 3);
+    CHECK(paths_of(settings) == std::vector<std::u8string> { u8"C:\\work\\pinned", u8"D:\\archive\\renamed", u8"C:\\work\\last" });
+    const recent_repository& entry { settings.recent_repositories[1] };
+    CHECK(entry.display_name == u8"renamed");
+    CHECK(entry.opened_at == u8"2026-10-19T09:00:00Z");
+    CHECK_FALSE(entry.pinned);
+    CHECK(settings.recent_repositories[0].pinned);
+}
+
+TEST_CASE("relocating onto a path another entry already has drops the other entry", "[settings][recent]")
+{
+    app_settings settings {};
+    settings.recent_repositories.push_back({ u8"C:\\work\\a", u8"a", u8"2026-10-20T09:00:00Z", false });
+    settings.recent_repositories.push_back({ u8"C:\\work\\missing", u8"missing", u8"2026-10-19T09:00:00Z", true });
+    settings.recent_repositories.push_back({ u8"C:\\work\\b", u8"b", u8"2026-10-18T09:00:00Z", false });
+
+    CHECK(relocate_recent_repository(settings, u8"C:\\work\\missing", u8"c:\\work\\A"));
+    // 같은 저장소가 둘이 되지 않는다. 옮긴 항목(고정)이 남고 이미 있던 항목이 사라진다.
+    REQUIRE(settings.recent_repositories.size() == 2);
+    CHECK(settings.recent_repositories[0].path == u8"c:\\work\\A");
+    CHECK(settings.recent_repositories[0].pinned);
+    CHECK(settings.recent_repositories[1].path == u8"C:\\work\\b");
+}
+
+TEST_CASE("relocating an unknown entry or to an empty path changes nothing", "[settings][recent]")
+{
+    app_settings settings {};
+    settings.recent_repositories.push_back({ u8"C:\\work\\a", u8"a", u8"", false });
+    const app_settings before { settings };
+    CHECK_FALSE(relocate_recent_repository(settings, u8"C:\\work\\unknown", u8"D:\\x"));
+    CHECK_FALSE(relocate_recent_repository(settings, u8"C:\\work\\a", u8""));
+    CHECK(settings == before);
+}

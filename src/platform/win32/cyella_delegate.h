@@ -1,8 +1,11 @@
 #pragma once
 
 #include "platform/win32/operation_result_relay.h"
+#include "platform/win32/win32_foreground_monitor.h"
 
 #include "luil/luil.h"
+
+#include <memory>
 
 namespace cyella::win32 {
     class cyella_driver;
@@ -29,5 +32,7 @@ namespace cyella::win32 {
     private:
         operation_result_relay* relay_ { nullptr };
         cyella_driver* driver_ { nullptr };
+        // 다른 앱에서 창으로 돌아오는 순간을 듣는다 (`window_focus_intent`). UI thread에서 만들고 이 객체와 함께 없어진다.
+        std::unique_ptr<foreground_monitor> foreground_ {};
     };
 } // namespace cyella::win32

@@ -79,6 +79,12 @@ namespace cyella {
     // 있으면 종료 코드가 1이므로 1을 실패로 보지 않아야 한다.
     [[nodiscard]] git_arguments make_git_diff_untracked_args(std::string_view path, std::uint32_t context_lines = 3);
 
+    // `check-attr -z diff -- <path>`. 출력은 `<path>\0diff\0<value>\0`이다 (`parse_git_diff_driver`).
+    [[nodiscard]] git_arguments make_git_check_attr_diff_args(std::string_view path);
+
+    // `config --get <key>`. 값이 없으면 종료 코드 1이다. 키는 `diff.<driver>.textconv`처럼 호출자가 만든다.
+    [[nodiscard]] git_arguments make_git_config_get_args(std::string_view key);
+
     // 모든 파일의 `--numstat -z`다. staged에서는 이름 변경 감지(`-M`)를 켜서 status의
     // 이름 변경과 맞춘다.
     [[nodiscard]] git_arguments make_git_diff_numstat_args(diff_source source);
@@ -109,6 +115,13 @@ namespace cyella {
 
     // `branch -d|-D -- <name>`. force면 병합되지 않은 브랜치도 지운다.
     [[nodiscard]] git_arguments make_git_branch_delete_args(std::string_view name, bool force);
+
+    // `branch --set-upstream-to=<remote>/<remote_branch> -- <branch>`. push 없이 upstream만 잇는다. 원격 이름과 브랜치 이름이
+    // 옵션처럼 보이거나 잘못된 ref 이름이면 `std::invalid_argument`다.
+    [[nodiscard]] git_arguments make_git_branch_set_upstream_args(std::string_view branch, std::string_view remote, std::string_view remote_branch);
+
+    // `branch --unset-upstream -- <branch>`.
+    [[nodiscard]] git_arguments make_git_branch_unset_upstream_args(std::string_view branch);
 
     // ------------------------------------------------------------------ 커밋과 index
 

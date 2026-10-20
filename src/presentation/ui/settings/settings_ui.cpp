@@ -286,8 +286,58 @@ namespace cyella::ui {
                 height);
         }
 
+        // diff를 보는 방식이다: 처음 열 때의 보기와 hunk 둘레의 문맥 줄 수.
+        void build_diff_view_settings(page_column& page, const settings_view& view)
+        {
+            page.add(section_title(u8"settings-section-diff-view", u8"diff 보기"), section_height);
+            page.add(field_label(u8"settings-diff-layout-label", u8"기본 보기"), label_height);
+            luil::choice_group_config layout {};
+            layout.owner = u8"settings-diff-layout";
+            layout.style = luil::choice_style::toggle;
+            layout.name = u8"기본 diff 보기";
+            layout.items = { { u8"inline", u8"Inline" }, { u8"split", u8"좌우 분할" } };
+            layout.selected = std::u8string { diff_layout_preference_name(view.diff.layout) };
+            layout.select = [](const std::u8string& value) { return message(set_diff_layout_default_intent { parse_diff_layout_preference(value).value_or(diff_layout_preference::inline_view) }); };
+            auto layout_row { make_row(u8"settings-diff-layout-row") };
+            layout_row->add(std::make_unique<luil::choice_group_element>(std::move(layout)), { .length = 260.0f, .cross_length = luil::choice_toggle_height });
+            page.add(std::move(layout_row), input_height);
+            page.add(help_line(u8"settings-diff-layout-help", u8"고르면 열려 있는 diff도 바로 이 보기로 바뀝니다. diff 머리의 단추로는 그 diff만 바꿉니다."), line_height);
+            page.gap(small_gap);
+
+            page.add(field_label(u8"settings-diff-context-label", u8"문맥 줄 수 (git diff -U<n>)"), label_height);
+            luil::choice_group_config context {};
+            context.owner = u8"settings-diff-context";
+            context.style = luil::choice_style::toggle;
+            context.name = u8"문맥 줄 수";
+            std::vector<std::uint32_t> presets { 0, 1, 3, 5, 10, 25 };
+            // 설정 파일을 손으로 고쳐 프리셋에 없는 값이 있으면 그 값도 고를 수 있게 끼운다.
+            if (std::ranges::find(presets, view.diff.context_lines) == presets.end())
+            {
+                presets.push_back(view.diff.context_lines);
+                std::ranges::sort(presets);
+            }
+            for (const std::uint32_t lines : presets)
+                context.items.push_back({ number_text(lines), number_text(lines) });
+            context.selected = number_text(view.diff.context_lines);
+            context.select = [](const std::u8string& value) {
+                std::uint32_t lines { default_diff_context_lines };
+                for (const char8_t digit : value)
+                    if (digit < u8'0' || digit > u8'9')
+                        return message(set_diff_context_lines_intent { default_diff_context_lines });
+                if (value.empty() == false)
+                    lines = static_cast<std::uint32_t>(std::stoul(std::string { value.begin(), value.end() }));
+                return message(set_diff_context_lines_intent { lines });
+            };
+            auto context_row { make_row(u8"settings-diff-context-row") };
+            context_row->add(std::make_unique<luil::choice_group_element>(std::move(context)), { .length = 320.0f, .cross_length = luil::choice_toggle_height });
+            page.add(std::move(context_row), input_height);
+            page.add(help_line(u8"settings-diff-context-help", u8"다음에 여는 diff부터 적용합니다. 0이면 바뀐 줄만 보이고 줄 단위 stage에는 --unidiff-zero를 씁니다."), line_height);
+            page.gap(large_gap);
+        }
+
         void build_diff_tools(page_column& page, const settings_view& view)
         {
+            build_diff_view_settings(page, view);
             const bool editing { view.edit.has_value() };
             page.add(section_title(u8"settings-section-tools", u8"확장자별 외부 diff 도구"), section_height);
             page.add(help_line(u8"settings-tools-help-1", u8"바이너리 파일을 열 때 확장자로 도구를 찾아 실행합니다."), line_height);
@@ -405,7 +455,7 @@ namespace cyella::ui {
                     30.0f);
             };
             entry(u8"settings-page-general", u8"일반", settings_page::general, codicons::icon_settings_gear);
-            entry(u8"settings-page-diff-tools", u8"diff 도구", settings_page::diff_tools, codicons::icon_diff);
+            entry(u8"settings-page-diff-tools", u8"diff", settings_page::diff_tools, codicons::icon_diff);
             entry(u8"settings-page-ssh", u8"SSH", settings_page::ssh, codicons::icon_key);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-navigation-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; } }, std::move(column));

@@ -142,6 +142,20 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 - 입력 칸의 초안은 `settings_state`가 가지고(대화 상자를 닫으면 버린다), 저장은 [적용]·[저장]처럼 한 번에 한다. 텍스트 대상은 `text_target::settings_*`,
   입력 칸의 kind는 `kind_settings_*_input`(40번부터)이다.
 
+## 툴바 저장소·브랜치 선택 상자
+
+선택 상자(`selector_element`)를 누르면 `open_selector_intent`가 상자의 왼쪽 아래 좌표와 함께 가고, controller가 `ui_state::selector`(종류·자리·거르는 글)를 세운다. snapshot의 `selector_view`가
+목록을 가지며(`presentation/selector_model`의 순수 함수 `build_repository_selector`·`build_branch_selector`), `ui::build_selector_popup`이 popup 하나로 그린다: 위에 거르는 칸(`kind_selector_filter_input`,
+`text_target::selector_filter`), 아래에 `luil::menu_element`다. 항목 키는 `tab:<id>`·`recent:<경로>`·`branch:<이름>`·`open_folder`이다.
+
+- 저장소 목록: 열린 탭(현재 탭은 체크·꺼짐) → 구분선 → 아직 열지 않은 최근 저장소(없는 경로는 "사용할 수 없음", 꺼짐) → "폴더에서 저장소 열기…"(UI thread 폴더 대화 상자 명령).
+- 브랜치 목록: 로컬 브랜치. 현재 브랜치는 체크 표시와 "(현재)"가 붙고 고를 수 없다. 고르면 사이드바 더블클릭과 같은 `checkout_branch`(정책 `ask`)다 — 작업 트리가 막으면 기존 정책 대화 상자가 뜬다.
+- 보이는 항목은 12개까지이고 넘으면 "외 N개 · 좁히세요" 줄이 선다. 거르기는 ASCII 대소문자를 무시하는 부분 문자열(저장소는 이름·경로, `/`와 `\`는 같다)이다.
+- popup은 검색 칸이 있어 창 활성이 바뀌어도 남는다(luil의 검색 popup 규약). 바깥 누름·Esc는 닫는다. 바깥 누름이 닫은 직후(400 ms) 같은 상자를 누르면 다시 열지 않는다(눌러서 닫기).
+- UIA: 상자는 `ComboBox`(ExpandCollapse)이고 목록은 `Menu`/`MenuItem`, 거르는 칸은 `Edit`이다. **알려진 한계**: popup이 열릴 때 거르는 칸에 초점이 가지 않는다(luil에 popup의 첫 초점 지정이 없다). 눌러서 글을 넣는다.
+- 없어진 최근 저장소(시작 페이지): 행을 누르거나 위치 찾기 단추를 누르면 폴더 대화 상자가 열리고(`ui_command{locate_folder, 옛 경로}`), 고른 폴더를 `inspect_path`로 확인해 저장소이면
+  최근 항목의 경로를 바꾼다(`relocate_recent_repository`: 고정·시각·자리는 그대로, 새 경로를 이미 가진 다른 항목은 지운다).
+
 ## 화면 세부
 
 - 환경 설정·테마 단추가 캡션이 아니라 탭 줄 오른쪽에 있다 (아래 "알아 둘 것"의 캡션 띠). 환경 설정은 일반·SSH·diff 도구에 더해 `ui.pane_widths`를 따로 설정 파일에만 남긴다
@@ -152,7 +166,7 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 - 작업 영역 행의 단추가 hover 때만이 아니라 늘 보이고, 체크박스 일괄 선택·트리 보기가 없다. discard는 확인 대화 상자를 거친다.
 - 원격에 없는 태그 표시는 그 실행에서 fetch(또는 태그 push)가 한 번 돈 뒤에야 맞다. 그 전에는 원격이 있는 저장소의 태그가 모두 점선이다
   (`ref.remotes`가 `ls-remote` 전에는 비어 있다).
-- 사이드바의 원격 묶음 머리는 접히지 않는다. 툴바 선택 상자는 표시만 한다.
+- 사이드바의 원격 묶음 머리는 접히지 않는다. 툴바 선택 상자는 목록을 펼친다(위 "툴바 저장소·브랜치 선택 상자").
 
 ## 알아 둘 것
 
@@ -240,7 +254,7 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
 - 배너 조치(`banner_action_intent`): push 거절(`rejected_non_ff`·`rejected_fetch_first`) → "Pull 후 다시 push"(pull(rebase) 뒤 같은 push, 앞이 성공해야 이어 낸다),
   `stale_info` → fetch, ff-only pull 실패 → "rebase로 Pull", 안 합쳐진 브랜치 삭제 실패 → 강제 삭제 확인, `index_lock` → 잠금 지우기.
 - 앞 operation이 성공해야 이어 내는 열(`submit_sequence`)은 원격 태그를 먼저 지우고 로컬을 지울 때(`delete_remote_tag` → `delete_tag`)도 쓴다.
-- upstream 설정은 `push --set-upstream`으로 한다 (`branch --set-upstream-to` operation은 없다). 메뉴의 "upstream 설정…"은 그 체크를 켠 push 대화 상자다.
+- upstream 설정은 `set_upstream` operation이다. 메뉴의 "upstream 설정…"은 원격과 원격 브랜치를 고르는 전용 상자이고 "upstream 해제"가 옆에 있다.
 - 사이드바 태그·stash 두 번 누름: 태그는 detached 체크아웃(경고 한 번, "다시 보지 않기"), stash는 apply다.
 
 ## submodule·worktree·Git LFS

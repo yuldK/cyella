@@ -2,6 +2,7 @@
 
 #include "domain/repository_summary.h"
 #include "presentation/menu_model.h"
+#include "presentation/selector_model.h"
 
 #include "luil/ui/text_input_state.h"
 
@@ -101,6 +102,18 @@ namespace cyella {
         std::vector<menu_entry> entries {};
         float x { 0.0f };
         float y { 0.0f };
+    };
+
+    // 툴바 선택 상자의 목록이다. 거르는 칸이 위에 서고 항목은 우클릭 메뉴와 같은 `menu_entry`다. 좌표는 논리 픽셀이다.
+    struct selector_view
+    {
+        selector_kind kind { selector_kind::repository };
+        float x { 0.0f };
+        float y { 0.0f };
+        float width { 0.0f };
+        luil::text_input_view filter {};
+        std::u8string placeholder {};
+        std::vector<menu_entry> entries {};
     };
 
     // ------------------------------------------------------------------ 충돌 해결

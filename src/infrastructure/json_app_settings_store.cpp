@@ -336,6 +336,36 @@ namespace cyella {
             result.settings.ui.pane_widths.detail = parse_pane_width(*panes, "detail", result);
         }
 
+        // `diff` 객체다. 보기(`layout`: inline·split)와 문맥 줄 수(`context_lines`: 0~25의 정수). 틀린 필드만 기본값으로 둔다.
+        void parse_diff(const json& root, app_settings_load_result& result)
+        {
+            const auto source { root.find("diff") };
+            if (source == root.end() || source->is_null())
+                return;
+            if (source->is_object() == false)
+            {
+                warn(result, u8"앱 설정의 diff는 object여야 합니다. 기본값을 사용합니다.");
+                return;
+            }
+            if (const auto layout { source->find("layout") }; layout != source->end() && layout->is_null() == false)
+            {
+                std::optional<diff_layout_preference> parsed {};
+                if (layout->is_string())
+                    parsed = parse_diff_layout_preference(as_u8string(layout->get_ref<const std::string&>()));
+                if (parsed.has_value())
+                    result.settings.diff.layout = *parsed;
+                else
+                    warn(result, u8"앱 설정의 diff.layout은 inline 또는 split이어야 합니다. 기본값을 사용합니다.");
+            }
+            if (const auto context { source->find("context_lines") }; context != source->end() && context->is_null() == false)
+            {
+                if (context->is_number_unsigned() && context->get<std::uint64_t>() <= maximum_diff_context_lines)
+                    result.settings.diff.context_lines = static_cast<std::uint32_t>(context->get<std::uint64_t>());
+                else
+                    warn(result, u8"앱 설정의 diff.context_lines는 0 이상 25 이하의 정수여야 합니다. 기본값을 사용합니다.");
+            }
+        }
+
         void parse_open_tabs(const json& root, app_settings_load_result& result)
         {
             const auto tabs { root.find("open_tabs") };
@@ -412,6 +442,13 @@ namespace cyella {
             root["appearance"] = std::move(appearance);
         }
 
+        {
+            json diff { existing_object(root, "diff") };
+            diff["layout"] = as_string(diff_layout_preference_name(settings.diff.layout));
+            diff["context_lines"] = settings.diff.context_lines;
+            root["diff"] = std::move(diff);
+        }
+
         // ui 객체는 판 폭이 있을 때만 쓴다. 쓰지 않는 사용자의 파일을 짧게 두고, 알 수 없는 키는 보존한다.
         if (settings.ui.pane_widths.sidebar.has_value() || settings.ui.pane_widths.detail.has_value())
         {
@@ -471,6 +508,7 @@ namespace cyella {
         parse_appearance(root, result);
         result.settings.window = parse_window(root, result);
         parse_ui(root, result);
+        parse_diff(root, result);
         return result;
     }
 

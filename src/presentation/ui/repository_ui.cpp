@@ -370,10 +370,10 @@ namespace cyella::ui {
                     if (view == diff_view::unstaged && row.conflicted == false)
                     {
                         buttons.push_back(make_row_button(u8"stage:" + to_u8(row.path), codicons::icon_add, u8"stage", submit(repo, stage_files_request { { row.path } })));
-                        // 버리기는 확인 대화 상자를 거친다. 추적하지 않는 파일은 휴지통 단계가 따로 없어 버리지 않는다.
-                        const bool discardable { row.untracked == false };
-                        std::u8string tooltip { discardable ? u8"변경 버리기 (확인 후)" : u8"추적하지 않는 파일은 버릴 수 없습니다" };
-                        buttons.push_back(make_row_button(u8"discard:" + to_u8(row.path), codicons::icon_discard, std::move(tooltip), message(discard_files_intent { { row.path } }), discardable));
+                        // 버리기는 확인 대화 상자를 거친다. 추적하지 않는 파일은 휴지통으로 보낸다.
+                        std::u8string tooltip { row.untracked ? u8"휴지통으로 보내기 (확인 후)" : u8"변경 버리기 (확인 후)" };
+                        buttons.push_back(make_row_button(u8"discard:" + to_u8(row.path), row.untracked ? codicons::icon_trash : codicons::icon_discard, std::move(tooltip),
+                            message(discard_files_intent { { row.path }, row.untracked }), true));
                     }
                     if (view == diff_view::staged)
                         buttons.push_back(make_row_button(u8"unstage:" + to_u8(row.path), codicons::icon_remove, u8"unstage", submit(repo, unstage_files_request { { row.path } })));

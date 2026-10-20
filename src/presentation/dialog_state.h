@@ -29,6 +29,8 @@ namespace cyella {
         // worktree 추가, Git LFS 추적 패턴.
         add_worktree,
         lfs_track,
+        // upstream 설정: 원격과 원격 브랜치를 골라 `branch --set-upstream-to`를 낸다. push 없이 잇기만 한다.
+        set_upstream,
     };
 
     // 확인 뒤에 낼 operation 열이다. 둘째부터는 앞이 **성공해야** 이어서 낸다 (원격 태그를 먼저 지우고 로컬을 지운다,
@@ -51,6 +53,7 @@ namespace cyella {
         // 대화 상자마다 다르게 쓰는 칸이다.
         //  - create_branch: a=만든 뒤 체크아웃. create_tag: a=annotated.
         //  - push: a=upstream 설정, b=태그도 push, c=force-with-lease.
+        //  - set_upstream: 플래그가 없다. subject=로컬 브랜치, choices=원격, 칸 0=원격 브랜치 이름.
         bool flag_a { false };
         bool flag_b { false };
         bool flag_c { false };

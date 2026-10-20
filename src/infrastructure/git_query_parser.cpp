@@ -7,6 +7,36 @@
 #include <utility>
 
 namespace cyella {
+    std::optional<std::string> parse_git_diff_driver(const std::string_view bytes)
+    {
+        // <path> NUL diff NUL <value> NUL
+        const std::size_t path_end { bytes.find('\0') };
+        if (path_end == std::string_view::npos)
+            return std::nullopt;
+        const std::string_view rest { bytes.substr(path_end + 1) };
+        const std::size_t attribute_end { rest.find('\0') };
+        if (attribute_end == std::string_view::npos || rest.substr(0, attribute_end) != "diff")
+            return std::nullopt;
+        const std::string_view after_attribute { rest.substr(attribute_end + 1) };
+        const std::size_t value_end { after_attribute.find('\0') };
+        if (value_end == std::string_view::npos)
+            return std::nullopt;
+        const std::string_view value { after_attribute.substr(0, value_end) };
+        if (value.empty() || value == "unspecified" || value == "set" || value == "unset")
+            return std::nullopt;
+        return std::string { value };
+    }
+
+    std::optional<std::string> parse_git_config_value(const std::string_view bytes)
+    {
+        std::string_view value { bytes };
+        while (value.empty() == false && (value.back() == '\n' || value.back() == '\r'))
+            value.remove_suffix(1);
+        if (value.empty())
+            return std::nullopt;
+        return std::string { value };
+    }
+
     namespace {
         std::string_view trim(std::string_view text) noexcept
         {

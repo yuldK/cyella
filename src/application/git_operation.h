@@ -92,6 +92,8 @@ namespace cyella {
         std::string sha {};
         // 추적하지 않는 파일이다. `/dev/null`과 비교한다.
         bool untracked { false };
+        // hunk 둘레의 문맥 줄 수(`git diff -U<n>`)다. 환경 설정의 diff 문맥 줄 수를 UI가 채운다.
+        std::uint32_t context_lines { 3 };
 
         [[nodiscard]] bool operator==(const diff_file_request&) const noexcept = default;
     };
@@ -161,6 +163,8 @@ namespace cyella {
         bool reverse { false };
         // 줄 단위로 만든 patch는 hunk 헤더의 줄 수가 맞지 않을 수 있다(`--recount`).
         bool recount { true };
+        // 문맥 줄이 없는 patch(`-U0`로 읽은 diff)를 받는다(`--unidiff-zero`).
+        bool unidiff_zero { false };
     };
 
     // ------------------------------------------------------------------ 브랜치
@@ -481,13 +485,43 @@ namespace cyella {
         bool allow_flatten_merges { false };
     };
 
+    // ------------------------------------------------------------------ 가벼운 새로 고침, upstream, 휴지통
+
+    // 작업 트리 변경만 다시 읽는다(status와 줄 수). 그래프·ref·stash는 건드리지 않는다. 파일 감시의
+    // `working_tree_changed`가 낸다. WIP 행이 생기거나 사라지면 세션이 전체 refresh를 청한다.
+    struct refresh_status_request
+    {};
+
+    // `branch --set-upstream-to=<remote>/<remote_branch> -- <branch>`. 원격 추적 브랜치(`refs/remotes/<remote>/<remote_branch>`)가
+    // 이미 있어야 한다. push 없이 upstream만 잇는다.
+    struct set_upstream_request
+    {
+        std::string branch {};
+        std::string remote {};
+        std::string remote_branch {};
+    };
+
+    // `branch --unset-upstream -- <branch>`.
+    struct unset_upstream_request
+    {
+        std::string branch {};
+    };
+
+    // 추적하지 않는 파일을 휴지통으로 보낸다(되돌릴 수 있다). 추적 파일은 `discard_files_request`(`restore`)가 맡는다.
+    // 경로는 저장소 루트 기준이고 저장소 밖을 가리키면 거절한다.
+    struct trash_files_request
+    {
+        std::vector<std::string> paths {};
+    };
+
     using git_operation = std::variant<refresh_request, load_more_log_request, show_commit_request, diff_file_request, is_ancestor_request, count_commits_request, refresh_remote_tags_request,
         stage_files_request, unstage_files_request, discard_files_request, ignore_path_request, commit_request, apply_patch_request, checkout_branch_request, checkout_remote_branch_request,
         checkout_detached_request, create_branch_request, rename_branch_request, delete_branch_request, fetch_request, pull_request, push_execute_request, merge_request, rebase_request,
         fast_forward_request, reset_request, cherry_pick_request, revert_request, stash_push_request, stash_apply_request, stash_pop_request, stash_drop_request, create_tag_request, push_tag_request,
         push_tags_request, delete_tag_request, delete_remote_tag_request, sequence_control_request, resolve_file_request, mark_resolved_request, remove_stale_index_lock_request, clone_request,
         init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
-        worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request>;
+        worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request, refresh_status_request, set_upstream_request,
+        unset_upstream_request, trash_files_request>;
 
     // 실행 lane이다.
     enum class operation_lane

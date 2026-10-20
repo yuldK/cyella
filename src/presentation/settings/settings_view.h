@@ -147,6 +147,7 @@ namespace cyella {
         std::u8string message {};
 
         theme_preference theme { theme_preference::system };
+        diff_settings diff {};
         git_settings_view git {};
         std::vector<tool_row_view> tools {};
         std::optional<tool_edit_view> edit {};

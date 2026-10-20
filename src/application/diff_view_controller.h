@@ -147,6 +147,11 @@ namespace cyella {
         [[nodiscard]] bool can_stage() const noexcept;
         [[nodiscard]] bool can_unstage() const noexcept;
         [[nodiscard]] bool can_discard() const noexcept;
+        // 지금 보는 파일에 textconv가 걸려 있으면 그 diff 드라이버 이름이다. 아니면 빈 값이다.
+        [[nodiscard]] const std::string& textconv_driver() const noexcept
+        {
+            return textconv_driver_;
+        }
 
     private:
         enum class content_kind
@@ -178,6 +183,9 @@ namespace cyella {
         diff_view view_ { diff_view::unstaged };
         std::string sha_ {};
         bool untracked_ { false };
+        std::uint32_t context_lines_ { 3 };
+        // textconv가 걸린 파일이다. 보이는 diff가 실제 파일 내용과 맞지 않아 hunk·줄 동작을 막는다.
+        std::string textconv_driver_ {};
         std::u8string repository_path_ {};
         extracted_sides sides_ {};
         // 줄 수 상한을 풀고 전체를 보낸다.

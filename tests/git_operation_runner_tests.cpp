@@ -536,3 +536,144 @@ TEST_CASE("inspect_path tells a repository root from a folder inside it", "[oper
     CHECK(inspect(u8"C:/work/missing").kind == path_inspection_kind::missing);
     CHECK(test.process.calls()[0].working_directory == "C:/work/repo/src");
 }
+
+TEST_CASE("refresh_status reads only the working tree: no git dir, refs, stash, remotes or log", "[operation][refresh]")
+{
+    harness test {};
+    const std::string head { test::sha_of(2) };
+    test.process.when({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") + test::status_modified("a.txt") });
+
+    const std::vector<operation_event> events { test.execute(refresh_status_request {}, 4) };
+
+    CHECK(test.process.command_names() == text_list { "status", "diff", "diff" });
+    for (const test::recorded_call& call : test.process.calls())
+        CHECK(call.no_optional_locks);
+    CHECK(payloads<snapshot_loaded>(events).empty());
+    CHECK(payloads<commits_loaded>(events).empty());
+    const std::vector<status_loaded> loaded { payloads<status_loaded>(events) };
+    REQUIRE(loaded.size() == 1);
+    CHECK(loaded[0].summary.head_sha == head);
+    CHECK(loaded[0].summary.changed_file_count == 1);
+    CHECK(loaded[0].unstaged.size() == 1);
+    CHECK(finished_of(events).state == operation_state::succeeded);
+}
+
+TEST_CASE("trash_files sends only existing in-repository files to the recycle bin and runs no git", "[operation][trash]")
+{
+    harness test {};
+    test.files.put(u8"C:/work/repo/new.txt", "x");
+    test.files.put(u8"C:/work/repo/sub/other.txt", "y");
+    test.files.put(u8"C:/work/repo/keep.txt", "z");
+
+    const operation_finished done { finished_of(test.execute(trash_files_request { { "new.txt", "sub/other.txt", "already-gone.txt" } })) };
+    CHECK(done.state == operation_state::succeeded);
+    CHECK(done.summary == u8"휴지통으로 보냈습니다.");
+    CHECK(test.files.recycled() == std::vector<std::u8string> { u8"C:/work/repo\\new.txt", u8"C:/work/repo\\sub\\other.txt" });
+    CHECK_FALSE(test.files.content(u8"C:/work/repo/new.txt").has_value());
+    CHECK(test.files.content(u8"C:/work/repo/keep.txt").has_value());
+    CHECK(test.process.calls().empty());
+}
+
+TEST_CASE("trash_files refuses paths outside the repository and does not touch anything", "[operation][trash]")
+{
+    harness test {};
+    test.files.put(u8"C:/work/repo/new.txt", "x");
+
+    for (const char* const path : { "../outside.txt", ".git/config", "/abs.txt", "C:/Windows/x.txt", "a/../../b" })
+    {
+        const operation_finished done { finished_of(test.execute(trash_files_request { { "new.txt", path } })) };
+        CHECK(done.state == operation_state::failed);
+        REQUIRE(done.failure.has_value());
+        CHECK(done.failure->kind == failure_kind::invalid_request);
+    }
+    CHECK(finished_of(test.execute(trash_files_request {})).state == operation_state::failed);
+    CHECK(test.files.recycled().empty());
+    CHECK(test.files.content(u8"C:/work/repo/new.txt").has_value());
+}
+
+TEST_CASE("trash_files fails when the recycle bin refuses", "[operation][trash]")
+{
+    harness test {};
+    test.files.put(u8"C:/work/repo/new.txt", "x");
+    test.files.refuse_recycling();
+    const operation_finished done { finished_of(test.execute(trash_files_request { { "new.txt" } })) };
+    CHECK(done.state == operation_state::failed);
+    CHECK(test.files.content(u8"C:/work/repo/new.txt").has_value());
+}
+
+TEST_CASE("a diff reads with the requested context and flags a textconv driver from the attributes", "[operation][diff]")
+{
+    harness test {};
+    test.process.when({ "diff" }, scripted_response { 0, "" });
+    test.process.when({ "check-attr" }, scripted_response { 0, std::string { "doc.docx\0diff\0word\0", 19 } });
+    test.process.when({ "config" }, scripted_response { 0, "antiword\n" });
+
+    diff_file_request request {};
+    request.path = "doc.docx";
+    request.view = diff_view::unstaged;
+    request.context_lines = 7;
+    const std::vector<operation_event> events { test.execute(request) };
+
+    const std::vector<file_diff_loaded> loaded { payloads<file_diff_loaded>(events) };
+    REQUIRE(loaded.size() == 1);
+    CHECK(loaded[0].diff.textconv_driver == "word");
+    const std::vector<test::recorded_call> calls { test.process.calls() };
+    REQUIRE(calls.size() >= 3);
+    CHECK(join(calls[0].arguments).find("-U7") != std::string::npos);
+    CHECK(join(calls[1].arguments) == "check-attr -z diff -- doc.docx");
+    CHECK(join(calls[2].arguments) == "config --get diff.word.textconv");
+}
+
+TEST_CASE("a diff driver without a textconv command, no driver at all, and untracked files show no badge", "[operation][diff]")
+{
+    SECTION("the driver has no textconv")
+    {
+        harness test {};
+        test.process.when({ "check-attr" }, scripted_response { 0, std::string { "a.txt\0diff\0cpp\0", 15 } });
+        test.process.when({ "config" }, scripted_response { 1, "" });
+        diff_file_request request {};
+        request.path = "a.txt";
+        CHECK(payloads<file_diff_loaded>(test.execute(request)).front().diff.textconv_driver.empty());
+    }
+    SECTION("the attribute is unspecified")
+    {
+        harness test {};
+        test.process.when({ "check-attr" }, scripted_response { 0, std::string { "a.txt\0diff\0unspecified\0", 23 } });
+        diff_file_request request {};
+        request.path = "a.txt";
+        CHECK(payloads<file_diff_loaded>(test.execute(request)).front().diff.textconv_driver.empty());
+        // 드라이버가 없으면 config를 부르지 않는다.
+        for (const std::string& name : test.process.command_names())
+            CHECK(name != "config");
+    }
+    SECTION("untracked files compare against /dev/null and do not follow attributes")
+    {
+        harness test {};
+        diff_file_request request {};
+        request.path = "new.txt";
+        request.untracked = true;
+        CHECK(payloads<file_diff_loaded>(test.execute(request)).front().diff.textconv_driver.empty());
+        for (const std::string& name : test.process.command_names())
+            CHECK(name != "check-attr");
+    }
+    SECTION("a failing check-attr never blocks the diff")
+    {
+        harness test {};
+        test.process.when({ "check-attr" }, scripted_response { 128, "" });
+        diff_file_request request {};
+        request.path = "a.txt";
+        const std::vector<operation_event> events { test.execute(request) };
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        CHECK(payloads<file_diff_loaded>(events).front().diff.textconv_driver.empty());
+    }
+}
+
+TEST_CASE("apply_patch passes --unidiff-zero for zero-context diffs", "[operation][worktree]")
+{
+    harness test {};
+    apply_patch_request request {};
+    request.patch = "x";
+    request.unidiff_zero = true;
+    CHECK(finished_of(test.execute(request)).state == operation_state::succeeded);
+    CHECK(join(test.process.calls().back().arguments).find("--unidiff-zero") != std::string::npos);
+}

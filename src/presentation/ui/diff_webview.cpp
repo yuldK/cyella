@@ -8,6 +8,7 @@
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
+#include "luil/ui/badge_element.h"
 #include "luil/ui/choice_group_element.h"
 #include "luil/ui/stack_element.h"
 #include "luil/ui/virtual_list_element.h"
@@ -22,6 +23,7 @@ namespace cyella::ui {
         constexpr float image_mode_toggle_width { 220.0f };
         constexpr float truncated_note_width { 150.0f };
         constexpr float fallback_note_width { 250.0f };
+        constexpr float textconv_badge_width { 70.0f };
 
         const color_selector dim_color { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
 
@@ -90,6 +92,13 @@ namespace cyella::ui {
             header->add(make_icon_button(u8"diff-close", codicons::icon_arrow_left, u8"그래프로 돌아가기", message(close_diff_intent {})), 30.0f);
             header->add(make_text(u8"diff-title", diff.title, text_style { .size = 12.0f, .bold = true }), text_button_width(diff.title));
             header->add_flexible(make_text(u8"diff-subtitle", diff.subtitle, text_style { .size = 11.0f, .color = dim_color }));
+            // 텍스트 변환(textconv)을 거친 diff라는 표시다. 변환 결과를 비교하므로 파일 내용과 줄이 다를 수 있다.
+            if (diff.surface.textconv_driver.empty() == false)
+            {
+                luil::badge_config badge { .text = u8"textconv", .tone = luil::badge_tone::accent };
+                header->add(std::make_unique<luil::badge_element>(luil::ui_element_id { kind_label, u8"diff-textconv-badge" }, badge),
+                    { .length = textconv_badge_width, .cross_length = luil::badge_element::height_for(badge) });
+            }
 
             if (diff.use_webview == false && diff.special.has_value() == false)
                 header->add(make_text(u8"diff-fallback-note", u8"WebView2 없이 텍스트로 보는 중", text_style { .size = 11.0f, .color = dim_color, .align = 2 }), fallback_note_width);

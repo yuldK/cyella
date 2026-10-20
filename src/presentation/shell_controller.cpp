@@ -255,6 +255,7 @@ namespace cyella {
         ui_.notice.reset();
         ui_.rail_section.reset();
         ui_.drawer_open = false;
+        ui_.selector.reset();
         exists_cache_.clear();
     }
 
@@ -291,6 +292,8 @@ namespace cyella {
         case text_target::rebase_message_subject:
         case text_target::rebase_message_body:
             return rebase_.draft(target);
+        case text_target::selector_filter:
+            return ui_.selector.has_value() ? &ui_.selector->filter : nullptr;
         case text_target::form_field_0:
         case text_target::form_field_1:
         case text_target::form_field_2:
@@ -494,6 +497,8 @@ namespace cyella {
 
     void shell_controller::handle_folder(const folder_chosen_intent& intent)
     {
+        // 선택 상자의 "폴더에서 저장소 열기…"가 이 대화 상자를 열었다. 고르고 나면 목록은 닫는다.
+        ui_.selector.reset();
         if (dependencies_.workspace == nullptr)
         {
             show_notice(dependencies_.git_message, true);
@@ -511,6 +516,13 @@ namespace cyella {
             const operation_id id { dependencies_.workspace->submit_setup(init_request { .target_path = intent.path, .initial_branch = {} }) };
             if (id != 0)
                 pending_setup_[id] = intent.path;
+            return;
+        }
+        case folder_purpose::locate: {
+            // 고른 폴더가 저장소 루트(또는 그 안쪽)인지 확인한 뒤에 최근 항목의 경로를 바꾼다.
+            const operation_id id { dependencies_.workspace->submit_setup(inspect_path_request { intent.path }) };
+            if (id != 0)
+                pending_locates_[id] = locate_request { intent.origin, intent.path };
             return;
         }
         case folder_purpose::clone_target:
@@ -658,7 +670,9 @@ namespace cyella {
         {
             // Esc는 가장 위에 떠 있는 것 하나만 닫는다.
             tab_ui_state* const tab { selected_tab_state() };
-            if (ui_.rail_section.has_value())
+            if (ui_.selector.has_value())
+                ui_.selector.reset();
+            else if (ui_.rail_section.has_value())
                 ui_.rail_section.reset();
             else if (ui_.drawer_open)
                 ui_.drawer_open = false;
@@ -673,7 +687,7 @@ namespace cyella {
             if (repository_exists(intent->path))
                 open_repository(intent->path);
             else
-                show_notice(u8"'" + intent->path + u8"' 경로를 찾을 수 없습니다. 위치 찾기는 아직 없습니다. 목록에서 지울 수 있습니다.", true);
+                show_notice(u8"'" + intent->path + u8"' 경로를 찾을 수 없습니다. 항목의 위치 찾기로 옮긴 폴더를 고르거나 목록에서 지울 수 있습니다.", true);
             return true;
         }
         if (const auto* const intent { message.get<pin_recent_intent>() }; intent != nullptr)
@@ -750,9 +764,12 @@ namespace cyella {
         {
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
             {
-                tab->diff = intent->request;
+                // 문맥 줄 수는 환경 설정이 정한다. 행이 만든 요청에는 기본값이 들어 있다.
+                diff_file_request request { intent->request };
+                request.context_lines = settings().diff.context_lines;
+                tab->diff = request;
                 tab->diff_scroll = 0.0f;
-                static_cast<void>(submit(intent->request));
+                static_cast<void>(submit(std::move(request)));
             }
             return true;
         }
@@ -803,6 +820,9 @@ namespace cyella {
             handle_folder(*intent);
             return true;
         }
+        // 툴바 저장소·브랜치 선택 상자의 목록이다.
+        if (handle_selector_message(message))
+            return true;
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         if (settings_.handle(message))
             return true;
@@ -844,6 +864,46 @@ namespace cyella {
                 break;
             case path_inspection_kind::missing:
                 show_notice(u8"'" + path + u8"' 경로가 없습니다.", true);
+                break;
+            }
+        }
+
+        for (auto it { pending_locates_.begin() }; it != pending_locates_.end();)
+        {
+            const operation_status* const status { workspace->find_operation(it->first) };
+            if (status != nullptr && status->finished() == false)
+            {
+                ++it;
+                continue;
+            }
+            const locate_request request { it->second };
+            it = pending_locates_.erase(it);
+            if (status == nullptr || status->state != operation_state::succeeded)
+                continue;
+            const std::optional<path_inspected> inspected { workspace->inspection(request.chosen) };
+            if (inspected.has_value() == false)
+                continue;
+            switch (inspected->kind)
+            {
+            case path_inspection_kind::repository:
+            case path_inspection_kind::inside_repository: {
+                // 저장소 안쪽 폴더를 골랐으면 그 루트로 잇는다.
+                const std::u8string root { inspected->root.empty() ? request.chosen : inspected->root };
+                bool relocated { false };
+                update_settings([&](app_settings& value) { relocated = relocate_recent_repository(value, request.origin, root); });
+                exists_cache_.erase(request.origin);
+                exists_cache_.erase(root);
+                if (relocated)
+                    show_notice(u8"'" + root + u8"'(으)로 위치를 바꿨습니다.", false);
+                else
+                    show_notice(u8"최근 목록에서 '" + request.origin + u8"' 항목을 찾지 못했습니다.", true);
+                break;
+            }
+            case path_inspection_kind::directory:
+                show_notice(u8"'" + request.chosen + u8"'은(는) Git 저장소가 아니라서 위치를 바꾸지 않았습니다.", true);
+                break;
+            case path_inspection_kind::missing:
+                show_notice(u8"'" + request.chosen + u8"' 경로가 없습니다.", true);
                 break;
             }
         }

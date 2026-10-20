@@ -117,6 +117,9 @@ namespace cyella {
     {
         diff_file_request request {};
         std::vector<diff_file> files {};
+        // `.gitattributes`가 이 파일에 textconv가 있는 diff 드라이버를 지정했으면 그 드라이버 이름이다. 없으면 비어 있다.
+        // git이 textconv를 거친 글로 diff를 만들었으므로 이 diff의 hunk는 파일의 실제 내용과 맞지 않아 stage·discard를 막는다.
+        std::string textconv_driver {};
     };
 
     struct file_diff_loaded
@@ -178,8 +181,18 @@ namespace cyella {
         std::u8string summary {};
     };
 
+    // 작업 트리 변경만 다시 읽은 결과다(`refresh_status`). `summary`에는 status가 아는 필드(브랜치·HEAD·upstream·앞섬/뒤처짐·변경 수)만
+    // 채워져 있고, 경로·원격·진행 중 작업 같은 나머지는 비어 있다. 세션이 자기 snapshot 위에 겹쳐 쓴다.
+    struct status_loaded
+    {
+        repository_summary summary {};
+        std::vector<file_change> staged {};
+        std::vector<file_change> unstaged {};
+        std::vector<file_change> conflicts {};
+    };
+
     using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded,
-        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded>;
+        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded, status_loaded>;
 
     struct operation_event
     {

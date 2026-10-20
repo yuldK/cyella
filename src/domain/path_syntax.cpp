@@ -26,6 +26,36 @@ namespace cyella {
         return is_ascii_letter(path[0]) && path[1] == u8':' && is_path_separator(path[2]);
     }
 
+    std::optional<std::u8string> resolve_workspace_child(const std::u8string_view root, const std::string_view relative_path)
+    {
+        if (root.empty() || is_absolute_windows_path(root) == false || relative_path.empty())
+            return std::nullopt;
+        std::u8string result { root };
+        while (result.empty() == false && is_path_separator(result.back()))
+            result.pop_back();
+        std::size_t start { 0 };
+        while (start <= relative_path.size())
+        {
+            std::size_t end { relative_path.find_first_of("/\\", start) };
+            if (end == std::string_view::npos)
+                end = relative_path.size();
+            const std::string_view component { relative_path.substr(start, end - start) };
+            // 빈 구성 요소(맨 앞의 `/`, 이어진 `//`, 끝의 `/`)와 `.`·`..`은 저장소 밖이나 다른 파일을 가리킬 수 있다.
+            if (component.empty() || component == "." || component == ".." || component.find('\0') != std::string_view::npos || component.find(':') != std::string_view::npos)
+                return std::nullopt;
+            // `.git`은 어느 깊이에서든 막는다(중첩 저장소 포함). ASCII 대소문자를 가리지 않는다 (NTFS).
+            if (component.size() == 4 && (component[0] == '.') && (component[1] == 'g' || component[1] == 'G') && (component[2] == 'i' || component[2] == 'I')
+                && (component[3] == 't' || component[3] == 'T'))
+                return std::nullopt;
+            result.push_back(u8'\\');
+            result.append(component.begin(), component.end());
+            if (end == relative_path.size())
+                break;
+            start = end + 1;
+        }
+        return result;
+    }
+
     std::u8string normalize_path_key(const std::u8string_view path)
     {
         std::u8string key {};

@@ -90,6 +90,8 @@ namespace cyella {
     struct discard_files_intent
     {
         std::vector<std::string> paths {};
+        // 추적하지 않는 파일이다. 확인 상자가 "휴지통으로 보냅니다"를 말하고 `trash_files_request`를 낸다.
+        bool untracked { false };
     };
 
     // 툴바와 메뉴가 여는 대화 상자다.

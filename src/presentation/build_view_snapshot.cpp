@@ -202,7 +202,8 @@ namespace cyella {
             for (auto it { operations.rbegin() }; it != operations.rend() && shown < log_operation_limit; ++it)
             {
                 const operation_status& status { **it };
-                if (status.kind == operation_kind::load_more_log || status.kind == operation_kind::diff_file || status.kind == operation_kind::show_commit)
+                if (status.kind == operation_kind::load_more_log || status.kind == operation_kind::diff_file || status.kind == operation_kind::show_commit
+                    || status.kind == operation_kind::refresh_status)
                     continue;
                 ++shown;
                 std::u8string heading { u8"#" + number(status.id) + u8"  " + (status.finished() ? result_text(status) : phase_text(status)) };
@@ -529,6 +530,7 @@ namespace cyella {
         case operation_kind::is_ancestor:
         case operation_kind::count_commits:
         case operation_kind::refresh_remote_tags:
+        case operation_kind::refresh_status:
         case operation_kind::inspect_path:
         // 편집기가 자기 자리에 읽는 중과 실패를 보인다.
         case operation_kind::load_rebase_plan:
@@ -817,6 +819,14 @@ namespace cyella {
             return u8"rebase 범위 읽기";
         case operation_kind::interactive_rebase:
             return u8"인터랙티브 rebase";
+        case operation_kind::refresh_status:
+            return u8"변경 새로 고침";
+        case operation_kind::set_upstream:
+            return u8"upstream 설정";
+        case operation_kind::unset_upstream:
+            return u8"upstream 해제";
+        case operation_kind::trash_files:
+            return u8"휴지통으로 보내기";
         default:
             break;
         }
@@ -953,6 +963,7 @@ namespace cyella {
             const form_source source { resolve_form_source(repository_operations, setup, ui, tab) };
             view.form = build_form_view(source, ui, tab, session != nullptr ? &session->snapshot() : nullptr);
             view.menu = build_menu_view(ui, session, index.get(), view.scale);
+            view.selector = build_selector_view(ui, tabs, settings, inputs.exists, session, view.scale);
         }
 
         if (ui.clone.has_value())

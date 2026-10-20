@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <string>
@@ -117,4 +118,36 @@ TEST_CASE("read_in_progress_operation reads the merge message for merge and cher
     CHECK(applied.step == 1);
     CHECK(applied.total == 0);
     CHECK(applied.head_name.empty());
+}
+namespace {
+    // `|`를 NUL로 바꾼 글이다. check-attr -z의 출력을 눈으로 읽을 수 있게 쓴다.
+    std::string with_nuls(std::string text)
+    {
+        std::ranges::replace(text, '|', '\0');
+        return text;
+    }
+} // namespace
+
+TEST_CASE("parse_git_diff_driver reads the attribute value and ignores non-driver values", "[git][query]")
+{
+    const auto driver = [](const std::string& bytes) { return parse_git_diff_driver(bytes).value_or("<none>"); };
+    CHECK(driver(with_nuls("doc.docx|diff|word|")) == "word");
+    CHECK(driver(with_nuls("dir/한글 문서.docx|diff|my-driver|")) == "my-driver");
+    CHECK(driver(with_nuls("a.txt|diff|unspecified|")) == "<none>");
+    CHECK(driver(with_nuls("a.txt|diff|set|")) == "<none>");
+    CHECK(driver(with_nuls("a.txt|diff|unset|")) == "<none>");
+    // 모양이 다르면 값이 없다.
+    CHECK(driver("") == "<none>");
+    CHECK(driver(with_nuls("a.txt|merge|text|")) == "<none>");
+    CHECK(driver(with_nuls("a.txt|diff|")) == "<none>");
+    CHECK(driver(with_nuls("a.txt|diff||")) == "<none>");
+    CHECK(driver("a.txt: diff: word\n") == "<none>");
+}
+
+TEST_CASE("parse_git_config_value trims the trailing newline and rejects empty output", "[git][query]")
+{
+    CHECK(parse_git_config_value("antiword -m UTF-8\n").value_or("<none>") == "antiword -m UTF-8");
+    CHECK(parse_git_config_value("cat\r\n").value_or("<none>") == "cat");
+    CHECK(parse_git_config_value("").value_or("<none>") == "<none>");
+    CHECK(parse_git_config_value("\n").value_or("<none>") == "<none>");
 }

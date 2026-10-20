@@ -27,6 +27,8 @@ namespace cyella {
 
     std::uint64_t repository_session::begin_refresh() noexcept
     {
+        // 전체 refresh의 snapshot이 곧 모든 것을 덮는다. 앞서 낸 status의 결과는 낡은 값이다.
+        expected_status_ = 0;
         ++revision_;
         return ++requested_generation_;
     }
@@ -45,6 +47,11 @@ namespace cyella {
     void repository_session::expect_file_diff(const operation_id id) noexcept
     {
         expected_diff_ = id;
+    }
+
+    void repository_session::expect_status(const operation_id id) noexcept
+    {
+        expected_status_ = id;
     }
 
     void repository_session::set_awaiting_input(const std::optional<operation_id> id) noexcept
@@ -146,6 +153,32 @@ namespace cyella {
         file_diff_ = event.diff;
         ++revision_;
         return true;
+    }
+
+    status_apply_result repository_session::apply(const operation_id id, const status_loaded& event)
+    {
+        // 더 새 status나 전체 refresh를 냈거나, 읽기 전이거나, 전체 refresh가 아직 snapshot을 못 가져왔으면 버린다.
+        if (id != expected_status_ || loaded() == false || requested_generation_ != displayed_generation_)
+            return status_apply_result::ignored;
+
+        repository_summary& summary { snapshot_.summary };
+        const repository_summary& fresh { event.summary };
+        // HEAD나 브랜치가 움직였다면 그래프와 ref가 낡았다. 감시가 `repository_state_changed`를 따로 알리지만 순서가 뒤바뀔 수 있으므로 여기서도 거른다.
+        if (fresh.head_sha != summary.head_sha || fresh.current_branch != summary.current_branch || fresh.is_detached != summary.is_detached || fresh.upstream != summary.upstream)
+            return status_apply_result::needs_refresh;
+        // WIP 행은 그래프 맨 앞 행이고 레이아웃이 append 전용이라 행을 끼우거나 뺄 수 없다.
+        if ((fresh.changed_file_count > 0) != has_wip_row_)
+            return status_apply_result::needs_refresh;
+
+        summary.ahead = fresh.ahead;
+        summary.behind = fresh.behind;
+        summary.changed_file_count = fresh.changed_file_count;
+        summary.conflict_count = fresh.conflict_count;
+        snapshot_.staged = event.staged;
+        snapshot_.unstaged = event.unstaged;
+        snapshot_.conflicts = event.conflicts;
+        ++revision_;
+        return status_apply_result::applied;
     }
 
     bool repository_session::apply(const ancestry_answered& event)

@@ -1,6 +1,7 @@
 #include "platform/win32/cyella_delegate.h"
 
 #include "application/app_messages.h"
+#include "application/watch_messages.h"
 #include "platform/win32/cyella_driver.h"
 #include "platform/win32/utf8.h"
 #include "presentation/settings/settings_intents.h"
@@ -83,6 +84,9 @@ namespace cyella::win32 {
             driver_->bind_host(&host);
         if (relay_ != nullptr)
             relay_->bind(host);
+        // 창이 앞으로 돌아오면 선택된 탭을 다시 읽는다. relay에 넣으면 logic thread가 깨어난다.
+        if (relay_ != nullptr && foreground_ == nullptr)
+            foreground_ = foreground_monitor::start([relay = relay_] { relay->post(luil::app_message { window_focus_intent {} }); });
     }
 
     void cyella_delegate::execute_app_ui_command(luil::app_host& host, const luil::app_ui_command& command)
@@ -111,11 +115,15 @@ namespace cyella::win32 {
             purpose = folder_purpose::clone_target;
             title = L"Clone 받을 상위 폴더 선택";
             break;
+        case ui_command_id::locate_folder:
+            purpose = folder_purpose::locate;
+            title = L"저장소의 새 위치 선택";
+            break;
         default:
             return;
         }
         if (std::optional<std::u8string> path { choose_folder(title) }; path.has_value())
-            host.post_app_message(luil::app_message { folder_chosen_intent { purpose, std::move(*path) } });
+            host.post_app_message(luil::app_message { folder_chosen_intent { purpose, std::move(*path), purpose == folder_purpose::locate ? command.argument : std::u8string {} } });
     }
 
     luil::app_message cyella_delegate::make_window_metrics_message(const float width, const float height, const float scale)

@@ -124,7 +124,12 @@ namespace cyella::ui {
             const form_field& field { form.fields[index] };
             const std::u8string owner { form.id + u8"-field-" + number_text(index) };
             content.add(make_text(owner + u8"-label", field.label, text_style { .size = 11.0f, .color = dim_color }), form_label_height);
-            luil::text_input_config input { .placeholder = field.placeholder };
+            // 라벨은 별도 글 요소라 입력 칸의 UIA 이름에 들지 않는다(이름이 안내 글 하나뿐이다: luil 입력 칸의 이름은 `placeholder`이고
+            // `set_access_name`은 이를 덮지 못한다). 안내 글 앞에 라벨을 붙여 보조 기술과 UIA 스크립트가 칸을 라벨로 찾게 한다.
+            std::u8string hint { field.label };
+            if (field.placeholder.empty() == false && field.placeholder != field.label)
+                hint += u8" · " + field.placeholder;
+            luil::text_input_config input { .placeholder = std::move(hint) };
             input.secret = field.secret;
             input.reveal = field.reveal;
             content.add(std::make_unique<luil::text_input_element>(luil::ui_element_id { field_kind(index), owner }, field.view, std::move(input)), form_field_height);

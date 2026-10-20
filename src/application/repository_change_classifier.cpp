@@ -79,7 +79,9 @@ namespace cyella {
             if (equals_name(first, u8"rebase-merge") || equals_name(first, u8"rebase-apply"))
                 return change_classification::repository_state;
 
-            static constexpr std::array<std::u8string_view, 7> single_files {
+            // `config`는 브랜치의 upstream(`branch.<name>.remote`·`merge`)이 사는 곳이라 터미널의 `git branch -u`도 화면에 보여야 한다.
+            static constexpr std::array<std::u8string_view, 8> single_files {
+                u8"config",
                 u8"head",
                 u8"index",
                 u8"fetch_head",

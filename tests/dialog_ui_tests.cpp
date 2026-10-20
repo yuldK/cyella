@@ -179,6 +179,12 @@ TEST_CASE("an open menu becomes a popup and a form becomes a modal host", "[pres
     const luil::ui_element* const field { built.tree->find(luil::ui_element_id { cyella::ui::kind_form_input_0, u8"branch-dialog-field-0" }) };
     REQUIRE(field != nullptr);
     CHECK(field->bounds().width > 0.0f);
+    // 입력 칸의 UIA 이름은 라벨 글이다 (라벨은 별도 글 요소라서 칸 이름이 비어 있었다).
+    REQUIRE(fixture.view.form.has_value());
+    REQUIRE(fixture.view.form->fields.empty() == false);
+    const std::u8string field_name { field->accessibility().name };
+    CHECK_FALSE(field_name.empty());
+    CHECK(field_name.starts_with(fixture.view.form->fields[0].label));
     const luil::ui_element* const submit { built.tree->find(luil::ui_element_id { cyella::ui::kind_text_button, u8"branch-dialog-submit" }) };
     REQUIRE(submit != nullptr);
     CHECK_FALSE(submit->enabled());
@@ -224,4 +230,85 @@ TEST_CASE("every tree the dialogs add has unique ids and complete layout", "[pre
     const cyella::ui::built_tree narrow { fixture.build(700.0f) };
     CHECK(narrow.tree->duplicate_ids().empty());
     CHECK(narrow.tree->unarranged().empty());
+}
+TEST_CASE("the diff header shows a textconv badge only for converted files", "[presentation][ui][diff]")
+{
+    tree_fixture fixture {};
+    repository_session& session { *fixture.harness.sessions["repo-1"] };
+    const luil::ui_element_id badge { cyella::ui::kind_label, u8"diff-textconv-badge" };
+    const auto open_diff = [&](const std::string& textconv) {
+        fixture.harness.ui.tabs[fixture.tab].diff = diff_file_request { .path = "doc.docx", .view = diff_view::unstaged };
+        fixture.harness.ui.diff_surface.textconv_driver = textconv;
+        return fixture.build();
+    };
+    static_cast<void>(session);
+
+    cyella::ui::built_tree plain { open_diff("") };
+    REQUIRE(plain.tree != nullptr);
+    CHECK(plain.tree->find(badge) == nullptr);
+
+    cyella::ui::built_tree converted { open_diff("word") };
+    REQUIRE(converted.tree != nullptr);
+    const luil::ui_element* const found { converted.tree->find(badge) };
+    REQUIRE(found != nullptr);
+    CHECK(found->bounds().width > 0.0f);
+    CHECK(converted.tree->duplicate_ids().empty());
+    CHECK(converted.tree->unarranged().empty());
+}
+TEST_CASE("an open selector becomes a popup with a filter field and menu items under the toolbar box", "[presentation][ui][selector]")
+{
+    tree_fixture fixture {};
+    const cyella::ui::built_tree closed { fixture.build() };
+    REQUIRE(closed.tree != nullptr);
+    CHECK(closed.popups.empty());
+    // 상자는 눌리고 UIA에는 combo box로 보인다.
+    const luil::ui_element* const box { closed.tree->find(luil::ui_element_id { cyella::ui::kind_selector, u8"branch-selector" }) };
+    REQUIRE(box != nullptr);
+    CHECK(box->action(luil::ui_trigger::left_click) != nullptr);
+    CHECK(box->accessibility().role == luil::access_role::combo_box);
+    CHECK(box->accessibility().expanded == std::optional<bool> { false });
+
+    fixture.harness.ui.selector = selector_state { .kind = selector_kind::branch, .x = 330.0f, .y = 90.0f, .width = 200.0f, .filter = {} };
+    const cyella::ui::built_tree open { fixture.build() };
+    REQUIRE(open.popups.size() == 1);
+    const cyella::ui::built_popup& popup { open.popups.front() };
+    CHECK(popup.id == u8"selector");
+    CHECK(popup.selector);
+    CHECK(popup.x == 330.0f);
+    CHECK(popup.y > 90.0f);
+    CHECK(popup.width >= 280.0f);
+    REQUIRE(popup.tree != nullptr);
+    CHECK(popup.tree->duplicate_ids().empty());
+    CHECK(popup.tree->unarranged().empty());
+    const luil::ui_element* const filter { popup.tree->find(luil::ui_element_id { cyella::ui::kind_selector_filter_input, u8"selector-filter" }) };
+    REQUIRE(filter != nullptr);
+    CHECK(filter->bounds().height > 0.0f);
+    const luil::ui_element* const item { popup.tree->find(luil::ui_element_id { luil::ui_element_kind::menu_item, u8"branch:feature/graph" }) };
+    REQUIRE(item != nullptr);
+    CHECK(item->action(luil::ui_trigger::left_click) != nullptr);
+    // 현재 브랜치 항목은 눌리지 않는다.
+    const luil::ui_element* const current { popup.tree->find(luil::ui_element_id { luil::ui_element_kind::menu_item, u8"branch:main" }) };
+    REQUIRE(current != nullptr);
+    CHECK_FALSE(current->enabled());
+    // 열린 상자는 펼침으로 알린다.
+    const luil::ui_element* const opened_box { open.tree->find(luil::ui_element_id { cyella::ui::kind_selector, u8"branch-selector" }) };
+    REQUIRE(opened_box != nullptr);
+    CHECK(opened_box->accessibility().expanded == std::optional<bool> { true });
+}
+
+TEST_CASE("the repository selector list ends with the folder picker that runs a UI thread command", "[presentation][ui][selector]")
+{
+    tree_fixture fixture {};
+    fixture.harness.ui.selector = selector_state { .kind = selector_kind::repository, .x = 20.0f, .y = 90.0f, .width = 150.0f, .filter = {} };
+    const cyella::ui::built_tree open { fixture.build() };
+    REQUIRE(open.popups.size() == 1);
+    REQUIRE(open.popups.front().tree != nullptr);
+    const luil::ui_element* const folder { open.popups.front().tree->find(luil::ui_element_id { luil::ui_element_kind::menu_item, u8"open_folder" }) };
+    REQUIRE(folder != nullptr);
+    CHECK(folder->enabled());
+    const luil::ui_action* const click { folder->action(luil::ui_trigger::left_click) };
+    REQUIRE(click != nullptr);
+    const std::vector<luil::input_action> actions { (*click)(luil::ui_action_context {}) };
+    REQUIRE(actions.size() == 1);
+    CHECK(std::holds_alternative<luil::app_ui_command>(actions.front()));
 }

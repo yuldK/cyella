@@ -194,6 +194,14 @@ namespace cyella {
         {
             session->expect_file_diff(id);
         }
+        else if (kind == operation_kind::refresh_status)
+        {
+            // 첫 snapshot 전이거나 전체 refresh가 도는 중이면 그 refresh가 모든 것을 읽는다. 겹쳐 내지 않는다.
+            if (session->loaded() == false || session->requested_generation() != session->displayed_generation())
+                return 0;
+            record.generation = session->displayed_generation();
+            session->expect_status(id);
+        }
         if (answers_pending_input(operation))
             session->set_awaiting_input(std::nullopt);
 
@@ -429,9 +437,10 @@ namespace cyella {
         if (record.status.finished())
             return;
         repository_session* const session { find_session(event.repository_id) };
+        std::string escalate_to_refresh {};
 
         std::visit(
-            [this, &record, session, &event](const auto& payload) {
+            [this, &record, session, &event, &escalate_to_refresh](const auto& payload) {
                 using payload_type = std::decay_t<decltype(payload)>;
                 if constexpr (std::is_same_v<payload_type, operation_started>)
                 {
@@ -470,6 +479,12 @@ namespace cyella {
                     if (session != nullptr)
                         session->apply(event.id, payload);
                 }
+                else if constexpr (std::is_same_v<payload_type, status_loaded>)
+                {
+                    // WIP 행이 생기거나 사라지는 변경, 브랜치가 바뀐 변경은 그래프를 다시 짜야 한다. 전체 refresh 하나로 넘긴다.
+                    if (session != nullptr && session->apply(event.id, payload) == status_apply_result::needs_refresh)
+                        escalate_to_refresh = event.repository_id;
+                }
                 else if constexpr (std::is_same_v<payload_type, operation_finished>)
                 {
                     finish(record, payload);
@@ -482,6 +497,25 @@ namespace cyella {
             },
             event.payload);
         ++revision_;
+        // visit 밖에서 낸다. visit 안에서 operations_에 더하면 `record` 참조가 무효가 될 수 있다.
+        if (escalate_to_refresh.empty() == false)
+            static_cast<void>(submit(escalate_to_refresh, refresh_request {}, true));
+    }
+
+    repository_activity git_workspace::activity_of(const std::string& repository_id) const
+    {
+        repository_activity activity {};
+        for (const operation_id id : order_)
+        {
+            const operation_status* const status { find_operation(id) };
+            if (status == nullptr || status->repository_id != repository_id || status->finished())
+                continue;
+            if (status->kind == operation_kind::refresh || status->kind == operation_kind::refresh_status)
+                activity.refresh_pending = true;
+            else if (operation_lane_of(status->kind) == operation_lane::write)
+                activity.write_pending = true;
+        }
+        return activity;
     }
 
     void git_workspace::finish(operation_record& record, const operation_finished& finished)

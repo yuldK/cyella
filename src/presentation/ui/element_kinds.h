@@ -50,4 +50,6 @@ namespace cyella::ui {
     // 인터랙티브 rebase 편집기의 메시지 칸(제목 한 줄, 본문 여러 줄)이다. 다른 칸과 겹치지 않게 200부터 쓴다.
     inline constexpr luil::ui_element_kind kind_rebase_subject_input { luil::application_element_kind(200) };
     inline constexpr luil::ui_element_kind kind_rebase_body_input { luil::application_element_kind(201) };
+    // 툴바 저장소·브랜치 선택 상자 popup의 거르기 칸이다. 다른 칸과 겹치지 않게 110부터 쓴다.
+    inline constexpr luil::ui_element_kind kind_selector_filter_input { luil::application_element_kind(110) };
 } // namespace cyella::ui

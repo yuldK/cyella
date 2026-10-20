@@ -45,6 +45,7 @@ cyella_add_source_filter(cyella_test_files "application"
     process_runner_tests.cpp
     process_support_tests.cpp
     repository_change_classifier_tests.cpp
+    watch_refresh_policy_tests.cpp
     repository_tabs_tests.cpp
     task_scheduler_tests.cpp)
 
@@ -67,6 +68,7 @@ cyella_add_source_filter(cyella_test_files "presentation"
     dialog_controller_tests.cpp
     dialog_ui_tests.cpp
     menu_model_tests.cpp
+    selector_model_tests.cpp
     shell_layout_tests.cpp
     start_page_view_tests.cpp
     ui_tree_perf_tests.cpp
@@ -95,6 +97,7 @@ cyella_add_source_filter(cyella_test_files "application/diff_view"
 
 cyella_add_source_filter(cyella_test_files "domain"
     patch_builder_tests.cpp
+    path_syntax_tests.cpp
     ref_name_tests.cpp
     repository_summary_tests.cpp)
 
@@ -145,7 +148,8 @@ cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"
     git_integration_tests.cpp
     patch_builder_git_tests.cpp
     git_test_support.cpp
-    git_test_support.h)
+    git_test_support.h
+    temp_directory_tests.cpp)
 
 add_executable(cyella_tests ${cyella_test_files})
 # test가 도우미를 먼저 빌드하게 하고, 경로는 생성 시점의 target 파일로 받는다.

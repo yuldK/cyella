@@ -2,6 +2,7 @@
 
 #include "application/app_messages.h"
 #include "presentation/dialog_intents.h"
+#include "presentation/selector_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/element_kinds.h"
@@ -150,21 +151,28 @@ namespace cyella::ui {
 
         // ---------------------------------------------------------------- 툴바
 
-        // 저장소·브랜치 선택 상자 자리다. 고르는 목록은 아직 없고 지금은 값만 보인다.
+        // 저장소·브랜치 선택 상자다. 누르면 그 상자 바로 아래에 거르는 칸이 있는 목록이 펼쳐진다 (`open_selector_intent`).
         class selector_element final : public luil::ui_element
         {
         public:
-            selector_element(std::u8string owner, const char32_t glyph, std::u8string caption, std::u8string value, std::u8string tail)
+            selector_element(std::u8string owner, const selector_kind kind, const char32_t glyph, std::u8string caption, std::u8string value, std::u8string tail, const bool open)
                 : ui_element { luil::ui_element_id { kind_selector, std::move(owner) } }
                 , glyph_ { glyph }
                 , caption_ { std::move(caption) }
                 , value_ { std::move(value) }
                 , tail_ { std::move(tail) }
+                , open_ { open }
             {
-                set_tooltip(caption_ + u8": " + value_ + u8" (고르는 목록은 아직 없습니다)");
+                set_tooltip(caption_ + u8": " + value_ + u8" (눌러서 고르기)");
                 set_cursor(luil::ui_cursor::hand);
-                set_action(luil::ui_trigger::left_click,
-                    action_of(message(show_notice_intent { .text = caption_ + u8" 선택 목록(입력으로 거르기·새로 만들기)은 아직 없습니다. 사이드바에서 더블클릭하세요.", .warning = false })));
+                // 목록의 자리는 이 상자의 왼쪽 아래다. 배치가 끝난 뒤의 자리를 눌렀을 때 읽는다 (물리 픽셀).
+                const auto open_list = [this, kind](const luil::ui_action_context&) -> std::vector<luil::input_action> {
+                    const luil::rect_f box { bounds() };
+                    return { message(open_selector_intent { kind, box.x, box.y + box.height - 5.0f, box.width }) };
+                };
+                set_action(luil::ui_trigger::left_click, open_list);
+                // 보조 기술(UIA Invoke)도 같은 길로 목록을 연다.
+                set_access_handler([open_list](const luil::access_request&) -> std::optional<std::vector<luil::input_action>> { return open_list(luil::ui_action_context {}); });
             }
 
             void arrange(const luil::arrange_context& context) override
@@ -174,7 +182,7 @@ namespace cyella::ui {
 
             [[nodiscard]] luil::access_info accessibility() const override
             {
-                return { .role = luil::access_role::combo_box, .name = caption_ + u8" " + value_ };
+                return { .role = luil::access_role::combo_box, .name = caption_ + u8" " + value_, .expanded = open_ };
             }
 
             void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override
@@ -208,6 +216,7 @@ namespace cyella::ui {
             std::u8string caption_ {};
             std::u8string value_ {};
             std::u8string tail_ {};
+            bool open_ { false };
         };
 
         // 툴바 묶음 사이의 세로 구분선이다.
@@ -239,13 +248,17 @@ namespace cyella::ui {
             auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"toolbar" },
                 luil::stack_config { .direction = luil::stack_direction::row, .spacing = 2.0f, .padding = luil::edge_insets { 8.0f, 0.0f, 8.0f, 0.0f } });
             if (toolbar.show_repository_selector)
-                row->add(std::make_unique<selector_element>(u8"repository-selector", codicons::icon_repo, u8"저장소", toolbar.repository_name, std::u8string {}), 150.0f);
+                row->add(std::make_unique<selector_element>(u8"repository-selector", selector_kind::repository, codicons::icon_repo, u8"저장소", toolbar.repository_name, std::u8string {},
+                             view.selector.has_value() && view.selector->kind == selector_kind::repository),
+                    150.0f);
             std::u8string tail {};
             if (toolbar.ahead > 0)
                 tail += u8"↑" + number_text(toolbar.ahead);
             if (toolbar.behind > 0)
                 tail += (tail.empty() ? u8"" : u8" ") + std::u8string { u8"↓" } + number_text(toolbar.behind);
-            row->add(std::make_unique<selector_element>(u8"branch-selector", codicons::icon_git_branch, u8"브랜치", toolbar.branch_text, std::move(tail)), 200.0f);
+            row->add(std::make_unique<selector_element>(u8"branch-selector", selector_kind::branch, codicons::icon_git_branch, u8"브랜치", toolbar.branch_text, std::move(tail),
+                         view.selector.has_value() && view.selector->kind == selector_kind::branch),
+                200.0f);
             row->add(std::make_unique<separator_element>(u8"toolbar-separator-1"), 13.0f);
 
             const float width { toolbar.show_labels ? tool_button_width : tool_button_compact_width };
@@ -573,6 +586,8 @@ namespace cyella::ui {
         built_tree built {};
         if (view.menu.has_value())
             built.popups.push_back(build_menu_popup(*view.menu, scale));
+        if (view.selector.has_value())
+            built.popups.push_back(build_selector_popup(*view.selector, scale));
         built.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(root), { 0.0f, 0.0f, view.width, view.height }, scale));
         if (sources.graph != nullptr)
         {

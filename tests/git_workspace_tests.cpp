@@ -344,3 +344,160 @@ TEST_CASE("the same path opens the same repository", "[workspace]")
     CHECK(test.workspace.open_repository(u8"c:\\WORK\\repo\\") == test.repository);
     CHECK(test.workspace.repository_ids().size() == 1);
 }
+
+namespace {
+    // 첫 refresh(HEAD `head`, 변경 `first_files`)를 반영해 읽힌 세션을 만든다. 이어지는 status 응답은 `when_once`로 쌓는다.
+    void load_with_changes(workspace_harness& test, const std::string& head, const std::vector<std::string>& first_files)
+    {
+        std::string output { test::status_header(head, "main", "origin/main") };
+        for (const std::string& path : first_files)
+            output += test::status_modified(path);
+        test.process.when_once({ "status" }, scripted_response { 0, output });
+        test.process.when({ "log", "--topo-order" }, scripted_response { 0, test::log_record(head, {}) });
+        REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+        test.settle();
+        REQUIRE(test.session().loaded());
+    }
+
+    std::size_t count_of(const workspace_harness& test, const operation_kind kind)
+    {
+        std::size_t count { 0 };
+        for (const operation_id id : test.workspace.operation_order())
+            if (test.status(id).kind == kind)
+                ++count;
+        return count;
+    }
+} // namespace
+
+TEST_CASE("refresh_status updates the working tree without reading the log or rebuilding the graph", "[workspace][status]")
+{
+    workspace_harness test {};
+    const std::string head { test::sha_of(1) };
+    load_with_changes(test, head, { "a.txt" });
+    const std::uint64_t generation { test.session().displayed_generation() };
+    const std::size_t rows { test.session().graph_rows().size() };
+    const text_list names_before { test.process.command_names() };
+    const std::size_t log_calls_before { static_cast<std::size_t>(std::count(names_before.begin(), names_before.end(), "log")) };
+
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") + test::status_modified("a.txt") + test::status_modified("b.txt") });
+    const operation_id id { test.workspace.submit(test.repository, refresh_status_request {}, true) };
+    REQUIRE(id != 0);
+    CHECK(test.dispatcher.peek(0).interactive);
+    test.settle();
+
+    CHECK(test.status(id).state == operation_state::succeeded);
+    CHECK(test.session().snapshot().summary.changed_file_count == 2);
+    CHECK(test.session().snapshot().unstaged.size() == 2);
+    // 그래프·generation은 그대로이고 log도 읽지 않았다.
+    CHECK(test.session().displayed_generation() == generation);
+    CHECK(test.session().requested_generation() == generation);
+    CHECK(test.session().graph_rows().size() == rows);
+    const text_list names { test.process.command_names() };
+    CHECK(static_cast<std::size_t>(std::count(names.begin(), names.end(), "log")) == log_calls_before);
+    CHECK(count_of(test, operation_kind::refresh) == 1);
+    CHECK(static_cast<std::size_t>(std::count(names.begin(), names.end(), "for-each-ref")) == 1);
+}
+
+TEST_CASE("refresh_status asks for a full refresh when the WIP row would appear or vanish", "[workspace][status]")
+{
+    workspace_harness test {};
+    const std::string head { test::sha_of(1) };
+    load_with_changes(test, head, {});
+    REQUIRE_FALSE(test.session().has_wip_row());
+
+    // 깨끗하던 작업 트리에 파일이 생겼다. WIP 행을 끼워야 하니 전체 refresh가 이어진다.
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") + test::status_modified("new.txt") });
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") + test::status_modified("new.txt") });
+    REQUIRE(test.workspace.submit(test.repository, refresh_status_request {}, true) != 0);
+    test.settle();
+
+    CHECK(count_of(test, operation_kind::refresh_status) == 1);
+    CHECK(count_of(test, operation_kind::refresh) == 2);
+    CHECK(test.session().has_wip_row());
+    CHECK(test.session().snapshot().summary.changed_file_count == 1);
+
+    // 변경이 모두 사라졌을 때도 같다.
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") });
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") });
+    REQUIRE(test.workspace.submit(test.repository, refresh_status_request {}, true) != 0);
+    test.settle();
+    CHECK(count_of(test, operation_kind::refresh) == 3);
+    CHECK_FALSE(test.session().has_wip_row());
+}
+
+TEST_CASE("refresh_status asks for a full refresh when HEAD moved", "[workspace][status]")
+{
+    workspace_harness test {};
+    load_with_changes(test, test::sha_of(1), { "a.txt" });
+
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(test::sha_of(2), "main", "origin/main") + test::status_modified("a.txt") });
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(test::sha_of(2), "main", "origin/main") + test::status_modified("a.txt") });
+    REQUIRE(test.workspace.submit(test.repository, refresh_status_request {}, true) != 0);
+    test.settle();
+
+    CHECK(count_of(test, operation_kind::refresh) == 2);
+    CHECK(test.session().snapshot().summary.head_sha == test::sha_of(2));
+}
+
+TEST_CASE("refresh_status is not started before the first snapshot or while a full refresh runs", "[workspace][status]")
+{
+    workspace_harness test {};
+    test.script_history(2, false);
+    // 아직 읽지 않았다.
+    CHECK(test.workspace.submit(test.repository, refresh_status_request {}, true) == 0);
+
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    test.settle();
+    REQUIRE(test.session().loaded());
+    CHECK(test.workspace.submit(test.repository, refresh_status_request {}, true) != 0);
+    test.settle();
+
+    // 전체 refresh를 내 둔 채 status를 내려 하면 그 refresh가 모든 것을 읽으므로 내지 않는다.
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    CHECK(test.workspace.submit(test.repository, refresh_status_request {}, true) == 0);
+}
+
+TEST_CASE("a status result that arrives after a newer full refresh is discarded", "[workspace][status]")
+{
+    workspace_harness test {};
+    const std::string head { test::sha_of(1) };
+    load_with_changes(test, head, { "a.txt" });
+
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") + test::status_modified("a.txt") + test::status_modified("stale.txt") });
+    const operation_id status_id { test.workspace.submit(test.repository, refresh_status_request {}, true) };
+    REQUIRE(status_id != 0);
+    // status job을 실행해 결과를 쥐고 있다가, 그 사이 전체 refresh가 나간 뒤에 반영한다.
+    REQUIRE(test.dispatcher.run());
+    const std::vector<operation_event> late { test.events.take() };
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") + test::status_modified("a.txt") });
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    for (const operation_event& event : late)
+        test.workspace.apply(event);
+    test.settle();
+
+    CHECK(test.session().snapshot().summary.changed_file_count == 1);
+    CHECK(test.session().snapshot().unstaged.size() == 1);
+}
+
+TEST_CASE("activity_of reports unfinished writes and refreshes of that repository only", "[workspace][status]")
+{
+    workspace_harness test {};
+    test.script_history(2, false);
+    CHECK_FALSE(test.workspace.activity_of(test.repository).write_pending);
+    CHECK_FALSE(test.workspace.activity_of(test.repository).refresh_pending);
+
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    CHECK(test.workspace.activity_of(test.repository).refresh_pending);
+    CHECK_FALSE(test.workspace.activity_of(test.repository).write_pending);
+    test.settle();
+    CHECK_FALSE(test.workspace.activity_of(test.repository).refresh_pending);
+
+    REQUIRE(test.workspace.submit(test.repository, stage_files_request { { "a.txt" } }) != 0);
+    CHECK(test.workspace.activity_of(test.repository).write_pending);
+    CHECK_FALSE(test.workspace.activity_of("some-other-repository").write_pending);
+    // 읽기(상세·diff)는 쓰기도 새로 고침도 아니다.
+    test.settle();
+    REQUIRE(test.workspace.submit(test.repository, show_commit_request { test::sha_of(2) }) != 0);
+    CHECK_FALSE(test.workspace.activity_of(test.repository).write_pending);
+    CHECK_FALSE(test.workspace.activity_of(test.repository).refresh_pending);
+}

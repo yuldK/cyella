@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -15,4 +16,9 @@ namespace cyella {
     // 구분자를 뗀다. Windows 경로는 대소문자를 구분하지 않으므로 탭 중복 판정과 실행 중 git
     // 수 세기가 같은 규칙을 써야 한다. 심볼릭 링크는 풀지 않는다.
     [[nodiscard]] std::u8string normalize_path_key(std::u8string_view path);
+
+    // 저장소 루트(`root`, 절대 경로)와 git이 준 상대 경로(`/` 구분, UTF-8)를 합친 절대 경로다. 구분자는 `\`로 바뀐다.
+    // 상대 경로가 비었거나 절대 경로·`..`·`.` 구성 요소·NUL·빈 구성 요소를 가졌거나 `.git` 안을 가리키면 값이 없다.
+    // 휴지통처럼 되돌리기 어려운 동작이 저장소 밖을 건드리지 못하게 하는 어휘 검사이며 filesystem을 조회하지 않는다.
+    [[nodiscard]] std::optional<std::u8string> resolve_workspace_child(std::u8string_view root, std::string_view relative_path);
 } // namespace cyella

@@ -14,6 +14,16 @@
 #include <vector>
 
 namespace cyella {
+    // `status_loaded`를 세션에 반영한 결과다.
+    enum class status_apply_result
+    {
+        // 늦게 왔거나 세션이 아직 읽히지 않아 버렸다.
+        ignored,
+        applied,
+        // 브랜치·HEAD가 바뀌었거나 WIP 행이 생기거나 사라져야 한다. 그래프 레이아웃은 온라인 배치라 고칠 수 없으므로 전체 refresh가 필요하다.
+        needs_refresh,
+    };
+
     // 탭 하나(저장소 하나)의 상태다. logic thread 하나가 소유하고, worker는 사건으로만 바꾼다.
     // frame은 이 값을 읽어 만든다. 그래프 레이아웃도 여기 있어 한 스레드에서만 `append`된다.
     //
@@ -131,6 +141,7 @@ namespace cyella {
         void begin_log_page() noexcept;
         void expect_commit_detail(operation_id id) noexcept;
         void expect_file_diff(operation_id id) noexcept;
+        void expect_status(operation_id id) noexcept;
         void set_awaiting_input(std::optional<operation_id> id) noexcept;
 
         // 받아들였으면 true다. 늦게 온 결과면 false이고 상태는 그대로다.
@@ -139,6 +150,8 @@ namespace cyella {
         bool apply(const remote_tags_loaded& event);
         bool apply(operation_id id, const commit_detail_loaded& event);
         bool apply(operation_id id, const file_diff_loaded& event);
+        // 작업 트리 변경만 새 값으로 바꾼다. 그래프 행은 건드리지 않는다. 가장 최근에 낸 `refresh_status`의 결과만 받는다.
+        status_apply_result apply(operation_id id, const status_loaded& event);
         bool apply(const ancestry_answered& event);
         bool apply(const commit_count_answered& event);
         // 이 generation의 log 쪽이 실패로 끝났다. 더 기다리지 않는다.
@@ -167,6 +180,8 @@ namespace cyella {
         // 마지막으로 요청한 상세·diff의 operation이다. 그보다 앞선 요청의 결과는 버린다.
         operation_id expected_detail_ { 0 };
         operation_id expected_diff_ { 0 };
+        // 마지막으로 낸 `refresh_status`다. 전체 refresh를 내면 0으로 돌려 앞선 status의 결과를 버린다.
+        operation_id expected_status_ { 0 };
         std::map<std::pair<std::string, std::string>, bool> ancestry_ {};
         std::map<std::pair<std::string, std::string>, std::uint32_t> commit_counts_ {};
         std::optional<operation_id> awaiting_input_ {};

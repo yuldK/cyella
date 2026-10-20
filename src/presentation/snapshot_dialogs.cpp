@@ -136,6 +136,8 @@ namespace cyella {
                 return build_add_worktree_form(*ui.dialog, context);
             case dialog_kind::lfs_track:
                 return build_lfs_track_form(*ui.dialog, context);
+            case dialog_kind::set_upstream:
+                return build_set_upstream_form(*ui.dialog, context);
             case dialog_kind::none:
                 break;
             }
@@ -208,6 +210,33 @@ namespace cyella {
             return std::nullopt;
         view.title = std::move(model.title);
         view.entries = std::move(model.entries);
+        return view;
+    }
+
+    std::optional<selector_view> build_selector_view(
+        const ui_state& ui, const repository_tabs& tabs, const app_settings& settings, const repository_exists_function& exists, const repository_session* session, const float scale)
+    {
+        if (ui.selector.has_value() == false)
+            return std::nullopt;
+        const selector_state& state { *ui.selector };
+        selector_view view {};
+        view.kind = state.kind;
+        view.x = state.x / scale;
+        view.y = state.y / scale;
+        view.width = state.width / scale;
+        view.filter = luil::make_text_input_view(state.filter, ui.composition, to_luil_target(text_target::selector_filter));
+        const std::u8string query { view.filter.displayed_text() };
+        if (state.kind == selector_kind::repository)
+        {
+            view.placeholder = u8"저장소 이름이나 경로로 거르기";
+            const std::vector<repository_choice> choices { make_repository_choices(tabs, settings, exists, tabs.selected().id) };
+            view.entries = build_repository_selector(choices, query).entries;
+            return view;
+        }
+        if (session == nullptr)
+            return std::nullopt;
+        view.placeholder = u8"브랜치 이름으로 거르기";
+        view.entries = build_branch_selector(session->snapshot().refs, query, session->snapshot().summary.is_detached).entries;
         return view;
     }
 

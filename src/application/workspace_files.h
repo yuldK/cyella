@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -22,5 +23,11 @@ namespace cyella {
         [[nodiscard]] virtual bool append_text(std::u8string_view absolute_path, std::string_view text) noexcept = 0;
         // 파일 하나를 지운다. 없으면 false다.
         [[nodiscard]] virtual bool remove_file(std::u8string_view absolute_path) noexcept = 0;
+        // 파일들을 휴지통으로 보낸다(되돌릴 수 있다). 하나라도 실패하거나 지원하지 않으면 false다. 기본은 지원하지 않는다.
+        [[nodiscard]] virtual bool move_to_recycle_bin(std::span<const std::u8string> absolute_paths) noexcept
+        {
+            static_cast<void>(absolute_paths);
+            return false;
+        }
     };
 } // namespace cyella

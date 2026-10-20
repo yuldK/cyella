@@ -276,10 +276,38 @@ namespace cyella::test {
             return files_.erase(normalize_path_key(absolute_path)) != 0;
         }
 
+        [[nodiscard]] bool move_to_recycle_bin(const std::span<const std::u8string> absolute_paths) noexcept override
+        {
+            const std::lock_guard<std::mutex> lock { mutex_ };
+            if (recycling_refused_)
+                return false;
+            for (const std::u8string& path : absolute_paths)
+            {
+                recycled_.push_back(path);
+                files_.erase(normalize_path_key(path));
+            }
+            return true;
+        }
+
+        // 휴지통으로 보낸 경로다 (받은 그대로, 순서대로).
+        [[nodiscard]] std::vector<std::u8string> recycled() const
+        {
+            const std::lock_guard<std::mutex> lock { mutex_ };
+            return recycled_;
+        }
+
+        void refuse_recycling()
+        {
+            const std::lock_guard<std::mutex> lock { mutex_ };
+            recycling_refused_ = true;
+        }
+
     private:
         mutable std::mutex mutex_ {};
         std::map<std::u8string, std::string> files_ {};
         std::vector<std::u8string> directories_ {};
+        std::vector<std::u8string> recycled_ {};
+        bool recycling_refused_ { false };
     };
 
     // worker 사건을 모았다가 test 스레드에서 한꺼번에 넘긴다. relay와 같은 역할이다.

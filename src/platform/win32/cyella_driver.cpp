@@ -8,18 +8,22 @@
 #include "platform/win32/win32_diff_tool_launcher.h"
 #include "platform/win32/win32_file_probe.h"
 #include "platform/win32/win32_process_runner.h"
+#include "platform/win32/win32_repository_watcher.h"
 #include "platform/win32/win32_settings_file_system.h"
 #include "platform/win32/win32_ssh_environment.h"
 #include "platform/win32/win32_webview_support.h"
 #include "platform/win32/win32_workspace_files.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/diff_view_intents.h"
+#include "presentation/selector_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/diff_webview_theme.h"
 #include "presentation/ui_intents.h"
 
+#include <algorithm>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <utility>
@@ -136,6 +140,9 @@ namespace cyella::win32 {
         dependencies.send_backend_intent = [this](const luil::app_message& message) { static_cast<void>(handle_backend_intent(message)); };
         controller_ = std::make_unique<shell_controller>(std::move(dependencies));
         controller_->start(options_.initial_repository);
+        watch_factory_ = options_.watcher_factory;
+        // 시작할 때 복원된 탭에도 감시를 켠다.
+        sync_watchers();
         // 인증 도우미를 쓸 수 없으면 인증이 필요한 작업은 즉시 실패한다. 이유를 한 번 안내로 띄운다.
         if (const std::optional<diagnostic>& problem { askpass_.startup_diagnostic() }; problem.has_value() && git_tool_.usable())
             static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = problem->message, .warning = true } }));
@@ -218,6 +225,138 @@ namespace cyella::win32 {
             if (std::optional<std::u8string> text { controller_->take_clipboard_text() }; text.has_value())
                 relay_.copy_to_clipboard(std::move(*text));
         }
+        // 탭이 열리고 닫혔을 수 있다. 감시를 열린 저장소에 맞춘다.
+        sync_watchers();
+    }
+
+    // ------------------------------------------------------------------ 파일 감시와 창 초점
+
+    void cyella_driver::sync_watchers()
+    {
+        if (workspace_ == nullptr || options_.disable_file_watching)
+            return;
+        const std::vector<std::string> ids { workspace_->repository_ids() };
+        const auto is_open = [&ids](const std::string& id) { return std::ranges::find(ids, id) != ids.end(); };
+        for (auto watcher { watchers_.begin() }; watcher != watchers_.end();)
+        {
+            if (is_open(watcher->first))
+            {
+                ++watcher;
+                continue;
+            }
+            // 탭을 닫았다. 감시를 멈추면 돌아온 뒤에는 콜백이 불리지 않는다.
+            watcher->second->stop();
+            refresh_policy_.forget(watcher->first);
+            watcher = watchers_.erase(watcher);
+        }
+        std::erase_if(unwatched_, [&is_open](const std::string& id) { return is_open(id) == false; });
+        for (const std::string& id : ids)
+            if (watchers_.contains(id) == false && unwatched_.contains(id) == false)
+                start_watcher(id);
+    }
+
+    void cyella_driver::start_watcher(const std::string& repository_id)
+    {
+        const repository_session* const session { std::as_const(*workspace_).find_session(repository_id) };
+        if (session == nullptr)
+            return;
+        if (watch_factory_ == nullptr)
+            watch_factory_ = std::shared_ptr<repository_watcher_factory> { make_repository_watcher_factory() };
+        // 없는 폴더는 감시할 수 없지만 그 탭은 이미 "열 수 없음"으로 보이므로 따로 알리지 않는다.
+        if (probe_ != nullptr && probe_->probe(session->path()) != path_kind::directory)
+        {
+            unwatched_.insert(repository_id);
+            refresh_policy_.mark_watch_lost(repository_id);
+            return;
+        }
+        // 감시 스레드가 부른다. 상태를 건드리지 않고 relay로 logic thread에 넘기기만 한다.
+        repository_change_callback callback
+            = [relay = &relay_, repository_id](const repository_change_kind kind) { relay->post(luil::app_message { repository_changed_intent { repository_id, kind } }); };
+        repository_watch_start_result started { watch_factory_->start(session->path(), std::move(callback), {}) };
+        if (started.watcher == nullptr)
+        {
+            give_up_watching(repository_id, false);
+            return;
+        }
+        refresh_policy_.mark_watch_started(repository_id);
+        watchers_[repository_id] = std::move(started.watcher);
+    }
+
+    void cyella_driver::give_up_watching(const std::string& repository_id, const bool lost)
+    {
+        if (const auto found { watchers_.find(repository_id) }; found != watchers_.end())
+        {
+            found->second->stop();
+            watchers_.erase(found);
+        }
+        unwatched_.insert(repository_id);
+        refresh_policy_.mark_watch_lost(repository_id);
+        if (controller_ == nullptr || workspace_ == nullptr)
+            return;
+        const repository_session* const session { std::as_const(*workspace_).find_session(repository_id) };
+        std::u8string name { session != nullptr ? session->path() : std::u8string {} };
+        while (name.empty() == false && (name.back() == u8'\\' || name.back() == u8'/'))
+            name.pop_back();
+        if (const std::size_t separator { name.find_last_of(u8"\\/") }; separator != std::u8string::npos)
+            name.erase(0, separator + 1);
+        std::u8string text { u8"'" + name + u8"' 폴더 " };
+        text += lost ? u8"감시가 끊겨 자동 갱신을 멈췄습니다." : u8"감시를 시작하지 못해 자동 갱신을 쓸 수 없습니다.";
+        text += u8" 창을 다시 누를 때 새로 읽습니다.";
+        static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = std::move(text), .warning = true } }));
+    }
+
+    void cyella_driver::on_repository_changed(const repository_changed_intent& changed)
+    {
+        // 닫았거나 감시를 접은 저장소에 늦게 도착한 알림이다.
+        if (workspace_ == nullptr || watchers_.contains(changed.repository_id) == false)
+            return;
+        if (changed.kind == repository_change_kind::watch_lost)
+        {
+            give_up_watching(changed.repository_id, true);
+            // 끊기기 전후에 놓친 변경이 있을 수 있다. 지금 전체를 한 번 읽는다.
+            const repository_activity activity { workspace_->activity_of(changed.repository_id) };
+            const std::optional<refresh_scope> scope { refresh_policy_.on_change(changed.repository_id, refresh_scope::full, activity, std::chrono::steady_clock::now()) };
+            if (scope.has_value())
+                run_refresh(changed.repository_id, *scope);
+            return;
+        }
+        const refresh_scope wanted { changed.kind == repository_change_kind::repository_state_changed ? refresh_scope::full : refresh_scope::status };
+        if (const std::optional<refresh_scope> scope { refresh_policy_.on_change(changed.repository_id, wanted, workspace_->activity_of(changed.repository_id), std::chrono::steady_clock::now()) };
+            scope.has_value())
+            run_refresh(changed.repository_id, *scope);
+    }
+
+    void cyella_driver::on_window_focus()
+    {
+        if (workspace_ == nullptr || controller_ == nullptr)
+            return;
+        const std::string repository_id { controller_->selected_repository_id() };
+        if (repository_id.empty() || std::as_const(*workspace_).find_session(repository_id) == nullptr)
+            return;
+        if (const std::optional<refresh_scope> scope { refresh_policy_.on_focus(repository_id, workspace_->activity_of(repository_id), std::chrono::steady_clock::now()) }; scope.has_value())
+            run_refresh(repository_id, *scope);
+    }
+
+    void cyella_driver::run_refresh(const std::string& repository_id, const refresh_scope scope)
+    {
+        if (workspace_ == nullptr)
+            return;
+        // 자동으로 낸다: 작업 로그에 (자동)으로 남고, 인증 질문이 오면 조용히 취소한다.
+        if (scope == refresh_scope::full)
+            static_cast<void>(workspace_->submit(repository_id, refresh_request {}, true));
+        else
+            static_cast<void>(workspace_->submit(repository_id, refresh_status_request {}, true));
+    }
+
+    void cyella_driver::flush_pending_refreshes()
+    {
+        if (workspace_ == nullptr || finished_repositories_.empty())
+            return;
+        const std::set<std::string> finished { std::move(finished_repositories_) };
+        finished_repositories_.clear();
+        for (const std::string& repository_id : finished)
+            if (const std::optional<refresh_scope> scope { refresh_policy_.on_activity(repository_id, workspace_->activity_of(repository_id)) }; scope.has_value())
+                run_refresh(repository_id, *scope);
     }
 
     void cyella_driver::drain_relay()
@@ -229,9 +368,18 @@ namespace cyella::win32 {
                     workspace_->apply(*event);
                 if (std::holds_alternative<file_diff_loaded>(event->payload))
                     ++diff_serials_[event->repository_id];
-                if (const auto* const finished { std::get_if<operation_finished>(&event->payload) }; finished != nullptr && diff_ != nullptr)
-                    diff_->on_operation_finished(event->id, *finished);
+                if (const auto* const finished { std::get_if<operation_finished>(&event->payload) }; finished != nullptr)
+                {
+                    if (diff_ != nullptr)
+                        diff_->on_operation_finished(event->id, *finished);
+                    if (event->repository_id.empty() == false)
+                        finished_repositories_.insert(event->repository_id);
+                }
             }
+            else if (const auto* const changed { drained.get<repository_changed_intent>() }; changed != nullptr)
+                on_repository_changed(*changed);
+            else if (drained.get<window_focus_intent>() != nullptr)
+                on_window_focus();
             else if (const auto* const sides { drained.get<diff_sides_ready_intent>() }; sides != nullptr && diff_ != nullptr)
                 diff_->sides_prepared(*sides);
             else if (const auto* const external { drained.get<external_open_done_intent>() }; external != nullptr && diff_ != nullptr)
@@ -239,6 +387,8 @@ namespace cyella::win32 {
             else if (drained.get<ssh_info_loaded_intent>() != nullptr && controller_ != nullptr)
                 static_cast<void>(controller_->handle(drained));
         });
+        // 끝난 operation 뒤에 보류해 둔 새로 고침을 낸다. 한 묶음을 다 반영한 뒤라야 쓰기가 아직 줄 서 있는지 정확히 안다.
+        flush_pending_refreshes();
     }
 
     bool cyella_driver::handle_diff_view_intent(const luil::app_message& message)
@@ -394,12 +544,19 @@ namespace cyella::win32 {
                 diff_theme_ = ui::make_diff_theme(luil::color_palette_for(theme));
             }
             diff_->controller().set_theme(diff_theme_);
+            // 환경 설정의 기본 보기가 바뀌면 열려 있는 diff도 그 보기로 바꾼다. diff 머리의 전환 단추는 그 diff 하나만 바꾼다.
+            if (const diff_layout_preference preference { controller_->settings().diff.layout }; applied_diff_layout_.has_value() == false || *applied_diff_layout_ != preference)
+            {
+                applied_diff_layout_ = preference;
+                diff_->controller().set_layout(preference == diff_layout_preference::split ? diff_layout::split : diff_layout::inline_view);
+            }
             static_cast<void>(diff_->controller().poll());
             diff_surface_state surface {};
             surface.layout = diff_->controller().state().layout;
             surface.image_mode = diff_->controller().state().image_mode;
             surface.content = diff_->controller().content();
             surface.truncated = diff_->controller().truncated();
+            surface.textconv_driver = diff_->controller().textconv_driver();
             surface.webview_available = webview_usable();
             controller_->set_diff_surface(surface);
         }
@@ -418,7 +575,15 @@ namespace cyella::win32 {
             shown.height = popup.height;
             shown.tree = std::move(popup.tree);
             // 바깥을 누르거나 Esc·휠·창 이동이면 닫는다. 닫는 것은 상태(`ui_state::menu`)이고 popup은 다음 frame에 빠진다.
-            shown.dismiss = [](const luil::win32::popup_dismiss_reason) { return luil::make_app_action(close_menu_intent {}); };
+            if (popup.selector)
+                // 거르는 칸이 있는 목록이다. 폴더 대화 상자를 열거나 다른 창을 보느라 창 활성이 바뀌어도 남는다 (luil의 검색 popup 규약).
+                shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
+                    if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
+                        return luil::input_action {};
+                    return luil::make_app_action(close_selector_intent {});
+                };
+            else
+                shown.dismiss = [](const luil::win32::popup_dismiss_reason) { return luil::make_app_action(close_menu_intent {}); };
             frame->popups.push_back(std::move(shown));
         }
         frame->appearance.theme = to_luil_theme(view.theme);
@@ -473,6 +638,10 @@ namespace cyella::win32 {
     void cyella_driver::stop_workers()
     {
         host_.store(nullptr);
+        // 감시 스레드를 먼저 멈춘다. 돌아온 뒤에는 콜백이 relay를 부르지 않는다.
+        for (auto& [id, watcher] : watchers_)
+            watcher->stop();
+        watchers_.clear();
         // 서버를 먼저 닫아 대기 질문을 취소로 답한다. 그래야 프롬프트에서 멈춘 git과 도우미가 풀려
         // scheduler가 worker를 join할 때 매달리지 않는다.
         askpass_.shutdown();

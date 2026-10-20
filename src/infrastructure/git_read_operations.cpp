@@ -234,6 +234,35 @@ namespace cyella {
             return stream_log(context, 0, has_head);
         }
 
+        // 작업 트리 변경만 다시 읽는다. refresh의 status·줄 수 부분이고, 그래프·ref·stash·원격은 읽지 않는다.
+        operation_outcome refresh_status(git_operation_context& context)
+        {
+            git_command_outcome outcome {};
+            std::optional<operation_outcome> stop {};
+            git_command_spec status_spec {};
+            status_spec.arguments = make_git_status_args();
+            if (context.run_required(std::move(status_spec), outcome, stop) == false)
+                return *stop;
+            git_status_result status { parse_git_status(outcome.standard_output) };
+
+            for (const diff_source source : { diff_source::unstaged, diff_source::staged })
+            {
+                git_command_spec numstat {};
+                numstat.arguments = make_git_diff_numstat_args(source);
+                const git_command_outcome counted { context.run(std::move(numstat)) };
+                if (counted.accepted)
+                    apply_numstat(source == diff_source::staged ? std::span<file_change> { status.staged } : std::span<file_change> { status.unstaged }, parse_git_numstat(counted.standard_output));
+            }
+
+            status_loaded loaded {};
+            apply_git_status(loaded.summary, status);
+            loaded.staged = std::move(status.staged);
+            loaded.unstaged = std::move(status.unstaged);
+            loaded.conflicts = std::move(status.conflicts);
+            context.emit(std::move(loaded));
+            return operation_outcome::succeeded();
+        }
+
         operation_outcome show_commit(git_operation_context& context, const show_commit_request& request)
         {
             git_command_outcome outcome {};
@@ -268,6 +297,29 @@ namespace cyella {
             return operation_outcome::succeeded();
         }
 
+        // `.gitattributes`가 이 파일에 textconv가 있는 diff 드라이버를 지정했으면 그 이름이다. 알아내지 못하면(git 실패 등) 빈 값이다.
+        // 배지를 위한 부가 정보라 실패해도 diff를 막지 않는다.
+        std::string detect_textconv_driver(git_operation_context& context, const std::string& path)
+        {
+            git_command_spec attribute {};
+            attribute.arguments = make_git_check_attr_diff_args(path);
+            const git_command_outcome attributed { context.run(std::move(attribute)) };
+            if (attributed.accepted == false)
+                return {};
+            const std::optional<std::string> driver { parse_git_diff_driver(attributed.standard_output) };
+            if (driver.has_value() == false || driver->find_first_of("\r\n") != std::string::npos)
+                return {};
+
+            git_command_spec config {};
+            config.arguments = make_git_config_get_args("diff." + *driver + ".textconv");
+            // 값이 없으면 종료 코드 1이다.
+            config.accepted_exit_codes = { 0, 1 };
+            const git_command_outcome configured { context.run(std::move(config)) };
+            if (configured.accepted == false || configured.exit_code() != 0 || parse_git_config_value(configured.standard_output).has_value() == false)
+                return {};
+            return *driver;
+        }
+
         operation_outcome load_file_diff(git_operation_context& context, const diff_file_request& request)
         {
             git_command_spec spec {};
@@ -281,17 +333,17 @@ namespace cyella {
                     return *stop;
                 const std::vector<commit_info> commits { parse_git_log(info.standard_output, true) };
                 const bool is_merge { commits.empty() == false && commits.front().parents.size() > 1 };
-                spec.arguments = make_git_show_file_args(request.sha, request.path, is_merge);
+                spec.arguments = make_git_show_file_args(request.sha, request.path, is_merge, request.context_lines);
             }
             else if (request.untracked)
             {
-                spec.arguments = make_git_diff_untracked_args(request.path);
+                spec.arguments = make_git_diff_untracked_args(request.path, request.context_lines);
                 // 차이가 있으면 1이다.
                 spec.accepted_exit_codes = { 0, 1 };
             }
             else
             {
-                spec.arguments = make_git_diff_args(request.path, request.view == diff_view::staged ? diff_source::staged : diff_source::unstaged);
+                spec.arguments = make_git_diff_args(request.path, request.view == diff_view::staged ? diff_source::staged : diff_source::unstaged, request.context_lines);
             }
 
             git_command_outcome outcome {};
@@ -302,6 +354,9 @@ namespace cyella {
             diff.request = request;
             diff.files = parse_git_diff(outcome.standard_output);
             annotate_lfs_diff(context, request, diff.files);
+            // 추적하지 않는 파일은 `--no-index`라 속성을 따르지 않는다.
+            if (request.untracked == false)
+                diff.textconv_driver = detect_textconv_driver(context, request.path);
             context.emit(file_diff_loaded { std::move(diff) });
             return operation_outcome::succeeded();
         }
@@ -343,6 +398,8 @@ namespace cyella {
                 using request_type = std::decay_t<decltype(request)>;
                 if constexpr (std::is_same_v<request_type, refresh_request>)
                     return refresh(context);
+                else if constexpr (std::is_same_v<request_type, refresh_status_request>)
+                    return refresh_status(context);
                 else if constexpr (std::is_same_v<request_type, load_more_log_request>)
                     return stream_log(context, job.log_skip, job.log_include_head);
                 else if constexpr (std::is_same_v<request_type, show_commit_request>)

@@ -146,6 +146,14 @@ namespace cyella {
             return "load_rebase_plan";
         case operation_kind::interactive_rebase:
             return "interactive_rebase";
+        case operation_kind::refresh_status:
+            return "refresh_status";
+        case operation_kind::set_upstream:
+            return "set_upstream";
+        case operation_kind::unset_upstream:
+            return "unset_upstream";
+        case operation_kind::trash_files:
+            return "trash_files";
         }
         return "unknown";
     }

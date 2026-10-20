@@ -1,5 +1,6 @@
 #include "infrastructure/git_operation_context.h"
 
+#include "domain/path_syntax.h"
 #include "infrastructure/git_interactive_rebase.h"
 #include "infrastructure/git_query_parser.h"
 
@@ -192,6 +193,30 @@ namespace cyella {
             options.keep_message = request.amend && request.message.empty();
             const std::string message { options.keep_message ? std::string {} : with_trailing_newline(request.message) };
             return run_single(context, make_git_commit_args(options), git_command_class::local_write, request.amend ? u8"직전 커밋을 고쳤습니다." : u8"커밋했습니다.", message);
+        }
+
+        // 추적하지 않는 파일을 휴지통으로 보낸다. git을 실행하지 않는 파일 연산이다.
+        operation_outcome trash_files(git_operation_context& context, const trash_files_request& request)
+        {
+            if (request.paths.empty())
+                return operation_outcome::failed(failure_kind::invalid_request, u8"휴지통으로 보낼 파일이 없습니다.");
+            std::vector<std::u8string> targets {};
+            targets.reserve(request.paths.size());
+            for (const std::string& path : request.paths)
+            {
+                const std::optional<std::u8string> absolute { resolve_workspace_child(context.job().repository_path, path) };
+                if (absolute.has_value() == false)
+                    return operation_outcome::failed(failure_kind::invalid_request, u8"저장소 안의 파일 경로가 아닙니다: " + to_utf8(path));
+                targets.push_back(*absolute);
+            }
+            // 이미 없는 파일은 보낼 것이 없다. 일부만 없을 때는 남은 것만 보낸다.
+            workspace_files& files { context.owner().files() };
+            std::erase_if(targets, [&files](const std::u8string& path) { return files.probe(path) == path_kind::missing; });
+            if (targets.empty())
+                return operation_outcome::succeeded(u8"이미 없는 파일입니다.");
+            if (files.move_to_recycle_bin(targets) == false)
+                return operation_outcome::failed(failure_kind::other, u8"휴지통으로 보내지 못했습니다.");
+            return operation_outcome::succeeded(u8"휴지통으로 보냈습니다.");
         }
 
         operation_outcome ignore_path(git_operation_context& context, const ignore_path_request& request)
@@ -441,6 +466,8 @@ namespace cyella {
                 }
                 else if constexpr (std::is_same_v<request_type, ignore_path_request>)
                     return ignore_path(context, request);
+                else if constexpr (std::is_same_v<request_type, trash_files_request>)
+                    return trash_files(context, request);
                 else if constexpr (std::is_same_v<request_type, commit_request>)
                     return commit(context, request);
                 else if constexpr (std::is_same_v<request_type, apply_patch_request>)
@@ -449,6 +476,7 @@ namespace cyella {
                     options.cached = request.cached;
                     options.reverse = request.reverse;
                     options.recount = request.recount;
+                    options.unidiff_zero = request.unidiff_zero;
                     return run_single(context, make_git_apply_args(options), write, u8"patch를 적용했습니다.", request.patch);
                 }
                 else if constexpr (std::is_same_v<request_type, checkout_branch_request>)
@@ -467,6 +495,11 @@ namespace cyella {
                     return run_single(context, make_git_branch_rename_args(request.old_name, request.new_name), write, u8"브랜치 이름을 바꿨습니다.");
                 else if constexpr (std::is_same_v<request_type, delete_branch_request>)
                     return run_single(context, make_git_branch_delete_args(request.name, request.force), write, name_of(request.name) + u8" 브랜치를 지웠습니다.");
+                else if constexpr (std::is_same_v<request_type, set_upstream_request>)
+                    return run_single(context, make_git_branch_set_upstream_args(request.branch, request.remote, request.remote_branch), write,
+                        name_of(request.branch) + u8"의 upstream을 " + name_of(request.remote) + u8"/" + name_of(request.remote_branch) + u8"로 정했습니다.");
+                else if constexpr (std::is_same_v<request_type, unset_upstream_request>)
+                    return run_single(context, make_git_branch_unset_upstream_args(request.branch), write, name_of(request.branch) + u8"의 upstream을 해제했습니다.");
                 else if constexpr (std::is_same_v<request_type, fetch_request>)
                 {
                     git_fetch_options options {};

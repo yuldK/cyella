@@ -118,6 +118,7 @@ namespace cyella {
             const bool is_current { target.name == context.current_branch && context.detached == false };
             // 다른 worktree가 쓰는 브랜치는 git이 체크아웃을 거절한다. 미리 끄고 그 worktree를 열게 한다.
             const ref* const branch_ref { find_ref(context.refs, ref_kind::local, target.name) };
+            const bool has_upstream { branch_ref != nullptr && branch_ref->upstream.empty() == false };
             const bool elsewhere { branch_ref != nullptr && branch_ref->worktree_path.empty() == false };
             if (elsewhere)
                 add_group(model.entries,
@@ -136,6 +137,7 @@ namespace cyella {
                 {
                     make_entry(u8"push", u8"Push…", icons::icon_repo_push),
                     make_entry(u8"set_upstream", u8"upstream 설정…", icons::icon_cloud),
+                    make_entry(u8"unset_upstream", has_upstream ? u8"upstream 해제" : u8"upstream 해제 (upstream이 없습니다)", icons::icon_cloud, has_upstream),
                     make_entry(u8"rename", u8"이름 바꾸기…", icons::icon_edit),
                 });
             add_group(model.entries, { make_entry(u8"delete", is_current ? u8"삭제 (현재 브랜치는 삭제할 수 없습니다)" : u8"삭제…", icons::icon_trash, is_current == false, true) });
@@ -225,7 +227,7 @@ namespace cyella {
                 add_group(model.entries, { make_entry(u8"stage", u8"Stage", icons::icon_add) });
                 add_group(model.entries,
                     {
-                        make_entry(u8"discard", target.untracked ? u8"변경 버리기 (추적하지 않는 파일은 버릴 수 없습니다)" : u8"변경 버리기…", icons::icon_discard, target.untracked == false, true),
+                        make_entry(u8"discard", target.untracked ? u8"휴지통으로 보내기…" : u8"변경 버리기…", target.untracked ? icons::icon_trash : icons::icon_discard, true, true),
                         make_entry(u8"ignore", u8"무시 목록(.gitignore)에 추가", icons::icon_circle_slash),
                     });
             }

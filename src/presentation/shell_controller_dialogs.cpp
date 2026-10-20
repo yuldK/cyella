@@ -308,7 +308,9 @@ namespace cyella {
         }
         if (message.get<close_menu_intent>() != nullptr)
         {
+            // 메뉴 항목 탐색의 Esc는 선택 상자 목록에서도 같은 메시지로 온다.
             ui_.menu.reset();
+            ui_.selector.reset();
             return true;
         }
         if (const auto* const intent { message.get<menu_select_intent>() }; intent != nullptr)
@@ -366,6 +368,18 @@ namespace cyella {
         {
             if (intent->paths.empty())
                 return true;
+            if (intent->untracked)
+            {
+                dialog_state trash {};
+                trash.title = intent->paths.size() == 1 ? u8"파일을 휴지통으로 보낼까요?" : u8"파일 " + to_u8(std::to_string(intent->paths.size())) + u8"개를 휴지통으로 보낼까요?";
+                trash.lines.push_back(u8"추적하지 않는 파일이라 git으로는 되돌릴 수 없습니다. 아래 파일을 휴지통으로 보냅니다. 휴지통에서 되돌릴 수 있습니다.");
+                list_paths(intent->paths, trash.lines);
+                trash.confirm_label = u8"휴지통으로 보내기";
+                trash.danger = true;
+                trash.plan.primary.push_back(trash_files_request { intent->paths });
+                open_confirm(std::move(trash));
+                return true;
+            }
             dialog_state dialog {};
             dialog.title = intent->paths.size() == 1 ? u8"변경을 버릴까요?" : u8"변경 " + to_u8(std::to_string(intent->paths.size())) + u8"개를 버릴까요?";
             dialog.lines.push_back(u8"아래 파일의 작업 트리 변경이 사라집니다. 되돌릴 수 없습니다.");
@@ -487,6 +501,53 @@ namespace cyella {
         ui_.menu.reset();
     }
 
+    void shell_controller::open_set_upstream_dialog(const std::string& branch)
+    {
+        repository_session* const session { selected_session() };
+        if (session == nullptr)
+            return;
+        const repository_snapshot& snapshot { session->snapshot() };
+        if (snapshot.summary.remotes.empty())
+        {
+            show_notice(u8"원격이 없어 upstream을 설정할 수 없습니다. 먼저 원격을 추가하세요.", true);
+            return;
+        }
+        dialog_state dialog {};
+        dialog.kind = dialog_kind::set_upstream;
+        dialog.serial = ++ui_.dialog_serial;
+        dialog.subject = branch;
+        for (const remote_info& remote : snapshot.summary.remotes)
+            dialog.choices.push_back(remote.name);
+        // 이미 upstream이 있으면 그 원격·브랜치에서 시작하고, 없으면 같은 이름의 원격 브랜치를 가진 첫 원격을 고른다.
+        const ref* const value { find_ref(snapshot, ref_kind::local, branch) };
+        std::string remote_branch { branch };
+        std::string remote {};
+        if (value != nullptr && value->upstream.empty() == false)
+        {
+            if (const std::size_t slash { value->upstream.find('/') }; slash != std::string::npos)
+            {
+                remote = value->upstream.substr(0, slash);
+                remote_branch = value->upstream.substr(slash + 1);
+            }
+        }
+        else
+        {
+            for (const std::string& candidate : dialog.choices)
+                if (find_ref(snapshot, ref_kind::remote, candidate + "/" + branch) != nullptr)
+                {
+                    remote = candidate;
+                    break;
+                }
+        }
+        const auto found { std::find(dialog.choices.begin(), dialog.choices.end(), remote) };
+        dialog.choice = found == dialog.choices.end() ? 0 : static_cast<std::size_t>(found - dialog.choices.begin());
+        clear_form_inputs();
+        set_form_field(0, to_u8(remote_branch));
+        ui_.form.identity = dialog_identity(dialog);
+        ui_.dialog = std::move(dialog);
+        ui_.menu.reset();
+    }
+
     void shell_controller::open_rename_dialog(const std::string& branch)
     {
         dialog_state dialog {};
@@ -553,6 +614,7 @@ namespace cyella {
     {
         if (target.kind == menu_target_kind::commit && target.sha == graph_wip_sha)
             return;
+        ui_.selector.reset();
         ui_.menu = menu_state { .target = std::move(target), .x = x, .y = y, .asked_facts = false };
         if (ui_.menu->target.kind == menu_target_kind::drop)
             request_drop_facts();
@@ -754,7 +816,9 @@ namespace cyella {
             else if (key == u8"push")
                 open_push_dialog(target.name, false);
             else if (key == u8"set_upstream")
-                open_push_dialog(target.name, true);
+                open_set_upstream_dialog(target.name);
+            else if (key == u8"unset_upstream")
+                static_cast<void>(submit(unset_upstream_request { target.name }));
             else if (key == u8"rename")
                 open_rename_dialog(target.name);
             else if (key == u8"add_worktree")
@@ -859,7 +923,7 @@ namespace cyella {
             else if (key == u8"unstage")
                 static_cast<void>(submit(unstage_files_request { { target.name } }));
             else if (key == u8"discard")
-                handle_dialog_message(luil::app_message { discard_files_intent { { target.name } } });
+                handle_dialog_message(luil::app_message { discard_files_intent { { target.name }, target.untracked } });
             else if (key == u8"ignore")
                 static_cast<void>(submit(ignore_path_request { "/" + target.name }));
             else if (key == u8"copy_path")
@@ -960,6 +1024,7 @@ namespace cyella {
             case dialog_kind::rename_branch:
             case dialog_kind::add_worktree:
             case dialog_kind::lfs_track:
+            case dialog_kind::set_upstream:
             case dialog_kind::none:
                 return;
             }
@@ -980,7 +1045,7 @@ namespace cyella {
         }
         if (source.kind != form_source_kind::dialog || ui_.dialog.has_value() == false)
             return;
-        if (ui_.dialog->kind == dialog_kind::push && index < ui_.dialog->choices.size())
+        if ((ui_.dialog->kind == dialog_kind::push || ui_.dialog->kind == dialog_kind::set_upstream) && index < ui_.dialog->choices.size())
             ui_.dialog->choice = index;
         else if (ui_.dialog->kind == dialog_kind::create_tag && index < 2)
             ui_.dialog->choice = index;
@@ -1052,6 +1117,11 @@ namespace cyella {
             if (push_ready(dialog, ui_.form, snapshot) == false)
                 return;
             static_cast<void>(submit(make_push_request(dialog, ui_.form)));
+            break;
+        case dialog_kind::set_upstream:
+            if (set_upstream_ready(dialog, ui_.form, snapshot) == false)
+                return;
+            static_cast<void>(submit(make_set_upstream_request(dialog, ui_.form)));
             break;
         case dialog_kind::rename_branch:
             if (rename_branch_ready(dialog, ui_.form, snapshot) == false)

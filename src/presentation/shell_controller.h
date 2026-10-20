@@ -11,6 +11,7 @@
 #include "presentation/frame_feedback.h"
 #include "presentation/graph_index.h"
 #include "presentation/rebase/rebase_editor_controller.h"
+#include "presentation/selector_intents.h"
 #include "presentation/settings/settings_controller.h"
 #include "presentation/snapshot_dialogs.h"
 #include "presentation/ui_intents.h"
@@ -26,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace cyella {
@@ -162,6 +164,13 @@ namespace cyella {
         void process_chains();
         void cancel_automatic_prompts();
 
+        // ---- 툴바 저장소·브랜치 선택 상자 (shell_controller_selectors.cpp)
+        bool handle_selector_message(const luil::app_message& message);
+        void open_selector(const open_selector_intent& intent);
+        // `dismissed`가 참이면 바깥 누름 등으로 닫힌 것이다 (곧 이어지는 같은 상자의 뗌을 다시 열기로 읽지 않는다).
+        void close_selector(bool dismissed);
+        void select_from_selector(const std::u8string& key);
+
         void open_context_menu(menu_target target, float x, float y);
         void request_drop_facts();
         void handle_menu_select(const std::u8string& key);
@@ -175,6 +184,7 @@ namespace cyella {
         void open_create_tag_dialog(const std::string& sha);
         void open_push_dialog(const std::string& branch, bool set_upstream);
         void open_rename_dialog(const std::string& branch);
+        void open_set_upstream_dialog(const std::string& branch);
         void open_confirm(dialog_state dialog);
         void request_detached_checkout(const std::string& revision, std::u8string label);
         void request_rebase(const std::string& branch, const std::string& onto);
@@ -226,6 +236,15 @@ namespace cyella {
         // 끝나기를 기다리는 저장소 준비 작업이다. 끝나면 결과로 탭을 연다.
         std::map<operation_id, std::u8string> pending_inspections_ {};
         std::map<operation_id, std::u8string> pending_setup_ {};
+        // 없어진 최근 저장소의 새 위치를 확인하는 중인 경로 검사다. 옛 경로와 고른 폴더를 든다.
+        struct locate_request
+        {
+            std::u8string origin {};
+            std::u8string chosen {};
+        };
+        std::map<operation_id, locate_request> pending_locates_ {};
+        // 바깥 누름으로 마지막에 닫힌 선택 상자와 그 시각이다.
+        std::optional<std::pair<selector_kind, std::chrono::steady_clock::time_point>> selector_dismissed_ {};
         settings_controller settings_;
         rebase_editor_controller rebase_;
         // 판 폭을 설정에 쓸 시각이다. 폭을 끄는 동안 뒤로 밀리고, 값이 없으면 쓸 것이 없다.

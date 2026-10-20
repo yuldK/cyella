@@ -1,11 +1,14 @@
 #pragma once
 
 #include "application/repository_session.h"
+#include "application/repository_tabs.h"
+#include "domain/app_settings.h"
 #include "domain/operation_status.h"
 #include "presentation/drop_hints.h"
 #include "presentation/form_view.h"
 #include "presentation/graph_index.h"
 #include "presentation/menu_model.h"
+#include "presentation/selector_model.h"
 #include "presentation/ui_state.h"
 #include "presentation/view_snapshot.h"
 
@@ -56,6 +59,10 @@ namespace cyella {
     [[nodiscard]] menu_context build_menu_context(const repository_session& session, const menu_target& target, const graph_index* index);
 
     [[nodiscard]] std::optional<menu_view> build_menu_view(const ui_state& ui, const repository_session* session, const graph_index* index, float scale);
+
+    // 열린 선택 상자의 목록이다. 열려 있지 않거나, 브랜치 목록인데 저장소가 없으면 빈 값이다.
+    [[nodiscard]] std::optional<selector_view> build_selector_view(
+        const ui_state& ui, const repository_tabs& tabs, const app_settings& settings, const repository_exists_function& exists, const repository_session* session, float scale);
 
     // 충돌 해결 화면이다. 멈춘 작업이 없으면 빈 값이다.
     [[nodiscard]] std::optional<conflict_view> build_conflict_view(const repository_session& session, std::span<const operation_status* const> operations);

@@ -117,6 +117,14 @@ namespace cyella {
                 return operation_kind::load_rebase_plan;
             else if constexpr (std::is_same_v<request_type, interactive_rebase_request>)
                 return operation_kind::interactive_rebase;
+            else if constexpr (std::is_same_v<request_type, refresh_status_request>)
+                return operation_kind::refresh_status;
+            else if constexpr (std::is_same_v<request_type, set_upstream_request>)
+                return operation_kind::set_upstream;
+            else if constexpr (std::is_same_v<request_type, unset_upstream_request>)
+                return operation_kind::unset_upstream;
+            else if constexpr (std::is_same_v<request_type, trash_files_request>)
+                return operation_kind::trash_files;
             else
                 return operation_kind::refresh;
         }
@@ -147,6 +155,7 @@ namespace cyella {
         case operation_kind::is_ancestor:
         case operation_kind::count_commits:
         case operation_kind::refresh_remote_tags:
+        case operation_kind::refresh_status:
         case operation_kind::inspect_path:
         case operation_kind::load_rebase_plan:
             return operation_lane::read;

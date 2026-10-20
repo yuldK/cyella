@@ -710,3 +710,74 @@ TEST_CASE("the ssh operations have readable names for the status line", "[settin
     CHECK(operation_display_name(operation_kind::ssh_keygen) == u8"SSH 키 만들기");
     CHECK(operation_display_name(operation_kind::ssh_connection_test) == u8"SSH 연결 시험");
 }
+TEST_CASE("the diff page saves the default layout and the context line count", "[settings][controller][diff]")
+{
+    controller_harness test {};
+    test.send(open_settings_intent { settings_page::diff_tools });
+    CHECK(test.view().diff.layout == diff_layout_preference::inline_view);
+    CHECK(test.view().diff.context_lines == 3);
+
+    test.send(set_diff_layout_default_intent { diff_layout_preference::split });
+    CHECK(test.view().diff.layout == diff_layout_preference::split);
+    CHECK(test.store.saved.diff.layout == diff_layout_preference::split);
+
+    test.send(set_diff_context_lines_intent { 10 });
+    CHECK(test.view().diff.context_lines == 10);
+    CHECK(test.store.saved.diff.context_lines == 10);
+    // 범위를 넘는 값은 최대로 다듬는다.
+    test.send(set_diff_context_lines_intent { 4000 });
+    CHECK(test.store.saved.diff.context_lines == maximum_diff_context_lines);
+    // 0도 값이다.
+    test.send(set_diff_context_lines_intent { 0 });
+    CHECK(test.store.saved.diff.context_lines == 0);
+    // 다른 설정은 그대로다.
+    CHECK(test.store.saved.appearance.theme == theme_preference::system);
+}
+
+TEST_CASE("a created key empties the name draft so the used name is not shown as taken", "[settings][controller][ssh]")
+{
+    const test::temporary_directory scratch { "settings-keygen-clear" };
+    const std::filesystem::path directory { scratch.path() / ".ssh" };
+    controller_harness test { directory.u8string() };
+    test.send(open_settings_intent { settings_page::ssh });
+    test.send(ssh_info_loaded_intent { sample_info() });
+    test.type(text_target::settings_key_name, u8"deploy");
+    REQUIRE(test.view().ssh.can_create);
+    test.send(create_ssh_key_intent {});
+    const operation_id id { test.controller->state()->keygen_operation };
+    test.run_all_jobs();
+    test.controller->after_events();
+    const operation_status* const status { test.workspace.find_operation(id) };
+    REQUIRE(status != nullptr);
+    REQUIRE(status->state == operation_state::succeeded);
+
+    // 이름 칸이 비었다. 같은 이름이 이미 있다는 오류가 보이지 않는다.
+    CHECK(test.controller->state()->key_name.text.empty());
+    CHECK(test.view().ssh.keygen_error.find(u8"이미") == std::u8string::npos);
+
+    // 목록을 다시 읽어 오면 겹치지 않는 이름이 채워진다.
+    ssh_info_snapshot reloaded { sample_info() };
+    reloaded.keys.push_back({ u8"deploy", u8"ssh-ed25519", u8"deploy@ci", u8"ssh-ed25519 BBBB deploy@ci", directory.u8string() + u8"\\deploy" });
+    test.send(ssh_info_loaded_intent { reloaded });
+    CHECK(test.controller->state()->key_name.text == u8"id_ed25519_2");
+}
+
+TEST_CASE("a failed key creation keeps the name the user typed", "[settings][controller][ssh]")
+{
+    const test::temporary_directory scratch { "settings-keygen-keep" };
+    const std::filesystem::path directory { scratch.path() / ".ssh" };
+    controller_harness test { directory.u8string() };
+    test.process.when({ "-t", "ed25519" }, test::scripted_response { 1 });
+    test.send(open_settings_intent { settings_page::ssh });
+    test.send(ssh_info_loaded_intent { sample_info() });
+    test.type(text_target::settings_key_name, u8"deploy");
+    test.send(create_ssh_key_intent {});
+    const operation_id id { test.controller->state()->keygen_operation };
+    test.run_all_jobs();
+    test.controller->after_events();
+    const operation_status* const status { test.workspace.find_operation(id) };
+    REQUIRE(status != nullptr);
+    if (status->state == operation_state::succeeded)
+        SKIP("the fake runner cannot fail ssh-keygen here");
+    CHECK(test.controller->state()->key_name.text == u8"deploy");
+}

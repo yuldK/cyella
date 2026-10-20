@@ -93,6 +93,28 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
   `/`는 `\`로 본다. 한글은 UTF-8 바이트 비교로 찾는다(대소문자가 없고 UTF-8이 글자 경계에서 자기
   동기화되므로 글자 중간에 맞지 않는다). `exists`는 검색을 통과한 항목에만 부른다.
 
+## 파일 감시를 앱에 잇기
+
+감시기는 `cyella_driver`가 소유한다. 열린 저장소(workspace의 세션)마다 하나이고, driver가 메시지를 하나 처리할 때마다 열린 저장소와 맞춘다(탭을 열면 켜고 닫으면 `stop()`).
+콜백은 감시 스레드에서 불리므로 상태를 건드리지 않고 relay로 `repository_changed_intent`를 올린다. logic thread의 처리는 `application/watch_refresh_policy`(순수 규칙)가 정한다.
+
+| 알림 | 낼 것 |
+| --- | --- |
+| `working_tree_changed` | `refresh_status`(status·줄 수만) |
+| `repository_state_changed` | `refresh`(전체) |
+| `watch_lost` | 감시를 접고 안내 한 번, 전체 `refresh` 한 번. 이후 그 저장소는 창 초점에서 전체를 읽는다 |
+| 창 초점 복귀(다른 프로세스 → 이 프로세스) | 선택된 탭에 `refresh_status`(감시가 끊겼으면 `refresh`). 1초 디바운스 |
+
+- 쓰기가 돌거나 줄 서 있으면 건너뛴다. 새로 고침이 도는 중이면 저장소마다 보류 하나만 남기고 끝난 뒤 한 번 낸다.
+- `refresh_status`는 `status_loaded`로 세션의 요약·작업 영역 목록만 바꾼다. 브랜치·HEAD가 바뀌었거나 WIP 행이 생기거나 사라져야 하면 전체 `refresh`로 올린다.
+- 없는 폴더의 저장소는 감시하지 않는다(그 탭은 이미 열 수 없음으로 보인다). 감시를 시작하지 못하면 안내를 한 번 띄운다.
+- 그래서 앱 밖에서 파일을 고치면 WIP 행이 약 0.7초 안에 나타나고, 터미널의 `git commit`·`git branch`·`git branch --set-upstream-to`가 클릭 없이 화면에 따라온다.
+
+## 설정의 diff
+
+`diff` 객체: `layout`(`inline`·`split`, 기본 `inline`)과 `context_lines`(0~25의 정수, 기본 3). 틀린 필드만 기본값으로 두고 경고한다. 환경 설정의 "diff" 쪽에서 고른다
+(보기를 바꾸면 열려 있는 diff도 바로 바뀌고, 문맥 줄 수는 다음에 여는 diff부터 `git diff -U<n>`에 쓴다).
+
 ## 파일 감시 (`platform/win32/win32_repository_watcher`)
 
 전용 스레드 하나가 `ReadDirectoryChangesW`(겹치기 I/O, 재귀)를 기다리고, 디바운스한 뒤 콜백으로
@@ -106,9 +128,9 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
 | --- | --- |
 | `*.lock` (모든 규칙보다 먼저) | 무시 |
 | `objects/**`, `logs/**` | 무시 |
-| `HEAD`, `index`, `packed-refs`, `FETCH_HEAD`, `ORIG_HEAD`, `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD` | `repository_state_changed` |
+| `config`(upstream 설정), `HEAD`, `index`, `packed-refs`, `FETCH_HEAD`, `ORIG_HEAD`, `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD` | `repository_state_changed` |
 | `refs/**`, `rebase-merge/**`, `rebase-apply/**` | `repository_state_changed` |
-| 그 밖(`config`, `hooks`, `MERGE_MSG` 등) | 무시 |
+| 그 밖(`hooks`, `MERGE_MSG` 등) | 무시 |
 
   이름은 ASCII 대소문자를 구분하지 않는다. 중첩 저장소(`vendor/lib/.git/**`)의 내부는 무시한다.
 - `.git`이 파일(worktree, submodule)이면 `gitdir: <path>`를 읽어 그 gitdir을 따로 감시한다(상대 경로는 `.git`

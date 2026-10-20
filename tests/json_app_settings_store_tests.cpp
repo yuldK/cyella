@@ -635,3 +635,55 @@ TEST_CASE("invalid pane widths fall back to the default with a warning", "[json_
     CHECK(parse_app_settings_json(u8R"({"ui":{"pane_widths":5}})").diagnostics.size() == 1);
     CHECK(parse_app_settings_json(u8R"({"ui":null})").diagnostics.empty());
 }
+TEST_CASE("diff settings are written under diff and survive a round trip", "[json_app_settings][diff]")
+{
+    app_settings settings {};
+    settings.diff.layout = diff_layout_preference::split;
+    settings.diff.context_lines = 0;
+    const std::u8string bytes { serialize_app_settings_json(settings, u8"") };
+    const json document { json::parse(text_of(bytes)) };
+    CHECK(document.at("diff").at("layout") == "split");
+    CHECK(document.at("diff").at("context_lines") == 0);
+
+    const app_settings_load_result loaded { parse_app_settings_json(bytes) };
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings.diff == settings.diff);
+
+    // 기본값은 inline과 3줄이다.
+    const app_settings_load_result defaults { parse_app_settings_json(serialize_app_settings_json(app_settings {}, u8"")) };
+    CHECK(defaults.settings.diff.layout == diff_layout_preference::inline_view);
+    CHECK(defaults.settings.diff.context_lines == 3);
+}
+
+TEST_CASE("invalid diff settings fall back per field with one warning each and keep the valid field", "[json_app_settings][diff]")
+{
+    const app_settings_load_result bad_layout { parse_app_settings_json(u8R"({ "diff": { "layout": "sideways", "context_lines": 7 } })") };
+    CHECK(bad_layout.settings.diff.layout == diff_layout_preference::inline_view);
+    CHECK(bad_layout.settings.diff.context_lines == 7);
+    CHECK(bad_layout.diagnostics.size() == 1);
+
+    for (const char8_t* const source :
+        { u8R"({ "diff": { "context_lines": -1 } })", u8R"({ "diff": { "context_lines": 26 } })", u8R"({ "diff": { "context_lines": 2.5 } })", u8R"({ "diff": { "context_lines": "3" } })" })
+    {
+        const app_settings_load_result loaded { parse_app_settings_json(source) };
+        CHECK(loaded.settings.diff.context_lines == 3);
+        CHECK(loaded.diagnostics.size() == 1);
+    }
+
+    const app_settings_load_result not_object { parse_app_settings_json(u8R"({ "diff": [] })") };
+    CHECK(not_object.settings.diff == diff_settings {});
+    CHECK(not_object.diagnostics.size() == 1);
+
+    // 경계값 25는 받는다.
+    CHECK(parse_app_settings_json(u8R"({ "diff": { "context_lines": 25, "layout": "split" } })").settings.diff == diff_settings { diff_layout_preference::split, 25 });
+}
+
+TEST_CASE("unknown keys inside diff survive saving", "[json_app_settings][diff]")
+{
+    const std::u8string source { u8R"({ "diff": { "layout": "inline", "future_option": true } })" };
+    app_settings settings { parse_app_settings_json(source).settings };
+    settings.diff.layout = diff_layout_preference::split;
+    const json document { json::parse(text_of(serialize_app_settings_json(settings, source))) };
+    CHECK(document.at("diff").at("layout") == "split");
+    CHECK(document.at("diff").at("future_option") == true);
+}

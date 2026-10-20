@@ -5,6 +5,7 @@
 #include "application/repository_tabs.h"
 #include "domain/operation_status.h"
 #include "presentation/dialog_state.h"
+#include "presentation/selector_model.h"
 #include "presentation/shell_layout.h"
 
 #include "luil/text/text_edit.h"
@@ -45,6 +46,8 @@ namespace cyella {
         // 인터랙티브 rebase 편집기의 메시지 칸이다. 다른 칸과 겹치지 않게 200부터 쓴다. 본문은 여러 줄이다.
         rebase_message_subject = 200,
         rebase_message_body,
+        // 툴바 저장소·브랜치 선택 상자 popup의 거르기 칸이다.
+        selector_filter = 110,
     };
 
     // 사이드바 구역이다. 순서가 곧 화면 순서다.
@@ -134,8 +137,21 @@ namespace cyella {
         bool webview_available { false };
         // 줄 수 상한으로 잘린 diff다. 머리 막대가 알려 준다.
         bool truncated { false };
+        // 보는 파일에 textconv가 걸려 있다. 머리 막대가 "textconv" 배지를 보인다. 비면 걸려 있지 않다.
+        std::string textconv_driver {};
 
         [[nodiscard]] bool operator==(const diff_surface_state&) const noexcept = default;
+    };
+
+    // 툴바 선택 상자가 펼친 목록이다. 한 번에 하나만 열린다. 좌표는 창 좌표의 물리 픽셀이다.
+    struct selector_state
+    {
+        selector_kind kind { selector_kind::repository };
+        float x { 0.0f };
+        float y { 0.0f };
+        float width { 0.0f };
+        // 거르는 글이다. 열 때마다 비운다.
+        luil::text::text_edit_state filter {};
     };
 
     struct ui_state
@@ -167,6 +183,8 @@ namespace cyella {
         // 열린 우클릭 메뉴다.
         std::optional<menu_state> menu {};
         dialog_memory memory {};
+        // 열린 저장소·브랜치 선택 상자 목록이다.
+        std::optional<selector_state> selector {};
     };
 
     [[nodiscard]] inline luil::text_input_target to_luil_target(const text_target target) noexcept
@@ -180,6 +198,7 @@ namespace cyella {
         const bool basic { value >= static_cast<std::uint32_t>(text_target::start_search) && value <= static_cast<std::uint32_t>(text_target::settings_test_host) };
         const bool form { value >= static_cast<std::uint32_t>(text_target::form_field_0) && value <= static_cast<std::uint32_t>(text_target::form_field_2) };
         const bool rebase { value >= static_cast<std::uint32_t>(text_target::rebase_message_subject) && value <= static_cast<std::uint32_t>(text_target::rebase_message_body) };
-        return basic || form || rebase ? static_cast<text_target>(value) : text_target::none;
+        const bool selector { value == static_cast<std::uint32_t>(text_target::selector_filter) };
+        return basic || form || rebase || selector ? static_cast<text_target>(value) : text_target::none;
     }
 } // namespace cyella

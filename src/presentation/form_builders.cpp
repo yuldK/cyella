@@ -316,6 +316,60 @@ namespace cyella {
         return form;
     }
 
+    // ---------------------------------------------------------------- upstream 설정
+
+    set_upstream_request make_set_upstream_request(const dialog_state& dialog, const form_inputs& inputs)
+    {
+        set_upstream_request request {};
+        request.branch = dialog.subject;
+        if (dialog.choice < dialog.choices.size())
+            request.remote = dialog.choices[dialog.choice];
+        const std::string remote_branch { field_text(inputs, 0) };
+        request.remote_branch = remote_branch.empty() ? dialog.subject : remote_branch;
+        return request;
+    }
+
+    std::optional<std::u8string> set_upstream_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot)
+    {
+        if (dialog.choices.empty())
+            return u8"원격이 없습니다. 먼저 원격을 추가하세요.";
+        const set_upstream_request request { make_set_upstream_request(dialog, inputs) };
+        if (const std::optional<ref_name_problem> problem { find_ref_name_problem(request.remote_branch) }; problem.has_value())
+            return problem_text(*problem);
+        const std::string tracking { request.remote + "/" + request.remote_branch };
+        for (const ref& value : snapshot.refs)
+            if (value.kind == ref_kind::remote && value.name == tracking)
+                return std::nullopt;
+        return u8"'" + to_u8(tracking) + u8"' 원격 브랜치를 아직 가져오지 못했습니다. 먼저 Fetch 하거나 Push로 만드세요.";
+    }
+
+    bool set_upstream_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot)
+    {
+        return dialog.subject.empty() == false && set_upstream_error(dialog, inputs, snapshot).has_value() == false;
+    }
+
+    form_view build_set_upstream_form(const dialog_state& dialog, const form_build_context& context)
+    {
+        const repository_snapshot& snapshot { *context.snapshot };
+        form_view form {};
+        form.id = u8"set-upstream-dialog";
+        form.title = u8"upstream 설정";
+        form.notes.push_back({ .text = u8"브랜치: " + to_u8(dialog.subject) });
+        form.choices_label = u8"원격";
+        for (const std::string& remote : dialog.choices)
+            form.choices.push_back({ .label = to_u8(remote) });
+        form.chosen = dialog.choice;
+        form.fields.push_back(make_field(context, 0, u8"원격 브랜치 이름", to_u8(dialog.subject), false, true));
+        if (const auto error { set_upstream_error(dialog, *context.inputs, snapshot) }; error.has_value())
+            form.error = *error;
+        const set_upstream_request request { make_set_upstream_request(dialog, *context.inputs) };
+        form.preview = to_u8("git branch --set-upstream-to=" + (request.remote.empty() ? std::string { "<원격>" } : request.remote) + "/" + request.remote_branch + " " + request.branch);
+        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
+        form.buttons.push_back(make_button(u8"submit", u8"upstream 설정", form_tone::accent, set_upstream_ready(dialog, *context.inputs, snapshot), true));
+        form.dismiss_key = u8"cancel";
+        return form;
+    }
+
     // ---------------------------------------------------------------- 확인
 
     form_view build_confirm_form(const dialog_state& dialog, const form_build_context&)

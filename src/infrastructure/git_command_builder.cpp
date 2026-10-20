@@ -214,6 +214,22 @@ namespace cyella {
         return arguments;
     }
 
+    git_arguments make_git_check_attr_diff_args(const std::string_view path)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "check-attr", "-z", "diff", "--", require_path(path) });
+        return arguments;
+    }
+
+    git_arguments make_git_config_get_args(const std::string_view key)
+    {
+        if (key.empty() || key.front() == '-' || key.find('\0') != std::string_view::npos || key.find('\n') != std::string_view::npos)
+            reject("config key", "key is empty or looks like an option");
+        git_arguments arguments {};
+        push_all(arguments, { "config", "--get", key });
+        return arguments;
+    }
+
     git_arguments make_git_diff_numstat_args(const diff_source source)
     {
         git_arguments arguments {};
@@ -284,6 +300,26 @@ namespace cyella {
     {
         git_arguments arguments {};
         push_all(arguments, { "branch", force ? "-D" : "-d", "--", require_revision(name, "branch") });
+        return arguments;
+    }
+
+    git_arguments make_git_branch_set_upstream_args(const std::string_view branch, const std::string_view remote, const std::string_view remote_branch)
+    {
+        // 원격 이름과 브랜치 이름은 ref 이름 규칙을 지켜야 한다. `--set-upstream-to=` 뒤에 붙으므로 맨 앞 `-`는 옵션이 되지 않지만 이름 규칙으로 함께 거른다.
+        const std::string_view checked_remote { require_new_ref_name(remote, "remote") };
+        const std::string_view checked_remote_branch { require_new_ref_name(remote_branch, "remote branch") };
+        std::string upstream { "--set-upstream-to=" };
+        upstream.append(checked_remote).push_back('/');
+        upstream.append(checked_remote_branch);
+        git_arguments arguments {};
+        push_all(arguments, { "branch", upstream, "--", require_revision(branch, "branch") });
+        return arguments;
+    }
+
+    git_arguments make_git_branch_unset_upstream_args(const std::string_view branch)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "branch", "--unset-upstream", "--", require_revision(branch, "branch") });
         return arguments;
     }
 

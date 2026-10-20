@@ -31,13 +31,13 @@ namespace cyella {
     // 변경 하나를 분류한다. `relative_path`는 뿌리에 대한 상대 경로이고 구분자는 `\`와 `/`
     // 모두 받는다. 순수 함수다.
     //
-    // git 디렉터리 안의 규칙은 아래와 같다. 목록에 없는 항목(`config`, `hooks`, `MERGE_MSG`
+    // git 디렉터리 안의 규칙은 아래와 같다. 목록에 없는 항목(`hooks`, `MERGE_MSG`
     // 등)은 소비자가 다시 읽을 이유가 없어 무시한다.
     //
     // - 마지막 구성 요소가 `.lock`으로 끝나면 무시한다. git은 `index.lock`에 쓰고 `index`로
     //   바꾸므로 실제 변경은 이름이 바뀐 `index` 이벤트로 온다. 잠금은 다른 규칙보다 먼저 본다.
     // - `objects/**`, `logs/**`는 무시한다. fetch·gc·commit마다 파일이 대량으로 생긴다.
-    // - `HEAD`, `index`, `packed-refs`, `FETCH_HEAD`, `ORIG_HEAD`, `MERGE_HEAD`,
+    // - `config`, `HEAD`, `index`, `packed-refs`, `FETCH_HEAD`, `ORIG_HEAD`, `MERGE_HEAD`,
     //   `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `refs/**`, `rebase-merge/**`, `rebase-apply/**`는
     //   `repository_state`다.
     //

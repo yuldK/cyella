@@ -103,6 +103,36 @@ namespace cyella {
         trim_unpinned(repositories);
     }
 
+    bool relocate_recent_repository(app_settings& settings, const std::u8string_view old_path, std::u8string new_path)
+    {
+        const std::u8string old_key { repository_path_key(old_path) };
+        const std::u8string normalized { normalize_repository_path(new_path) };
+        if (normalized.empty())
+            return false;
+        const std::u8string new_key { repository_path_key(normalized) };
+        const bool listed { std::ranges::any_of(settings.recent_repositories, [&old_key](const recent_repository& value) { return repository_path_key(value.path) == old_key; }) };
+        if (listed == false)
+            return false;
+
+        std::vector<recent_repository> result {};
+        result.reserve(settings.recent_repositories.size());
+        for (recent_repository& value : settings.recent_repositories)
+        {
+            const std::u8string key { repository_path_key(value.path) };
+            if (key == old_key)
+            {
+                value.path = normalized;
+                value.display_name = repository_display_name(normalized);
+                result.push_back(std::move(value));
+            }
+            // 새 경로를 이미 가진 다른 항목은 지운다. 같은 저장소가 둘이 되면 안 된다.
+            else if (key != new_key)
+                result.push_back(std::move(value));
+        }
+        settings.recent_repositories = std::move(result);
+        return true;
+    }
+
     std::u8string_view theme_preference_name(const theme_preference theme) noexcept
     {
         switch (theme)
@@ -125,6 +155,20 @@ namespace cyella {
             return theme_preference::light;
         if (name == u8"dark")
             return theme_preference::dark;
+        return std::nullopt;
+    }
+
+    std::u8string_view diff_layout_preference_name(const diff_layout_preference layout) noexcept
+    {
+        return layout == diff_layout_preference::split ? u8"split" : u8"inline";
+    }
+
+    std::optional<diff_layout_preference> parse_diff_layout_preference(const std::u8string_view name) noexcept
+    {
+        if (name == u8"inline")
+            return diff_layout_preference::inline_view;
+        if (name == u8"split")
+            return diff_layout_preference::split;
         return std::nullopt;
     }
 

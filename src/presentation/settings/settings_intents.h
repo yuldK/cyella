@@ -5,6 +5,7 @@
 #include "presentation/settings/settings_state.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace cyella {
@@ -45,6 +46,20 @@ namespace cyella {
     // 입력을 비우고 자동 탐색으로 돌아간다.
     struct reset_git_path_intent
     {};
+
+    // ------------------------------------------------------------------ diff 보기
+
+    // diff를 처음 열 때의 보기다. 고르면 열려 있는 diff도 바로 그 보기로 바뀐다.
+    struct set_diff_layout_default_intent
+    {
+        diff_layout_preference layout { diff_layout_preference::inline_view };
+    };
+
+    // hunk 둘레의 문맥 줄 수다. 다음에 여는 diff부터 `git diff -U<n>`에 쓴다.
+    struct set_diff_context_lines_intent
+    {
+        std::uint32_t lines { default_diff_context_lines };
+    };
 
     // ------------------------------------------------------------------ diff 도구
 

@@ -26,6 +26,13 @@ namespace cyella {
     // `LC_ALL=C`로 실행해야 한다. 목록이 없으면 빈 값이다.
     [[nodiscard]] overwritten_files parse_overwritten_files(std::string_view standard_error);
 
+    // `check-attr -z diff -- <path>`의 출력에서 diff 드라이버 이름을 뽑는다. 출력은 `<path>\0diff\0<value>\0`이고 값이
+    // `unspecified`·`set`·`unset`이면 드라이버를 지정한 것이 아니라 값이 없다. 모양이 맞지 않아도 값이 없다.
+    [[nodiscard]] std::optional<std::string> parse_git_diff_driver(std::string_view bytes);
+
+    // `config --get`의 출력에서 값 한 줄을 뽑는다. 끝의 줄바꿈을 떼고, 비어 있으면 값이 없다.
+    [[nodiscard]] std::optional<std::string> parse_git_config_value(std::string_view bytes);
+
     // `--name-status -z` 출력을 변경 목록으로 해석한다. 일반 항목은 `<S>\0<path>\0`, 이름
     // 변경·복사는 `R<점수>\0<old>\0<new>\0`다. 모양이 맞지 않는 항목은 건너뛴다.
     [[nodiscard]] std::vector<file_change> parse_git_name_status(std::string_view bytes);

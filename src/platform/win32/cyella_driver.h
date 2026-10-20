@@ -9,8 +9,11 @@
 #include "application/file_probe.h"
 #include "application/git_workspace.h"
 #include "application/process_runner.h"
+#include "application/repository_watcher.h"
 #include "application/settings_file_system.h"
 #include "application/task_scheduler.h"
+#include "application/watch_messages.h"
+#include "application/watch_refresh_policy.h"
 #include "application/workspace_files.h"
 #include "domain/git_tool.h"
 #include "infrastructure/diff_temp_directory.h"
@@ -30,6 +33,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -44,6 +48,10 @@ namespace cyella::win32 {
         bool force_text_diff { false };
         // SSH 키를 읽고 만드는 폴더다. 비우면 `%USERPROFILE%\.ssh`다 (검증할 때 사용자의 키를 건드리지 않으려고 바꾼다).
         std::u8string ssh_directory {};
+        // 저장소 파일 감시를 만드는 공장이다. 비우면 Win32 구현(`ReadDirectoryChangesW`)을 쓴다 (test가 가짜를 꽂는다).
+        std::shared_ptr<repository_watcher_factory> watcher_factory {};
+        // 파일 감시를 쓰지 않는다 (감시가 안 되는 환경을 검증할 때 쓴다). 창 초점으로만 다시 읽는다.
+        bool disable_file_watching { false };
     };
 
     // luil logic thread에 꽂는 cyella 구동기다. 백엔드(workspace·scheduler·relay)와 설정을 조립하고, 화면은
@@ -129,6 +137,18 @@ namespace cyella::win32 {
         void handle_webview_event(const luil::webview_event& event);
         void start_diff_view();
         void copy_to_clipboard(const std::string& text);
+
+        // ---- 파일 감시와 창 초점
+        // 열린 저장소와 감시를 맞춘다: 새로 열린 저장소에 감시를 켜고, 닫힌 저장소의 감시를 멈춘다. 메시지를 처리한 뒤마다 부른다.
+        void sync_watchers();
+        void start_watcher(const std::string& repository_id);
+        void on_repository_changed(const repository_changed_intent& changed);
+        void on_window_focus();
+        // 감시를 쓸 수 없게 된 저장소다 (시작 실패, 폴더가 사라짐). 감시를 접고 한 번 알린 뒤 창 초점에서 다시 읽는다.
+        void give_up_watching(const std::string& repository_id, bool lost);
+        void run_refresh(const std::string& repository_id, refresh_scope scope);
+        // 끝난 operation의 저장소에서 보류해 둔 새로 고침을 낸다.
+        void flush_pending_refreshes();
         // 환경 설정 SSH 화면의 agent·키 목록을 worker에게 읽게 한다.
         void request_ssh_info();
         // 웹뷰가 보여야 할 diff를 맞추고, 쌓인 안내를 화면에 올린다.
@@ -138,6 +158,14 @@ namespace cyella::win32 {
         // 빌린 controller가 사라져야 실행기·relay를 붙잡은 것이 남지 않는다.
         cyella_driver_options options_ {};
         operation_result_relay relay_ {};
+        // 감시 스레드가 relay로 알린다. 멤버는 선언의 반대 순서로 파괴되므로 relay_ 뒤에 선언해야 감시가 먼저 멈춘 뒤 relay가 사라진다.
+        std::shared_ptr<repository_watcher_factory> watch_factory_ {};
+        std::map<std::string, std::unique_ptr<repository_watcher>> watchers_ {};
+        // 감시를 시작하지 못했거나 포기한 저장소다. 같은 저장소를 열어 둔 동안 다시 시도하지 않는다.
+        std::set<std::string> unwatched_ {};
+        // operation이 끝난 저장소다. 한 번 비운 relay 묶음 뒤에 보류한 새로 고침을 내는 데 쓴다.
+        std::set<std::string> finished_repositories_ {};
+        watch_refresh_policy refresh_policy_ {};
         // 서버의 연결 스레드가 질문을 relay로 보낸다. relay보다 먼저 파괴되어 스레드가 멈춘 뒤에야
         // relay가 사라진다. workspace가 서버를 가리키므로 workspace보다 나중에 파괴된다.
         askpass_bridge askpass_ { [relay = &relay_](operation_event event) { relay->post(luil::app_message { std::move(event) }); } };
@@ -167,6 +195,8 @@ namespace cyella::win32 {
         // 웹뷰에 보낸 테마와 그 원천(해석한 luil 테마)이다.
         std::optional<luil::color_theme> diff_theme_source_ {};
         diff_theme diff_theme_ {};
+        // 환경 설정의 기본 diff 보기를 뷰어에 마지막으로 보낸 값이다.
+        std::optional<diff_layout_preference> applied_diff_layout_ {};
         std::u8string viewer_url_ {};
         std::u8string webview_data_folder_ {};
         // 웹뷰를 세울 수 있는 PC인가 (Runtime 설치, 뷰어 파일 있음, 프로필 폴더를 앎).

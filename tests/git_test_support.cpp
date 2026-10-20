@@ -1,9 +1,11 @@
 #include "git_test_support.h"
 
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <stdexcept>
 #include <system_error>
 
@@ -194,9 +196,23 @@ namespace cyella {
 
         temp_directory::temp_directory()
         {
+            // 이름에 프로세스 id와 번호만 쓰면 이전 프로세스가 지우지 못하고 죽은 폴더(타임아웃·강제 종료)와 새 프로세스의 이름이 겹친다. Windows는
+            // 프로세스 id를 빨리 다시 쓰고 ctest는 test마다 새 프로세스를 띄우기 때문이다. 겹치면 잔해가 든 폴더를 그대로 받아 `git clone`이
+            // "이미 있고 비어 있지 않다"로 실패한다. 그래서 이름에 무작위 값을 더하고, `create_directory`가 **새로 만들었을 때만**(이미 있으면
+            // false) 쓴다.
             static std::atomic<unsigned int> counter { 0 };
-            path_ = std::filesystem::temp_directory_path() / ("cyella_git_" + std::to_string(::GetCurrentProcessId()) + "_" + std::to_string(counter.fetch_add(1)));
-            std::filesystem::create_directories(path_);
+            std::random_device entropy {};
+            const std::filesystem::path root { std::filesystem::temp_directory_path() };
+            for (int attempt { 0 }; attempt < 100; ++attempt)
+            {
+                char suffix[16] {};
+                std::snprintf(suffix, sizeof(suffix), "%08x", static_cast<unsigned int>(entropy()));
+                path_ = root / ("cyella_git_" + std::to_string(::GetCurrentProcessId()) + "_" + std::to_string(counter.fetch_add(1)) + "_" + suffix);
+                std::error_code error {};
+                if (std::filesystem::create_directories(path_.parent_path(), error); std::filesystem::create_directory(path_, error) && !error)
+                    return;
+            }
+            throw std::runtime_error { "could not create a fresh temporary directory" };
         }
 
         temp_directory::~temp_directory()

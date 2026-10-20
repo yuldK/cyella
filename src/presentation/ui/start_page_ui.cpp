@@ -56,9 +56,12 @@ namespace cyella::ui {
             buttons.push_back({ .owner = u8"remove:" + item.path, .glyph = codicons::icon_close, .tooltip = u8"목록에서 지우기", .action = message(remove_recent_intent { item.path }) });
             const std::int64_t opened { parse_utc(item.opened_at) };
             std::u8string when { opened > 0 ? relative_time_text(now, opened) : std::u8string {} };
-            luil::input_action activate = item.exists
-                ? message(open_recent_intent { item.path })
-                : message(show_notice_intent { .text = u8"'" + item.path + u8"' 경로를 찾을 수 없습니다. 위치 찾기는 아직 없습니다. 오른쪽 ×로 목록에서 지울 수 있습니다.", .warning = true });
+            // 없는 경로는 새 위치를 고르는 폴더 대화 상자를 바로 연다 (옛 경로가 명령 인자다).
+            if (item.exists == false)
+                buttons.insert(buttons.begin(),
+                    make_row_button(u8"locate:" + item.path, codicons::icon_folder_opened, u8"위치 찾기: 옮긴 폴더를 골라 이 항목의 경로를 바꿉니다",
+                        ui_command(static_cast<std::uint32_t>(ui_command_id::locate_folder), item.path)));
+            luil::input_action activate = item.exists ? message(open_recent_intent { item.path }) : ui_command(static_cast<std::uint32_t>(ui_command_id::locate_folder), item.path);
             return std::make_unique<start_row_element>(u8"recent:" + item.path, item, open, std::move(when), std::move(activate), std::move(buttons));
         }
     } // namespace

@@ -19,6 +19,8 @@ namespace cyella::ui {
         float width { 0.0f };
         float height { 0.0f };
         std::shared_ptr<const luil::ui_tree> tree {};
+        // 툴바 선택 상자의 목록이다. 검색 칸이 있어 창 활성이 바뀌어도 남고, 닫힘은 `close_selector_intent`다.
+        bool selector { false };
     };
 
     struct built_tree

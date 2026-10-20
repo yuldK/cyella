@@ -97,6 +97,8 @@ namespace cyella {
         view_ = diff.request.view;
         sha_ = diff.request.sha;
         untracked_ = diff.request.untracked;
+        context_lines_ = diff.request.context_lines;
+        textconv_driver_ = diff.textconv_driver;
         repository_path_ = std::move(repository_path);
         sides_ = {};
         if (same_file == false)
@@ -185,12 +187,12 @@ namespace cyella {
 
     bool diff_view_controller::can_stage() const noexcept
     {
-        return kind_ == content_kind::text && view_ == diff_view::unstaged && truncated() == false && awaiting_refresh_ == false;
+        return kind_ == content_kind::text && view_ == diff_view::unstaged && truncated() == false && awaiting_refresh_ == false && textconv_driver_.empty();
     }
 
     bool diff_view_controller::can_unstage() const noexcept
     {
-        return kind_ == content_kind::text && view_ == diff_view::staged && truncated() == false && awaiting_refresh_ == false;
+        return kind_ == content_kind::text && view_ == diff_view::staged && truncated() == false && awaiting_refresh_ == false && textconv_driver_.empty();
     }
 
     bool diff_view_controller::can_discard() const noexcept
@@ -316,6 +318,8 @@ namespace cyella {
         effect.request.cached = mode.cached;
         effect.request.reverse = mode.reverse;
         effect.request.recount = true;
+        // 문맥 줄이 없는 diff로 만든 patch는 `--unidiff-zero`가 있어야 적용된다.
+        effect.request.unidiff_zero = context_lines_ == 0;
         effect.command = command;
         effect.hunk = hunk;
         effect.whole_hunk = lines.has_value() == false;

@@ -33,6 +33,7 @@ namespace cyella {
     [[nodiscard]] form_view build_create_branch_form(const dialog_state& dialog, const form_build_context& context);
     [[nodiscard]] form_view build_create_tag_form(const dialog_state& dialog, const form_build_context& context);
     [[nodiscard]] form_view build_push_form(const dialog_state& dialog, const form_build_context& context);
+    [[nodiscard]] form_view build_set_upstream_form(const dialog_state& dialog, const form_build_context& context);
     [[nodiscard]] form_view build_rename_branch_form(const dialog_state& dialog, const form_build_context& context);
     [[nodiscard]] form_view build_confirm_form(const dialog_state& dialog, const form_build_context& context);
 
@@ -50,9 +51,16 @@ namespace cyella {
     // push 상자가 보낼 요청이다 (원격 선택·칸의 글을 반영한다).
     [[nodiscard]] push_execute_request make_push_request(const dialog_state& dialog, const form_inputs& inputs);
 
+    // upstream 설정 상자가 보낼 요청이다 (원격 선택·칸의 글을 반영한다).
+    [[nodiscard]] set_upstream_request make_set_upstream_request(const dialog_state& dialog, const form_inputs& inputs);
+    // 고른 `<remote>/<branch>`를 쓸 수 없는 이유를 한 줄로 말한다. 쓸 수 있으면 값이 없다. 원격 추적 ref가 없으면 쓸 수 없다
+    // (`git branch --set-upstream-to`가 거절한다 - 먼저 fetch하거나 push --set-upstream으로 원격 브랜치를 만들어야 한다).
+    [[nodiscard]] std::optional<std::u8string> set_upstream_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
+
     // 조건 판정: 단추를 켤 수 있는가.
     [[nodiscard]] bool create_branch_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
     [[nodiscard]] bool create_tag_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
     [[nodiscard]] bool rename_branch_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
     [[nodiscard]] bool push_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
+    [[nodiscard]] bool set_upstream_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
 } // namespace cyella

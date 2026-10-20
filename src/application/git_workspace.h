@@ -8,6 +8,7 @@
 #include "application/operation_executor.h"
 #include "application/process_cancellation.h"
 #include "application/repository_session.h"
+#include "application/watch_refresh_policy.h"
 #include "domain/credential_prompt.h"
 #include "domain/operation_status.h"
 
@@ -106,6 +107,9 @@ namespace cyella {
         {
             return revision_;
         }
+
+        // 그 저장소에서 끝나지 않은 쓰기와 새로 고침이 있는가. 파일 감시의 새로 고침 규칙이 읽는다 (`watch_refresh_policy`).
+        [[nodiscard]] repository_activity activity_of(const std::string& repository_id) const;
 
     private:
         // 답을 기다리는 인증 질문 하나다. 도우미 하나가 묻고 있으므로 `reply`를 부를 때까지 git이 멈춰 있다.

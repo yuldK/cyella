@@ -48,6 +48,8 @@ namespace cyella::ui {
             return to_luil_target(text_target::rebase_message_subject);
         if (kind == kind_rebase_body_input)
             return to_luil_target(text_target::rebase_message_body);
+        if (kind == kind_selector_filter_input)
+            return to_luil_target(text_target::selector_filter);
         return std::nullopt;
     }
 

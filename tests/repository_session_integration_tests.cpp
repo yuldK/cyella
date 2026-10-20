@@ -515,3 +515,103 @@ TEST_CASE("integration: a Korean file name survives status, diff and log --name-
     CHECK(session.selected_commit()->files[0].status == 'A');
     CHECK(session.selected_commit()->commit.subject == "add korean file");
 }
+TEST_CASE("integration: set_upstream connects a pushed branch without pushing and unset_upstream removes it", "[session][integration][upstream]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    remote_fixture fixture {};
+    live_workspace live {};
+    const std::string repo { live.open(fixture.one) };
+
+    git_ok(fixture.one, { "switch", "-q", "-c", "feature" });
+    commit_file(fixture.one, "f.txt", "f\n", "feature commit");
+    // upstream 없이 push한다 (-u를 쓰지 않는다).
+    git_ok(fixture.one, { "push", "-q", "origin", "feature" });
+    live.refresh(repo);
+    const ref* feature { find_ref(live.session(repo), "refs/heads/feature") };
+    REQUIRE(feature != nullptr);
+    CHECK(feature->upstream.empty());
+
+    const std::string remote_head_before { git_text(fixture.bare, { "rev-parse", "refs/heads/feature" }) };
+    live.require_succeeded(live.run(repo, set_upstream_request { .branch = "feature", .remote = "origin", .remote_branch = "feature" }));
+    feature = find_ref(live.session(repo), "refs/heads/feature");
+    REQUIRE(feature != nullptr);
+    CHECK(feature->upstream == "origin/feature");
+    CHECK(feature->ahead == 0);
+    CHECK(feature->behind == 0);
+    CHECK(live.session(repo).snapshot().summary.has_upstream);
+    // push하지 않았다.
+    CHECK(git_text(fixture.bare, { "rev-parse", "refs/heads/feature" }) == remote_head_before);
+
+    // 로컬에 커밋을 더하면 앞섬이 보인다.
+    commit_file(fixture.one, "g.txt", "g\n", "ahead commit");
+    live.refresh(repo);
+    CHECK(find_ref(live.session(repo), "refs/heads/feature")->ahead == 1);
+    CHECK(live.session(repo).snapshot().summary.ahead == 1);
+
+    live.require_succeeded(live.run(repo, unset_upstream_request { "feature" }));
+    feature = find_ref(live.session(repo), "refs/heads/feature");
+    REQUIRE(feature != nullptr);
+    CHECK(feature->upstream.empty());
+    CHECK_FALSE(live.session(repo).snapshot().summary.has_upstream);
+}
+
+TEST_CASE("integration: set_upstream refuses a remote branch that does not exist and a bad name", "[session][integration][upstream]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    remote_fixture fixture {};
+    live_workspace live {};
+    const std::string repo { live.open(fixture.one) };
+
+    const operation_id missing { live.run(repo, set_upstream_request { .branch = "main", .remote = "origin", .remote_branch = "nowhere" }) };
+    CHECK(live.status(missing).state == operation_state::failed);
+    const operation_id option_like { live.run(repo, set_upstream_request { .branch = "main", .remote = "origin", .remote_branch = "--evil" }) };
+    CHECK(live.status(option_like).state == operation_state::failed);
+    REQUIRE(live.status(option_like).failure.has_value());
+    CHECK(live.status(option_like).failure->kind == failure_kind::invalid_request);
+    // 실패해도 기존 upstream은 그대로다.
+    git_ok(fixture.one, { "branch", "--set-upstream-to=origin/main", "main" });
+    live.refresh(repo);
+    CHECK(find_ref(live.session(repo), "refs/heads/main")->upstream == "origin/main");
+}
+
+TEST_CASE("integration: a file with a textconv diff driver is flagged and diffed with the configured context", "[session][integration][textconv]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    test::temp_directory directory {};
+    const std::filesystem::path repo_path { make_repository(directory.path() / "repo") };
+    test::write_file(repo_path / ".gitattributes", "*.dat diff=upper\n*.txt diff=plain\n");
+    git_ok(repo_path, { "config", "diff.upper.textconv", "tr a-z A-Z <" });
+    git_ok(repo_path, { "config", "diff.plain.binary", "false" });
+    git_ok(repo_path, { "add", ".gitattributes" });
+    git_ok(repo_path, { "commit", "-q", "-m", "attributes" });
+    commit_file(repo_path, "data.dat", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n", "data");
+    commit_file(repo_path, "plain.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n", "plain");
+    commit_file(repo_path, "other.log", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n", "other");
+    for (const char* const name : { "data.dat", "plain.txt", "other.log" })
+        test::write_file(repo_path / name, "one\ntwo\nthree\n4\nfive\nsix\nseven\n");
+
+    live_workspace live {};
+    const std::string repo { live.open(repo_path) };
+
+    live.require_succeeded(live.run(repo, diff_file_request { .path = "data.dat", .view = diff_view::unstaged, .sha = {}, .untracked = false, .context_lines = 1 }));
+    REQUIRE(live.session(repo).selected_diff().has_value());
+    CHECK(live.session(repo).selected_diff()->textconv_driver == "upper");
+    // textconv를 거친 글이라 바뀐 줄이 대문자로 보이고, 문맥은 위아래 한 줄이다.
+    REQUIRE(live.session(repo).selected_diff()->files.size() == 1);
+    const diff_hunk& hunk { live.session(repo).selected_diff()->files.front().hunks.front() };
+    CHECK(hunk.lines.size() == 4);
+
+    // 드라이버는 있지만 textconv가 없으면 배지가 없다.
+    live.require_succeeded(live.run(repo, diff_file_request { .path = "plain.txt", .view = diff_view::unstaged }));
+    REQUIRE(live.session(repo).selected_diff().has_value());
+    CHECK(live.session(repo).selected_diff()->textconv_driver.empty());
+    CHECK(live.session(repo).selected_diff()->files.front().hunks.front().lines.size() == 8);
+
+    // 속성이 없는 파일도 그렇다.
+    live.require_succeeded(live.run(repo, diff_file_request { .path = "other.log", .view = diff_view::unstaged, .context_lines = 0 }));
+    CHECK(live.session(repo).selected_diff()->textconv_driver.empty());
+    CHECK(live.session(repo).selected_diff()->files.front().hunks.front().lines.size() == 2);
+}
