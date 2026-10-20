@@ -55,6 +55,16 @@ namespace cyella {
         return width > 0 && height > 0;
     }
 
+    void record_command_use(app_settings& settings, const std::string_view command)
+    {
+        if (command.empty())
+            return;
+        std::erase_if(settings.command_history, [command](const std::string& value) { return value == command; });
+        settings.command_history.insert(settings.command_history.begin(), std::string { command });
+        if (settings.command_history.size() > command_history_capacity)
+            settings.command_history.resize(command_history_capacity);
+    }
+
     void touch_recent_repository(app_settings& settings, const std::u8string_view path, std::u8string opened_at)
     {
         if (path.empty())

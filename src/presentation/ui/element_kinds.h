@@ -52,4 +52,15 @@ namespace cyella::ui {
     inline constexpr luil::ui_element_kind kind_rebase_body_input { luil::application_element_kind(201) };
     // 툴바 저장소·브랜치 선택 상자 popup의 거르기 칸이다. 다른 칸과 겹치지 않게 110부터 쓴다.
     inline constexpr luil::ui_element_kind kind_selector_filter_input { luil::application_element_kind(110) };
+    // 명령 팔레트의 거르기 칸·목록 행, 환경 설정의 단축키 입력 칸과 사용자 프로필·규칙 입력 칸이다. 300부터 쓴다.
+    inline constexpr luil::ui_element_kind kind_palette_filter_input { luil::application_element_kind(300) };
+    inline constexpr luil::ui_element_kind kind_palette_row { luil::application_element_kind(301) };
+    inline constexpr luil::ui_element_kind kind_shortcut_input { luil::application_element_kind(302) };
+    inline constexpr luil::ui_element_kind kind_profile_name_input { luil::application_element_kind(303) };
+    inline constexpr luil::ui_element_kind kind_profile_user_name_input { luil::application_element_kind(304) };
+    inline constexpr luil::ui_element_kind kind_profile_email_input { luil::application_element_kind(305) };
+    inline constexpr luil::ui_element_kind kind_profile_signing_key_input { luil::application_element_kind(306) };
+    inline constexpr luil::ui_element_kind kind_profile_rule_prefix_input { luil::application_element_kind(307) };
+    // 키 처리가 tree에서 읽는 보이지 않는 표식이다 (단축키 표, 팔레트 Enter).
+    inline constexpr luil::ui_element_kind kind_command_marker { luil::application_element_kind(308) };
 } // namespace cyella::ui

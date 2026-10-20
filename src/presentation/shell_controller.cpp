@@ -114,6 +114,19 @@ namespace cyella {
         result.probe = dependencies_.probe;
         result.git_tool = dependencies_.git_tool;
         result.workspace = dependencies_.workspace;
+        // 사용자 프로필 쪽이 보이는 선택된 저장소의 신원이다.
+        result.repository_profile = [this] {
+            profiles_repository_inputs inputs {};
+            const repository_session* const session { selected_session() };
+            if (session == nullptr)
+                return inputs;
+            inputs.open = true;
+            inputs.name = repository_display_name(session->path());
+            const git_identity* const identity { selected_identity() };
+            inputs.identity_text = identity != nullptr ? describe_identity_with_source(*identity) : u8"읽는 중…";
+            inputs.applied_profile = applied_profile_name();
+            return inputs;
+        };
         result.request_ssh_info = dependencies_.request_ssh_info;
         result.copy_text = dependencies_.copy_text;
         result.ssh_directory = dependencies_.ssh_directory;
@@ -288,7 +301,15 @@ namespace cyella {
         case text_target::settings_key_name:
         case text_target::settings_key_comment:
         case text_target::settings_test_host:
+        case text_target::settings_shortcut_input:
+        case text_target::settings_profile_name:
+        case text_target::settings_profile_user_name:
+        case text_target::settings_profile_user_email:
+        case text_target::settings_profile_signing_key:
+        case text_target::settings_rule_prefix:
             return settings_.draft(target);
+        case text_target::palette_filter:
+            return ui_.palette.has_value() ? &ui_.palette->filter : nullptr;
         case text_target::rebase_message_subject:
         case text_target::rebase_message_body:
             return rebase_.draft(target);
@@ -324,8 +345,13 @@ namespace cyella {
         if (target == text_target::start_search)
             ui_.start_scroll = 0.0f;
         else if (target == text_target::sidebar_filter)
+        {
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
                 tab->sidebar_scroll = 0.0f;
+        }
+        else if (target == text_target::palette_filter && ui_.palette.has_value())
+            // 거르는 글이 바뀌면 커서는 맨 위(첫 활성 항목)로 돌아간다.
+            ui_.palette->cursor.clear();
     }
 
     void shell_controller::handle_toolbar(const toolbar_action action)
@@ -483,6 +509,17 @@ namespace cyella {
     void shell_controller::handle_commit()
     {
         tab_ui_state* const tab { selected_tab_state() };
+        if (tab == nullptr || tab->pending_commit != 0 || trimmed(tab->commit_subject.text).empty())
+            return;
+        // 작성자 신원이 없거나 규칙의 프로필과 다르면 저장소마다 한 번 경고하고 커밋하지 않는다.
+        if (warn_before_commit())
+            return;
+        commit_now();
+    }
+
+    void shell_controller::commit_now()
+    {
+        tab_ui_state* const tab { selected_tab_state() };
         if (tab == nullptr || tab->pending_commit != 0)
             return;
         const std::u8string subject { trimmed(tab->commit_subject.text) };
@@ -497,8 +534,9 @@ namespace cyella {
 
     void shell_controller::handle_folder(const folder_chosen_intent& intent)
     {
-        // 선택 상자의 "폴더에서 저장소 열기…"가 이 대화 상자를 열었다. 고르고 나면 목록은 닫는다.
+        // 선택 상자의 "폴더에서 저장소 열기…"가 이 대화 상자를 열었다. 고르고 나면 목록은 닫는다 (팔레트의 같은 항목도 마찬가지다).
         ui_.selector.reset();
+        ui_.palette.reset();
         if (dependencies_.workspace == nullptr)
         {
             show_notice(dependencies_.git_message, true);
@@ -670,7 +708,9 @@ namespace cyella {
         {
             // Esc는 가장 위에 떠 있는 것 하나만 닫는다.
             tab_ui_state* const tab { selected_tab_state() };
-            if (ui_.selector.has_value())
+            if (ui_.palette.has_value())
+                ui_.palette.reset();
+            else if (ui_.selector.has_value())
                 ui_.selector.reset();
             else if (ui_.rail_section.has_value())
                 ui_.rail_section.reset();
@@ -823,6 +863,9 @@ namespace cyella {
         // 툴바 저장소·브랜치 선택 상자의 목록이다.
         if (handle_selector_message(message))
             return true;
+        // 명령 팔레트와 레지스트리 명령이다.
+        if (handle_command_message(message))
+            return true;
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         if (settings_.handle(message))
             return true;
@@ -970,6 +1013,8 @@ namespace cyella {
             it = trusted_retries_.erase(it);
         }
         maybe_load_more();
+        // 선택된 저장소의 작성자 신원을 읽고, 규칙에 맞는 프로필이 있으면 제안한다.
+        sync_identity();
     }
 
     std::shared_ptr<const std::vector<luil::virtual_list_item>> shell_controller::graph_items(const repository_session& session)
@@ -1038,6 +1083,32 @@ namespace cyella {
         view.settings = settings_.make_view(ui_.composition);
         view.rebase_editor = rebase_.make_view(ui_.composition);
         last_mode_ = view.mode;
+        view.palette = make_palette_view();
+        view.shortcuts = resolve_shortcut_bindings(settings());
+        // 선택된 저장소의 작성자 신원을 상태 줄에 보인다 (출처와 함께).
+        if (view.repository.has_value() && dependencies_.request_identity != nullptr)
+        {
+            status_view& status { view.status };
+            status.identity_visible = true;
+            if (const git_identity* const identity { selected_identity() }; identity != nullptr)
+            {
+                status.identity_text = u8"작성자: " + describe_identity_with_source(*identity);
+                status.identity_warning = identity->complete() == false;
+                status.identity_tooltip = u8"이 저장소가 커밋에 쓰는 작성자와 그 값이 든 설정 파일이다. 눌러서 프로필을 적용한다.";
+            }
+            else if (const auto entry { identities_.find(selected_repository_id()) }; entry != identities_.end() && entry->second.requested && entry->second.error.empty() == false)
+            {
+                // 읽지 못했다 (git이 오래되어 --show-scope를 모르거나 일시적인 실패). 15초 뒤 다시 읽는다.
+                status.identity_text = u8"작성자: 읽지 못함 · " + entry->second.error;
+                status.identity_warning = true;
+                status.identity_tooltip = u8"저장소의 user.name·user.email을 읽지 못했다. 잠시 뒤 다시 읽는다.";
+            }
+            else
+            {
+                status.identity_text = u8"작성자: 읽는 중…";
+                status.identity_tooltip = u8"저장소의 user.name·user.email을 읽고 있다.";
+            }
+        }
         // 상세 서랍은 medium·narrow에서 커밋을 고르면 열린다. 고른 것이 없으면 닫는다.
         if (view.repository.has_value() && view.repository->detail == detail_mode::none)
             view.drawer_open = false;

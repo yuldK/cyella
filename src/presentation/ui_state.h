@@ -5,6 +5,7 @@
 #include "application/repository_tabs.h"
 #include "domain/operation_status.h"
 #include "presentation/dialog_state.h"
+#include "presentation/palette/palette_state.h"
 #include "presentation/selector_model.h"
 #include "presentation/shell_layout.h"
 
@@ -15,6 +16,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace cyella {
     // 화면만 아는 상태(선택·스크롤·판 폭·접힘·입력 초안)다. driver가 소유하고 logic thread에서만 바꾼다.
@@ -48,6 +50,14 @@ namespace cyella {
         rebase_message_body,
         // 툴바 저장소·브랜치 선택 상자 popup의 거르기 칸이다.
         selector_filter = 110,
+        // 명령 팔레트의 거르기 칸, 환경 설정의 단축키 입력 칸, 사용자 프로필·규칙 입력 칸이다. 다른 칸과 겹치지 않게 300부터 쓴다.
+        palette_filter = 300,
+        settings_shortcut_input,
+        settings_profile_name,
+        settings_profile_user_name,
+        settings_profile_user_email,
+        settings_profile_signing_key,
+        settings_rule_prefix,
     };
 
     // 사이드바 구역이다. 순서가 곧 화면 순서다.
@@ -119,11 +129,19 @@ namespace cyella {
         std::u8string error {};
     };
 
+    // 안내 배너의 조치 단추다 (프로필 제안·커밋 전 경고). 눌리면 `banner_action_intent`가 키를 나른다.
+    struct notice_action
+    {
+        std::u8string key {};
+        std::u8string label {};
+    };
+
     // 화면에 띄운 안내 한 줄이다 (아직 없는 대화 상자의 자리).
     struct notice_state
     {
         std::u8string text {};
         bool warning { false };
+        std::vector<notice_action> actions {};
     };
 
     // diff 웹뷰가 지금 보이는 모습이다. 웹뷰를 쥔 driver가 frame마다 채우고, 머리 막대(전환 단추)와 대체 보기가 읽는다.
@@ -185,6 +203,8 @@ namespace cyella {
         dialog_memory memory {};
         // 열린 저장소·브랜치 선택 상자 목록이다.
         std::optional<selector_state> selector {};
+        // 열린 명령 팔레트다.
+        std::optional<palette_state> palette {};
     };
 
     [[nodiscard]] inline luil::text_input_target to_luil_target(const text_target target) noexcept
@@ -199,6 +219,7 @@ namespace cyella {
         const bool form { value >= static_cast<std::uint32_t>(text_target::form_field_0) && value <= static_cast<std::uint32_t>(text_target::form_field_2) };
         const bool rebase { value >= static_cast<std::uint32_t>(text_target::rebase_message_subject) && value <= static_cast<std::uint32_t>(text_target::rebase_message_body) };
         const bool selector { value == static_cast<std::uint32_t>(text_target::selector_filter) };
-        return basic || form || rebase || selector ? static_cast<text_target>(value) : text_target::none;
+        const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_rule_prefix) };
+        return basic || form || rebase || selector || commands ? static_cast<text_target>(value) : text_target::none;
     }
 } // namespace cyella

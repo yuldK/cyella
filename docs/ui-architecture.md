@@ -337,3 +337,83 @@ rebase_editor_controller (shell_controller가 소유, presentation/rebase/*)
 - **진행 표시**: 실행 중에는 편집기가 "실행 중…"이고 상태 줄이 `Rebasing (k/n)` 진행률을 보인다. 편집기를 닫아도 rebase는 계속된다.
 - UIA로 닿지 않는 몸짓(라벨 끌어 놓기, 우클릭 메뉴, 할 일 줄 끌기, p·r·s·f·d, Alt+↑↓)은 `tests/rebase_shell_tests.cpp`가 그 몸짓의 intent·element 콜백(`drop()`·`drag()`·
   `key_search()`)·정책(`on_key`)을 직접 불러 확인한다.
+
+
+## 명령 팔레트·단축키·사용자 프로필
+
+```text
+command_registry (presentation/commands/command_registry.*) ── id · 한글 제목 · 영문 키워드 · 기본 단축키 · 범위, 한 표
+  ├ resolve_shortcut_bindings(settings) ──▶ view_snapshot::shortcuts ──▶ shortcut_table_element ("shortcut-table", tree의 보이지 않는 1x1 표식)
+  │      cyella_policy::on_key ── chord_of(event) ── 표에서 찾기 ──▶ action_for_command(id) ──▶ run_command_intent{id}  (폴더 대화 상자 둘은 UI 명령)
+  ├ palette_model (presentation/palette/palette_model.*) ── rank_palette_items ◀── domain/hangul_search (초성·음절·영문 퍼지)
+  └ settings_controller (단축키 쪽) ── check_shortcut_edit · set_command_shortcuts ──▶ app_settings::shortcuts
+identity: shell_controller ── request_identity ─▶ driver ─ scheduler("identity:<저장소>") ─ git_identity_gateway ─ relay ─▶ identity_loaded_intent
+```
+
+### 명령 레지스트리
+
+한 표(`command_definitions()`)가 앱이 할 수 있는 일을 가진다: `id`(`git.fetch`처럼 점으로 가른 영문, 설정 파일의 키라 바꾸지 않는다), 한글 제목, 영문 키워드, 묶음(앱·탭·저장소·Git 작업·화면·프로필),
+범위(`global`, `commit_input`), 기본 단축키. 팔레트와 단축키가 이 표 하나를 읽는다. 지금 할 수 없는 명령은 `command_availability`(툴바 단추가 켜지는 조건과 같다)로 팔레트에서 뺀다.
+
+- 정책이 처리하는 키는 모두 표 항목이다: Ctrl+Enter(`git.commit`, 커밋 상자에 초점이 있을 때만), Ctrl+Tab·Ctrl+Shift+Tab(`tab.next`·`tab.previous`), Ctrl+W(`tab.close`),
+  Shift+F10(`view.menu`), F5(`repo.refresh`), Esc(`view.close`), Ctrl+Shift+P·Ctrl+P(`palette.open`), Ctrl+,(`app.settings`), Ctrl+T(`tab.new`), Ctrl+O(`repo.open`).
+- 사용자가 바꾼 값은 `app_settings::shortcuts`(명령 id → 정규 표기 목록)에만 남는다. 기본값과 같아지면 기록을 지우고, 빈 목록은 "키 없음"이다.
+- 단축키로 쓸 수 있는 키(`check_key_chord`): 글자·숫자·기호는 Ctrl이나 Alt와 함께여야 한다(수정키 없는 글자는 문자 입력으로만 온다). 수정키 없이 쓸 수 있는 것은 F1~F12와 Esc뿐이다.
+  텍스트 칸의 편집 키(Ctrl+A·C·V·X·Y·Z)와 Alt+F4는 예약이다. 같은 키를 다른 명령이 쓰면 거절한다(범위와 무관하게 — 전역 명령이 커밋 상자에서도 먼저 잡으므로).
+
+### 키 처리
+
+`cyella_policy`는 input thread에서 불리고 상태를 두지 않는다. 그래서 바뀔 수 있는 단축키 표는 frame마다 tree의 보이지 않는 표식(`shortcut_table_element`)에 실려 오고,
+`on_key`는 `tree->find`로 표를 읽는다. 표가 없으면(표식을 싣지 않는 test) 레지스트리의 기본 표를 쓴다. 순서는 rebase 편집기 키 → 팔레트 거르는 칸의 ↑↓·Enter → 단축키 입력 칸 → 레지스트리 표 →
+(남은) 칸별 Enter(Clone·git 경로·SSH 시험·입력 상자)다. 자동 반복(`repeat`)은 한 번만 반응한다.
+
+### 명령 팔레트
+
+탭 줄의 "명령 팔레트" 단추(`command-palette`, 툴팁에 지금 단축키)나 `palette.open`으로 연다. 대화 상자(`modal_host_element`)이고 위쪽 가운데에 선다. 거르는 칸(`palette-filter`)이 뜨는 순간 초점을 받고,
+목록(`palette-list`)은 `virtual_list_element`다. 보이는 항목은 14개까지이고 넘으면 꺼진 "외 N개 · 입력으로 좁히세요" 줄이 선다(툴바 선택 상자와 같은 규칙).
+
+- **모드**: 명령(`commands`) → "브랜치로 이동…"(`branches`, 로컬+원격 브랜치, 현재 브랜치는 꺼짐, 다른 worktree가 쓰는 브랜치도 꺼짐)·"저장소 열기…"(`repositories`, 열린 탭+최근 저장소+폴더 대화 상자)·
+  "이 저장소에 프로필 적용…"(`profiles`)이 모드를 바꿔 이어서 고르게 한다. 고른 항목은 기존 길을 그대로 탄다(`activate_ref_intent`의 체크아웃, `select_from_selector`, `apply_profile`).
+- **고른 항목의 메뉴**: 사이드바에서 고른 브랜치·태그·stash나 고른 커밋이 있으면 그 우클릭 메뉴(`build_context_menu`)의 켜진 항목이 "체크아웃 — main"처럼 명령 목록에 함께 선다(`menu:<키>`).
+  Shift+F10이 쓰는 대상 계산을 `selection_menu_target()`으로 뽑아 같이 쓴다. 고르면 `run_menu_action`이 우클릭 메뉴와 똑같이 실행한다.
+- **검색** (`domain/hangul_search`): 질의를 공백으로 가른 낱말이 모두 제목이나 영문 키워드에서 맞아야 한다. 낱말 하나는 (1) 연속 부분 문자열 — 음절은 같은 음절, **초성 자모(ㅂㄹㅊ)는 그 초성의 음절**,
+  ASCII 대소문자 무시 — (2) 연속이 아니면 건너뛰며 맞는 부분 수열(두 글자 이상) 순으로 점수를 매긴다. 글머리 +300, 낱말 머리 +150, 앞쪽일수록·짧을수록 높다. 키워드에서 맞은 점수는 400을 뺀다.
+  IME가 조합 중인 마지막 글자(받침 없는 음절 "브래")는 같은 초성·중성의 음절("랜")과 맞는다.
+- **순위**: 점수 + 최근 사용 가산점(가장 최근 250에서 한 칸마다 20씩 줄어든다, `app_settings::command_history` 30개). 가산점이 일치 층(+300/+150)보다 작아 훨씬 나은 일치는 뒤집지 않고,
+  비슷한 일치끼리는 최근에 쓴 것이 앞선다. 질의가 비면 최근에 쓴 명령이 앞이고 나머지는 레지스트리 순서다. 꺼진 항목은 맞아도 뒤로 간다.
+- **키**: 거르는 칸에서 ↑↓는 `palette_move_intent`, Enter는 커서 항목의 액션이다(정책이 tree의 `palette-enter` 표식에서 읽는다). 커서는 목록의 `cursor`로 강조색 행이다. Esc·바깥 누름은 닫는다.
+- **UIA**: 거르는 칸은 `Edit`(`palette-filter`, SetValue)이고 항목은 `ListItem`이다. 행을 Select하면 누른 것과 같다(`select`·`activate`가 같은 액션). 선택 표시(`selected`)를 쓰지 않는 이유는
+  UIA Select가 "이미 고른 항목"이면 아무것도 하지 않기 때문이다(첫 항목이 늘 커서라 실행이 막힌다).
+- 폴더 대화 상자를 여는 두 명령(`repo.open_folder`·`repo.init`)은 UI thread의 일이라 메시지가 아니라 UI 명령 액션을 낸다(`ui::action_for_command`). 폴더를 고르면 팔레트가 닫힌다.
+
+### 단축키 설정 쪽
+
+환경 설정의 "단축키" 쪽(`settings_page::shortcuts`)은 명령을 묶음별로 보이고 줄마다 지금 단축키와 [편집]·[기본값]을 둔다. [편집]을 누르면 그 줄 바로 아래에 입력 칸(`settings-shortcut-input`)이 선다.
+칸의 글은 ` / `로 이은 정규 표기(`Ctrl+Shift+K / F7`)이고 (1) 칸에 초점을 두고 **실제 키 조합을 누르면** 정책이 `capture_shortcut_intent`로 바꿔 칸에 적고(Ctrl·Alt 조합과 기능 키, Enter는 적용),
+(2) 손으로 쳐도 되며 UIA는 SetValue로 넣는다. 칸 밑에 문제(읽을 수 없는 키, 예약된 키, "이미 '현재 탭 닫기'에 쓰입니다")가 보이고 문제가 있으면 [적용]이 꺼진다.
+[모두 기본값으로]와 줄별 [기본값]이 되돌린다. 적용하면 `app_settings_service`가 곧바로 쓰고, 다음 frame의 단축키 표가 새 키를 쓴다(옛 키는 풀린다).
+
+### 저장소별 사용자 프로필
+
+`app_settings`에 `profiles`(이름·`user.name`·`user.email`·서명 키), `profile_rules`(폴더 접두 → 프로필), `profile_assignments`(저장소 경로 → 적용한 프로필)가 있다. 서명 키는
+프로필이 해석하지 않고 글 그대로 보관한다. 환경 설정의 "사용자 프로필" 쪽에서 프로필(추가·편집·삭제)과 규칙을 고친다. 프로필을 지우면 그것을 가리키던 규칙·적용 기록도 지운다.
+
+- **신원 읽기**: 선택된 저장소마다 한 번(그리고 15초가 지나면) `git config --show-scope --show-origin --get-regexp '^user\.(name|email|signingkey)$'`를 worker가 읽는다.
+  operation 표(workspace)를 거치지 않는다 — 읽기와 쓰기가 같은 lane(`identity:<저장소>`)에서 차례로 돌고, 결과는 relay로 `identity_loaded_intent`가 온다.
+  종료 코드 1(맞는 키 없음)은 실패가 아니라 "설정되지 않음"이다. 출력은 `domain/git_identity`가 읽는다: 마지막 값이 git이 쓰는 값이고, `scope`가 `global`인데 파일이 전역 설정 파일(`GIT_CONFIG_GLOBAL`,
+  `~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`)이 아니면 `includeIf`로 끌어온 파일이다. 경로에 역슬래시가 있으면 git이 `file:"C:\\Users\\…"`처럼 C 방식 따옴표를 씌워 풀어 읽는다.
+- **상태 줄**: `status-identity` 단추가 "작성자: 홍길동 <hong@corp.example> · 로컬"을 보인다. 이름과 이메일이 서로 다른 파일에서 왔으면 각각 말한다(`· 이름 전역 · 이메일 includeIf`).
+  이름이나 이메일이 없으면 빨간 단추다. 누르면 프로필 모드 팔레트가 열린다.
+- **적용**: `git config --local -- user.name <값>`과 `user.email`만 쓴다(`--local`을 명시하고 값이 `-`로 시작해도 옵션으로 읽히지 않게 `--`를 둔다). 전역 설정은 어디서도 쓰지 않는다.
+  성공하면 `profile_assignments`에 선택을 남기고 신원을 다시 읽는다. 적용하는 길은 환경 설정의 "현재 저장소에 적용", 팔레트의 프로필 모드, 상태 줄 단추, 제안 배너의 [적용]이다(모두 `apply_profile_intent`).
+- **제안**: 저장소를 열고 신원을 읽으면, 경로가 규칙의 폴더 아래(폴더 경계 기준, 접두가 가장 긴 규칙)이고 신원이 그 프로필과 다르면 안내 배너에 [적용] 조치를 단다. **제안만 한다 — 눌러야 쓴다.**
+  사용자가 이 저장소에 다른 프로필을 적용해 두었고 신원이 그대로 그것이면(규칙을 거스르기로 한 선택) 제안하지 않는다. 저장소마다 앱을 켜 두는 동안 한 번이다.
+- **첫 커밋 경고**: 작성자가 없거나(이름·이메일 중 하나라도) 규칙의 프로필과 다르면, 커밋 단추(또는 Ctrl+Enter)가 커밋하지 않고 안내 배너에 이유와 [프로필 적용 후 커밋]·[그대로 커밋]을 띄운다.
+  저장소마다 한 번이다(다시 커밋하면 경고 없이 커밋한다). "적용 후 커밋"은 worker가 쓰기를 마쳤다고 알리면 커밋한다. 신원을 아직 읽지 못했으면 근거가 없어 막지 않는다.
+- 안내 배너의 조치는 `notice_state::actions`다. `banner_action_intent`가 operation이 없는 조치(`apply_profile:<이름>`·`commit_apply:<이름>`·`commit_anyway`)를 `shell_controller`가 먼저 가져간다.
+
+### 알아 둘 것
+
+- 설정 키(`profiles`·`profile_rules`·`profile_assignments`·`shortcuts`·`command_history`)는 `infrastructure/json_command_settings.*`가 읽고 쓴다. 값이 없으면 키를 쓰지 않고, 알 수 없는 키는 shadow로 보존된다.
+- 텍스트 대상은 300번대(`palette_filter`·`settings_shortcut_input`·`settings_profile_*`·`settings_rule_prefix`), element kind도 300번대(`kind_palette_*`·`kind_shortcut_input`·`kind_profile_*`·`kind_command_marker`)다.
+- 팔레트의 보이는 항목이 14개라 고른 항목의 메뉴 명령(명령 뒤에 선다)은 거르기 전에는 보이지 않을 수 있다.

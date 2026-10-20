@@ -7,6 +7,7 @@
 #include "platform/win32/rebase_editor_path.h"
 #include "platform/win32/win32_diff_tool_launcher.h"
 #include "platform/win32/win32_file_probe.h"
+#include "platform/win32/win32_git_environment.h"
 #include "platform/win32/win32_process_runner.h"
 #include "platform/win32/win32_repository_watcher.h"
 #include "platform/win32/win32_settings_file_system.h"
@@ -16,6 +17,7 @@
 #include "presentation/dialog_intents.h"
 #include "presentation/diff_view_intents.h"
 #include "presentation/selector_intents.h"
+#include "presentation/settings/profiles_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/diff_webview.h"
@@ -133,6 +135,14 @@ namespace cyella::win32 {
             dependencies.workspace = workspace_.get();
             dependencies.git_version = git_tool_.reported_version;
             start_diff_view();
+            // 작성자 신원을 읽고 프로필을 저장소의 로컬 설정에 쓴다. 전역 설정 파일의 경로는 includeIf로 끌어온 파일과 가르는 데 쓴다.
+            git_identity_options identity_options {};
+            identity_options.hints.global_files = global_git_config_files();
+            identity_ = std::make_unique<git_identity_gateway>(*process_runner_, git_tool_.executable, std::move(identity_options));
+            dependencies.request_identity = [this](const std::string& repository_id, const std::u8string& path) { request_identity(repository_id, path); };
+            dependencies.apply_identity = [this](const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email) {
+                apply_identity(repository_id, path, user_name, user_email);
+            };
         }
         else
             dependencies.git_message = std::u8string { git_tool_unavailable_message(git_tool_.availability) };
@@ -201,6 +211,43 @@ namespace cyella::win32 {
             };
             sources.cancellation = source->token();
             relay->post(luil::app_message { ssh_info_loaded_intent { collect_ssh_info(sources) } });
+        };
+        static_cast<void>(scheduler_->submit(std::move(request)));
+    }
+
+    void cyella_driver::request_identity(const std::string& repository_id, const std::u8string& path)
+    {
+        if (scheduler_ == nullptr || identity_ == nullptr)
+            return;
+        // 같은 저장소의 읽기와 쓰기는 한 줄(lane)에서 차례로 돈다. 적용한 직후에 다시 읽으면 쓴 값을 읽는다.
+        auto source { std::make_shared<process_cancellation_source>() };
+        registry_.add(*source);
+        operation_request request {};
+        request.repository_key = "identity:" + repository_id;
+        request.job = [gateway = identity_.get(), source, relay = &relay_, repository_id, path](const operation_context& context) {
+            const process_cancellation_registration link {
+                context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {}
+            };
+            const git_identity_read read { gateway->read(path, source->token()) };
+            relay->post(luil::app_message { identity_loaded_intent { .repository_id = repository_id, .identity = read.identity, .ok = read.ok, .error = read.error } });
+        };
+        static_cast<void>(scheduler_->submit(std::move(request)));
+    }
+
+    void cyella_driver::apply_identity(const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email)
+    {
+        if (scheduler_ == nullptr || identity_ == nullptr)
+            return;
+        auto source { std::make_shared<process_cancellation_source>() };
+        registry_.add(*source);
+        operation_request request {};
+        request.repository_key = "identity:" + repository_id;
+        request.job = [gateway = identity_.get(), source, relay = &relay_, repository_id, path, user_name, user_email](const operation_context& context) {
+            const process_cancellation_registration link {
+                context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {}
+            };
+            const git_identity_write written { gateway->apply(path, user_name, user_email, source->token()) };
+            relay->post(luil::app_message { identity_applied_intent { .repository_id = repository_id, .ok = written.ok, .message = written.message } });
         };
         static_cast<void>(scheduler_->submit(std::move(request)));
     }
@@ -384,7 +431,8 @@ namespace cyella::win32 {
                 diff_->sides_prepared(*sides);
             else if (const auto* const external { drained.get<external_open_done_intent>() }; external != nullptr && diff_ != nullptr)
                 diff_->external_opened(*external);
-            else if (drained.get<ssh_info_loaded_intent>() != nullptr && controller_ != nullptr)
+            else if ((drained.get<ssh_info_loaded_intent>() != nullptr || drained.get<identity_loaded_intent>() != nullptr || drained.get<identity_applied_intent>() != nullptr)
+                && controller_ != nullptr)
                 static_cast<void>(controller_->handle(drained));
         });
         // 끝난 operation 뒤에 보류해 둔 새로 고침을 낸다. 한 묶음을 다 반영한 뒤라야 쓰기가 아직 줄 서 있는지 정확히 안다.

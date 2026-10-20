@@ -1,6 +1,8 @@
 #include "presentation/settings/settings_controller.h"
 
 #include "domain/ssh_connection.h"
+#include "presentation/settings/profiles_page.h"
+#include "presentation/settings/shortcuts_page.h"
 
 #include <algorithm>
 #include <utility>
@@ -99,6 +101,18 @@ namespace cyella {
             return &state.key_comment;
         case text_target::settings_test_host:
             return &state.test_host;
+        case text_target::settings_shortcut_input:
+            return state.shortcut_edit.has_value() ? &state.shortcut_edit->text : nullptr;
+        case text_target::settings_profile_name:
+            return state.profile_edit.has_value() ? &state.profile_edit->name : nullptr;
+        case text_target::settings_profile_user_name:
+            return state.profile_edit.has_value() ? &state.profile_edit->user_name : nullptr;
+        case text_target::settings_profile_user_email:
+            return state.profile_edit.has_value() ? &state.profile_edit->user_email : nullptr;
+        case text_target::settings_profile_signing_key:
+            return state.profile_edit.has_value() ? &state.profile_edit->signing_key : nullptr;
+        case text_target::settings_rule_prefix:
+            return &state.rule_draft.prefix;
         case text_target::none:
         case text_target::start_search:
         case text_target::sidebar_filter:
@@ -280,6 +294,19 @@ namespace cyella {
             }
             return true;
         }
+        // 단축키와 사용자 프로필 쪽의 메시지다 (화면이 닫힌 뒤에 늦게 온 것은 삼킨다).
+        if (is_shortcut_message(message))
+        {
+            if (state_.has_value())
+                handle_shortcut_message(message);
+            return true;
+        }
+        if (is_profile_message(message))
+        {
+            if (state_.has_value())
+                handle_profile_message(message);
+            return true;
+        }
         // 나머지는 화면이 열려 있을 때만 뜻이 있다. 닫힌 뒤에 늦게 온 메시지는 삼킨다.
         const auto settings_message = [&message]() {
             return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr
@@ -432,6 +459,15 @@ namespace cyella {
         inputs.keygen = task_of(state_->keygen_operation);
         inputs.test = task_of(state_->test_operation);
         inputs.composition = composition;
-        return build_settings_view(inputs);
+        settings_view view { build_settings_view(inputs) };
+        // 단축키와 사용자 프로필 쪽은 열려 있을 때만 짓는다.
+        if (state_->page == settings_page::shortcuts)
+            view.shortcuts = build_shortcuts_page_view(dependencies_.settings(), state_->shortcut_edit, composition);
+        else if (state_->page == settings_page::profiles)
+        {
+            const profiles_repository_inputs repository { dependencies_.repository_profile != nullptr ? dependencies_.repository_profile() : profiles_repository_inputs {} };
+            view.profiles = build_profiles_page_view(dependencies_.settings(), state_->profile_edit, state_->rule_draft, composition, repository);
+        }
+        return view;
     }
 } // namespace cyella

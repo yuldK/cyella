@@ -951,7 +951,12 @@ namespace cyella {
 
         // 안내(아직 없는 대화 상자)는 operation 배너보다 앞선다. 사용자가 방금 누른 것의 답이기 때문이다.
         if (ui.notice.has_value())
+        {
             view.banner = banner_view { .kind = banner_kind::notice, .title = u8"안내", .summary = ui.notice->text, .warning = ui.notice->warning };
+            // 프로필 제안·커밋 전 경고는 조치 단추를 달고 온다.
+            for (const notice_action& action : ui.notice->actions)
+                view.banner->actions.push_back(banner_action_view { .key = action.key, .label = action.label });
+        }
 
         if (ui.operation_log_open)
             view.log = build_log(inputs.operations);

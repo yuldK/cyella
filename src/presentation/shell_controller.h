@@ -6,6 +6,7 @@
 #include "application/git_workspace.h"
 #include "application/repository_tabs.h"
 #include "domain/app_settings.h"
+#include "domain/git_identity.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/extension_intents.h"
 #include "presentation/frame_feedback.h"
@@ -26,7 +27,9 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -66,6 +69,10 @@ namespace cyella {
             // 인증 대화 상자가 내는 백엔드 메시지(`answer_input_intent`·`cancel_input_intent`)를 처리하는 길이다. driver가
             // 자기 백엔드 처리기를 꽂는다. 비어 있으면(test) controller가 같은 일을 workspace에 바로 한다.
             std::function<void(const luil::app_message&)> send_backend_intent {};
+            // 저장소의 작성자 신원을 worker에서 읽고 `git config --local`로 쓴다. 결과는 `identity_loaded_intent`·`identity_applied_intent`로 돌아온다.
+            // 비어 있으면(test) 신원을 읽지 않고 프로필 적용도 하지 않는다.
+            std::function<void(const std::string& repository_id, const std::u8string& path)> request_identity {};
+            std::function<void(const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email)> apply_identity {};
         };
 
         explicit shell_controller(dependencies dependencies);
@@ -215,6 +222,37 @@ namespace cyella {
         void open_lfs_track_dialog(const std::string& pattern);
         void run_extension_menu_action(const menu_target& target, const std::u8string& key, const menu_context& context);
 
+        // ---- 명령 팔레트·단축키 (presentation/palette/shell_controller_palette.cpp)
+        bool handle_command_message(const luil::app_message& message);
+        // 레지스트리의 명령 하나를 실행한다 (단축키·팔레트·툴바가 같은 길이다). 지금 할 수 없는 명령은 아무 일도 하지 않는다.
+        void run_command(std::string_view id);
+        void open_palette(palette_mode mode);
+        void close_palette();
+        void pick_palette_item(const std::u8string& key);
+        void move_palette_cursor(int delta);
+        [[nodiscard]] command_availability current_availability();
+        // 고른 사이드바 항목이나 커밋의 우클릭 메뉴 대상이다 (Shift+F10과 팔레트가 같은 대상을 쓴다).
+        [[nodiscard]] std::optional<menu_target> selection_menu_target();
+        [[nodiscard]] palette_context make_palette_context(palette_mode mode);
+        [[nodiscard]] std::optional<palette_view> make_palette_view();
+        // 거르는 글이다 (IME 조합 중인 글을 포함한다).
+        [[nodiscard]] std::u8string palette_query() const;
+
+        // ---- 저장소별 사용자 프로필 (presentation/settings/shell_controller_profiles.cpp)
+        bool handle_profile_message(const luil::app_message& message);
+        // 선택된 저장소의 신원을 아직 읽지 않았으면 worker에게 읽게 한다. 규칙에 맞는 프로필이 있으면 한 번 제안한다.
+        void sync_identity();
+        void apply_profile(const std::u8string& name);
+        // 커밋 전 경고다. 신원이 없거나 규칙의 프로필과 다르면 안내를 띄우고 true(커밋하지 않는다)다. 저장소마다 한 번만 경고한다.
+        [[nodiscard]] bool warn_before_commit();
+        // 안내 배너의 프로필 조치다. 처리했으면 true다.
+        bool handle_profile_banner_action(const std::u8string& key);
+        void commit_now();
+        // 프로필 모드 팔레트와 상태 줄이 쓰는 값이다. 선택된 저장소의 신원을 읽었는가와 그 신원이다.
+        [[nodiscard]] const git_identity* selected_identity() const;
+        [[nodiscard]] std::u8string suggested_profile_name() const;
+        [[nodiscard]] std::u8string applied_profile_name() const;
+
         [[nodiscard]] std::u8string commit_label(const repository_session& session, const std::string& sha) const;
         void handle_text_edit(const luil::text_edit_request& request);
         void maybe_load_more();
@@ -277,5 +315,25 @@ namespace cyella {
         std::optional<std::u8string> clipboard_text_ {};
         std::uint64_t temporary_counter_ { 0 };
         float last_scale_ { 1.0f };
+
+        // ---- 저장소별 작성자 신원. 저장소 id가 열쇠다.
+        struct identity_entry
+        {
+            git_identity identity {};
+            // worker에게 읽기를 청했다 / 읽었다 / 실패했다.
+            bool requested { false };
+            bool loaded { false };
+            std::u8string error {};
+            // 마지막으로 읽은 시각이다. 오래되면 다시 읽는다.
+            std::chrono::steady_clock::time_point read_at {};
+        };
+        std::map<std::string, identity_entry> identities_ {};
+        // 프로필을 이미 제안한 저장소, 커밋 전 경고를 이미 보인 저장소다 (앱을 켜 두는 동안만).
+        std::set<std::string> profile_proposed_ {};
+        std::set<std::string> commit_warned_ {};
+        // 프로필을 적용하는 중인 저장소와 그 프로필 이름이다. 끝나면 적용 기록을 남긴다.
+        std::map<std::string, std::u8string> applying_profiles_ {};
+        // "프로필 적용 후 커밋"을 골랐다. 적용이 성공하면 커밋한다.
+        std::set<std::string> commit_after_apply_ {};
     };
 } // namespace cyella

@@ -10,9 +10,11 @@
 #include "domain/operation_status.h"
 #include "domain/ref.h"
 #include "domain/submodule.h"
+#include "presentation/commands/command_registry.h"
 #include "presentation/drop_hints.h"
 #include "presentation/form_view.h"
 #include "presentation/graph_geometry.h"
+#include "presentation/palette/palette_view.h"
 #include "presentation/rebase/rebase_editor_view.h"
 #include "presentation/settings/settings_view.h"
 #include "presentation/shell_layout.h"
@@ -108,6 +110,12 @@ namespace cyella {
         std::uint32_t behind { 0 };
         std::uint32_t changes { 0 };
         bool log_open { false };
+        // 선택된 저장소의 작성자 신원이다. 저장소 화면에서만 보인다. 누르면 프로필을 고르는 팔레트가 열린다.
+        bool identity_visible { false };
+        std::u8string identity_text {};
+        std::u8string identity_tooltip {};
+        // 커밋하려면 손봐야 한다 (이름이나 이메일이 없다).
+        bool identity_warning { false };
     };
 
     enum class banner_kind
@@ -439,5 +447,10 @@ namespace cyella {
         std::optional<settings_view> settings {};
         // 인터랙티브 rebase 편집기다. 열려 있을 때만 값이 있다.
         std::optional<rebase_editor_view> rebase_editor {};
+        // ---- 명령 팔레트·단축키
+        // 명령 팔레트다. 열려 있을 때만 값이 있다.
+        std::optional<palette_view> palette {};
+        // 키 처리가 읽는 단축키 표다 (기본값 + 사용자가 바꾼 값). 입력 thread의 정책은 상태를 두지 않으므로 tree에 실린다.
+        std::vector<shortcut_binding> shortcuts {};
     };
 } // namespace cyella

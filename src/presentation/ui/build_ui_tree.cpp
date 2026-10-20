@@ -2,12 +2,16 @@
 
 #include "application/app_messages.h"
 #include "presentation/dialog_intents.h"
+#include "presentation/palette/palette_intents.h"
 #include "presentation/selector_intents.h"
 #include "presentation/settings/settings_intents.h"
+#include "presentation/ui/command_elements.h"
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
+#include "presentation/ui/palette_ui.h"
 #include "presentation/ui/rebase/rebase_editor_ui.h"
+#include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/settings/settings_ui.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui/ui_parts.h"
@@ -111,6 +115,17 @@ namespace cyella::ui {
             return u8"테마";
         }
 
+        // 팔레트 단추의 툴팁이다. 지금 단축키(사용자가 바꿨을 수 있다)를 말한다.
+        std::u8string palette_tooltip(const view_snapshot& view)
+        {
+            std::vector<key_chord> chords {};
+            for (const shortcut_binding& binding : view.shortcuts)
+                if (binding.command == "palette.open")
+                    chords.push_back(binding.chord);
+            const std::u8string keys { format_key_chord_list(chords) };
+            return keys.empty() ? std::u8string { u8"명령 팔레트" } : u8"명령 팔레트 (" + keys + u8")";
+        }
+
         // ---------------------------------------------------------------- 탭 줄
 
         std::unique_ptr<luil::ui_element> build_tab_row(const view_snapshot& view)
@@ -142,6 +157,7 @@ namespace cyella::ui {
             auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"tab-row" }, luil::stack_config { .direction = luil::stack_direction::row }) };
             row->add_flexible(std::move(tab_bar));
             row->add(make_icon_button(u8"new-tab", codicons::icon_add, u8"새 탭 (시작 페이지)", message(new_tab_intent {})), tab_row_button_width);
+            row->add(make_icon_button(u8"command-palette", codicons::icon_terminal, palette_tooltip(view), message(open_palette_intent {}), true, view.palette.has_value()), tab_row_button_width);
             row->add(make_icon_button(u8"theme", codicons::icon_color_mode, theme_tooltip(view.theme), message(cycle_theme_intent {})), tab_row_button_width);
             row->add(make_icon_button(u8"settings", codicons::icon_settings_gear, u8"환경 설정", message(open_settings_intent {})), tab_row_button_width);
             row->add_gap(4.0f);
@@ -387,6 +403,15 @@ namespace cyella::ui {
             }
             if (status.queued_count > 0)
                 row->add(make_text(u8"status-queued", u8"쓰기 대기 " + number_text(status.queued_count), text_style { .size = 11.0f, .color = dim }), 80.0f);
+            // 이 저장소가 커밋에 쓰는 작성자와 출처다. 누르면 프로필을 고르는 팔레트가 열린다.
+            if (status.identity_visible && view.logical_width >= medium_layout_minimum_width)
+            {
+                const float width { std::min({ 460.0f, view.logical_width * 0.3f, estimate_text_width(status.identity_text, 11.0f) + 44.0f }) };
+                const luil::text_button_visual visual { status.identity_warning ? luil::text_button_visual::danger : luil::text_button_visual::normal };
+                auto identity { make_text_button(u8"status-identity", status.identity_text, visual, message(open_palette_intent { palette_mode::profiles }), true, codicons::icon_person) };
+                identity->set_tooltip(status.identity_tooltip);
+                row->add(std::move(identity), { .length = width, .cross_length = 20.0f });
+            }
             if (status.repository && view.logical_width >= medium_layout_minimum_width)
             {
                 row->add(make_text(u8"status-branch", status.branch_text, text_style { .size = 11.0f, .color = dim, .align = 2 }), 150.0f);
@@ -580,8 +605,13 @@ namespace cyella::ui {
         // 인터랙티브 rebase 편집기다. 인증 질문·확인 상자는 그 위에 선다.
         if (view.rebase_editor.has_value())
             root->place(build_rebase_editor(*view.rebase_editor, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
+        // 명령 팔레트는 설정 화면 위, 확인·인증 상자 아래에 선다.
+        if (view.palette.has_value())
+            root->place(build_palette_dialog(*view.palette, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         if (view.form.has_value())
             root->place(build_form_dialog(*view.form, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
+        // 키 처리가 읽는 단축키 표다. 보이지 않는 1x1 표식이다 (빈 사각형은 놓지 않으므로 크기를 준다).
+        root->place(std::make_unique<shortcut_table_element>(view.shortcuts), { 0.0f, 0.0f, 1.0f, 1.0f });
 
         built_tree built {};
         if (view.menu.has_value())

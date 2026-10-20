@@ -2,6 +2,7 @@
 
 #include "domain/path_syntax.h"
 #include "domain/repository_path.h"
+#include "infrastructure/json_command_settings.h"
 
 #include <nlohmann/json.hpp>
 
@@ -480,6 +481,9 @@ namespace cyella {
         else
             root.erase("window");
 
+        // 프로필·단축키·명령 기록이다. 새 키는 이 한 줄 뒤에 덧붙인다.
+        serialize_command_settings(settings, root);
+
         // 잘못된 UTF-8이 들어와도 던지지 않고 대체 문자로 쓴다. 저장이 예외로 죽는 것보다 낫다.
         return format_json_bytes(root.dump(4, ' ', false, json::error_handler_t::replace));
     }
@@ -509,6 +513,7 @@ namespace cyella {
         result.settings.window = parse_window(root, result);
         parse_ui(root, result);
         parse_diff(root, result);
+        parse_command_settings(root, result);
         return result;
     }
 

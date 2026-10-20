@@ -18,6 +18,7 @@
 #include "domain/git_tool.h"
 #include "infrastructure/diff_temp_directory.h"
 #include "infrastructure/git_diff_gateway.h"
+#include "infrastructure/git_identity_gateway.h"
 #include "infrastructure/git_operation_runner.h"
 #include "infrastructure/json_app_settings_store.h"
 #include "infrastructure/ssh_info.h"
@@ -151,6 +152,9 @@ namespace cyella::win32 {
         void flush_pending_refreshes();
         // 환경 설정 SSH 화면의 agent·키 목록을 worker에게 읽게 한다.
         void request_ssh_info();
+        // 저장소의 작성자 신원을 worker가 읽게 하고, 프로필을 `git config --local`로 쓰게 한다. 결과는 relay로 돌아온다.
+        void request_identity(const std::string& repository_id, const std::u8string& path);
+        void apply_identity(const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email);
         // 웹뷰가 보여야 할 diff를 맞추고, 쌓인 안내를 화면에 올린다.
         void sync_diff_view();
 
@@ -186,6 +190,8 @@ namespace cyella::win32 {
         std::unique_ptr<git_diff_gateway> diff_gateway_ {};
         std::unique_ptr<diff_tool_launcher> diff_launcher_ {};
         std::unique_ptr<external_diff_opener> diff_opener_ {};
+        // 작성자 신원 읽기·쓰기다. scheduler worker가 쓰므로 scheduler 뒤에 둔다.
+        std::unique_ptr<git_identity_gateway> identity_ {};
         std::unique_ptr<diff_view_coordinator> diff_ {};
         // 저장소마다 `file_diff_loaded`가 온 횟수다. 같은 요청을 다시 읽어 왔는지(stage 뒤) 알아내는 데 쓴다.
         std::map<std::string, std::uint64_t> diff_serials_ {};

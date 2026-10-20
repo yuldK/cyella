@@ -440,6 +440,62 @@ cyella_add_source_filter(cyella_lib_files "platform/host"
     platform/win32/cyella_driver.cpp
     platform/win32/cyella_driver.h)
 
+# 저장소별 사용자 프로필, 명령 팔레트, 단축키 설정이다. 새 파일은 이 블록에 모은다.
+cyella_add_source_filter(cyella_lib_files "domain/profiles"
+    domain/git_identity.cpp
+    domain/git_identity.h
+    domain/hangul_search.cpp
+    domain/hangul_search.h
+    domain/user_profile.cpp
+    domain/user_profile.h)
+
+cyella_add_source_filter(cyella_lib_files "infrastructure/profiles"
+    infrastructure/git_identity_gateway.cpp
+    infrastructure/git_identity_gateway.h
+    infrastructure/json_command_settings.cpp
+    infrastructure/json_command_settings.h)
+
+cyella_add_source_filter(cyella_lib_files "presentation/commands"
+    presentation/commands/command_intents.h
+    presentation/commands/command_registry.cpp
+    presentation/commands/command_registry.h
+    presentation/commands/key_chord.cpp
+    presentation/commands/key_chord.h)
+
+cyella_add_source_filter(cyella_lib_files "presentation/palette"
+    presentation/palette/palette_intents.h
+    presentation/palette/palette_model.cpp
+    presentation/palette/palette_model.h
+    presentation/palette/palette_state.h
+    presentation/palette/palette_view.h
+    presentation/palette/shell_controller_palette.cpp)
+
+# 환경 설정의 단축키·사용자 프로필 쪽: 상태·snapshot·메시지와 controller 처리, 그리고 저장소별 프로필을 shell_controller에 잇는 부분이다.
+cyella_add_source_filter(cyella_lib_files "presentation/settings/profiles"
+    presentation/settings/profiles_intents.h
+    presentation/settings/profiles_page.cpp
+    presentation/settings/profiles_page.h
+    presentation/settings/settings_controller_profiles.cpp
+    presentation/settings/settings_controller_shortcuts.cpp
+    presentation/settings/shell_controller_profiles.cpp
+    presentation/settings/shortcuts_intents.h
+    presentation/settings/shortcuts_page.cpp
+    presentation/settings/shortcuts_page.h)
+
+cyella_add_source_filter(cyella_lib_files "platform/identity"
+    platform/win32/win32_git_environment.cpp
+    platform/win32/win32_git_environment.h)
+
+cyella_add_source_filter(cyella_lib_files "presentation/ui/palette"
+    presentation/ui/command_elements.cpp
+    presentation/ui/command_elements.h
+    presentation/ui/palette_ui.cpp
+    presentation/ui/palette_ui.h
+    presentation/ui/settings/profiles_ui.cpp
+    presentation/ui/settings/settings_page_parts.h
+    presentation/ui/settings/settings_pages_ui.h
+    presentation/ui/settings/shortcuts_ui.cpp)
+
 add_library(cyella_lib STATIC ${cyella_lib_files})
 target_include_directories(cyella_lib
     PUBLIC

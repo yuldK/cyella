@@ -3,6 +3,7 @@
 #include "application/app_messages.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/settings/settings_pages_ui.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
@@ -20,7 +21,7 @@ namespace cyella::ui {
         constexpr float dialog_maximum_width { 900.0f };
         constexpr float dialog_maximum_height { 700.0f };
         constexpr float dialog_margin { 24.0f };
-        constexpr float navigation_width { 150.0f };
+        constexpr float navigation_width { 170.0f };
         constexpr float content_padding { 16.0f };
         constexpr float banner_height { 34.0f };
         constexpr float footer_height { 26.0f };
@@ -457,6 +458,8 @@ namespace cyella::ui {
             entry(u8"settings-page-general", u8"일반", settings_page::general, codicons::icon_settings_gear);
             entry(u8"settings-page-diff-tools", u8"diff", settings_page::diff_tools, codicons::icon_diff);
             entry(u8"settings-page-ssh", u8"SSH", settings_page::ssh, codicons::icon_key);
+            entry(u8"settings-page-profiles", u8"사용자 프로필", settings_page::profiles, codicons::icon_person);
+            entry(u8"settings-page-shortcuts", u8"단축키", settings_page::shortcuts, codicons::icon_keyboard);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-navigation-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; } }, std::move(column));
         }
@@ -512,6 +515,20 @@ namespace cyella::ui {
             break;
         case settings_page::ssh:
             build_ssh(page, view);
+            break;
+        case settings_page::profiles:
+            if (view.profiles.has_value())
+            {
+                built_settings_page built { build_profiles_page(*view.profiles) };
+                page.add(std::move(built.content), built.height);
+            }
+            break;
+        case settings_page::shortcuts:
+            if (view.shortcuts.has_value())
+            {
+                built_settings_page built { build_shortcuts_page(*view.shortcuts) };
+                page.add(std::move(built.content), built.height);
+            }
             break;
         }
         luil::scroll_area_config scroll {};

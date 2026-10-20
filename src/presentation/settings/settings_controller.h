@@ -44,6 +44,8 @@ namespace cyella {
             std::u8string default_key_comment {};
             bool ssh_tools_found { false };
             std::u8string ssh_tools_origin {};
+            // 사용자 프로필 쪽이 보이는 선택된 저장소의 값이다. 비어 있으면 저장소가 없는 것으로 본다.
+            std::function<profiles_repository_inputs()> repository_profile {};
         };
 
         explicit settings_controller(dependencies dependencies);
@@ -83,6 +85,12 @@ namespace cyella {
         void test_ssh_connection();
         void copy_public_key(const std::u8string& name);
         [[nodiscard]] ssh_task_input task_of(operation_id id) const;
+
+        // ---- 단축키 쪽 (settings_controller_shortcuts.cpp)과 사용자 프로필 쪽 (settings_controller_profiles.cpp)
+        [[nodiscard]] static bool is_shortcut_message(const luil::app_message& message);
+        void handle_shortcut_message(const luil::app_message& message);
+        [[nodiscard]] static bool is_profile_message(const luil::app_message& message);
+        void handle_profile_message(const luil::app_message& message);
 
         dependencies dependencies_ {};
         std::optional<settings_state> state_ {};

@@ -151,6 +151,15 @@ cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"
     git_test_support.h
     temp_directory_tests.cpp)
 
+# 명령 팔레트·프로필: 퍼지 일치(초성 검색), 명령 레지스트리·단축키, 팔레트 모델, 사용자 프로필과 git 신원이다.
+cyella_add_source_filter(cyella_test_files "palette"
+    command_registry_tests.cpp
+    git_identity_integration_tests.cpp
+    hangul_search_tests.cpp
+    palette_model_tests.cpp
+    user_profile_tests.cpp
+    palette_profile_shell_tests.cpp)
+
 add_executable(cyella_tests ${cyella_test_files})
 # test가 도우미를 먼저 빌드하게 하고, 경로는 생성 시점의 target 파일로 받는다.
 add_dependencies(cyella_tests cyella_test_child cyella_askpass cyella_rebase_editor)

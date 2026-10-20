@@ -18,6 +18,35 @@ namespace cyella {
         general,
         diff_tools,
         ssh,
+        // 새 쪽은 끝에 덧붙인다.
+        profiles,
+        shortcuts,
+    };
+
+    // 단축키 하나를 고치는 중이다. 입력 칸의 글은 ` / `로 이은 정규 표기(`Ctrl+Shift+P / Ctrl+P`)다. 실제 키를 누르면 그 키로 바뀌고,
+    // 손으로 쳐도 된다 (보조 기술은 칸에 글을 넣는다).
+    struct shortcut_edit_state
+    {
+        std::string command {};
+        luil::text::text_edit_state text {};
+    };
+
+    // 사용자 프로필 한 줄을 고치는 중이다.
+    struct profile_edit_state
+    {
+        // 표에서 고치는 줄이다. 값이 없으면 새로 더하는 줄이다.
+        std::optional<std::size_t> index {};
+        luil::text::text_edit_state name {};
+        luil::text::text_edit_state user_name {};
+        luil::text::text_edit_state user_email {};
+        luil::text::text_edit_state signing_key {};
+    };
+
+    // 프로필 적용 규칙을 더하는 입력이다 (폴더 접두와 고른 프로필).
+    struct profile_rule_draft
+    {
+        luil::text::text_edit_state prefix {};
+        std::u8string profile {};
     };
 
     // 외부 diff 도구 한 줄을 고치는 중이다.
@@ -55,6 +84,11 @@ namespace cyella {
         // `~/.ssh`와 agent 조회 결과다. 열거나 [새로고침]을 누를 때 worker가 읽어 온다.
         std::optional<ssh_info_snapshot> ssh {};
         bool ssh_loading { false };
+
+        // 단축키 쪽에서 고치는 중인 명령과, 사용자 프로필 쪽의 고치는 줄·규칙 입력이다.
+        std::optional<shortcut_edit_state> shortcut_edit {};
+        std::optional<profile_edit_state> profile_edit {};
+        profile_rule_draft rule_draft {};
 
         // 화면 아래의 한 줄 안내다 (공개 키를 복사했다 등).
         std::u8string message {};

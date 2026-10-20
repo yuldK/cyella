@@ -28,5 +28,12 @@ namespace cyella::ui {
         // 인터랙티브 rebase 편집기의 키다. 편집기의 키가 아니면 값이 없다.
         [[nodiscard]] static std::optional<std::vector<luil::input_action>> rebase_editor_key(
             const luil::ui_tree* tree, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot);
+        // 명령 팔레트의 거르는 칸에서 ↑↓로 커서를 옮기고 Enter로 커서 항목을 고른다.
+        [[nodiscard]] static std::optional<std::vector<luil::input_action>> palette_key(const luil::ui_tree* tree, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot);
+        // 환경 설정의 단축키 입력 칸이다. 누른 키 조합이 칸의 글이 되고(Ctrl·Alt 조합이나 기능 키), Enter는 적용이다.
+        [[nodiscard]] static std::optional<std::vector<luil::input_action>> shortcut_capture_key(const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot);
+        // 단축키 표(`shortcut_table_element`, 없으면 레지스트리의 기본값)로 명령을 찾아 낸다. 맞는 단축키가 없으면 값이 없다.
+        [[nodiscard]] static std::optional<std::vector<luil::input_action>> registered_shortcut(
+            const luil::ui_tree* tree, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot);
     };
 } // namespace cyella::ui

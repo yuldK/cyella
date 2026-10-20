@@ -699,12 +699,20 @@ namespace cyella {
 
     void shell_controller::open_menu_for_selection()
     {
-        repository_session* const session { selected_session() };
-        tab_ui_state* const tab { selected_tab_state() };
-        if (session == nullptr || tab == nullptr)
+        std::optional<menu_target> target { selection_menu_target() };
+        if (target.has_value() == false)
             return;
         const float x { (ui_.sidebar_width + 48.0f) * last_scale_ };
         const float y { 140.0f * last_scale_ };
+        open_context_menu(std::move(*target), x, y);
+    }
+
+    std::optional<menu_target> shell_controller::selection_menu_target()
+    {
+        repository_session* const session { selected_session() };
+        tab_ui_state* const tab { selected_tab_state() };
+        if (session == nullptr || tab == nullptr)
+            return std::nullopt;
         const repository_snapshot& snapshot { session->snapshot() };
         const std::string key { to_text(tab->selected_sidebar_key) };
         menu_target target {};
@@ -714,7 +722,7 @@ namespace cyella {
             const std::string name { key.substr(key.find(':') + 1) };
             const ref* const value { find_ref(snapshot, kind, name) };
             if (value == nullptr)
-                return;
+                return std::nullopt;
             target.kind = kind == ref_kind::local ? menu_target_kind::local_branch : kind == ref_kind::remote ? menu_target_kind::remote_branch : menu_target_kind::tag;
             target.name = name;
             target.sha = value->target_sha;
@@ -731,8 +739,8 @@ namespace cyella {
             target.sha = tab->selected_sha;
         }
         else
-            return;
-        open_context_menu(std::move(target), x, y);
+            return std::nullopt;
+        return target;
     }
 
     void shell_controller::handle_menu_select(const std::u8string& key)
@@ -1289,6 +1297,9 @@ namespace cyella {
 
     void shell_controller::handle_banner_action(const banner_action_intent& intent)
     {
+        // 프로필 제안과 커밋 전 경고의 조치는 operation이 아니라 안내 배너에 달려 있다.
+        if (handle_profile_banner_action(intent.key))
+            return;
         git_workspace* const workspace { dependencies_.workspace };
         tab_ui_state* const tab { selected_tab_state() };
         if (workspace == nullptr)

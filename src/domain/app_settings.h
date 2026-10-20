@@ -1,10 +1,12 @@
 #pragma once
 
 #include "domain/external_diff_tool.h"
+#include "domain/user_profile.h"
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -116,9 +118,22 @@ namespace cyella {
         std::optional<window_placement> window {};
         ui_settings ui {};
         diff_settings diff {};
+        // ---- 새 필드는 끝에 덧붙인다.
+        // 저장소별 사용자 프로필(이름·user.name·user.email·서명 키)과, 열 때 프로필을 제안하는 경로 규칙, 적용해 둔 선택이다.
+        std::vector<user_profile> profiles {};
+        std::vector<profile_rule> profile_rules {};
+        std::vector<profile_assignment> profile_assignments {};
+        // 기본값에서 바꾼 단축키다. 명령 id → 정규 표기(`Ctrl+Shift+P`) 목록이고, 목록이 비면 "키 없음"이다. 없는 id는 기본값을 쓴다.
+        std::map<std::string, std::vector<std::u8string>> shortcuts {};
+        // 명령 팔레트에서 쓴 명령의 id다. 가장 최근 것이 앞이고 순위 매기기에 쓴다.
+        std::vector<std::string> command_history {};
 
         [[nodiscard]] bool operator==(const app_settings&) const noexcept = default;
     };
+
+    // 명령 팔레트에서 쓴 명령을 기억한다. 가장 최근 것이 앞에 오고 중복은 하나로 합치며 상한을 넘으면 오래된 것부터 버린다.
+    inline constexpr std::size_t command_history_capacity { 30 };
+    void record_command_use(app_settings& settings, std::string_view command);
 
     // 최근 항목을 자기 무리(고정·비고정)의 맨 앞으로 올린다. 같은 저장소가 있으면 경로 표기와
     // 시각을 갱신하고 **고정 여부는 보존한다** — 고정한 저장소를 다시 열었다고 고정이 풀리면
