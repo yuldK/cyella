@@ -20,7 +20,7 @@ namespace cyella::ui {
     inline constexpr float file_row_height { 24.0f };
     inline constexpr float diff_row_height { 18.0f };
     inline constexpr float log_row_height { 20.0f };
-    inline constexpr float start_row_height { 44.0f };
+    inline constexpr float start_row_height { 56.0f };
 
     // 사이드바 행이다. 브랜치 행은 두 번 누르면 체크아웃이고 우클릭하면 메뉴이며 끌어서 다른 브랜치·커밋에 놓을 수 있어,
     // 그 행만 스스로 누름을 받는다 — 목록 행에는 두 번 누름·우클릭·끌기 자리가 없다. 그래서 한 번 누름도 같은 고르기

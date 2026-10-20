@@ -101,6 +101,10 @@ namespace cyella {
         {
         case text_target::settings_git_path:
             return &state.git_path;
+        case text_target::settings_ui_font:
+            return &state.ui_font;
+        case text_target::settings_code_font:
+            return &state.code_font;
         case text_target::settings_tool_extensions:
             return state.tool_edit.has_value() ? &state.tool_edit->extensions : nullptr;
         case text_target::settings_tool_executable:
@@ -156,6 +160,8 @@ namespace cyella {
         settings_state state {};
         state.page = page;
         set_text(state.git_path, dependencies_.settings().git_executable);
+        set_text(state.ui_font, dependencies_.settings().appearance.ui_font);
+        set_text(state.code_font, dependencies_.settings().appearance.code_font);
         state.suggested_key_name = std::u8string { default_key_name };
         set_text(state.key_name, state.suggested_key_name);
         set_text(state.key_comment, dependencies_.default_key_comment);
@@ -338,6 +344,9 @@ namespace cyella {
         }
         // 나머지는 화면이 열려 있을 때만 뜻이 있다. 닫힌 뒤에 늦게 온 메시지는 삼킨다.
         const auto settings_message = [&message]() {
+            if (message.get<apply_font_settings_intent>() != nullptr || message.get<select_font_intent>() != nullptr || message.get<open_font_list_intent>() != nullptr
+                || message.get<close_font_list_intent>() != nullptr || message.get<font_list_scroll_intent>() != nullptr)
+                return true;
             return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr
                 || message.get<set_gravatar_intent>() != nullptr || message.get<apply_git_path_intent>() != nullptr || message.get<reset_git_path_intent>() != nullptr
                 || message.get<add_tool_intent>() != nullptr || message.get<edit_tool_intent>() != nullptr || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr
@@ -354,6 +363,7 @@ namespace cyella {
         if (const auto* const page_intent { message.get<select_settings_page_intent>() }; page_intent != nullptr)
         {
             state.page = page_intent->page;
+            state.font_list.reset();
             state.scroll = 0.0f;
             state.message.clear();
             if ((page_intent->page == settings_page::ssh || page_intent->page == settings_page::signing) && state.ssh.has_value() == false && state.ssh_loading == false)
@@ -372,6 +382,36 @@ namespace cyella {
         {
             const theme_preference theme { theme_intent->theme };
             update_settings([theme](app_settings& settings) { settings.appearance.theme = theme; });
+        }
+        else if (const auto* const opened { message.get<open_font_list_intent>() }; opened != nullptr)
+        {
+            state.font_list = opened->list;
+            state.font_scroll = 0.0f;
+        }
+        else if (const auto* const font_scroll { message.get<font_list_scroll_intent>() }; font_scroll != nullptr)
+            state.font_scroll = std::max(0.0f, font_scroll->absolute ? font_scroll->value : state.font_scroll + font_scroll->value);
+        else if (message.get<close_font_list_intent>() != nullptr)
+            state.font_list.reset();
+        else if (const auto* const selected { message.get<select_font_intent>() }; selected != nullptr)
+        {
+            const std::u8string family { trimmed(selected->family) };
+            set_text(selected->code ? state.code_font : state.ui_font, family);
+            update_settings([code = selected->code, &family](app_settings& settings) { (code ? settings.appearance.code_font : settings.appearance.ui_font) = family; });
+            state.font_list.reset();
+            state.message = u8"글꼴을 적용했습니다.";
+        }
+        else if (message.get<apply_font_settings_intent>() != nullptr)
+        {
+            const std::u8string ui_family { trimmed(state.ui_font.text) };
+            const std::u8string code_family { trimmed(state.code_font.text) };
+            update_settings([&](app_settings& settings) {
+                settings.appearance.ui_font = ui_family;
+                settings.appearance.code_font = code_family;
+            });
+            set_text(state.ui_font, ui_family);
+            set_text(state.code_font, code_family);
+            state.font_list.reset();
+            state.message = u8"글꼴을 적용했습니다.";
         }
         else if (const auto* const gravatar_intent { message.get<set_gravatar_intent>() }; gravatar_intent != nullptr)
         {

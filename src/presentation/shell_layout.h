@@ -33,7 +33,7 @@ namespace cyella {
     inline constexpr float wide_layout_minimum_width { 1200.0f };
     inline constexpr float medium_layout_minimum_width { 760.0f };
     inline constexpr float toolbar_label_minimum_width { 960.0f };
-    inline constexpr float repository_selector_minimum_width { 480.0f };
+    inline constexpr float repository_selector_minimum_width { 760.0f };
 
     [[nodiscard]] layout_mode select_layout_mode(float logical_width) noexcept;
     // 툴바 단추 아래의 글자를 보이는가. 960px 아래에서는 아이콘만 남긴다.

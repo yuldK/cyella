@@ -242,6 +242,17 @@ namespace cyella {
         bool tree { false };
     };
 
+    struct set_working_files_view_intent
+    {
+        bool tree { false };
+    };
+
+    struct commit_body_line_intent
+    {
+        bool down { false };
+        bool extend { false };
+    };
+
     // 변경 파일 트리의 폴더를 접거나 편다. `path`는 끝에 `/`가 없는 폴더 경로다.
     struct toggle_file_folder_intent
     {

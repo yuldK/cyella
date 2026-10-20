@@ -5,6 +5,7 @@
 #include "presentation/ui/diff_special_card.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
+#include "presentation/ui/segmented_control.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
@@ -51,7 +52,7 @@ namespace cyella::ui {
             config.items = { { u8"inline", u8"Inline" }, { u8"split", u8"좌우 분할" } };
             config.selected = surface.layout == diff_layout::split ? u8"split" : u8"inline";
             config.select = [](const std::u8string& value) { return message(set_diff_layout_intent { value == u8"split" ? diff_layout::split : diff_layout::inline_view }); };
-            return std::make_unique<luil::choice_group_element>(std::move(config));
+            return make_segmented_control(std::move(config));
         }
 
         std::unique_ptr<luil::ui_element> image_mode_toggle(const diff_surface_state& surface)
@@ -81,7 +82,7 @@ namespace cyella::ui {
                     mode = image_compare_mode::swipe;
                 return message(set_diff_image_mode_intent { mode });
             };
-            return std::make_unique<luil::choice_group_element>(std::move(config));
+            return make_segmented_control(std::move(config));
         }
 
         std::unique_ptr<luil::ui_element> build_header(const diff_panel_view& diff)

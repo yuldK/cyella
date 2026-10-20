@@ -672,10 +672,13 @@ namespace cyella::win32 {
             // 앱 테마를 웹뷰의 CSS 변수로 옮긴다. 테마가 바뀌면 `set_theme` 한 통만 간다.
             // 팔레트를 만들고 CSS 변수로 옮기는 일은 선택된 테마가 바뀔 때만 한다 (frame마다 문자열 수십 개를 짓지 않는다).
             const luil::color_theme theme { luil::resolve_color_theme(to_luil_theme(controller_->settings().appearance.theme), high_contrast_enabled(), system_prefers_light_theme()) };
-            if (diff_theme_source_.has_value() == false || *diff_theme_source_ != theme)
+            const appearance_settings& appearance { controller_->settings().appearance };
+            if (diff_theme_source_.has_value() == false || *diff_theme_source_ != theme || diff_ui_font_ != appearance.ui_font || diff_code_font_ != appearance.code_font)
             {
                 diff_theme_source_ = theme;
-                diff_theme_ = ui::make_diff_theme(luil::color_palette_for(theme));
+                diff_ui_font_ = appearance.ui_font;
+                diff_code_font_ = appearance.code_font;
+                diff_theme_ = ui::make_diff_theme(luil::color_palette_for(theme), appearance.ui_font, appearance.code_font);
             }
             diff_->controller().set_theme(diff_theme_);
             // 환경 설정의 기본 보기가 바뀌면 열려 있는 diff도 그 보기로 바꾼다. diff 머리의 전환 단추는 그 diff 하나만 바꾼다.
@@ -709,7 +712,13 @@ namespace cyella::win32 {
             shown.height = popup.height;
             shown.tree = std::move(popup.tree);
             // 바깥을 누르거나 Esc·휠·창 이동이면 닫는다. 닫는 것은 상태(`ui_state::menu`)이고 popup은 다음 frame에 빠진다.
-            if (popup.selector)
+            if (popup.font)
+                shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
+                    if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
+                        return luil::input_action {};
+                    return luil::make_app_action(close_font_list_intent {});
+                };
+            else if (popup.selector)
                 // 거르는 칸이 있는 목록이다. 폴더 대화 상자를 열거나 다른 창을 보느라 창 활성이 바뀌어도 남는다 (luil의 검색 popup 규약).
                 shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
                     if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
@@ -721,6 +730,8 @@ namespace cyella::win32 {
             frame->popups.push_back(std::move(shown));
         }
         frame->appearance.theme = to_luil_theme(view.theme);
+        frame->fonts.ui_family = controller_->settings().appearance.ui_font;
+        frame->fonts.code_family = controller_->settings().appearance.code_font;
 
         // 웹뷰는 한 번 필요해진 뒤로 계속 싣는다. 빼면 luil이 웹뷰를 닫아 페이지 상태가 날아간다. 자리표(webview_element)가
         // tree에 없는 동안은 luil이 숨겨 둔다.

@@ -501,7 +501,14 @@ namespace cyella::ui {
             x += width;
         };
         column(u8"브랜치/태그", columns_.refs * scale);
-        column(u8"그래프", columns_.graph * scale);
+        const float graph_width { columns_.graph * scale };
+        if (graph_width >= luil::measure_text(u8"그래프", font) + padding * 2.0f)
+            column(u8"그래프", graph_width);
+        else
+        {
+            luil::draw_centered_glyph(context.canvas, codicons::icon_git_commit, { x, box.y, graph_width, box.height }, icon_font(context, 13.0f), dim);
+            x += graph_width;
+        }
         column(u8"커밋 메시지", summary);
         if (columns_.compact == false)
         {

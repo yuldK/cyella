@@ -3,6 +3,13 @@
 #include "luil/ui/ui_element_id.h"
 
 namespace cyella::ui {
+    inline constexpr luil::ui_element_kind kind_segmented { luil::application_element_kind(600) };
+    inline constexpr luil::ui_element_kind kind_segment { luil::application_element_kind(601) };
+    inline constexpr luil::ui_element_kind kind_settings_section { luil::application_element_kind(602) };
+    inline constexpr luil::ui_element_kind kind_theme_option { luil::application_element_kind(603) };
+    inline constexpr luil::ui_element_kind kind_font_combo { luil::application_element_kind(604) };
+    inline constexpr luil::ui_element_kind kind_ui_font_input { luil::application_element_kind(605) };
+    inline constexpr luil::ui_element_kind kind_code_font_input { luil::application_element_kind(606) };
     // cyella element의 kind다. luil이 정하지 않은 앱 kind는 여기 한 곳에만 둔다. UI 자동화는 kind 숫자가 아니라
     // owner 이름으로 요소를 찾으므로(UI Automation), owner를 화면 안에서 유일하게 짓는다.
     inline constexpr luil::ui_element_kind kind_layout { luil::application_element_kind(0) };

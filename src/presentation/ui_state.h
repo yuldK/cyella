@@ -66,6 +66,8 @@ namespace cyella {
         settings_signing_gpg_program = 400,
         settings_signing_ssh_program,
         settings_signing_allowed_signers,
+        settings_ui_font = 600,
+        settings_code_font,
     };
 
     // 사이드바 구역이다. 순서가 곧 화면 순서다.
@@ -240,6 +242,7 @@ namespace cyella {
         const bool signing { value >= static_cast<std::uint32_t>(text_target::settings_signing_gpg_program) && value <= static_cast<std::uint32_t>(text_target::settings_signing_allowed_signers) };
         const bool hosting { value >= static_cast<std::uint32_t>(text_target::settings_hosting_host) && value <= static_cast<std::uint32_t>(text_target::settings_hosting_api_base) };
         const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_rule_prefix) };
-        return basic || form || rebase || selector || hosting || commands || signing ? static_cast<text_target>(value) : text_target::none;
+        const bool fonts { value >= static_cast<std::uint32_t>(text_target::settings_ui_font) && value <= static_cast<std::uint32_t>(text_target::settings_code_font) };
+        return basic || form || rebase || selector || hosting || commands || signing || fonts ? static_cast<text_target>(value) : text_target::none;
     }
 } // namespace cyella

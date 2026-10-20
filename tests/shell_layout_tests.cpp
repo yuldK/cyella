@@ -15,12 +15,12 @@ TEST_CASE("layout mode follows the window width breakpoints", "[presentation][la
     CHECK(select_layout_mode(390.0f) == layout_mode::narrow);
 }
 
-TEST_CASE("toolbar drops labels below 960 and the repository selector below 480", "[presentation][layout]")
+TEST_CASE("toolbar drops labels below 960 and the repository selector below 760", "[presentation][layout]")
 {
     CHECK(toolbar_shows_labels(960.0f));
     CHECK_FALSE(toolbar_shows_labels(959.0f));
-    CHECK(toolbar_shows_repository_selector(480.0f));
-    CHECK_FALSE(toolbar_shows_repository_selector(479.0f));
+    CHECK(toolbar_shows_repository_selector(760.0f));
+    CHECK_FALSE(toolbar_shows_repository_selector(759.0f));
 }
 
 TEST_CASE("wide layout places sidebar, graph and detail side by side", "[presentation][layout]")

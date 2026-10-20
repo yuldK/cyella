@@ -50,6 +50,9 @@ namespace cyella {
     struct appearance_settings
     {
         theme_preference theme { theme_preference::system };
+        // 빈 이름은 플랫폼 기본 글꼴이다. 없는 이름도 설정에는 남기고 표시만 기본으로 되돌린다.
+        std::u8string ui_font {};
+        std::u8string code_font {};
         // 커밋 작성자 사진을 Gravatar에서 받는다. 켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 가므로 기본은 꺼짐이고,
         // 꺼져 있거나 사진이 없으면 이름 첫 글자 동그라미다.
         bool gravatar { false };
@@ -87,6 +90,7 @@ namespace cyella {
         pane_widths_settings pane_widths {};
         // 커밋 상세의 변경 파일을 폴더 트리로 본다. 거짓이면 경로 목록이다 (`commit_files_view`: list·tree).
         bool commit_files_tree { false };
+        bool working_files_tree { false };
 
         [[nodiscard]] bool operator==(const ui_settings&) const noexcept = default;
     };

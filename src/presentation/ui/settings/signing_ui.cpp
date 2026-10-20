@@ -3,6 +3,7 @@
 #include "application/app_messages.h"
 #include "presentation/settings/signing_intents.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/segmented_control.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
@@ -20,15 +21,13 @@ namespace cyella::ui {
         constexpr float table_effective_width { 128.0f };
         constexpr float table_origin_width { 66.0f };
         constexpr float table_row_height { 22.0f };
-        constexpr float choice_width { 330.0f };
 
         std::unique_ptr<luil::ui_element> cell(std::u8string owner, std::u8string text, const bool bold = false, const bool code = false)
         {
             return make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .color = bold ? color_selector {} : dim, .bold = bold, .code = code });
         }
 
-        std::unique_ptr<luil::ui_element> choice_row(
-            std::u8string owner, std::u8string name, std::vector<luil::choice_item> items, std::u8string selected, luil::choice_message_factory select, const float width)
+        std::unique_ptr<luil::ui_element> choice_row(std::u8string owner, std::u8string name, std::vector<luil::choice_item> items, std::u8string selected, luil::choice_message_factory select)
         {
             luil::choice_group_config config {};
             config.owner = owner;
@@ -38,7 +37,7 @@ namespace cyella::ui {
             config.selected = std::move(selected);
             config.select = std::move(select);
             auto row { make_row(owner + u8"-row") };
-            row->add(std::make_unique<luil::choice_group_element>(std::move(config)), { .length = width, .cross_length = luil::choice_toggle_height });
+            row->add_flexible(make_segmented_control(std::move(config)));
             return row;
         }
 
@@ -59,9 +58,8 @@ namespace cyella::ui {
             if (view.repository)
                 scopes.push_back({ u8"local", u8"이 저장소" });
             scopes.push_back({ u8"global", u8"전역" });
-            page.add(choice_row(
-                         u8"settings-signing-scope", u8"서명 설정을 바꿀 범위", std::move(scopes), view.global_scope ? u8"global" : u8"local",
-                         [](const std::u8string& value) { return message(select_signing_scope_intent { value == u8"global" }); }, 220.0f),
+            page.add(choice_row(u8"settings-signing-scope", u8"서명 설정을 바꿀 범위", std::move(scopes), view.global_scope ? u8"global" : u8"local",
+                         [](const std::u8string& value) { return message(select_signing_scope_intent { value == u8"global" }); }),
                 input_height);
             if (view.repository)
                 page.add(code_line(u8"settings-signing-repository", u8"이 저장소: " + view.repository_path), line_height);
@@ -149,17 +147,15 @@ namespace cyella::ui {
             page.add(section_title(u8"settings-signing-section-enable", u8"서명하기 (" + scope + u8")"), section_height);
             page.add(field_label(u8"settings-signing-commit-label", u8"commit.gpgsign — 켜면 모든 커밋에 서명합니다 (커밋 상자의 \"서명\" 토글의 기본값)"), label_height);
             page.add(
-                choice_row(u8"settings-signing-commit", u8"commit.gpgsign", toggle_items(u8"commit"), u8"commit:" + view.commit_choice, toggle_handler(signing_key_id::commit_gpgsign), choice_width),
-                input_height);
+                choice_row(u8"settings-signing-commit", u8"commit.gpgsign", toggle_items(u8"commit"), u8"commit:" + view.commit_choice, toggle_handler(signing_key_id::commit_gpgsign)), input_height);
             page.gap(small_gap);
             page.add(field_label(u8"settings-signing-tag-label", u8"tag.gpgsign — 켜면 태그를 서명한 annotated 태그로 만듭니다"), label_height);
-            page.add(choice_row(u8"settings-signing-tag", u8"tag.gpgsign", toggle_items(u8"tag"), u8"tag:" + view.tag_choice, toggle_handler(signing_key_id::tag_gpgsign), choice_width), input_height);
+            page.add(choice_row(u8"settings-signing-tag", u8"tag.gpgsign", toggle_items(u8"tag"), u8"tag:" + view.tag_choice, toggle_handler(signing_key_id::tag_gpgsign)), input_height);
             page.gap(large_gap);
 
             page.add(section_title(u8"settings-signing-section-format", u8"서명 형식 (" + scope + u8")"), section_height);
             page.add(field_label(u8"settings-signing-format-label", u8"gpg.format"), label_height);
-            page.add(choice_row(
-                         u8"settings-signing-format", u8"gpg.format", { { u8"format:openpgp", u8"openpgp (gpg)" }, { u8"format:ssh", u8"ssh" }, { u8"format:unset", u8"설정 지우기" } },
+            page.add(choice_row(u8"settings-signing-format", u8"gpg.format", { { u8"format:openpgp", u8"openpgp (gpg)" }, { u8"format:ssh", u8"ssh" }, { u8"format:unset", u8"설정 지우기" } },
                          u8"format:" + view.format_choice,
                          [](const std::u8string& value) {
                              std::optional<signing_format> format {};
@@ -169,8 +165,7 @@ namespace cyella::ui {
                              else if (name == u8"ssh")
                                  format = signing_format::ssh;
                              return message(set_signing_format_intent { format });
-                         },
-                         choice_width),
+                         }),
                 input_height);
             page.add(help_line(u8"settings-signing-format-help", u8"설정을 지우면 git의 기본값인 openpgp입니다."), line_height);
         }

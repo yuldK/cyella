@@ -5,6 +5,8 @@
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/app_symbol.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/segmented_control.h"
+#include "presentation/ui/settings/appearance_ui.h"
 #include "presentation/ui/settings/settings_page_parts.h"
 #include "presentation/ui/settings/settings_pages_ui.h"
 #include "presentation/ui/settings/signing_ui.h"
@@ -59,32 +61,75 @@ namespace cyella::ui {
 
         // ------------------------------------------------------------------ 일반
 
-        void build_general(page_column& page, const settings_view& view)
+        constexpr float font_preview_padding { 12.0f };
+        constexpr float font_preview_height { font_preview_padding * 2.0f + 22.0f * 2.0f };
+        constexpr float font_column_gap { 12.0f };
+        constexpr float font_column_height { 20.0f + line_height + small_gap + input_height + 12.0f + 16.0f + font_preview_height };
+
+        std::unique_ptr<luil::ui_element> make_font_column(const settings_view& view, const bool code)
         {
-            page.add(section_title(u8"settings-section-appearance", u8"화면"), section_height);
-            page.add(field_label(u8"settings-theme-label", u8"테마"), label_height);
-            luil::choice_group_config theme {};
-            theme.owner = u8"settings-theme";
-            theme.style = luil::choice_style::toggle;
-            theme.name = u8"테마";
-            theme.items = { { u8"system", u8"시스템" }, { u8"light", u8"밝게" }, { u8"dark", u8"어둡게" } };
-            theme.selected = std::u8string { theme_preference_name(view.theme) };
-            theme.select = [](const std::u8string& value) { return message(set_theme_intent { parse_theme_preference(value).value_or(theme_preference::system) }); };
-            const float toggle_height { luil::choice_toggle_height };
-            auto toggle_row { make_row(u8"settings-theme-row") };
-            toggle_row->add(std::make_unique<luil::choice_group_element>(std::move(theme)), { .length = 260.0f, .cross_length = toggle_height });
-            page.add(std::move(toggle_row), input_height);
-            page.add(help_line(u8"settings-theme-help", u8"'시스템'을 고르면 Windows의 앱 모드를 따릅니다."), line_height);
+            const std::u8string owner { code ? u8"settings-code-font" : u8"settings-ui-font" };
+            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, owner + u8"-column" }, luil::stack_config {}) };
+            column->add(make_text(owner + u8"-label", code ? u8"코드 글꼴" : u8"UI 글꼴", text_style { .size = 12.0f, .bold = true }), 20.0f);
+            column->add(help_line(owner + u8"-description", code ? u8"diff와 코드에 사용합니다." : u8"메뉴와 일반 화면에 사용합니다."), line_height);
+            column->add_gap(small_gap);
+            column->add(make_font_combo(view, code), input_height);
+            column->add_gap(12.0f);
+            column->add(help_line(owner + u8"-preview-label", u8"미리보기"), 16.0f);
+            const std::u8string preview_owner { code ? u8"settings-font-preview-code" : u8"settings-font-preview-ui" };
+            const luil::stack_config preview_config { .padding = luil::edge_insets::all(font_preview_padding) };
+            auto preview { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, owner + u8"-preview-content" }, preview_config) };
+            preview->add(make_text(preview_owner, code ? u8"git diff --stat" : u8"가나다 · 저장소와 커밋", text_style { .size = 13.0f, .code = code }), 22.0f);
+            preview->add(make_text(preview_owner + u8"-detail", code ? u8"const branch = \"main\";" : u8"Aa Bb Cc 0123456789", text_style { .size = 12.0f, .code = code }), 22.0f);
+
+            luil::panel_config card {};
+            card.background = [](const luil::ui_color_palette& palette) { return palette.window_background; };
+            card.border = [](const luil::ui_color_palette& palette) { return palette.divider; };
+            card.corner_radius = 6.0f;
+            auto panel { std::make_unique<luil::panel_element>(luil::ui_element_id { kind_panel, owner + u8"-preview-card" }, std::move(card)) };
+            panel->set_content(std::move(preview));
+            column->add(std::move(panel), font_preview_height);
+            return column;
+        }
+
+        void build_general(page_column& page, const settings_view& view, const float content_width)
+        {
+            page.add(section_title(u8"settings-section-appearance", u8"테마"), section_height);
+            page.add(make_theme_picker(view.theme), theme_picker_height);
             page.gap(small_gap);
+            page.add(help_line(u8"settings-theme-help", u8"'시스템'을 고르면 Windows의 앱 모드를 따릅니다."), line_height);
+
+            page.add(section_title(u8"settings-section-fonts", u8"글꼴"), section_height);
+            const bool font_columns { content_width >= 480.0f + font_column_gap };
+            const luil::stack_config fonts_config { .direction = font_columns ? luil::stack_direction::row : luil::stack_direction::column, .spacing = font_column_gap };
+            auto fonts { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-font-columns" }, fonts_config) };
+            for (const bool code : { false, true })
+                if (font_columns)
+                    fonts->add_flexible(make_font_column(view, code));
+                else
+                    fonts->add(make_font_column(view, code), font_column_height);
+            page.add(std::move(fonts), font_columns ? font_column_height : font_column_height * 2.0f + font_column_gap);
+            page.gap(small_gap);
+            page.add(help_line(u8"settings-font-help", u8"이름을 직접 입력하거나 목록에서 검색할 수 있습니다."), line_height);
+            page.add(help_line(u8"settings-font-fallback", u8"비워 두거나 설치되지 않은 글꼴이면 기본 글꼴로 표시합니다."), line_height);
+            page.gap(small_gap);
+            auto font_actions { make_row(u8"settings-font-actions") };
+            font_actions->add_flexible_gap();
+            font_actions->add(button_of(u8"settings-font-apply", u8"글꼴 적용", message(apply_font_settings_intent {}), view.fonts_dirty, luil::text_button_visual::accent), 88.0f);
+            page.add(std::move(font_actions), input_height);
+
+            page.add(section_title(u8"settings-section-author", u8"커밋 작성자"), section_height);
             // 작성자 사진은 밖으로 메일 해시를 보내므로 사용자가 켜야만 쓴다.
             luil::check_config gravatar {
                 .owner = u8"settings-gravatar",
-                .label = u8"커밋 작성자 사진을 Gravatar에서 가져오기",
+                .style = luil::check_style::toggle_switch,
+                .label = u8"Gravatar 작성자 사진",
                 .checked = view.gravatar,
                 .toggle = action_of(message(set_gravatar_intent { view.gravatar == false })),
             };
             page.add(std::make_unique<luil::check_element>(std::move(gravatar)), luil::check_row_height);
-            page.add(help_line(u8"settings-gravatar-help", u8"켜면 작성자 메일의 해시가 gravatar.com으로 갑니다. 끄거나 사진이 없으면 이름 첫 글자를 보입니다."), line_height);
+            page.add(help_line(u8"settings-gravatar-help", u8"켜면 작성자 메일의 해시를 gravatar.com으로 보냅니다."), line_height);
+            page.add(help_line(u8"settings-gravatar-fallback", u8"끄거나 사진이 없으면 이름의 첫 글자를 표시합니다."), line_height);
             page.gap(large_gap);
 
             const git_settings_view& git { view.git };
@@ -208,7 +253,7 @@ namespace cyella::ui {
             layout.selected = std::u8string { diff_layout_preference_name(view.diff.layout) };
             layout.select = [](const std::u8string& value) { return message(set_diff_layout_default_intent { parse_diff_layout_preference(value).value_or(diff_layout_preference::inline_view) }); };
             auto layout_row { make_row(u8"settings-diff-layout-row") };
-            layout_row->add(std::make_unique<luil::choice_group_element>(std::move(layout)), { .length = 260.0f, .cross_length = luil::choice_toggle_height });
+            layout_row->add_flexible(make_segmented_control(std::move(layout)));
             page.add(std::move(layout_row), input_height);
             page.add(help_line(u8"settings-diff-layout-help", u8"고르면 열려 있는 diff도 바로 이 보기로 바뀝니다. diff 머리의 단추로는 그 diff만 바꿉니다."), line_height);
             page.gap(small_gap);
@@ -238,7 +283,7 @@ namespace cyella::ui {
                 return message(set_diff_context_lines_intent { lines });
             };
             auto context_row { make_row(u8"settings-diff-context-row") };
-            context_row->add(std::make_unique<luil::choice_group_element>(std::move(context)), { .length = 320.0f, .cross_length = luil::choice_toggle_height });
+            context_row->add_flexible(make_segmented_control(std::move(context)));
             page.add(std::move(context_row), input_height);
             page.add(help_line(u8"settings-diff-context-help", u8"다음에 여는 diff부터 적용합니다. 0이면 바뀐 줄만 보이고 줄 단위 stage에는 --unidiff-zero를 씁니다."), line_height);
             page.gap(large_gap);
@@ -389,15 +434,10 @@ namespace cyella::ui {
             page.add(input_of(kind_settings_hosting_host_input, u8"settings-hosting-host-input", hosting.host, u8"git.example.com"), input_height);
             page.add(field_label(u8"settings-hosting-provider-label", u8"서비스 종류"), label_height);
             {
-                auto row { make_row(u8"settings-hosting-provider-row") };
-                row->add(button_of(u8"settings-hosting-provider-github", u8"GitHub", message(set_new_hosting_provider_intent { hosting_provider::github }), true,
-                             hosting.new_provider == hosting_provider::github ? luil::text_button_visual::accent : luil::text_button_visual::normal),
-                    { .length = 84.0f, .cross_length = button_height });
-                row->add(button_of(u8"settings-hosting-provider-gitlab", u8"GitLab", message(set_new_hosting_provider_intent { hosting_provider::gitlab }), true,
-                             hosting.new_provider == hosting_provider::gitlab ? luil::text_button_visual::accent : luil::text_button_visual::normal),
-                    { .length = 84.0f, .cross_length = button_height });
-                row->add_flexible_gap();
-                page.add(std::move(row), input_height);
+                page.add(std::make_unique<segmented_control_element>(u8"settings-hosting-provider", u8"서비스 종류",
+                             std::vector<segment_option> { { u8"github", u8"GitHub" }, { u8"gitlab", u8"GitLab" } }, hosting.new_provider == hosting_provider::github ? u8"github" : u8"gitlab",
+                             [](const std::u8string& value) { return message(set_new_hosting_provider_intent { value == u8"gitlab" ? hosting_provider::gitlab : hosting_provider::github }); }),
+                    input_height);
             }
             page.add(field_label(u8"settings-hosting-api-label", u8"API 주소 (선택)"), label_height);
             page.add(input_of(kind_settings_hosting_api_input, u8"settings-hosting-api-input", hosting.api_base, u8"https://git.example.com/api/v4"), input_height);
@@ -410,12 +450,17 @@ namespace cyella::ui {
 
         // ------------------------------------------------------------------ 틀
 
-        std::unique_ptr<luil::ui_element> build_navigation(const settings_view& view)
+        std::unique_ptr<luil::ui_element> build_navigation(const settings_view& view, const bool compact)
         {
             luil::ui_element_id column_id { kind_layout, u8"settings-navigation" };
             const luil::stack_config column_config { .spacing = 4.0f, .padding = luil::edge_insets::all(10.0f) };
             auto column { std::make_unique<luil::stack_element>(std::move(column_id), column_config) };
             const auto entry = [&](std::u8string owner, std::u8string text, const settings_page page, const char32_t glyph) {
+                if (compact)
+                {
+                    column->add(make_icon_button(std::move(owner), glyph, std::move(text), message(select_settings_page_intent { page }), true, view.page == page), 32.0f);
+                    return;
+                }
                 column->add(make_text_button(std::move(owner), std::move(text), view.page == page ? luil::text_button_visual::accent : luil::text_button_visual::normal,
                                 message(select_settings_page_intent { page }), true, glyph),
                     30.0f);
@@ -430,7 +475,7 @@ namespace cyella::ui {
             // 목록 맨 아래는 앱 심볼과 이름·버전이다. 따로 정보 화면을 두지 않고 이 자리가 그 몫을 한다.
             column->add_flexible_gap();
             auto about { make_row(u8"settings-about", 10.0f) };
-            if (app_symbol().valid())
+            if (app_symbol().valid() && compact == false)
                 about->add(make_app_symbol(u8"settings-symbol"), luil::stack_item { .length = 32.0f, .cross_length = 32.0f });
             auto names { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-about-names" }, luil::stack_config {}) };
             names->add(make_text(u8"settings-app-name", u8"cyella", text_style { .size = 13.0f, .bold = true }), 18.0f);
@@ -438,7 +483,8 @@ namespace cyella::ui {
                            text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } }),
                 16.0f);
             about->add(std::move(names), luil::stack_item { .length = 0.0f, .weight = 1.0f, .cross_length = 34.0f });
-            column->add(std::move(about), 36.0f);
+            if (compact == false)
+                column->add(std::move(about), 36.0f);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-navigation-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; } }, std::move(column));
         }
@@ -477,7 +523,9 @@ namespace cyella::ui {
         column->add(std::make_unique<luil::dialog_caption_element>(std::move(caption)), caption_height);
 
         auto body { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-body" }, luil::stack_config { .direction = luil::stack_direction::row }) };
-        body->add(build_navigation(view), navigation_width);
+        const bool compact_navigation { width < 680.0f };
+        const float navigation_extent { compact_navigation ? 52.0f : navigation_width };
+        body->add(build_navigation(view, compact_navigation), navigation_extent);
 
         auto content { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-content" }, luil::stack_config {}) };
         if (view.read_only || view.unsaved)
@@ -487,7 +535,7 @@ namespace cyella::ui {
         switch (view.page)
         {
         case settings_page::general:
-            build_general(page, view);
+            build_general(page, view, width - navigation_extent - content_padding - 12.0f - section_padding * 2.0f);
             break;
         case settings_page::diff_tools:
             build_diff_tools(page, view);
@@ -505,14 +553,14 @@ namespace cyella::ui {
             if (view.profiles.has_value())
             {
                 built_settings_page built { build_profiles_page(*view.profiles) };
-                page.add(std::move(built.content), built.height);
+                page.add_unframed(std::move(built.content), built.height);
             }
             break;
         case settings_page::shortcuts:
             if (view.shortcuts.has_value())
             {
                 built_settings_page built { build_shortcuts_page(*view.shortcuts) };
-                page.add(std::move(built.content), built.height);
+                page.add_unframed(std::move(built.content), built.height);
             }
             break;
         }

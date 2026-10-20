@@ -206,3 +206,29 @@ TEST_CASE("a running ssh task offers a cancel button", "[settings][ui]")
     CHECK(has(built, ui::kind_text_button, u8"settings-keygen-cancel"));
     CHECK_FALSE(has(built, ui::kind_text_button, u8"settings-test-cancel"));
 }
+
+TEST_CASE("appearance uses preview choices and editable font combo boxes", "[settings][ui][fonts]")
+{
+    snapshot_harness harness {};
+    for (const float width : { 480.0f, 900.0f, 1440.0f })
+    {
+        CAPTURE(width);
+        const ui::built_tree built { build_tree(harness, settings_state {}, width) };
+        REQUIRE(built.tree->duplicate_ids().empty());
+        for (const std::u8string owner : { u8"settings-theme-light", u8"settings-theme-system", u8"settings-theme-dark" })
+        {
+            const luil::ui_element* const option { built.tree->find({ ui::kind_theme_option, owner }) };
+            REQUIRE(option != nullptr);
+            CHECK(option->accessibility().role == luil::access_role::radio_button);
+            CHECK(option->bounds().width >= 80.0f);
+        }
+        for (const std::u8string owner : { u8"settings-ui-font-combo", u8"settings-code-font-combo" })
+        {
+            const luil::ui_element* const combo { built.tree->find({ ui::kind_font_combo, owner }) };
+            REQUIRE(combo != nullptr);
+            CHECK(combo->accessibility().role == luil::access_role::combo_box);
+            REQUIRE(combo->children().size() == 2);
+            CHECK(combo->children().front()->text_input().has_value());
+        }
+    }
+}

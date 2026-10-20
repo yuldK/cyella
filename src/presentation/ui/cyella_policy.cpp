@@ -45,6 +45,10 @@ namespace cyella::ui {
             return to_luil_target(text_target::clone_path);
         if (kind == kind_settings_git_path_input)
             return to_luil_target(text_target::settings_git_path);
+        if (kind == kind_ui_font_input)
+            return to_luil_target(text_target::settings_ui_font);
+        if (kind == kind_code_font_input)
+            return to_luil_target(text_target::settings_code_font);
         if (kind == kind_settings_tool_extensions_input)
             return to_luil_target(text_target::settings_tool_extensions);
         if (kind == kind_settings_tool_executable_input)
@@ -154,18 +158,22 @@ namespace cyella::ui {
     {
         const luil::ui_element_kind input { snapshot.focused_input.kind };
         // 본문은 여러 줄 칸이다. Enter는 줄바꿈이고 ↑↓는 윗줄·아랫줄로 간다 (Ctrl+Enter는 그대로 앱의 것이다).
-        if (input == kind_rebase_body_input)
+        if (input == kind_rebase_body_input || input == kind_commit_body_input)
         {
             if (event.key == luil::key_code::enter && event.control == false && event.alt == false)
             {
                 luil::text_edit_request request {};
-                request.target = to_luil_target(text_target::rebase_message_body);
+                request.target = to_luil_target(input == kind_commit_body_input ? text_target::commit_body : text_target::rebase_message_body);
                 request.command = luil::text::text_edit_command::insert;
                 request.text = u8"\n";
                 return std::vector<luil::input_action> { message(edit_text_intent { std::move(request) }) };
             }
             if ((event.key == luil::key_code::arrow_up || event.key == luil::key_code::arrow_down) && event.control == false && event.alt == false)
+            {
+                if (input == kind_commit_body_input)
+                    return std::vector<luil::input_action> { message(commit_body_line_intent { .down = event.key == luil::key_code::arrow_down, .extend = event.shift }) };
                 return std::vector<luil::input_action> { message(rebase_body_line_intent { .down = event.key == luil::key_code::arrow_down, .extend = event.shift }) };
+            }
             return std::nullopt;
         }
         if (snapshot.focused_input != luil::ui_element_id {} || tree == nullptr)
@@ -229,6 +237,8 @@ namespace cyella::ui {
         switch (event.key)
         {
         case luil::key_code::enter:
+            if (focused == kind_ui_font_input || focused == kind_code_font_input)
+                return { message(apply_font_settings_intent {}) };
             if (focused == kind_clone_url_input || focused == kind_clone_path_input)
                 return { message(submit_clone_intent {}) };
             if (focused == kind_settings_git_path_input)

@@ -78,7 +78,7 @@ TEST_CASE("the diff theme carries the luil palette into the viewer's css variabl
     CHECK_FALSE(light_theme == dark_theme);
     CHECK(light_theme.tokens.at("--window-background") != dark_theme.tokens.at("--window-background"));
 
-    // 뷰어는 `--`로 시작하는 소문자·숫자·`-` 이름만 받는다. 모든 토큰이 그 규칙을 지키고 값은 CSS 색이다.
+    // 뷰어는 `--`로 시작하는 소문자·숫자·`-` 이름만 받는다. 글꼴 외의 값은 CSS 색이다.
     for (const auto& [name, value] : dark_theme.tokens)
     {
         INFO(name);
@@ -86,11 +86,20 @@ TEST_CASE("the diff theme carries the luil palette into the viewer's css variabl
         for (const char letter : name.substr(2))
             CHECK(((letter >= 'a' && letter <= 'z') || (letter >= '0' && letter <= '9') || letter == '-'));
         REQUIRE(value.size() >= 7);
-        CHECK(value.front() == '#');
+        if (name != "--ui-font" && name != "--code-font")
+            CHECK(value.front() == '#');
     }
     // 뷰어가 쓰는 diff 줄 바탕과 레인 색이 빠지지 않았다.
     for (const char* const name : { "--diff-add-background", "--diff-add-strong", "--diff-del-background", "--diff-del-strong", "--diff-hunk-background", "--lane-0", "--lane-7", "--success-accent" })
         CHECK(dark_theme.tokens.contains(name));
+}
+
+TEST_CASE("diff font preferences quote family names and preserve fallback stacks", "[diff][webview][fonts]")
+{
+    const diff_theme theme { ui::make_diff_theme(luil::color_palette_for(luil::color_theme::dark), u8"맑은 고딕", u8"Example\"Mono\\Font") };
+    CHECK(theme.tokens.at("--ui-font").starts_with("\"맑은 고딕\", "));
+    CHECK(theme.tokens.at("--code-font").starts_with("\"Example\\\"Mono\\\\Font\", "));
+    CHECK(theme.tokens.at("--code-font").find("monospace") != std::string::npos);
 }
 
 TEST_CASE("the diff webview policy opens only file urls, takes 8 MiB messages and keeps developer tools off", "[diff][webview]")
@@ -196,8 +205,8 @@ TEST_CASE("the header offers inline or split for text and a compare mode for ima
 
     const auto has_group = [&test](const char8_t* const owner) {
         const ui::built_tree built { ui::build_ui_tree(test.harness.build()) };
-        return built.tree->ids_of_kind(luil::ui_element_kind::choice_group).empty() == false && [&] {
-            for (const luil::ui_element_id& id : built.tree->ids_of_kind(luil::ui_element_kind::choice_group))
+        return built.tree->ids_of_kind(ui::kind_segmented).empty() == false && [&] {
+            for (const luil::ui_element_id& id : built.tree->ids_of_kind(ui::kind_segmented))
                 if (id.owner == owner)
                     return true;
             return false;

@@ -20,7 +20,10 @@ namespace cyella::ui {
         // 시작 페이지 본문의 최대 폭이다 (논리 픽셀). 넓은 창에서는 가운데에 선다.
         constexpr float start_content_width { 880.0f };
         constexpr float start_side_padding { 24.0f };
-        constexpr float start_row_spacing { 2.0f };
+        constexpr float start_row_spacing { 6.0f };
+        constexpr float start_cards_minimum_width { 720.0f };
+        constexpr float start_card_height { 72.0f };
+        constexpr float start_card_spacing { 10.0f };
         // 머리말 왼쪽 앱 심볼의 한 변이다 (논리 픽셀). 심볼 그림은 이 크기의 4배까지 흐려지지 않는다.
         constexpr float start_symbol_size { 64.0f };
 
@@ -113,14 +116,23 @@ namespace cyella::ui {
         gap(14.0f);
 
         const bool git_usable { start.git_message.empty() };
-        auto cards { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-cards" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 10.0f }) };
-        cards->add_flexible(std::make_unique<start_card_element>(
+        const bool stacked_cards { view.logical_width < start_cards_minimum_width };
+        luil::stack_config cards_config {};
+        cards_config.direction = stacked_cards ? luil::stack_direction::column : luil::stack_direction::row;
+        cards_config.spacing = start_card_spacing;
+        auto cards { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-cards" }, cards_config) };
+        const auto add_card = [&](std::unique_ptr<luil::ui_element> card) {
+            if (stacked_cards)
+                cards->add(std::move(card), start_card_height);
+            else
+                cards->add_flexible(std::move(card));
+        };
+        add_card(std::make_unique<start_card_element>(
             u8"start-open", codicons::icon_folder_opened, u8"저장소 열기", u8"내 컴퓨터의 폴더를 골라 엽니다", ui_command(static_cast<std::uint32_t>(ui_command_id::open_folder)), git_usable));
-        cards->add_flexible(
-            std::make_unique<start_card_element>(u8"start-clone", codicons::icon_repo_clone, u8"Clone", u8"URL로 원격 저장소를 받아 옵니다", message(open_clone_dialog_intent {}), git_usable));
-        cards->add_flexible(std::make_unique<start_card_element>(
+        add_card(std::make_unique<start_card_element>(u8"start-clone", codicons::icon_repo_clone, u8"Clone", u8"URL로 원격 저장소를 받아 옵니다", message(open_clone_dialog_intent {}), git_usable));
+        add_card(std::make_unique<start_card_element>(
             u8"start-init", codicons::icon_add, u8"Init", u8"폴더를 골라 새 저장소를 만듭니다", ui_command(static_cast<std::uint32_t>(ui_command_id::init_folder)), git_usable));
-        add(std::move(cards), 64.0f);
+        add(std::move(cards), stacked_cards ? start_card_height * 3.0f + start_card_spacing * 2.0f : start_card_height);
         if (start.setup_progress.empty() == false)
         {
             gap(8.0f);

@@ -4,6 +4,7 @@
 #include "domain/repository_path.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/graph_geometry.h"
+#include "presentation/rebase/rebase_editor_model.h"
 
 #include "infrastructure/avatar_fetcher.h"
 #include "infrastructure/ssh_tools.h"
@@ -66,7 +67,7 @@ namespace cyella {
 
         bool is_single_line(const text_target target) noexcept
         {
-            return target != text_target::none && target != text_target::rebase_message_body;
+            return target != text_target::none && target != text_target::rebase_message_body && target != text_target::commit_body;
         }
 
         // 한 줄 칸이라 줄바꿈과 탭은 공백 하나로 바꾼다 (붙여넣기).
@@ -308,6 +309,8 @@ namespace cyella {
         case text_target::clone_path:
             return ui_.clone.has_value() ? &ui_.clone->path : nullptr;
         case text_target::settings_git_path:
+        case text_target::settings_ui_font:
+        case text_target::settings_code_font:
         case text_target::settings_tool_extensions:
         case text_target::settings_tool_executable:
         case text_target::settings_tool_arguments:
@@ -359,7 +362,10 @@ namespace cyella {
         luil::text_insert_filter filter {};
         if (is_single_line(target))
             filter = [](const std::u8string_view text) { return single_line(text); };
-        luil::apply_text_edit(*state, request, filter);
+        if (target == text_target::commit_body && (request.command == luil::text::text_edit_command::move_line_start || request.command == luil::text::text_edit_command::move_line_end))
+            move_text_caret_line_edge(*state, request.command == luil::text::text_edit_command::move_line_end, request.extend);
+        else
+            luil::apply_text_edit(*state, request, filter);
         if (target == text_target::start_search)
             ui_.start_scroll = 0.0f;
         else if (target == text_target::sidebar_filter)
@@ -851,6 +857,20 @@ namespace cyella {
         {
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
                 tab->diff.reset();
+            return true;
+        }
+        if (const auto* const intent { message.get<commit_body_line_intent>() }; intent != nullptr)
+        {
+            if (luil::text::text_edit_state* const body { draft(text_target::commit_body) }; body != nullptr)
+                move_text_caret_line(*body, intent->down, intent->extend);
+            return true;
+        }
+        if (const auto* const intent { message.get<set_working_files_view_intent>() }; intent != nullptr)
+        {
+            const bool tree { intent->tree };
+            update_settings([tree](app_settings& value) { value.ui.working_files_tree = tree; });
+            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+                tab->detail_scroll = 0.0f;
             return true;
         }
         if (const auto* const intent { message.get<set_commit_files_view_intent>() }; intent != nullptr)

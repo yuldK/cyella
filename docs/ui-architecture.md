@@ -55,7 +55,7 @@ cyella_driver::make_frame
 | 760 미만 (`narrow`) | 사이드바가 44px 아이콘 막대가 된다. 아이콘을 누르면 그 구역이 떠 있는 판으로 열린다(같은 행 element라 두 번 누름 체크아웃도 된다). 그래프는 작성자·날짜 열을 감추고 라벨 열을 110으로 줄인다. |
 | 그래프 목록 폭 | 브랜치/태그 열은 가장 넓은 라벨 줄만큼(112~160)만 선다. 목록이 좁으면 메시지 열의 하한(220 또는 폭의 34%)을 먼저 지키고 그래프 → 브랜치/태그 → 작성자 → 날짜 순으로 줄인다 (`make_graph_columns`). |
 | 960 미만 | 툴바 단추의 글자가 빠진다. |
-| 480 미만 | 툴바의 저장소 선택 상자가 숨는다 (창 최소 폭이 480이라 실제로는 경계에서만). |
+| 760 미만 | 툴바의 저장소 선택 상자가 숨는다. 브랜치 선택 상자는 남는 폭까지 줄어 최소 폭 480에서도 Fetch·Pull·Push·Branch·Stash·Pop과 상세 단추가 모두 보인다. 진행 문구는 여유가 있을 때만 툴바에 서며 상태 줄에서는 계속 보인다. |
 
 ## 커밋 상세 판 (`build_commit_detail`, `presentation/ui/repository_ui.cpp`)
 
@@ -153,7 +153,12 @@ settings_controller (shell_controller가 소유) ── handle(intent) ──▶
 cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ──▶ collect_ssh_info ──▶ relay ──▶ ssh_info_loaded_intent
 ```
 
-- **일반**: 테마(system·light·dark, 고르면 바로 저장), git 실행 파일(이번 실행이 찾은 경로·버전·자동 탐색/직접 지정, 경로 초안과 [찾아보기…]·[적용]·[자동 탐색으로 되돌리기]).
+- **구획**: 관련 항목은 제목·여백·테두리를 공유하는 카드로 묶는다. 창이 좁으면 왼쪽 탐색을 아이콘으로 줄인다.
+- **일반**: 밝게·시스템·어둡게 미리보기 카드(시스템은 밝고 어두운 화면을 대각선으로 나눔), UI·코드 글꼴, 작성자 사진, git 실행 파일을 각각 구획으로 보인다.
+  글꼴은 입력 가능한 콤보 상자(`settings-ui-font`, `settings-code-font`)와 검색 목록이며 `appearance.ui_font`·`appearance.code_font`에 저장한다.
+  목록 선택은 바로, 직접 입력은 Enter나 [글꼴 적용]으로 반영한다. 빈 이름·설치되지 않은 이름은 기본 글꼴로 표시하며 설정값은 보존한다. diff 웹뷰도 같은 글꼴을 쓴다.
+  테마와 보기 전환은 여러 독립 단추 대신 전용 선택 컨트롤(`segmented_control_element`)을 쓰고 UIA Selection으로 현재 값을 공개한다.
+  git 실행 파일은 이번 실행이 찾은 경로·버전·자동 탐색/직접 지정, 경로 초안과 [찾아보기…]·[적용]·[자동 탐색으로 되돌리기]를 보인다.
   경로는 절대 경로의 존재하는 파일이어야 저장한다. 이번 실행의 git은 이미 정해졌으므로 다음 실행부터 적용된다고 알린다.
 - **diff 도구**: `app_settings.external_diff_tools` 표(확장자·실행 파일·인자 템플릿)와 추가·편집·삭제. 편집 상자에서 토큰(`{left}` `{right}` `{base}` `{path}`)을 누르면 인자 끝에 붙고,
   샘플 경로로 푼 **argv 미리보기**를 한 줄에 하나씩 보인다(공백이 든 경로가 한 인자로 남는지 눈으로 확인). 확장자·실행 파일이 비었거나 템플릿의 따옴표가 닫히지 않았으면 저장할 수 없고,
@@ -184,18 +189,6 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 - UIA: 상자는 `ComboBox`(ExpandCollapse)이고 목록은 `Menu`/`MenuItem`, 거르는 칸은 `Edit`이다. **알려진 한계**: popup이 열릴 때 거르는 칸에 초점이 가지 않는다(luil에 popup의 첫 초점 지정이 없다). 눌러서 글을 넣는다.
 - 없어진 최근 저장소(시작 페이지): 행을 누르거나 위치 찾기 단추를 누르면 폴더 대화 상자가 열리고(`ui_command{locate_folder, 옛 경로}`), 고른 폴더를 `inspect_path`로 확인해 저장소이면
   최근 항목의 경로를 바꾼다(`relocate_recent_repository`: 고정·시각·자리는 그대로, 새 경로를 이미 가진 다른 항목은 지운다).
-
-## 화면 세부
-
-- 환경 설정·테마 단추가 캡션이 아니라 탭 줄 오른쪽에 있다 (아래 "알아 둘 것"의 캡션 띠). 환경 설정은 일반·SSH·diff 도구에 더해 `ui.pane_widths`를 따로 설정 파일에만 남긴다
-  (화면에는 아직 없다).
-- 탭은 아이콘 자리 하나에 표시(🔔 ⟳ ⌚ ●)를 그린다(`tab_item`에 칸이 하나뿐이다).
-- 커밋 본문 칸이 한 줄이다. luil `text_input_element`에 여러 줄 칸이 없다.
-- 시작 페이지의 오른쪽 안내 카드(Git·자격 증명·알아 두면 좋은 것)가 없고, git 버전은 제목 아래 한 줄이다.
-- 작업 영역 행의 단추가 hover 때만이 아니라 늘 보이고, 체크박스 일괄 선택·트리 보기가 없다. discard는 확인 대화 상자를 거친다.
-- 원격에 없는 태그 표시는 그 실행에서 fetch(또는 태그 push)가 한 번 돈 뒤에야 맞다. 그 전에는 원격이 있는 저장소의 태그가 모두 점선이다
-  (`ref.remotes`가 `ls-remote` 전에는 비어 있다).
-- 사이드바의 원격 묶음 머리는 접히지 않는다. 툴바 선택 상자는 목록을 펼친다(위 "툴바 저장소·브랜치 선택 상자").
 
 ## 알아 둘 것
 
@@ -358,7 +351,7 @@ rebase_editor_controller (shell_controller가 소유, presentation/rebase/*)
   - `text_input()`이 `multiline`을 켜 붙여넣기가 줄바꿈을 지키고, `offset_at_point`가 줄(y)·열(x)로 caret을 정한다. 줄을 감싸지 않는다(긴 줄은 잘린다). caret 줄이 보이게 세로로만 흐른다.
   - Enter는 정책이 줄바꿈 입력(`edit_text_intent{insert "\n"}`)으로, ↑↓는 `rebase_body_line_intent`(같은 열의 윗줄·아랫줄)로 바꾼다. Home·End는 controller가 그 줄의 처음·끝으로 옮긴다.
     그래서 편집기의 [rebase 시작]은 기본 단추가 아니다 (기본 단추가 있으면 본문의 Enter를 먼저 가져간다).
-  - 커밋 상자의 본문은 여전히 한 줄이다. 같은 element로 바꿀 수 있다.
+  - 커밋 상자 본문도 같은 element와 줄 단위 caret 이동을 쓴다(`commit_body_line_intent`). Ctrl+Enter는 커밋 명령으로 남는다.
 - **경고**: 원격 브랜치에 있는 커밋(`pushed`)이 있으면 강제 push 경고, 병합 커밋이 있으면 경고와 "한 줄로 펴도 됩니다" 확인 칸(켜야 시작)이다. 작업 트리에 추적 파일 변경이 있으면
   autostash 칸이 서고 켜야 시작한다. 시작할 수 없는 이유는 아래 막대의 요약("커밋 7개 → 4개") 밑에 보인다.
 - **충돌 화면**: `in_progress.interactive`면 제목이 "인터랙티브 rebase 중"이고, 머리에 "할 일 k/n · 동작 SHA · 남은 reword·squash 메시지는 계속하거나 건너뛰면 그대로 적용됩니다"

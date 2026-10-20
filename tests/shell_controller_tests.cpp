@@ -180,6 +180,26 @@ TEST_CASE("text edits land in the targeted draft and stay on one line", "[presen
     CHECK(test.controller.state().start_search.text.empty());
 }
 
+TEST_CASE("the commit body preserves line breaks and moves to the current line edge", "[presentation][controller][working]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    luil::text_edit_request request {};
+    request.target = to_luil_target(text_target::commit_body);
+    request.command = luil::text::text_edit_command::insert;
+    request.text = u8"first line\nsecond line";
+    REQUIRE(test.send(edit_text_intent { request }));
+    const auto& tabs { test.controller.state().tabs };
+    REQUIRE(tabs.size() == 1);
+    CHECK(tabs.begin()->second.commit_body.text == u8"first line\nsecond line");
+    request.command = luil::text::text_edit_command::move_line_start;
+    request.text.clear();
+    REQUIRE(test.send(edit_text_intent { request }));
+    CHECK(tabs.begin()->second.commit_body.caret == 11);
+    REQUIRE(test.send(commit_body_line_intent { false, false }));
+    CHECK(tabs.begin()->second.commit_body.caret == 0);
+}
+
 TEST_CASE("toolbar actions without a dialog submit operations and the rest show a notice", "[presentation][controller]")
 {
     controller_harness test {};

@@ -220,6 +220,8 @@ namespace cyella::win32 {
         // 웹뷰에 보낸 테마와 그 원천(해석한 luil 테마)이다.
         std::optional<luil::color_theme> diff_theme_source_ {};
         diff_theme diff_theme_ {};
+        std::u8string diff_ui_font_ {};
+        std::u8string diff_code_font_ {};
         // 환경 설정의 기본 diff 보기를 뷰어에 마지막으로 보낸 값이다.
         std::optional<diff_layout_preference> applied_diff_layout_ {};
         std::u8string viewer_url_ {};

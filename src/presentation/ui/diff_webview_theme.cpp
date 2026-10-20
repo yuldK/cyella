@@ -25,7 +25,7 @@ namespace cyella::ui {
         return buffer;
     }
 
-    diff_theme make_diff_theme(const luil::ui_color_palette& palette)
+    diff_theme make_diff_theme(const luil::ui_color_palette& palette, const std::u8string_view ui_family, const std::u8string_view code_family)
     {
         const bool dark { luil::is_dark_background(palette.window_background) };
         diff_theme theme {};
@@ -62,6 +62,22 @@ namespace cyella::ui {
         tokens["--diff-del-background"] = css_color(deleted);
         tokens["--diff-del-strong"] = css_color(with_alpha_byte(deleted, dark ? 0x66 : 0x48));
         tokens["--diff-hunk-background"] = css_color(with_alpha_byte(palette.primary_foreground, dark ? 0x0d : 0x0a));
+        const auto font_stack = [](const std::u8string_view family, const std::string& fallback) {
+            if (family.empty())
+                return fallback;
+            std::string quoted { "\"" };
+            for (const char8_t value : family)
+            {
+                if (value < 0x20 || value == 0x7f)
+                    continue;
+                if (value == u8'"' || value == u8'\\')
+                    quoted.push_back('\\');
+                quoted.push_back(static_cast<char>(value));
+            }
+            return quoted + "\", " + fallback;
+        };
+        tokens["--ui-font"] = font_stack(ui_family, "\"Segoe UI\", \"Malgun Gothic\", system-ui, sans-serif");
+        tokens["--code-font"] = font_stack(code_family, "\"Cascadia Mono\", Consolas, \"Malgun Gothic\", monospace");
         return theme;
     }
 } // namespace cyella::ui

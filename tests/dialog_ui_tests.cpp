@@ -2,7 +2,9 @@
 // 자리가 겹치지 않는지를 검증한다 (그림은 보지 않는다).
 #include "presentation/dialog_intents.h"
 #include "presentation/ui/build_ui_tree.h"
+#include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui_intents.h"
 
 #include "view_snapshot_support.h"
 
@@ -40,6 +42,85 @@ namespace {
         return built.tree->find(luil::ui_element_id { kind, owner });
     }
 } // namespace
+
+TEST_CASE("toolbar controls stay inside the window at every responsive boundary", "[presentation][ui][layout]")
+{
+    tree_fixture fixture {};
+    for (const float width : { 480.0f, 560.0f, 759.0f, 760.0f, 959.0f, 960.0f, 1199.0f, 1200.0f, 1440.0f })
+        for (const bool busy : { false, true })
+        {
+            CAPTURE(width, busy);
+            view_snapshot view { fixture.harness.build(width) };
+            if (busy)
+                view.toolbar.busy_text = u8"원격의 새 커밋을 받는 중";
+            const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
+            float right { 0.0f };
+            const auto check = [&](const luil::ui_element_kind kind, const std::u8string& owner) {
+                const luil::ui_element* const control { find_element(built, kind, owner) };
+                REQUIRE(control != nullptr);
+                const luil::rect_f box { control->bounds() };
+                CHECK(box.width > 0.0f);
+                CHECK(box.x >= right);
+                CHECK(box.x + box.width <= width);
+                right = box.x + box.width;
+            };
+            if (view.toolbar.show_repository_selector)
+                check(cyella::ui::kind_selector, u8"repository-selector");
+            check(cyella::ui::kind_selector, u8"branch-selector");
+            for (const std::u8string owner : { u8"fetch", u8"pull", u8"push", u8"branch", u8"stash", u8"pop" })
+                check(cyella::ui::kind_tool_button, owner);
+            if (view.toolbar.show_detail_toggle)
+                check(cyella::ui::kind_button, u8"detail-toggle");
+        }
+}
+
+TEST_CASE("splitter capture survives a rebuilt layout and movement outside the pane until release", "[presentation][ui][resize]")
+{
+    tree_fixture fixture {};
+    const cyella::ui::built_tree initial { fixture.build() };
+    const luil::ui_element* const splitter { find_element(initial, cyella::ui::kind_splitter, u8"sidebar-splitter") };
+    REQUIRE(splitter != nullptr);
+    const luil::rect_f box { splitter->bounds() };
+    const float x { box.x + box.width / 2.0f };
+    const float y { box.y + box.height / 2.0f };
+    luil::interaction_controller interaction {};
+    interaction.set_tree(initial.tree);
+    static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = x, .y = y }));
+    CHECK_FALSE(interaction.process(luil::pointer_moved_event { .x = x + 80.0f, .y = y }).empty());
+    fixture.harness.ui.sidebar_width += 80.0f;
+    const cyella::ui::built_tree moved { fixture.build() };
+    interaction.set_tree(moved.tree);
+    CHECK_FALSE(interaction.process(luil::pointer_moved_event { .x = x + 160.0f, .y = -40.0f }).empty());
+    CHECK(interaction.snapshot().pressed == splitter->id());
+    static_cast<void>(interaction.process(luil::pointer_released_event { .x = x + 160.0f, .y = -40.0f }));
+    CHECK(interaction.process(luil::pointer_moved_event { .x = x + 200.0f, .y = -40.0f }).empty());
+}
+
+TEST_CASE("working files use a single selection control and preserve file actions in tree view", "[presentation][ui][working]")
+{
+    tree_fixture fixture {};
+    view_snapshot view { fixture.harness.build() };
+    REQUIRE(view.repository.has_value());
+    working_area_view working {};
+    working.files_tree = true;
+    working.unstaged.push_back({ .key = u8"u:src/view.cpp", .path = "src/view.cpp", .name = u8"view.cpp", .status = 'M' });
+    working.staged.push_back({ .key = u8"s:src/view.cpp", .path = "src/view.cpp", .name = u8"view.cpp", .status = 'M' });
+    view.repository->detail = detail_mode::working;
+    view.repository->working = working;
+    const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
+    CHECK(built.tree->duplicate_ids().empty());
+    const luil::ui_element* const control { find_element(built, cyella::ui::kind_segmented, u8"working-files-view") };
+    REQUIRE(control != nullptr);
+    CHECK(control->accessibility().role == luil::access_role::radio_group);
+    CHECK(find_element(built, cyella::ui::kind_segment, u8"working-files-view-tree")->accessibility().selected == true);
+    CHECK(find_element(built, cyella::ui::kind_button, u8"stage:src/view.cpp") != nullptr);
+    CHECK(find_element(built, cyella::ui::kind_button, u8"unstage:src/view.cpp") != nullptr);
+    const luil::ui_element* const body { find_element(built, cyella::ui::kind_commit_body_input, u8"commit-body") };
+    REQUIRE(body != nullptr);
+    REQUIRE(body->text_input().has_value());
+    CHECK(body->text_input()->multiline);
+    CHECK(body->bounds().height >= 80.0f);
+}
 
 TEST_CASE("graph labels are separate elements that can be dragged and dropped on", "[presentation][ui][drag]")
 {

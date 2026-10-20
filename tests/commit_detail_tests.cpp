@@ -191,7 +191,7 @@ TEST_CASE("commit detail tree shows wrapped text, label columns, folder rows and
     CHECK(rebase->enabled());
     CHECK(find(ui::kind_file_row, u8"folder-d:src/presentation") != nullptr);
     CHECK(find(ui::kind_file_row, u8"file-f:src/presentation/file_tree.cpp") != nullptr);
-    const luil::ui_element* const tree_button { built.tree->find(luil::ui_element_id { ui::kind_button, u8"detail-files-tree" }) };
+    const luil::ui_element* const tree_button { built.tree->find(luil::ui_element_id { ui::kind_segment, u8"detail-files-tree" }) };
     CHECK(tree_button != nullptr);
 }
 

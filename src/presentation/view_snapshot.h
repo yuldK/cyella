@@ -331,6 +331,8 @@ namespace cyella {
 
     struct working_area_view
     {
+        bool files_tree { false };
+        std::set<std::string> collapsed_folders {};
         std::u8string branch {};
         std::vector<file_row_view> conflicts {};
         std::vector<file_row_view> unstaged {};

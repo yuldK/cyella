@@ -39,6 +39,29 @@ namespace cyella {
         theme_preference theme { theme_preference::system };
     };
 
+    struct apply_font_settings_intent
+    {};
+
+    struct select_font_intent
+    {
+        bool code { false };
+        std::u8string family {};
+    };
+
+    struct open_font_list_intent
+    {
+        font_list_state list {};
+    };
+
+    struct close_font_list_intent
+    {};
+
+    struct font_list_scroll_intent
+    {
+        float value { 0.0f };
+        bool absolute { false };
+    };
+
     // 커밋 작성자 사진을 Gravatar에서 받을지다. 바로 저장한다.
     struct set_gravatar_intent
     {

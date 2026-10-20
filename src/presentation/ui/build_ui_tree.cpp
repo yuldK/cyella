@@ -13,6 +13,7 @@
 #include "presentation/ui/palette_ui.h"
 #include "presentation/ui/rebase/rebase_editor_ui.h"
 #include "presentation/ui/ref_chip_element.h"
+#include "presentation/ui/settings/appearance_ui.h"
 #include "presentation/ui/settings/settings_ui.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui/ui_parts.h"
@@ -48,6 +49,12 @@ namespace cyella::ui {
         constexpr float tab_row_button_width { 32.0f };
         constexpr float tool_button_width { 52.0f };
         constexpr float tool_button_compact_width { 36.0f };
+        constexpr float toolbar_spacing { 2.0f };
+        constexpr float toolbar_padding { 8.0f };
+        constexpr float toolbar_separator_width { 13.0f };
+        constexpr float toolbar_selector_width { 150.0f };
+        constexpr float toolbar_branch_width { 200.0f };
+        constexpr float toolbar_detail_width { 36.0f };
         constexpr float clone_dialog_width { 480.0f };
         constexpr float clone_dialog_height { 330.0f };
         constexpr float log_header_height { 26.0f };
@@ -262,12 +269,17 @@ namespace cyella::ui {
         std::unique_ptr<luil::ui_element> build_toolbar(const view_snapshot& view)
         {
             const toolbar_view& toolbar { view.toolbar };
+            const float width { toolbar.show_labels ? tool_button_width : tool_button_compact_width };
+            const float repository_width { toolbar.show_repository_selector ? toolbar_selector_width : 0.0f };
+            // 고정 단추의 자리를 먼저 남겨 최소 폭에서도 끝의 상세 단추까지 보이게 한다.
+            const float fixed_width { width * 6.0f + toolbar_separator_width * 2.0f + toolbar_padding * 2.0f + toolbar_spacing * 13.0f + (toolbar.show_detail_toggle ? toolbar_detail_width : 0.0f) };
+            const float branch_width { std::min(toolbar_branch_width, std::max(view.logical_width - repository_width - fixed_width, 0.0f)) };
             auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"toolbar" },
-                luil::stack_config { .direction = luil::stack_direction::row, .spacing = 2.0f, .padding = luil::edge_insets { 8.0f, 0.0f, 8.0f, 0.0f } });
+                luil::stack_config { .direction = luil::stack_direction::row, .spacing = toolbar_spacing, .padding = luil::edge_insets { toolbar_padding, 0.0f, toolbar_padding, 0.0f } });
             if (toolbar.show_repository_selector)
                 row->add(std::make_unique<selector_element>(u8"repository-selector", selector_kind::repository, codicons::icon_repo, u8"저장소", toolbar.repository_name, std::u8string {},
                              view.selector.has_value() && view.selector->kind == selector_kind::repository),
-                    150.0f);
+                    repository_width);
             std::u8string tail {};
             if (toolbar.ahead > 0)
                 tail += u8"↑" + number_text(toolbar.ahead);
@@ -275,10 +287,9 @@ namespace cyella::ui {
                 tail += (tail.empty() ? u8"" : u8" ") + std::u8string { u8"↓" } + number_text(toolbar.behind);
             row->add(std::make_unique<selector_element>(u8"branch-selector", selector_kind::branch, codicons::icon_git_branch, u8"브랜치", toolbar.branch_text, std::move(tail),
                          view.selector.has_value() && view.selector->kind == selector_kind::branch),
-                200.0f);
-            row->add(std::make_unique<separator_element>(u8"toolbar-separator-1"), 13.0f);
+                branch_width);
+            row->add(std::make_unique<separator_element>(u8"toolbar-separator-1"), toolbar_separator_width);
 
-            const float width { toolbar.show_labels ? tool_button_width : tool_button_compact_width };
             const auto tool = [&](std::u8string owner, const char32_t glyph, std::u8string label, std::u8string tooltip, const bool enabled, const toolbar_action action) {
                 row->add(std::make_unique<tool_button_element>(std::move(owner), glyph, std::move(label), std::move(tooltip), toolbar.show_labels, enabled, message(toolbar_intent { action })), width);
             };
@@ -288,21 +299,22 @@ namespace cyella::ui {
                 toolbar.push_needs_dialog ? std::u8string { u8"Push: upstream이 없어 원격을 골라 --set-upstream으로 보냅니다" }
                                           : u8"Push" + (toolbar.ahead > 0 ? u8" (↑" + number_text(toolbar.ahead) + u8")" : std::u8string {}),
                 toolbar.push_enabled, toolbar_action::push);
-            row->add(std::make_unique<separator_element>(u8"toolbar-separator-2"), 13.0f);
+            row->add(std::make_unique<separator_element>(u8"toolbar-separator-2"), toolbar_separator_width);
             tool(u8"branch", codicons::icon_git_branch, u8"Branch", u8"새 브랜치: 이름과 만들 위치를 정한다", toolbar.branch_enabled, toolbar_action::branch);
             tool(u8"stash", codicons::icon_git_stash, u8"Stash", u8"Stash: 변경을 stash에 넣는다 (추적하지 않는 파일 포함)", toolbar.stash_enabled, toolbar_action::stash);
             tool(u8"pop", codicons::icon_git_stash_pop, u8"Pop", u8"Pop: 맨 위 stash를 꺼낸다", toolbar.pop_enabled, toolbar_action::pop);
             row->add_flexible_gap();
-            if (toolbar.busy_text.empty() == false)
+            const float busy_width { std::min(260.0f, std::max(view.logical_width - repository_width - branch_width - fixed_width - 24.0f, 0.0f)) };
+            if (toolbar.busy_text.empty() == false && busy_width >= 80.0f)
             {
                 row->add(std::make_unique<spinner_element>(luil::ui_element_id { kind_spinner, u8"toolbar-busy-spinner" }, codicons::icon_sync, color_selector {}), 20.0f);
                 row->add(make_text(u8"toolbar-busy", toolbar.busy_text, text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } }),
-                    std::min(260.0f, std::max(view.logical_width * 0.2f, 80.0f)));
+                    busy_width);
             }
             if (toolbar.show_detail_toggle)
                 row->add(make_icon_button(u8"detail-toggle", codicons::icon_layout_sidebar_right, toolbar.drawer_open ? u8"상세 패널 닫기" : u8"상세 패널 열기",
                              message(toggle_drawer_intent { toolbar.drawer_open == false }), true, toolbar.drawer_open, 16.0f),
-                    36.0f);
+                    toolbar_detail_width);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"toolbar-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; }, .divider_bottom = true }, std::move(row));
         }
@@ -523,7 +535,12 @@ namespace cyella::ui {
             config.axis = luil::split_axis::horizontal;
             config.grows = sidebar ? luil::split_grows::toward_end : luil::split_grows::toward_start;
             config.resize = [sidebar](const float delta) { return message(resize_pane_intent { .sidebar = sidebar, .delta = delta }); };
-            return std::make_unique<luil::split_handle_element>(luil::ui_element_id { kind_splitter, sidebar ? u8"sidebar-splitter" : u8"detail-splitter" }, std::move(config));
+            auto handle { std::make_unique<luil::split_handle_element>(luil::ui_element_id { kind_splitter, sidebar ? u8"sidebar-splitter" : u8"detail-splitter" }, std::move(config)) };
+            // 판이 커져 손잡이가 누른 자리를 떠나도 같은 id를 버튼을 뗄 때까지 붙잡는다.
+            luil::pointer_drag_target drag { *handle->pointer_drag() };
+            drag.follows_pointer = true;
+            handle->set_pointer_drag_target(std::move(drag));
+            return handle;
         }
 
         // 판 둘레를 바탕색으로 칠하고 왼쪽에 1px 선과 그림자를 두는 서랍 틀이다.
@@ -624,6 +641,8 @@ namespace cyella::ui {
             built.popups.push_back(build_menu_popup(*view.menu, scale));
         if (view.selector.has_value())
             built.popups.push_back(build_selector_popup(*view.selector, scale));
+        if (view.settings.has_value() && view.settings->font_list.has_value())
+            built.popups.push_back(build_font_popup(*view.settings, scale));
         built.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(root), { 0.0f, 0.0f, view.width, view.height }, scale));
         if (sources.graph != nullptr)
         {

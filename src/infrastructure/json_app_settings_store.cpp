@@ -261,6 +261,17 @@ namespace cyella {
                     warn(result, u8"앱 설정의 appearance.gravatar는 true나 false여야 합니다. 끈 것으로 봅니다.");
             }
 
+            for (const char* const key : { "ui_font", "code_font" })
+            {
+                const auto field { source->find(key) };
+                if (field == source->end() || field->is_null())
+                    continue;
+                if (field->is_string())
+                    (std::string_view { key } == "ui_font" ? result.settings.appearance.ui_font : result.settings.appearance.code_font) = as_u8string(field->get_ref<const std::string&>());
+                else
+                    warn(result, u8"앱 설정의 글꼴 이름은 문자열이어야 합니다. 기본 글꼴을 사용합니다.");
+            }
+
             const auto theme { source->find("theme") };
             if (theme == source->end() || theme->is_null())
                 return;
@@ -339,6 +350,13 @@ namespace cyella {
                     result.settings.ui.commit_files_tree = true;
                 else if (view->is_string() == false || view->get<std::string>() != "list")
                     warn(result, u8"앱 설정의 ui.commit_files_view는 \"list\"나 \"tree\"여야 합니다. 목록으로 봅니다.");
+            }
+            if (const auto view { source->find("working_files_view") }; view != source->end() && view->is_null() == false)
+            {
+                if (view->is_string() && view->get<std::string>() == "tree")
+                    result.settings.ui.working_files_tree = true;
+                else if (view->is_string() == false || view->get<std::string>() != "list")
+                    warn(result, u8"앱 설정의 ui.working_files_view는 list나 tree여야 합니다. 목록으로 봅니다.");
             }
             const auto panes { source->find("pane_widths") };
             if (panes == source->end() || panes->is_null())
@@ -514,6 +532,8 @@ namespace cyella {
             json appearance { existing_object(root, "appearance") };
             appearance["theme"] = as_string(theme_preference_name(settings.appearance.theme));
             appearance["gravatar"] = settings.appearance.gravatar;
+            appearance["ui_font"] = as_string(settings.appearance.ui_font);
+            appearance["code_font"] = as_string(settings.appearance.code_font);
             root["appearance"] = std::move(appearance);
         }
 
@@ -528,7 +548,8 @@ namespace cyella {
         const bool has_widths { settings.ui.pane_widths.sidebar.has_value() || settings.ui.pane_widths.detail.has_value() };
         // 보기는 트리를 골랐거나, 골랐다가 목록으로 되돌린 파일(키가 이미 있다)에만 쓴다.
         const bool has_view { settings.ui.commit_files_tree || existing_object(root, "ui").contains("commit_files_view") };
-        if (has_widths || has_view)
+        const bool has_working_view { settings.ui.working_files_tree || existing_object(root, "ui").contains("working_files_view") };
+        if (has_widths || has_view || has_working_view)
         {
             json ui { existing_object(root, "ui") };
             if (has_widths)
@@ -547,6 +568,8 @@ namespace cyella {
             }
             if (has_view)
                 ui["commit_files_view"] = settings.ui.commit_files_tree ? "tree" : "list";
+            if (has_working_view)
+                ui["working_files_view"] = settings.ui.working_files_tree ? "tree" : "list";
             root["ui"] = std::move(ui);
         }
 

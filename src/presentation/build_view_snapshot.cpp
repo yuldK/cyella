@@ -502,6 +502,8 @@ namespace cyella {
                             committing = true;
                 view.detail = detail_mode::working;
                 view.working = build_working_area(snapshot, tab_state, ui.composition, committing);
+                view.working->files_tree = inputs.settings->ui.working_files_tree;
+                view.working->collapsed_folders = tab_state.collapsed_folders;
             }
             else if (tab_state.selected_sha.empty() == false && tab_state.selected_sha != graph_wip_sha)
             {

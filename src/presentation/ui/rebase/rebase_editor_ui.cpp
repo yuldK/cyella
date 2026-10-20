@@ -3,6 +3,7 @@
 #include "presentation/rebase/rebase_editor_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/rebase/multiline_text_element.h"
+#include "presentation/ui/segmented_control.h"
 #include "presentation/ui/ui_helpers.h"
 
 #include "luil/ui/check_element.h"
@@ -325,7 +326,7 @@ namespace cyella::ui {
                     return message(rebase_set_action_intent { .row_key = {}, .action = *action });
                 };
                 auto row { make_row(u8"rebase-action-row", 0.0f) };
-                row->add(std::make_unique<luil::choice_group_element>(std::move(choice)), { .length = side_width - 2.0f * padding, .cross_length = luil::choice_toggle_height });
+                row->add(make_segmented_control(std::move(choice)), { .length = side_width - 2.0f * padding, .cross_length = segmented_control_height });
                 page.add(std::move(row), input_height);
                 page.add(make_text(u8"rebase-action-keys", u8"키: p pick · r reword · s squash · f fixup · d drop · Alt+↑↓ 옮기기", text_style { .size = 10.5f, .color = dim }), line_height);
                 // 끌기와 Alt+↑↓의 자리를 단추로도 둔다. 마우스 없이, 보조 기술로도 순서를 바꾼다.

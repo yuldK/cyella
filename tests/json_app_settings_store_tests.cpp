@@ -725,3 +725,22 @@ TEST_CASE("unknown keys inside diff survive saving", "[json_app_settings][diff]"
     CHECK(document.at("diff").at("layout") == "split");
     CHECK(document.at("diff").at("future_option") == true);
 }
+
+TEST_CASE("font families and working file view round trip while unknown settings survive", "[json_app_settings][fonts]")
+{
+    const std::u8string source { u8R"({"appearance":{"ui_font":"맑은 고딕","code_font":"Font on another PC","future":true},"ui":{"working_files_view":"tree","future":7}})" };
+    const app_settings_load_result loaded { parse_app_settings_json(source) };
+    CHECK(loaded.settings.appearance.ui_font == u8"맑은 고딕");
+    CHECK(loaded.settings.appearance.code_font == u8"Font on another PC");
+    CHECK(loaded.settings.ui.working_files_tree);
+    const std::u8string saved { serialize_app_settings_json(loaded.settings, source) };
+    CHECK(parse_app_settings_json(saved).settings == loaded.settings);
+    const json document { json::parse(text_of(saved)) };
+    CHECK(document.at("appearance").at("future") == true);
+    CHECK(document.at("ui").at("future") == 7);
+    CHECK(document.at("ui").at("working_files_view") == "tree");
+    const app_settings_load_result invalid { parse_app_settings_json(u8R"({"appearance":{"ui_font":false,"code_font":123}})") };
+    CHECK(invalid.settings.appearance.ui_font.empty());
+    CHECK(invalid.settings.appearance.code_font.empty());
+    CHECK(invalid.diagnostics.size() == 2);
+}

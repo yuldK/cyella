@@ -21,6 +21,12 @@ namespace cyella::ui {
         constexpr float icon_size { 14.0f };
         constexpr float indent_step { 14.0f };
         constexpr float row_button_size { 22.0f };
+        constexpr float start_corner_radius { 6.0f };
+        constexpr float start_icon_size { 32.0f };
+        constexpr float start_row_inset { 12.0f };
+        constexpr float start_title_height { 20.0f };
+        constexpr float start_path_height { 18.0f };
+        constexpr float start_card_text_height { start_title_height + start_path_height };
 
         void fill_rounded(SkCanvas& canvas, const luil::rect_f& box, const float radius, const luil::ui_color color)
         {
@@ -628,7 +634,7 @@ namespace cyella::ui {
 
     luil::access_info start_row_element::accessibility() const
     {
-        return { .role = luil::access_role::button, .name = item_.display_name };
+        return { .role = luil::access_role::button, .name = item_.display_name + (item_.exists ? std::u8string {} : std::u8string { u8" (경로를 찾을 수 없음)" }) };
     }
 
     void start_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
@@ -636,41 +642,45 @@ namespace cyella::ui {
         const luil::rect_f box { bounds() };
         const float scale { context.scale };
         const luil::ui_color_palette& palette { context.palette };
-        luil::draw_hover_fill(context, box, id(), interaction, true, context.metrics.row_corner_radius);
+        fill_rounded(context.canvas, box, start_corner_radius * scale, palette.surface_background);
+        luil::draw_hover_fill(context, box, id(), interaction, true, start_corner_radius);
         const luil::ui_color primary { item_.exists ? palette.primary_foreground : palette.disabled_foreground };
-        float x { box.x + 10.0f * scale };
-        luil::draw_centered_glyph(context.canvas, codicons::icon_repo, { x, box.y, 16.0f * scale, box.height }, icon_font(context, 15.0f), luil::solid_paint(primary));
-        x += 26.0f * scale;
+        const luil::ui_color accent { item_.exists ? palette.accent : palette.warning_accent };
+        const float icon_box_size { start_icon_size * scale };
+        const luil::rect_f icon { box.x + start_row_inset * scale, box.y + (box.height - icon_box_size) / 2.0f, icon_box_size, icon_box_size };
+        fill_rounded(context.canvas, icon, start_corner_radius * scale, luil::with_alpha(accent, 0.10f));
+        luil::draw_centered_glyph(context.canvas, item_.exists ? codicons::icon_repo : codicons::icon_warning, icon, icon_font(context, 16.0f), luil::solid_paint(accent));
+        const float x { icon.x + icon_box_size + start_row_inset * scale };
 
         const float buttons { static_cast<float>(children().size()) * 28.0f * scale + 8.0f * scale };
-        float right { box.x + box.width - buttons - 8.0f * scale };
+        const float path_right { box.x + box.width - buttons - 8.0f * scale };
+        float right { path_right };
         const SkFont small { ui_font(context, 11.0f) };
+        const float text_top { box.y + (box.height - start_card_text_height * scale) / 2.0f };
+        const float title_baseline { text_top + luil::centered_text_baseline(small, start_title_height * scale) };
         if (item_.exists == false)
         {
             const std::u8string warning { u8"경로를 찾을 수 없음" };
             const float width { luil::measure_text(warning, small) };
-            static_cast<void>(
-                luil::draw_text_within(context.canvas, warning, right - width, box.y + luil::centered_text_baseline(small, box.height), width, small, luil::solid_paint(palette.warning_accent)));
+            static_cast<void>(luil::draw_text_within(context.canvas, warning, right - width, title_baseline, width, small, luil::solid_paint(palette.warning_accent)));
             right -= width + 12.0f * scale;
         }
-        else if (when_.empty() == false)
+        else if (when_.empty() == false && box.width >= 480.0f * scale)
         {
             const float width { luil::measure_text(when_, small) };
-            static_cast<void>(
-                luil::draw_text_within(context.canvas, when_, right - width, box.y + luil::centered_text_baseline(small, box.height), width, small, luil::solid_paint(palette.secondary_foreground)));
+            static_cast<void>(luil::draw_text_within(context.canvas, when_, right - width, title_baseline, width, small, luil::solid_paint(palette.secondary_foreground)));
             right -= width + 12.0f * scale;
         }
 
-        const float half { box.height / 2.0f };
         const SkFont name_font { ui_font(context, 13.0f, true) };
         const float drawn = luil::draw_text_within(
-            context.canvas, item_.display_name, x, box.y + 2.0f * scale + luil::centered_text_baseline(name_font, half), std::max(right - x, 0.0f), name_font, luil::solid_paint(primary));
+            context.canvas, item_.display_name, x, text_top + luil::centered_text_baseline(name_font, start_title_height * scale), std::max(right - x, 0.0f), name_font, luil::solid_paint(primary));
         if (open_)
         {
             const std::u8string badge { u8"열림" };
             const float width { luil::measure_text(badge, small) + 10.0f * scale };
             const float height { 16.0f * scale };
-            const luil::rect_f pill { x + drawn + 8.0f * scale, box.y + 2.0f * scale + (half - height) / 2.0f, width, height };
+            const luil::rect_f pill { x + drawn + 8.0f * scale, text_top + (start_title_height * scale - height) / 2.0f, width, height };
             if (pill.x + pill.width < right)
             {
                 fill_rounded(context.canvas, pill, 3.0f * scale, luil::with_alpha(palette.accent, 0.18f));
@@ -678,8 +688,8 @@ namespace cyella::ui {
                     context.canvas, badge, pill.x + 5.0f * scale, pill.y + luil::centered_text_baseline(small, height), width, small, luil::solid_paint(palette.primary_foreground)));
             }
         }
-        static_cast<void>(luil::draw_text_within(
-            context.canvas, item_.path, x, box.y + half - 2.0f * scale + luil::centered_text_baseline(small, half), std::max(right - x, 0.0f), small, luil::solid_paint(palette.secondary_foreground)));
+        static_cast<void>(luil::draw_text_within(context.canvas, item_.path, x, text_top + start_title_height * scale + luil::centered_text_baseline(small, start_path_height * scale),
+            std::max(path_right - x, 0.0f), small, luil::solid_paint(palette.secondary_foreground)));
         draw_children(context, interaction);
     }
 
@@ -712,9 +722,9 @@ namespace cyella::ui {
         const luil::rect_f box { bounds() };
         const float scale { context.scale };
         const luil::ui_color_palette& palette { context.palette };
-        const float radius { context.metrics.row_corner_radius * scale };
+        const float radius { start_corner_radius * scale };
         fill_rounded(context.canvas, box, radius, palette.surface_background);
-        luil::draw_hover_fill(context, box, id(), interaction, enabled(), context.metrics.row_corner_radius);
+        luil::draw_hover_fill(context, box, id(), interaction, enabled(), start_corner_radius);
         SkPaint border { luil::solid_paint(palette.divider) };
         border.setStyle(SkPaint::kStroke_Style);
         border.setStrokeWidth(scale);
@@ -728,12 +738,12 @@ namespace cyella::ui {
 
         const float x { icon.x + icon_box + 12.0f * scale };
         const float width { box.x + box.width - x - 10.0f * scale };
-        const float half { box.height / 2.0f };
+        const float text_top { box.y + (box.height - start_card_text_height * scale) / 2.0f };
         const SkFont title { ui_font(context, 13.0f, true) };
-        static_cast<void>(luil::draw_text_within(context.canvas, title_, x, box.y + 4.0f * scale + luil::centered_text_baseline(title, half), width, title,
+        static_cast<void>(luil::draw_text_within(context.canvas, title_, x, text_top + luil::centered_text_baseline(title, start_title_height * scale), width, title,
             luil::solid_paint(enabled() ? palette.primary_foreground : palette.disabled_foreground)));
         const SkFont small { ui_font(context, 11.0f) };
-        static_cast<void>(luil::draw_text_within(
-            context.canvas, description_, x, box.y + half - 4.0f * scale + luil::centered_text_baseline(small, half), width, small, luil::solid_paint(palette.secondary_foreground)));
+        static_cast<void>(luil::draw_text_within(context.canvas, description_, x, text_top + start_title_height * scale + luil::centered_text_baseline(small, start_path_height * scale), width, small,
+            luil::solid_paint(palette.secondary_foreground)));
     }
 } // namespace cyella::ui

@@ -1,4 +1,5 @@
 #include "presentation/settings/profiles_intents.h"
+#include "presentation/ui/segmented_control.h"
 #include "presentation/ui/settings/settings_page_parts.h"
 #include "presentation/ui/settings/settings_pages_ui.h"
 #include "presentation/ui_intents.h"
@@ -105,8 +106,7 @@ namespace cyella::ui {
                 choice.selected = view.rule_profile;
                 choice.select = [](const std::u8string& value) { return message(choose_rule_profile_intent { value }); };
                 auto choice_row { make_row(u8"settings-rule-profile-row") };
-                const float width { std::min(560.0f, 90.0f * static_cast<float>(view.profiles.size()) + 40.0f) };
-                choice_row->add(std::make_unique<luil::choice_group_element>(std::move(choice)), { .length = width, .cross_length = luil::choice_toggle_height });
+                choice_row->add_flexible(make_segmented_control(std::move(choice)));
                 page.add(std::move(choice_row), input_height);
             }
             page.add(help_line(u8"settings-rule-error", view.rule_error, view.can_add_rule ? dim : warning_color()), line_height);

@@ -10,6 +10,8 @@
 #include "presentation/ui/graph_row_element.h"
 #include "presentation/ui/hosting_ui.h"
 #include "presentation/ui/list_rows.h"
+#include "presentation/ui/rebase/multiline_text_element.h"
+#include "presentation/ui/segmented_control.h"
 #include "presentation/ui/sidebar_extension_rows.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui/ui_parts.h"
@@ -46,7 +48,8 @@ namespace cyella::ui {
         // 메시지·메타 칸이 판 높이에서 가질 수 있는 몫이다. 넘치면 그 칸만 흘리고 파일 목록 자리를 지킨다.
         constexpr float commit_meta_share { 0.55f };
         constexpr float commit_meta_minimum { 160.0f };
-        constexpr float commit_box_height { 172.0f };
+        constexpr float commit_box_minimum { 280.0f };
+        constexpr float commit_box_maximum { 360.0f };
         constexpr float amend_warning_extra { 44.0f };
         // 커밋 상자에서 amend 토글 옆에 서는 서명 토글의 폭이다.
         constexpr float sign_toggle_width { 76.0f };
@@ -475,8 +478,8 @@ namespace cyella::ui {
                     estimate_text_width(commit.removed_total, 11.0f, false) + 2.0f);
             row->add_flexible_gap();
             const bool tree { commit.files_tree };
-            row->add(make_icon_button(u8"detail-files-list", codicons::icon_list_flat, u8"경로 목록으로 보기", message(set_commit_files_view_intent { false }), true, tree == false), 26.0f);
-            row->add(make_icon_button(u8"detail-files-tree", codicons::icon_list_tree, u8"폴더 트리로 보기", message(set_commit_files_view_intent { true }), true, tree), 26.0f);
+            row->add(make_file_view_control(u8"detail-files", tree, [](const std::u8string& value) { return message(set_commit_files_view_intent { value == u8"tree" }); }),
+                { .length = 60.0f, .cross_length = segmented_control_height });
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"detail-files-header-bar" }, bar_style { .divider_bottom = true, .divider_top = true }, std::move(row));
         }
 
@@ -587,12 +590,18 @@ namespace cyella::ui {
             return column;
         }
 
-        std::unique_ptr<luil::ui_element> build_working_area(const repository_view& repository, const working_area_view& working, const bool drawer, feedback_sources& sources)
+        std::unique_ptr<luil::ui_element> build_working_area(const repository_view& repository, const working_area_view& working, const bool drawer, const float height, feedback_sources& sources)
         {
             const std::string& repo { repository.repository_id };
             const std::size_t total { working.conflicts.size() + working.unstaged.size() + working.staged.size() };
             auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"working-area" }, luil::stack_config {}) };
             column->add(detail_header(u8"작업 영역", number_text(total) + u8"개 변경 · " + working.branch, drawer), pane_header_height);
+            luil::stack_config view_config { .direction = luil::stack_direction::row, .padding = luil::edge_insets { 10.0f, 4.0f, 10.0f, 4.0f } };
+            auto view_row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"working-files-header" }, view_config) };
+            view_row->add_flexible(make_text(u8"working-files-title", u8"변경 파일", text_style { .size = 12.0f, .bold = true }));
+            view_row->add(make_file_view_control(u8"working-files-view", working.files_tree, [](const std::u8string& value) { return message(set_working_files_view_intent { value == u8"tree" }); }),
+                { .length = 60.0f, .cross_length = segmented_control_height });
+            column->add(std::move(view_row), 36.0f);
 
             auto builders { std::make_shared<std::map<std::u8string, std::function<std::unique_ptr<luil::ui_element>()>>>() };
             auto requests { std::make_shared<std::map<std::u8string, diff_file_request>>() };
@@ -604,8 +613,7 @@ namespace cyella::ui {
                 (*builders)[key] = [key, title, count = rows.size(), button]() mutable { return std::make_unique<file_group_element>(u8"group-" + key, title, count, std::move(button)); };
             };
             const auto add_rows = [&](const std::vector<file_row_view>& rows, const diff_view view) {
-                for (const file_row_view& row : rows)
-                {
+                const auto add_file = [&](const file_row_view& row, const std::optional<std::size_t> depth) {
                     items.push_back({ .key = row.key, .label = row.name });
                     std::vector<file_row_button> buttons {};
                     if (view == diff_view::unstaged && row.conflicted == false)
@@ -626,10 +634,40 @@ namespace cyella::ui {
                     target.untracked = row.untracked;
                     target.conflicted = row.conflicted;
                     target.lfs = row.lfs;
-                    (*builders)[row.key] = [row, buttons, request, target] { return std::make_unique<file_row_element>(row, buttons, message(select_file_intent { request }), target); };
+                    file_row_view shown { row };
+                    if (depth.has_value() && shown.original_path.empty())
+                        shown.folder.clear();
+                    (*builders)[row.key]
+                        = [shown, buttons, request, target, depth] { return std::make_unique<file_row_element>(shown, buttons, message(select_file_intent { request }), target, depth); };
                     (*requests)[row.key] = request;
                     if (row.selected)
                         selected = row.key;
+                };
+                if (working.files_tree == false)
+                {
+                    for (const file_row_view& row : rows)
+                        add_file(row, std::nullopt);
+                    return;
+                }
+                const std::string prefix { rows.empty() ? std::string {} : to_text(rows.front().key.substr(0, 2)) };
+                std::vector<std::string> paths {};
+                for (const file_row_view& row : rows)
+                    paths.push_back(row.path);
+                std::set<std::string> collapsed {};
+                for (const std::string& path : working.collapsed_folders)
+                    if (path.starts_with(prefix))
+                        collapsed.insert(path.substr(prefix.size()));
+                for (file_tree_row node : build_file_tree(paths, collapsed))
+                {
+                    if (node.folder == false)
+                    {
+                        if (node.file_index < rows.size())
+                            add_file(rows[node.file_index], node.depth);
+                        continue;
+                    }
+                    node.key = to_u8(prefix) + node.key;
+                    items.push_back({ .key = node.key, .label = node.label, .enabled = false });
+                    (*builders)[node.key] = [node, prefix] { return std::make_unique<folder_row_element>(node, message(toggle_file_folder_intent { prefix + node.path })); };
                 }
             };
 
@@ -655,7 +693,8 @@ namespace cyella::ui {
             column->add_flexible(make_file_list(u8"working-files", std::move(items), std::move(builders), std::move(requests), std::move(selected), repository.detail_scroll, sources));
 
             // 커밋 상자 (아래 고정)
-            auto box { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-box" }, luil::stack_config { .spacing = 6.0f, .padding = luil::edge_insets::all(10.0f) }) };
+            auto box { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-box" }, luil::stack_config { .spacing = 8.0f, .padding = luil::edge_insets::all(12.0f) }) };
+            box->add(make_text(u8"commit-message-label", u8"커밋 메시지", text_style { .size = 12.0f, .bold = true }), 18.0f);
             auto subject_row
                 = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-subject-row" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f });
             subject_row->add_flexible(std::make_unique<luil::text_input_element>(
@@ -670,9 +709,8 @@ namespace cyella::ui {
             };
             subject_row->add(make_text(u8"commit-subject-count", number_text(length) + u8"/72", std::move(count_style)), 44.0f);
             box->add(std::move(subject_row), 28.0f);
-            box->add(std::make_unique<luil::text_input_element>(
-                         luil::ui_element_id { kind_commit_body_input, u8"commit-body" }, working.body, luil::text_input_config { .placeholder = u8"본문 (선택) — 무엇을 왜 바꿨는지" }),
-                28.0f);
+            box->add_flexible(
+                std::make_unique<multiline_text_element>(luil::ui_element_id { kind_commit_body_input, u8"commit-body" }, working.body, u8"본문 (선택) · 무엇을 왜 바꿨는지", u8"커밋 본문"));
             // amend와 서명 토글은 한 줄이다. 서명 토글의 기본값은 설정 `commit.gpgsign`이다.
             auto toggles
                 = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-toggles" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f });
@@ -698,7 +736,7 @@ namespace cyella::ui {
             else
                 box->add(make_text(u8"commit-blocked", working.blocked_reason, text_style { .size = 11.0f, .color = dim_color }), 16.0f);
             column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"commit-box-bar" }, bar_style { .divider_top = true }, std::move(box)),
-                commit_box_height + (working.amend_warning ? amend_warning_extra : 0.0f));
+                std::min(std::clamp(height * 0.45f, commit_box_minimum, commit_box_maximum) + (working.amend_warning ? amend_warning_extra : 0.0f), std::max(height - 150.0f, 220.0f)));
             return column;
         }
     } // namespace
@@ -874,7 +912,7 @@ namespace cyella::ui {
         else if (repository.detail == detail_mode::commit && repository.commit.has_value())
             content = build_commit_detail(repository, *repository.commit, drawer, width, height, sources);
         else if (repository.detail == detail_mode::working && repository.working.has_value())
-            content = build_working_area(repository, *repository.working, drawer, sources);
+            content = build_working_area(repository, *repository.working, drawer, height, sources);
         else
             content = centered_message(u8"detail-empty", u8"커밋이나 WIP 행을 고르면 여기에 상세가 보입니다.");
         return std::make_unique<bar_element>(

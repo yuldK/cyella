@@ -5,6 +5,7 @@
 #include "presentation/ui/ui_helpers.h"
 
 #include "luil/ui/dialog_elements.h"
+#include "luil/ui/panel_element.h"
 #include "luil/ui/stack_element.h"
 
 #include <memory>
@@ -21,6 +22,7 @@ namespace cyella::ui::pages {
     inline constexpr float row_height { 30.0f };
     inline constexpr float small_gap { 6.0f };
     inline constexpr float large_gap { 14.0f };
+    inline constexpr float section_padding { 14.0f };
 
     inline const color_selector dim { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
 
@@ -63,29 +65,73 @@ namespace cyella::ui::pages {
 
         void add(std::unique_ptr<luil::ui_element> child, const float height)
         {
+            if (child->id().kind == kind_settings_section)
+                flush_section();
+            ensure_section();
+            section_->add(std::move(child), height);
+            section_height_ += height;
+        }
+
+        void add_unframed(std::unique_ptr<luil::ui_element> child, const float height)
+        {
+            flush_section();
             column_->add(std::move(child), height);
             height_ += height;
         }
 
         void gap(const float height)
         {
-            column_->add_gap(height);
-            height_ += height;
+            ensure_section();
+            section_->add_gap(height);
+            section_height_ += height;
         }
 
         [[nodiscard]] float height() const noexcept
         {
-            return height_;
+            return height_ + (section_ != nullptr ? section_height_ + section_padding * 2.0f + (height_ > 0.0f ? large_gap : 0.0f) : 0.0f);
         }
 
         [[nodiscard]] std::unique_ptr<luil::ui_element> take()
         {
+            flush_section();
             return std::move(column_);
         }
 
     private:
+        void ensure_section()
+        {
+            if (section_ != nullptr)
+                return;
+            const std::u8string owner { column_->id().owner + u8"-section-" + number_text(section_index_++) };
+            section_ = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, owner }, luil::stack_config { .padding = luil::edge_insets::all(section_padding) });
+        }
+
+        void flush_section()
+        {
+            if (section_ == nullptr)
+                return;
+            if (height_ > 0.0f)
+            {
+                column_->add_gap(large_gap);
+                height_ += large_gap;
+            }
+            luil::panel_config config {};
+            config.background = [](const luil::ui_color_palette& palette) { return luil::with_alpha(palette.primary_foreground, 0.025f); };
+            config.border = [](const luil::ui_color_palette& palette) { return palette.divider; };
+            config.corner_radius = 8.0f;
+            auto panel { std::make_unique<luil::panel_element>(luil::ui_element_id { kind_panel, section_->id().owner + u8"-card" }, std::move(config)) };
+            panel->set_content(std::move(section_));
+            const float height { section_height_ + section_padding * 2.0f };
+            column_->add(std::move(panel), height);
+            height_ += height;
+            section_height_ = 0.0f;
+        }
+
         std::unique_ptr<luil::stack_element> column_;
         float height_ { 0.0f };
+        std::unique_ptr<luil::stack_element> section_ {};
+        float section_height_ { 0.0f };
+        std::uint64_t section_index_ { 0 };
     };
 
     inline std::unique_ptr<luil::stack_element> make_row(std::u8string owner, const float spacing = small_gap)
@@ -97,7 +143,10 @@ namespace cyella::ui::pages {
 
     inline std::unique_ptr<luil::ui_element> section_title(std::u8string owner, std::u8string text)
     {
-        return make_text(std::move(owner), std::move(text), text_style { .size = 13.0f, .bold = true });
+        auto title { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_settings_section, owner }, luil::stack_config {}) };
+        title->set_hit_opaque(false);
+        title->add_flexible(make_text(owner + u8"-label", std::move(text), text_style { .size = 14.0f, .bold = true }));
+        return title;
     }
 
     inline std::unique_ptr<luil::ui_element> help_line(std::u8string owner, std::u8string text, color_selector color = dim)

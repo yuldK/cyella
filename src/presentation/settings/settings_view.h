@@ -164,6 +164,11 @@ namespace cyella {
         std::u8string message {};
 
         theme_preference theme { theme_preference::system };
+        luil::text_input_view ui_font {};
+        luil::text_input_view code_font {};
+        std::optional<font_list_state> font_list {};
+        float font_scroll { 0.0f };
+        bool fonts_dirty { false };
         // 커밋 작성자 사진을 Gravatar에서 받는다 (`appearance.gravatar`).
         bool gravatar { false };
         diff_settings diff {};

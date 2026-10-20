@@ -781,3 +781,28 @@ TEST_CASE("a failed key creation keeps the name the user typed", "[settings][con
         SKIP("the fake runner cannot fail ssh-keygen here");
     CHECK(test.controller->state()->key_name.text == u8"deploy");
 }
+
+TEST_CASE("font drafts apply together and font selection persists without losing the other family", "[settings][fonts]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(open_settings_intent {}));
+    test.type(text_target::settings_ui_font, u8"  맑은 고딕  ");
+    test.type(text_target::settings_code_font, u8"Cascadia Mono");
+    CHECK(test.service.settings().appearance.ui_font.empty());
+    REQUIRE(test.send(apply_font_settings_intent {}));
+    CHECK(test.service.settings().appearance.ui_font == u8"맑은 고딕");
+    CHECK(test.service.settings().appearance.code_font == u8"Cascadia Mono");
+    REQUIRE(test.send(open_font_list_intent { { true, 20.0f, 40.0f, 240.0f } }));
+    REQUIRE(test.view().font_list.has_value());
+    REQUIRE(test.send(select_font_intent { true, u8"Consolas" }));
+    CHECK_FALSE(test.view().font_list.has_value());
+    CHECK(test.service.settings().appearance.ui_font == u8"맑은 고딕");
+    CHECK(test.service.settings().appearance.code_font == u8"Consolas");
+    REQUIRE(test.send(close_settings_intent {}));
+    REQUIRE(test.send(open_settings_intent {}));
+    CHECK(test.controller->draft(text_target::settings_ui_font)->text == u8"맑은 고딕");
+    CHECK(test.controller->draft(text_target::settings_code_font)->text == u8"Consolas");
+    REQUIRE(test.send(select_font_intent { false, {} }));
+    CHECK(test.service.settings().appearance.ui_font.empty());
+    CHECK(test.service.settings().appearance.code_font == u8"Consolas");
+}

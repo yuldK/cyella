@@ -65,6 +65,14 @@ namespace cyella {
         luil::text::text_edit_state arguments {};
     };
 
+    struct font_list_state
+    {
+        bool code { false };
+        float x { 0.0f };
+        float y { 0.0f };
+        float width { 0.0f };
+    };
+
     struct settings_state
     {
         settings_page page { settings_page::general };
@@ -72,6 +80,10 @@ namespace cyella {
 
         // 일반: git 실행 파일 경로의 입력 초안이다. 설정값으로 채워 열고, [적용]을 눌러야 저장한다.
         luil::text::text_edit_state git_path {};
+        luil::text::text_edit_state ui_font {};
+        luil::text::text_edit_state code_font {};
+        std::optional<font_list_state> font_list {};
+        float font_scroll { 0.0f };
         std::optional<tool_edit_state> tool_edit {};
 
         // SSH: 키 만들기와 연결 시험의 입력이다.
