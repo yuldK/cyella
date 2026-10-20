@@ -2,6 +2,7 @@
 
 #include "presentation/build_view_snapshot.h"
 #include "presentation/form_builders.h"
+#include "presentation/form_extension.h"
 
 #include <algorithm>
 #include <utility>
@@ -131,6 +132,10 @@ namespace cyella {
                 return build_rename_branch_form(*ui.dialog, context);
             case dialog_kind::confirm:
                 return build_confirm_form(*ui.dialog, context);
+            case dialog_kind::add_worktree:
+                return build_add_worktree_form(*ui.dialog, context);
+            case dialog_kind::lfs_track:
+                return build_lfs_track_form(*ui.dialog, context);
             case dialog_kind::none:
                 break;
             }
@@ -152,6 +157,9 @@ namespace cyella {
         for (const remote_info& remote : snapshot.summary.remotes)
             context.remotes.push_back(remote.name);
         context.worktree_dirty = snapshot.summary.changed_file_count > 0;
+        context.submodules = snapshot.submodules;
+        context.worktrees = snapshot.worktrees;
+        context.lfs = snapshot.lfs;
         if (target.kind == menu_target_kind::commit && index != nullptr)
         {
             // 병합 커밋은 부모를 골라야 cherry-pick·revert를 할 수 있다.

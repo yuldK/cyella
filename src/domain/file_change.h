@@ -26,6 +26,10 @@ namespace cyella {
         change_side side { change_side::unstaged };
         bool is_binary { false };
         bool is_submodule { false };
+        // submodule이면 status가 준 네 글자(`SCMU`: 커밋 바뀜·추적 파일 수정·추적 안 된 파일)다. 그 밖에는 비어 있다.
+        std::string submodule_flags {};
+        // Git LFS가 추적하는 경로다(`filter=lfs`). 저장소가 LFS를 쓸 때만 refresh·show_commit이 채운다.
+        bool is_lfs { false };
         // 충돌일 때 git의 두 글자 코드다(UU, AA, DU 등). 그 밖에는 비어 있다.
         std::string conflict_code {};
         // numstat을 합치기 전에는 값이 없다. 바이너리는 줄 수가 없으므로 값이 없다.

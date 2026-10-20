@@ -1,6 +1,7 @@
 #include "presentation/menu_model.h"
 
 #include "presentation/korean_josa.h"
+#include "presentation/menu_extension.h"
 
 #include "luil/generated/codicons.h"
 
@@ -79,6 +80,7 @@ namespace cyella {
                     make_entry(u8"checkout_detached", u8"이 커밋 체크아웃 (detached HEAD)", icons::icon_target, !(is_head && context.detached)),
                     make_entry(u8"create_branch", u8"여기서 브랜치 만들기…", icons::icon_git_branch_create),
                     make_entry(u8"create_tag", u8"여기에 태그 만들기…", icons::icon_tag),
+                    make_entry(u8"add_worktree", u8"여기서 worktree 만들기…", icons::icon_worktree),
                 });
             add_group(entries,
                 {
@@ -110,7 +112,21 @@ namespace cyella {
             menu_model model {};
             model.title = to_u8(target.name);
             const bool is_current { target.name == context.current_branch && context.detached == false };
-            add_group(model.entries, { make_entry(u8"checkout", is_current ? u8"체크아웃 (현재 브랜치)" : u8"체크아웃", icons::icon_check, is_current == false) });
+            // 다른 worktree가 쓰는 브랜치는 git이 체크아웃을 거절한다. 미리 끄고 그 worktree를 열게 한다.
+            const ref* const branch_ref { find_ref(context.refs, ref_kind::local, target.name) };
+            const bool elsewhere { branch_ref != nullptr && branch_ref->worktree_path.empty() == false };
+            if (elsewhere)
+                add_group(model.entries,
+                    {
+                        make_entry(u8"checkout", u8"체크아웃 (다른 worktree에서 사용 중)", icons::icon_check, false),
+                        make_entry(u8"open_worktree", u8"그 worktree 열기", icons::icon_worktree),
+                    });
+            else
+                add_group(model.entries,
+                    {
+                        make_entry(u8"checkout", is_current ? u8"체크아웃 (현재 브랜치)" : u8"체크아웃", icons::icon_check, is_current == false),
+                        make_entry(u8"add_worktree", u8"새 worktree에 체크아웃…", icons::icon_worktree, is_current == false),
+                    });
             add_group(model.entries, merge_rebase_group(target, context));
             add_group(model.entries,
                 {
@@ -214,6 +230,11 @@ namespace cyella {
                     make_entry(u8"open_external_diff", u8"외부 diff 도구로 열기", icons::icon_diff, target.untracked == false),
                     make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy),
                 });
+            // Git LFS: 추적 중인 파일은 객체를 받고, 아닌 파일은 확장자로 추적을 시작한다.
+            if (target.lfs)
+                add_group(model.entries, { make_entry(u8"lfs_pull", u8"LFS 객체 가져오기 (pull)", icons::icon_cloud_download) });
+            else if (const std::string pattern { lfs_pattern_for_path(target.name) }; pattern.empty() == false && target.conflicted == false)
+                add_group(model.entries, { make_entry(u8"lfs_track", to_u8(pattern) + u8"을(를) LFS로 추적…", icons::icon_package) });
             return model;
         }
 
@@ -297,6 +318,13 @@ namespace cyella {
             return tags_section_menu(context);
         case menu_target_kind::drop:
             return drop_menu(target, context);
+        case menu_target_kind::submodule:
+        case menu_target_kind::submodules_section:
+        case menu_target_kind::worktree:
+        case menu_target_kind::worktrees_section:
+        case menu_target_kind::lfs_section:
+        case menu_target_kind::lfs_file:
+            return build_extension_menu(target, context);
         }
         return {};
     }

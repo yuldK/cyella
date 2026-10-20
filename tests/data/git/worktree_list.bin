@@ -1,0 +1,18 @@
+worktree C:/work/super
+HEAD dda462266603e4feed5a7d63f0f3c14156c88402
+branch refs/heads/main
+
+worktree C:/work/wt1
+HEAD dda462266603e4feed5a7d63f0f3c14156c88402
+branch refs/heads/feat
+
+worktree C:/work/wt2
+HEAD dda462266603e4feed5a7d63f0f3c14156c88402
+detached
+prunable gitdir file points to non-existent location
+
+worktree C:/work/wt3
+HEAD dda462266603e4feed5a7d63f0f3c14156c88402
+branch refs/heads/newb
+locked usb
+

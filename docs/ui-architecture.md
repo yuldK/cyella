@@ -242,3 +242,43 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
 - 앞 operation이 성공해야 이어 내는 열(`submit_sequence`)은 원격 태그를 먼저 지우고 로컬을 지울 때(`delete_remote_tag` → `delete_tag`)도 쓴다.
 - upstream 설정은 `push --set-upstream`으로 한다 (`branch --set-upstream-to` operation은 없다). 메뉴의 "upstream 설정…"은 그 체크를 켠 push 대화 상자다.
 - 사이드바 태그·stash 두 번 누름: 태그는 detached 체크아웃(경고 한 번, "다시 보지 않기"), stash는 apply다.
+
+## submodule·worktree·Git LFS
+
+```text
+refresh ─ status·refs ─ read_extension_snapshot ─▶ repository_snapshot{submodules, worktrees, lfs}
+                                                    │
+build_sidebar_rows ◀── append_extension_sidebar_rows ┘  (presentation/sidebar_extension.*, 순수 함수)
+build_diff ◀──────────── build_diff_special(diff_file)   (presentation/diff_special.*, 순수 함수)
+build_context_menu ◀──── build_extension_menu            (presentation/menu_extension.*)
+snapshot_dialogs ◀────── build_add_worktree_form·build_lfs_track_form (presentation/form_extension.*)
+shell_controller_extension.cpp: 행 활성화·메뉴 실행·대화 상자 열기
+```
+
+- **사이드바**: `sidebar_section`의 끝에 `submodules`·`worktrees`·`lfs`가 있다. 행은 `sidebar_row_view::item`(`ref`·`submodule`·`worktree`·`lfs`)으로
+  가르고 키는 `sm:<경로>`·`wt:<폴더>`·`lfs:status`·`lfs:f:<경로>`다. 오른쪽 꼬리 글(`badge`)과 색(`tone`)은 상태를 말한다: 미초기화·수정됨·구버전·충돌, 주·현재·잠김·정리 가능, 받음·포인터.
+  LFS 구역은 저장소가 LFS를 쓸 때만 선다(파일 행은 200개까지, 나머지는 "외 N개"). 브랜치 행의 끌어 놓기는 `item == ref`일 때만 붙는다.
+- **두 번 누름·Enter(UIA의 Invoke도 같다)**: submodule은 초기화되었으면 새 탭으로 열고 아니면 `submodule_update`(init, recursive)다. worktree는 새 탭으로 연다(지금 연 것은 그대로,
+  폴더가 사라진 것은 안내만). 탭과 최근 목록의 열쇠는 경로이므로 연결된 worktree와 submodule은 저마다 별개의 저장소 탭이다(대소문자·구분자가 달라도 같은 탭).
+- **다른 worktree의 브랜치**: `ref.worktree_path`가 있으면 사이드바 행과 그래프 라벨(`ref_label::worktree_path`)에 worktree 아이콘이 붙고 이름에 "(다른 worktree에서 사용 중)"이 들어간다. 두 번 누름은
+  operation을 내지 않고 이유를 알리며, 메뉴의 "체크아웃"은 꺼지고 "그 worktree 열기"가 선다. 그래도 git이 거절하면(다른 경로로 낸 요청) 백엔드의 `branch_checked_out_elsewhere`가 잡는다.
+- **우클릭 메뉴**(`menu_target_kind` 끝에 `submodule`·`submodules_section`·`worktree`·`worktrees_section`·`lfs_section`·`lfs_file`): submodule은 열기·업데이트·경로 복사, 머리는 모두 업데이트·sync.
+  worktree는 열기·제거(확인 상자, "강제로 제거" 체크가 `plan.alternate`)·경로 복사, 머리는 추가·prune. LFS 머리는 pull·fetch·fetch --all·추적 패턴 추가. 커밋·브랜치 메뉴에는 worktree 만들기,
+  작업 영역 파일 메뉴에는 `*.확장자를 LFS로 추적…`·`LFS 객체 가져오기`가 붙는다. 메뉴는 `menu_context`(snapshot의 submodule·worktree·lfs)로 상태를 다시 찾는다.
+- **대화 상자**: `dialog_kind::add_worktree`(폴더 + 방식 셋 [새 브랜치·기존 브랜치·detached] + 브랜치 이름, 시작 위치는 `dialog.subject`)와 `lfs_track`(패턴). 폴더는 저장소 옆
+  `<저장소>-<이름>`이 미리 채워지고, 절대 경로·이미 있는 worktree 폴더·브랜치 이름 규칙·"다른 worktree가 쓰는 브랜치"를 `add_worktree_ready`가 가린다.
+- **작업 영역·커밋 파일 행**: `file_row_view::lfs`(주황 "LFS" 배지)와 `submodule`(파란 "서브모듈" 배지, 줄 수는 감춘다). UIA 이름에는 "(LFS)"·"(서브모듈)"이 들어간다.
+  작업 영역 행은 Invoke로 diff를 열 수 있다(`file_row_element`의 access handler). 커밋의 파일 목록은 목록 항목을 고르면 열린다.
+- **diff 카드**: `diff_file::is_special()`(gitlink, 또는 실제 내용이 로컬에 없는 LFS 포인터)이면 `diff_panel_view::special`이 서고 `build_diff_area`가 웹뷰 자리·텍스트 대체 본문 대신
+  luil 카드(`ui/diff_special_card.cpp`)를 그린다. 카드라서 UIA에 보인다(`diff-special-title`·`diff-special-row-N-value`·`diff-special-action`·`diff-special-open`).
+  `diff_view_controller`도 같은 조건에서 웹뷰에는 비움을 보낸다(`diff_content::special`). 두 쪽의 실제 내용이 로컬에 있는 LFS 포인터는 카드가 아니라 diff 웹뷰의 이미지 비교나 바이너리 카드이며,
+  이때 두 쪽 꺼내기가 blob 대신 로컬 LFS 객체를 쓴다(`diff_side_plan::lfs`, `git_diff_gateway`).
+- **진행률**: lfs pull·fetch는 상태 줄에 "Downloading LFS objects 33%"로 보인다.
+
+### 알아 둘 것
+
+- 우클릭 메뉴(submodule·worktree·LFS)와 그 메뉴가 여는 worktree 추가·제거 확인·LFS 추적 대화 상자는 UI Automation으로 열 수 없다.
+  `tests/extension_view_tests.cpp`가 같은 메뉴 항목과 대화 상자를 controller 수준에서 검증한다(메뉴 조건, 항목 실행이 내는 operation, 대화 상자 규칙).
+- LFS 카드의 "현재 내용"은 unstaged 보기에서만 작업 트리 파일로 판정하고 staged·커밋 보기는 객체 저장소로 본다. 커밋 보기에서 객체를 받아 둔 저장소는 이미지 비교가 뜬다.
+- 커밋 파일 목록의 LFS 배지는 그 커밋이 아니라 지금 작업 트리의 `.gitattributes`로 판정한다(과거 커밋에서 LFS를 쓰지 않았던 파일도 지금 패턴에 맞으면 배지가 붙는다).
+- submodule 상태에서 `out_of_date`와 `modified`의 구분은 `+`인 항목마다 submodule 안에서 `git merge-base --is-ancestor`를 한 번 부른다.

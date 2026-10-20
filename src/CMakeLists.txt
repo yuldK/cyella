@@ -221,6 +221,46 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/git_operations"
     infrastructure/git_write_operations.cpp
     infrastructure/ssh_operations.cpp)
 
+# submodule·worktree·Git LFS: 값 타입, git 출력 해석기, 명령 조립기, operation 실행이다.
+cyella_add_source_filter(cyella_lib_files "domain/extensions"
+    domain/lfs.cpp
+    domain/lfs.h
+    domain/submodule.cpp
+    domain/submodule.h
+    domain/worktree.h)
+
+cyella_add_source_filter(cyella_lib_files "presentation/extensions"
+    presentation/diff_special.cpp
+    presentation/diff_special.h
+    presentation/extension_intents.h
+    presentation/form_extension.cpp
+    presentation/form_extension.h
+    presentation/shell_controller_extension.cpp
+    presentation/menu_extension.cpp
+    presentation/menu_extension.h
+    presentation/sidebar_extension.cpp
+    presentation/sidebar_extension.h)
+
+cyella_add_source_filter(cyella_lib_files "infrastructure/git_extensions"
+    infrastructure/git_extension_arguments.h
+    infrastructure/git_extension_operations.cpp
+    infrastructure/git_extension_operations.h
+    infrastructure/git_lfs_commands.cpp
+    infrastructure/git_lfs_commands.h
+    infrastructure/git_lfs_operations.cpp
+    infrastructure/git_lfs_parser.cpp
+    infrastructure/git_lfs_parser.h
+    infrastructure/git_submodule_commands.cpp
+    infrastructure/git_submodule_commands.h
+    infrastructure/git_submodule_operations.cpp
+    infrastructure/git_submodule_parser.cpp
+    infrastructure/git_submodule_parser.h
+    infrastructure/git_worktree_commands.cpp
+    infrastructure/git_worktree_commands.h
+    infrastructure/git_worktree_operations.cpp
+    infrastructure/git_worktree_parser.cpp
+    infrastructure/git_worktree_parser.h)
+
 # presentation: view snapshot을 luil element tree로 짓는 앱 element 계층이다.
 cyella_add_source_filter(cyella_lib_files "presentation/start_page"
     presentation/start_page_view.cpp
@@ -289,6 +329,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
 cyella_add_source_filter(cyella_lib_files "presentation/ui/screens"
     presentation/ui/build_ui_tree.cpp
     presentation/ui/build_ui_tree.h
+    presentation/ui/diff_special_card.cpp
+    presentation/ui/diff_special_card.h
     presentation/ui/diff_webview.cpp
     presentation/ui/diff_webview.h
     presentation/ui/diff_webview_theme.cpp
@@ -298,6 +340,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/screens"
     presentation/ui/list_rows.cpp
     presentation/ui/list_rows.h
     presentation/ui/repository_ui.cpp
+    presentation/ui/sidebar_extension_rows.cpp
+    presentation/ui/sidebar_extension_rows.h
     presentation/ui/settings/settings_ui.cpp
     presentation/ui/settings/settings_ui.h
     presentation/ui/start_page_ui.cpp

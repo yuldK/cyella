@@ -1,7 +1,10 @@
 #pragma once
 
 #include "domain/file_change.h"
+#include "domain/lfs.h"
 #include "domain/ref.h"
+#include "domain/submodule.h"
+#include "domain/worktree.h"
 
 #include <cstdint>
 #include <optional>
@@ -25,6 +28,13 @@ namespace cyella {
         tags_section,
         // 브랜치 라벨을 다른 브랜치나 커밋에 놓았다.
         drop,
+        // 새 대상은 끝에 덧붙인다. `name`은 submodule의 저장소 기준 경로, worktree의 폴더, LFS 파일의 경로다.
+        submodule,
+        submodules_section,
+        worktree,
+        worktrees_section,
+        lfs_section,
+        lfs_file,
     };
 
     // 끌어 놓기의 한쪽이다. 브랜치(`kind`가 local·remote)나 커밋이다.
@@ -52,6 +62,8 @@ namespace cyella {
         change_side side { change_side::unstaged };
         bool untracked { false };
         bool conflicted { false };
+        // Git LFS가 추적하는 파일이다.
+        bool lfs { false };
         // drop
         drop_party source {};
         drop_party destination {};
@@ -90,6 +102,10 @@ namespace cyella {
         // 우클릭한 커밋이 병합 커밋이다 (cherry-pick·revert는 부모를 골라야 한다).
         bool commit_is_merge { false };
         drop_facts facts {};
+        // submodule·worktree·LFS 메뉴가 항목을 정하는 값이다.
+        std::vector<submodule_info> submodules {};
+        std::vector<worktree_info> worktrees {};
+        lfs_repository_state lfs {};
     };
 
     struct menu_entry

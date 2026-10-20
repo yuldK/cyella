@@ -104,7 +104,7 @@ TEST_CASE("refresh reads status before the log and streams commits in batches", 
     const std::vector<operation_event> events { test.execute(refresh_request {}, 3) };
 
     // HEAD를 알아야 WIP 행을 끼우므로 status·refs가 log보다 먼저다.
-    CHECK(test.process.command_names() == text_list { "rev-parse", "status", "diff", "diff", "for-each-ref", "stash", "remote", "merge-base", "log" });
+    CHECK(test.process.command_names() == text_list { "rev-parse", "status", "diff", "diff", "for-each-ref", "stash", "remote", "merge-base", "worktree", "log" });
     for (const test::recorded_call& call : test.process.calls())
         CHECK(call.no_optional_locks);
 

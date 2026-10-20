@@ -187,11 +187,15 @@ TEST_CASE("sidebar rows group remotes, filter by name and collapse sections", "[
     snapshot.stashes = { { .index = 0, .name = "stash@{0}", .sha = "s", .message = "WIP on main" } };
 
     const sidebar_rows all { build_sidebar_rows(snapshot, {}, 0) };
-    CHECK(all.counts == std::array<std::uint32_t, sidebar_section_count> { 2, 1, 1, 1 });
+    CHECK(all.counts == std::array<std::uint32_t, sidebar_section_count> { 2, 1, 1, 1, 0, 0, 0 });
     std::vector<std::u8string> keys {};
     for (const sidebar_row_view& row : all.rows)
         keys.push_back(row.key);
-    CHECK(keys == std::vector<std::u8string> { u8"h:LOCAL", u8"l:main", u8"l:feature/graph", u8"h:REMOTE", u8"r:origin", u8"rb:origin/main", u8"h:TAGS", u8"t:v1.0", u8"h:STASHES", u8"s:0" });
+    // submodule·worktree 구역은 항목이 없어도 머리가 선다 (LFS 구역은 저장소가 LFS를 쓸 때만 선다).
+    std::vector<std::u8string> expected { u8"h:LOCAL", u8"l:main", u8"l:feature/graph", u8"h:REMOTE", u8"r:origin", u8"rb:origin/main", u8"h:TAGS", u8"t:v1.0", u8"h:STASHES", u8"s:0" };
+    expected.push_back(u8"h:SUBMODULES");
+    expected.push_back(u8"h:WORKTREES");
+    CHECK(keys == expected);
     CHECK(all.rows[1].current);
     CHECK(all.rows[1].ahead == 1);
     CHECK(all.rows[2].no_upstream);
@@ -204,7 +208,7 @@ TEST_CASE("sidebar rows group remotes, filter by name and collapse sections", "[
     const sidebar_rows filtered { build_sidebar_rows(snapshot, u8"FEAT", 0) };
     CHECK(filtered.counts[0] == 1);
     CHECK(filtered.counts[1] == 0);
-    CHECK(filtered.rows.size() == 5);
+    CHECK(filtered.rows.size() == 7);
 
     const std::uint8_t collapsed { static_cast<std::uint8_t>((1u << static_cast<unsigned>(sidebar_section::local)) | (1u << static_cast<unsigned>(sidebar_section::tags))) };
     const sidebar_rows folded { build_sidebar_rows(snapshot, {}, collapsed) };

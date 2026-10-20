@@ -86,6 +86,15 @@ namespace cyella {
         // 환경 설정의 SSH 도구다. 저장소가 없고 대상(키 경로·호스트)으로 묶인다.
         ssh_keygen,
         ssh_connection_test,
+        // submodule·worktree·Git LFS
+        submodule_update,
+        submodule_sync,
+        worktree_add,
+        worktree_remove,
+        worktree_prune,
+        lfs_pull,
+        lfs_fetch,
+        lfs_track,
     };
 
     enum class operation_state
@@ -133,6 +142,8 @@ namespace cyella {
         // 요청 값이 잘못되어 git을 실행하지 않았다(빈 경로, 옵션처럼 보이는 이름).
         invalid_request,
         timed_out,
+        // 브랜치가 다른 worktree에 체크아웃되어 있어 git이 체크아웃을 거절했다. 요약에 그 폴더가 든다.
+        branch_checked_out_elsewhere,
     };
 
     struct operation_failure

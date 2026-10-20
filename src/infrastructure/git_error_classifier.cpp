@@ -65,6 +65,10 @@ namespace cyella {
 
         git_failure_kind classify_text(const std::string_view text) noexcept
         {
+            // 새 git은 `is already used by worktree at`, 옛 git은 `is already checked out at`이라고 한다. 경로와 이름만
+            // 번역되지 않는 채 남으므로 영어 출력에서만 맞는 신호다.
+            if (contains_ignoring_case(text, "is already used by worktree at") || contains_ignoring_case(text, "is already checked out at"))
+                return git_failure_kind::branch_checked_out_elsewhere;
             // OpenSSH가 만드는 문구라 번역되지 않는다. 호스트 키는 인증 문제와 다르게
             // 안내해야 해서 따로 가른다. 바뀐 키도 끝에 `Host key verification failed`가
             // 붙으므로 먼저 본다.
@@ -209,6 +213,25 @@ namespace cyella {
         return known_hosts_location {};
     }
 
+    std::optional<std::string> find_checked_out_worktree_path(const std::string_view standard_error)
+    {
+        for (const std::string_view marker : { std::string_view { "is already used by worktree at '" }, std::string_view { "is already checked out at '" } })
+        {
+            const std::size_t begin { standard_error.find(marker) };
+            if (begin == std::string_view::npos)
+                continue;
+            const std::string_view rest { standard_error.substr(begin + marker.size()) };
+            // 경로에 따옴표가 들어갈 수 있어 줄 끝에 가장 가까운 따옴표가 닫는 쪽이다.
+            const std::size_t line_end { rest.find_first_of("\r\n") };
+            const std::string_view line { rest.substr(0, line_end) };
+            const std::size_t close { line.rfind('\'') };
+            if (close == std::string_view::npos || close == 0)
+                continue;
+            return std::string { line.substr(0, close) };
+        }
+        return std::nullopt;
+    }
+
     git_failure_kind classify_git_failure(const std::string_view standard_error, const std::string_view standard_output) noexcept
     {
         // stderr의 신호가 더 믿을 만하다. stdout은 충돌 문구처럼 git이 stdout으로
@@ -255,6 +278,8 @@ namespace cyella {
             return "connection_failed";
         case git_failure_kind::not_possible_to_fast_forward:
             return "not_possible_to_fast_forward";
+        case git_failure_kind::branch_checked_out_elsewhere:
+            return "branch_checked_out_elsewhere";
         }
         return "unclassified";
     }
@@ -295,6 +320,8 @@ namespace cyella {
             return u8"원격에 연결하지 못했습니다.";
         case git_failure_kind::not_possible_to_fast_forward:
             return u8"fast-forward로 옮길 수 없습니다.";
+        case git_failure_kind::branch_checked_out_elsewhere:
+            return u8"이 브랜치는 다른 worktree에서 체크아웃되어 있어 옮길 수 없습니다.";
         }
         return u8"명령이 실패했습니다.";
     }

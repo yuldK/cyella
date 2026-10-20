@@ -126,6 +126,22 @@ namespace cyella {
             return "ssh_keygen";
         case operation_kind::ssh_connection_test:
             return "ssh_connection_test";
+        case operation_kind::submodule_update:
+            return "submodule_update";
+        case operation_kind::submodule_sync:
+            return "submodule_sync";
+        case operation_kind::worktree_add:
+            return "worktree_add";
+        case operation_kind::worktree_remove:
+            return "worktree_remove";
+        case operation_kind::worktree_prune:
+            return "worktree_prune";
+        case operation_kind::lfs_pull:
+            return "lfs_pull";
+        case operation_kind::lfs_fetch:
+            return "lfs_fetch";
+        case operation_kind::lfs_track:
+            return "lfs_track";
         }
         return "unknown";
     }
@@ -190,6 +206,8 @@ namespace cyella {
             return "invalid_request";
         case failure_kind::timed_out:
             return "timed_out";
+        case failure_kind::branch_checked_out_elsewhere:
+            return "branch_checked_out_elsewhere";
         }
         return "other";
     }
@@ -271,6 +289,8 @@ namespace cyella {
             return u8"요청 값이 올바르지 않습니다.";
         case failure_kind::timed_out:
             return u8"명령이 제한 시간 안에 끝나지 않았습니다.";
+        case failure_kind::branch_checked_out_elsewhere:
+            return u8"이 브랜치는 다른 worktree에서 체크아웃되어 있어 옮길 수 없습니다.";
         }
         return u8"명령이 실패했습니다.";
     }

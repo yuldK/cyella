@@ -1,10 +1,12 @@
 #include "application/app_messages.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/dialog_intents.h"
+#include "presentation/extension_intents.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
 #include "presentation/ui/list_rows.h"
+#include "presentation/ui/sidebar_extension_rows.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui/ui_parts.h"
 #include "presentation/ui_intents.h"
@@ -65,6 +67,26 @@ namespace cyella::ui {
             menu_target target {};
             target.name = row.ref_name;
             target.sha = row.target_sha;
+            // submodule·worktree·LFS 행
+            switch (row.item)
+            {
+            case sidebar_item_kind::submodule:
+                target.kind = menu_target_kind::submodule;
+                target.name = row.path;
+                return target;
+            case sidebar_item_kind::worktree:
+                target.kind = menu_target_kind::worktree;
+                target.name = row.path;
+                return target;
+            case sidebar_item_kind::lfs:
+                if (row.path.empty())
+                    return std::nullopt;
+                target.kind = menu_target_kind::lfs_file;
+                target.name = row.path;
+                return target;
+            case sidebar_item_kind::ref:
+                break;
+            }
             switch (row.kind)
             {
             case ref_kind::local:
@@ -120,11 +142,17 @@ namespace cyella::ui {
                     select = sidebar_select_action(row);
                     if (row.section == sidebar_section::tags)
                         menu = menu_target { .kind = menu_target_kind::tags_section };
+                    else if (row.section == sidebar_section::submodules)
+                        menu = menu_target { .kind = menu_target_kind::submodules_section };
+                    else if (row.section == sidebar_section::worktrees)
+                        menu = menu_target { .kind = menu_target_kind::worktrees_section };
+                    else if (row.section == sidebar_section::lfs)
+                        menu = menu_target { .kind = menu_target_kind::lfs_section };
                 }
                 else if (row.group == false)
                 {
                     select = sidebar_select_action(row);
-                    activate = message(activate_ref_intent { row.kind, row.ref_name });
+                    activate = row.item == sidebar_item_kind::ref ? message(activate_ref_intent { row.kind, row.ref_name }) : message(activate_sidebar_item_intent { row.item, row.path });
                     menu = sidebar_menu_target(row);
                 }
                 return std::make_unique<sidebar_row_element>(row, std::move(select), std::move(activate), std::move(menu));
@@ -149,6 +177,8 @@ namespace cyella::ui {
                     return message(toggle_sidebar_section_intent { row.section });
                 if (row.group)
                     return luil::input_action {};
+                if (row.item != sidebar_item_kind::ref)
+                    return message(activate_sidebar_item_intent { row.item, row.path });
                 return message(activate_ref_intent { row.kind, row.ref_name });
             };
             if (scrolls)
@@ -174,6 +204,12 @@ namespace cyella::ui {
                 return u8"TAGS";
             case sidebar_section::stashes:
                 return u8"STASHES";
+            case sidebar_section::submodules:
+                return u8"SUBMODULES";
+            case sidebar_section::worktrees:
+                return u8"WORKTREES";
+            case sidebar_section::lfs:
+                return u8"GIT LFS";
             }
             return {};
         }
@@ -190,6 +226,10 @@ namespace cyella::ui {
                 return codicons::icon_tag;
             case sidebar_section::stashes:
                 return codicons::icon_archive;
+            case sidebar_section::submodules:
+            case sidebar_section::worktrees:
+            case sidebar_section::lfs:
+                return extension_section_glyph(section);
             }
             return codicons::icon_git_branch;
         }
@@ -333,6 +373,7 @@ namespace cyella::ui {
                     target.side = view == diff_view::staged ? change_side::staged : change_side::unstaged;
                     target.untracked = row.untracked;
                     target.conflicted = row.conflicted;
+                    target.lfs = row.lfs;
                     (*builders)[row.key] = [row, buttons, request, target] { return std::make_unique<file_row_element>(row, buttons, message(select_file_intent { request }), target); };
                     (*requests)[row.key] = request;
                     if (row.selected)
@@ -429,7 +470,8 @@ namespace cyella::ui {
     {
         auto column
             = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"rail" }, luil::stack_config { .spacing = 2.0f, .padding = luil::edge_insets { 2.0f, 6.0f, 2.0f, 6.0f } });
-        for (const sidebar_section section : { sidebar_section::local, sidebar_section::remote, sidebar_section::tags, sidebar_section::stashes })
+        for (const sidebar_section section :
+            { sidebar_section::local, sidebar_section::remote, sidebar_section::tags, sidebar_section::stashes, sidebar_section::submodules, sidebar_section::worktrees })
         {
             const std::u8string title { section_title(section) };
             const std::u8string count { number_text(repository.section_counts[static_cast<std::size_t>(section)]) };

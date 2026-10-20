@@ -1,6 +1,7 @@
 #include "infrastructure/git_operation_runner.h"
 
 #include "domain/path_syntax.h"
+#include "infrastructure/git_extension_operations.h"
 #include "infrastructure/git_operation_context.h"
 
 #include <exception>
@@ -16,6 +17,9 @@ namespace cyella {
                 return run_setup_operation(context);
             if (context.job().repository_path.empty())
                 return operation_outcome::failed(failure_kind::invalid_request, u8"저장소 경로가 없습니다.");
+            // submodule·worktree·Git LFS의 operation이다.
+            if (std::optional<operation_outcome> extension { run_extension_operation(context) }; extension.has_value())
+                return std::move(*extension);
             if (operation_lane_of(kind) == operation_lane::read)
                 return run_read_operation(context);
             return run_write_operation(context);

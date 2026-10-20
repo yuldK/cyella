@@ -398,12 +398,69 @@ namespace cyella {
         std::uint16_t port { 0 };
     };
 
+    // ------------------------------------------------------------------ submodule·worktree·Git LFS
+
+    // `submodule update [--init] [--recursive] -- <paths>`. 기록된 커밋으로 체크아웃한다. paths가 비면 모든 submodule이다.
+    struct submodule_update_request
+    {
+        bool init { true };
+        bool recursive { true };
+        // 저장소 루트 기준 경로다.
+        std::vector<std::string> paths {};
+    };
+
+    // `submodule sync`. `.gitmodules`의 url을 submodule 설정에 옮긴다.
+    struct submodule_sync_request
+    {
+        bool recursive { true };
+        std::vector<std::string> paths {};
+    };
+
+    // `worktree add`. 새 폴더에 작업 트리를 만든다. new_branch가 있으면 그 이름의 새 브랜치를 start_point에서 만들고,
+    // 없고 detach면 start_point(비면 HEAD)를 detached로, 둘 다 아니면 branch를 체크아웃한다.
+    struct worktree_add_request
+    {
+        // 새 폴더의 절대 경로다.
+        std::u8string path {};
+        std::string branch {};
+        std::string new_branch {};
+        std::string start_point {};
+        bool detach { false };
+    };
+
+    // `worktree remove`. 변경이 있는 작업 트리는 force여야 지운다. 잠긴 작업 트리도 force여야 한다. 주 작업 트리는 거절한다.
+    struct worktree_remove_request
+    {
+        std::u8string path {};
+        bool force { false };
+    };
+
+    struct worktree_prune_request
+    {};
+
+    // `lfs pull`. 객체를 받고 작업 트리를 실제 내용으로 채운다. 저장소에 `git lfs install --local`이 없으면 먼저 한다.
+    struct lfs_pull_request
+    {};
+
+    // `lfs fetch [--all]`. 객체만 받는다.
+    struct lfs_fetch_request
+    {
+        bool all { false };
+    };
+
+    // `lfs track -- <pattern>`. `.gitattributes`를 git-lfs가 고친다. stage하지 않는다.
+    struct lfs_track_request
+    {
+        std::string pattern {};
+    };
+
     using git_operation = std::variant<refresh_request, load_more_log_request, show_commit_request, diff_file_request, is_ancestor_request, count_commits_request, refresh_remote_tags_request,
         stage_files_request, unstage_files_request, discard_files_request, ignore_path_request, commit_request, apply_patch_request, checkout_branch_request, checkout_remote_branch_request,
         checkout_detached_request, create_branch_request, rename_branch_request, delete_branch_request, fetch_request, pull_request, push_execute_request, merge_request, rebase_request,
         fast_forward_request, reset_request, cherry_pick_request, revert_request, stash_push_request, stash_apply_request, stash_pop_request, stash_drop_request, create_tag_request, push_tag_request,
         push_tags_request, delete_tag_request, delete_remote_tag_request, sequence_control_request, resolve_file_request, mark_resolved_request, remove_stale_index_lock_request, clone_request,
-        init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request>;
+        init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
+        worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request>;
 
     // 실행 lane이다.
     enum class operation_lane

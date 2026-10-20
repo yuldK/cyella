@@ -2,7 +2,9 @@
 #include "application/git_workspace.h"
 #include "infrastructure/ssh_tools.h"
 #include "presentation/form_builders.h"
+#include "presentation/form_extension.h"
 #include "presentation/graph_geometry.h"
+#include "presentation/menu_extension.h"
 #include "presentation/shell_controller.h"
 
 #include <algorithm>
@@ -733,6 +735,8 @@ namespace cyella {
                 static_cast<void>(submit(revert_request { target.sha }));
             else if (key == u8"copy_sha")
                 copy_text(to_u8(target.sha));
+            else if (key == u8"add_worktree")
+                open_add_worktree_dialog(target.sha, 0, {});
             else if (const std::optional<reset_mode> mode { reset_mode_of() }; mode.has_value())
                 confirm_reset(*mode, target.sha, short_sha(target.sha));
             return;
@@ -749,6 +753,13 @@ namespace cyella {
                 open_push_dialog(target.name, true);
             else if (key == u8"rename")
                 open_rename_dialog(target.name);
+            else if (key == u8"add_worktree")
+                open_add_worktree_dialog({}, 1, target.name);
+            else if (key == u8"open_worktree")
+            {
+                if (const ref* const branch { find_ref(session->snapshot(), ref_kind::local, target.name) }; branch != nullptr && branch->worktree_path.empty() == false)
+                    open_repository(to_u8(branch->worktree_path));
+            }
             else if (key == u8"copy_name")
                 copy_text(to_u8(target.name));
             else if (key == u8"delete")
@@ -849,6 +860,18 @@ namespace cyella {
                 copy_text(to_u8(target.name));
             else if (key == u8"open_external_diff")
                 show_notice(u8"외부 diff 도구 열기는 diff 뷰어의 연결과 함께 붙습니다.");
+            else if (key == u8"lfs_track")
+                open_lfs_track_dialog(lfs_pattern_for_path(target.name));
+            else if (key == u8"lfs_pull")
+                static_cast<void>(submit(lfs_pull_request {}));
+            return;
+        case menu_target_kind::submodule:
+        case menu_target_kind::submodules_section:
+        case menu_target_kind::worktree:
+        case menu_target_kind::worktrees_section:
+        case menu_target_kind::lfs_section:
+        case menu_target_kind::lfs_file:
+            run_extension_menu_action(target, key, context);
             return;
         case menu_target_kind::drop: {
             const drop_party& source { target.source };
@@ -927,6 +950,8 @@ namespace cyella {
                 return;
             case dialog_kind::create_tag:
             case dialog_kind::rename_branch:
+            case dialog_kind::add_worktree:
+            case dialog_kind::lfs_track:
             case dialog_kind::none:
                 return;
             }
@@ -950,6 +975,8 @@ namespace cyella {
         if (ui_.dialog->kind == dialog_kind::push && index < ui_.dialog->choices.size())
             ui_.dialog->choice = index;
         else if (ui_.dialog->kind == dialog_kind::create_tag && index < 2)
+            ui_.dialog->choice = index;
+        else if (ui_.dialog->kind == dialog_kind::add_worktree && index < 3)
             ui_.dialog->choice = index;
     }
 
@@ -1030,6 +1057,16 @@ namespace cyella {
             static_cast<void>(submit_sequence(use_alternate ? dialog.plan.alternate : dialog.plan.primary));
             break;
         }
+        case dialog_kind::add_worktree:
+            if (add_worktree_ready(dialog, ui_.form, snapshot) == false)
+                return;
+            static_cast<void>(submit(make_worktree_add_request(dialog, ui_.form)));
+            break;
+        case dialog_kind::lfs_track:
+            if (lfs_track_ready(dialog, ui_.form) == false)
+                return;
+            static_cast<void>(submit(make_lfs_track_request(ui_.form)));
+            break;
         case dialog_kind::none:
             break;
         }

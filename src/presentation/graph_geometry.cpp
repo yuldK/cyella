@@ -90,6 +90,7 @@ namespace cyella {
                 if (value.kind != ref_kind::local || value.is_current != current_pass)
                     continue;
                 ref_label label { .kind = ref_label_kind::local, .text = to_u8(value.name), .ref_name = value.name, .current = value.is_current };
+                label.worktree_path = value.worktree_path;
                 // 짝은 upstream이 먼저고, upstream이 없으면 같은 이름의 원격 브랜치다.
                 const ref* pair { nullptr };
                 if (const auto found { remotes.find(value.upstream) }; value.upstream.empty() == false && found != remotes.end())

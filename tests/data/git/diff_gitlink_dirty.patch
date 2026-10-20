@@ -1,0 +1,7 @@
+diff --git a/libs/subA b/libs/subA
+index 1ecfd40..9b88958 160000
+--- a/libs/subA
++++ b/libs/subA
+@@ -1 +1 @@
+-Subproject commit 1ecfd40f48933961e1d368341744a076db579db3
++Subproject commit 9b8895860a444517b36dd491c64f404084088883-dirty

@@ -105,6 +105,8 @@ namespace cyella {
         // "이번만 연결"이다. 이 요청 하나에서만 사용자의 `core.sshCommand`를 덮어쓴다.
         if (options.ssh_command.empty() == false)
             request.environment_overrides.push_back(set_variable(u8"GIT_SSH_COMMAND", options.ssh_command));
+        for (const process_environment_override& entry : options.extra_environment)
+            request.environment_overrides.push_back(entry);
         request.standard_input = options.standard_input;
         request.timeout = limits.timeout;
         request.maximum_captured_bytes_per_stream = options.maximum_captured_bytes_per_stream.value_or(limits.maximum_captured_bytes_per_stream);

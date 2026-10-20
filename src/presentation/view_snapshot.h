@@ -9,6 +9,7 @@
 #include "domain/file_change.h"
 #include "domain/operation_status.h"
 #include "domain/ref.h"
+#include "domain/submodule.h"
 #include "presentation/drop_hints.h"
 #include "presentation/form_view.h"
 #include "presentation/graph_geometry.h"
@@ -161,6 +162,24 @@ namespace cyella {
         std::u8string setup_progress {};
     };
 
+    // 사이드바 행이 가리키는 것이다. 브랜치·태그·stash(`ref`)가 기본이고, 나머지는 submodule·worktree·LFS·PR 구역이다.
+    enum class sidebar_item_kind : std::uint8_t
+    {
+        ref,
+        submodule,
+        worktree,
+        lfs,
+    };
+
+    // 행 오른쪽 꼬리 글의 색 느낌이다.
+    enum class badge_tone : std::uint8_t
+    {
+        none,
+        accent,
+        warning,
+        danger,
+    };
+
     struct sidebar_row_view
     {
         std::u8string key {};
@@ -190,6 +209,22 @@ namespace cyella {
         // 원격 묶음 안의 브랜치는 한 단 들여 쓴다.
         int depth { 0 };
         std::u8string tooltip {};
+        // ---- submodule·worktree·LFS
+        sidebar_item_kind item { sidebar_item_kind::ref };
+        // submodule: 저장소 루트 기준 경로, worktree: 폴더(`/` 구분 그대로), lfs: 파일 경로다.
+        std::string path {};
+        submodule_state submodule { submodule_state::initialized };
+        bool worktree_main { false };
+        bool worktree_current { false };
+        bool worktree_locked { false };
+        bool worktree_prunable { false };
+        // 오른쪽에 붙는 꼬리 글이다 ("미초기화", "잠김", "받음").
+        std::u8string badge {};
+        badge_tone tone { badge_tone::none };
+        // 흐리게 그린다 (초기화하지 않은 submodule, 사라진 worktree).
+        bool dimmed { false };
+        // 로컬 브랜치가 **다른** worktree에 체크아웃되어 있으면 그 폴더다.
+        std::string worktree_path {};
     };
 
     struct graph_view
@@ -230,6 +265,10 @@ namespace cyella {
         std::u8string added {};
         std::u8string removed {};
         bool selected { false };
+        // Git LFS가 추적하는 경로다. 행에 "LFS" 배지가 붙는다.
+        bool lfs { false };
+        // submodule 포인터(gitlink) 변경이다. 텍스트 변경이 아니라 특별한 행으로 그린다.
+        bool submodule { false };
     };
 
     struct commit_detail_view
@@ -278,6 +317,33 @@ namespace cyella {
         std::u8string text {};
     };
 
+    // 텍스트 diff로 보일 수 없는 변경의 카드다. LFS 포인터와 submodule 포인터가 이 모양으로 그려진다.
+    enum class diff_special_kind : std::uint8_t
+    {
+        lfs_pointer,
+        submodule_pointer,
+    };
+
+    struct diff_special_row
+    {
+        std::u8string label {};
+        std::u8string value {};
+    };
+
+    struct diff_special_view
+    {
+        diff_special_kind kind { diff_special_kind::lfs_pointer };
+        // 카드 머리 글이다 ("LFS 포인터").
+        std::u8string title {};
+        std::vector<diff_special_row> rows {};
+        std::u8string note {};
+        // 카드 아래 단추다. 비면 단추가 없다.
+        std::u8string action_label {};
+        std::optional<git_operation> action {};
+        // submodule 열기 단추의 경로다 (카드가 submodule 포인터일 때). 비면 단추가 없다.
+        std::string open_path {};
+    };
+
     // diff 자리의 머리 막대 값과, 웹뷰를 쓸 수 없을 때의 텍스트 대체 본문이다(`docs/ui-architecture.md`).
     struct diff_panel_view
     {
@@ -291,6 +357,8 @@ namespace cyella {
         // 웹뷰가 본문을 그린다. 참이면 `lines`를 채우지 않는다 (큰 diff를 frame마다 복사하지 않으려는 것이다).
         bool use_webview { false };
         diff_surface_state surface {};
+        // 텍스트 diff로 보일 수 없는 변경이면 본문 대신 이 카드를 그린다 (웹뷰 여부와 무관하다).
+        std::optional<diff_special_view> special {};
     };
 
     struct repository_view

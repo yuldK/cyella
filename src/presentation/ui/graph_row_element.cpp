@@ -97,6 +97,8 @@ namespace cyella::ui {
         float width { label_padding * 2.0f * scale + label_icon_size * scale + label_gap * scale + text_width(context, label) };
         if (label.also_remote)
             width += (label_gap + label_icon_size) * scale;
+        if (label.worktree_path.empty() == false)
+            width += (label_gap + label_icon_size) * scale;
         return width;
     }
 
@@ -148,15 +150,23 @@ namespace cyella::ui {
         luil::draw_centered_glyph(context.canvas, label_glyph(label), { x, box.y, label_icon_size * scale, box.height }, icon_font(context, label_icon_size), text_paint);
         x += (label_icon_size + label_gap) * scale;
         const SkFont font { ui_font(context, label_font_size, label.current) };
-        const float trailing { label.also_remote ? (label_gap + label_icon_size) * scale : 0.0f };
+        const float marker_width { label.worktree_path.empty() ? 0.0f : (label_gap + label_icon_size) * scale };
+        const float trailing { (label.also_remote ? (label_gap + label_icon_size) * scale : 0.0f) + marker_width };
         const float available { box.x + box.width - label_padding * scale - trailing - x };
         if (available > 0.0f)
             static_cast<void>(luil::draw_text_within(context.canvas, label.text, x, box.y + luil::centered_text_baseline(font, box.height), available, font, text_paint));
         if (label.also_remote)
         {
-            const float cloud_x { box.x + box.width - label_padding * scale - label_icon_size * scale };
+            const float cloud_x { box.x + box.width - label_padding * scale - label_icon_size * scale - marker_width };
             luil::draw_centered_glyph(
                 context.canvas, codicons::icon_cloud, { cloud_x, box.y, label_icon_size * scale, box.height }, icon_font(context, label_icon_size), luil::solid_paint(palette.secondary_foreground));
+        }
+        if (label.worktree_path.empty() == false)
+        {
+            // 다른 worktree가 이 브랜치를 체크아웃하고 있다.
+            const float marker_x { box.x + box.width - label_padding * scale - label_icon_size * scale };
+            luil::draw_centered_glyph(
+                context.canvas, codicons::icon_worktree, { marker_x, box.y, label_icon_size * scale, box.height }, icon_font(context, label_icon_size), luil::solid_paint(palette.accent));
         }
         context.canvas.restore();
     }

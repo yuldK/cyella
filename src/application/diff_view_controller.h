@@ -158,6 +158,7 @@ namespace cyella {
             pending_binary,
             image,
             binary,
+            special,
         };
 
         [[nodiscard]] diff_side_plan make_plan() const;

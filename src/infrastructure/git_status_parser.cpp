@@ -114,10 +114,17 @@ namespace cyella {
                 file_change change { make_change(tail, xy[0], change_side::staged, is_submodule) };
                 if (is_rename)
                     change.original_path = std::string { original_path };
+                if (is_submodule)
+                    change.submodule_flags = std::string { submodule };
                 result.staged.push_back(std::move(change));
             }
             if (xy[1] != '.')
-                result.unstaged.push_back(make_change(tail, xy[1], change_side::unstaged, is_submodule));
+            {
+                file_change change { make_change(tail, xy[1], change_side::unstaged, is_submodule) };
+                if (is_submodule)
+                    change.submodule_flags = std::string { submodule };
+                result.unstaged.push_back(std::move(change));
+            }
             return true;
         }
 

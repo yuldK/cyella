@@ -192,6 +192,8 @@ namespace cyella::ui {
         float width { chip_padding * 2.0f + chip_icon + chip_gap + std::min(estimate_text_width(label.text, chip_font), chip_max_text) };
         if (label.also_remote)
             width += chip_gap + chip_icon;
+        if (label.worktree_path.empty() == false)
+            width += chip_gap + chip_icon;
         return width;
     }
 
@@ -222,7 +224,10 @@ namespace cyella::ui {
     {
         set_tab_stop(false);
         set_tooltip(label_.also_remote ? label_.text + u8" · " + label_.remote_name : label_.text);
-        access_name_ = label_.text + (label_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {});
+        if (label_.worktree_path.empty() == false)
+            set_tooltip(tooltip() + u8" · 다른 worktree에서 체크아웃됨: " + std::u8string { label_.worktree_path.begin(), label_.worktree_path.end() });
+        access_name_ = label_.text + (label_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {})
+            + (label_.worktree_path.empty() ? std::u8string {} : std::u8string { u8" (다른 worktree에서 사용 중)" });
         set_action(luil::ui_trigger::left_click, action_of(message(select_commit_intent { row_key })));
 
         switch (label_.kind)

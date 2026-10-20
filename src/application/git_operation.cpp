@@ -97,6 +97,22 @@ namespace cyella {
                 return operation_kind::ssh_keygen;
             else if constexpr (std::is_same_v<request_type, ssh_connection_test_request>)
                 return operation_kind::ssh_connection_test;
+            else if constexpr (std::is_same_v<request_type, submodule_update_request>)
+                return operation_kind::submodule_update;
+            else if constexpr (std::is_same_v<request_type, submodule_sync_request>)
+                return operation_kind::submodule_sync;
+            else if constexpr (std::is_same_v<request_type, worktree_add_request>)
+                return operation_kind::worktree_add;
+            else if constexpr (std::is_same_v<request_type, worktree_remove_request>)
+                return operation_kind::worktree_remove;
+            else if constexpr (std::is_same_v<request_type, worktree_prune_request>)
+                return operation_kind::worktree_prune;
+            else if constexpr (std::is_same_v<request_type, lfs_pull_request>)
+                return operation_kind::lfs_pull;
+            else if constexpr (std::is_same_v<request_type, lfs_fetch_request>)
+                return operation_kind::lfs_fetch;
+            else if constexpr (std::is_same_v<request_type, lfs_track_request>)
+                return operation_kind::lfs_track;
             else
                 return operation_kind::refresh;
         }

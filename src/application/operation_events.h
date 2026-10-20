@@ -6,11 +6,14 @@
 #include "domain/credential_prompt.h"
 #include "domain/diff_file.h"
 #include "domain/file_change.h"
+#include "domain/lfs.h"
 #include "domain/operation_status.h"
 #include "domain/ref.h"
 #include "domain/repository_summary.h"
 #include "domain/ssh_connection.h"
 #include "domain/stash_entry.h"
+#include "domain/submodule.h"
+#include "domain/worktree.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -64,6 +67,10 @@ namespace cyella {
         std::vector<file_change> staged {};
         std::vector<file_change> unstaged {};
         std::vector<file_change> conflicts {};
+        // submodule·worktree·Git LFS다. refresh가 채운다.
+        std::vector<submodule_info> submodules {};
+        std::vector<worktree_info> worktrees {};
+        lfs_repository_state lfs {};
     };
 
     struct snapshot_loaded

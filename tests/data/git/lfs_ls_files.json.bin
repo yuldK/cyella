@@ -1,0 +1,31 @@
+{
+ "files": [
+  {
+   "name": "b2.bin",
+   "size": 3000000,
+   "checkout": true,
+   "downloaded": true,
+   "oid_type": "sha256",
+   "oid": "ef98c63ce8a271b110b334ecbff696532ef00c393d3e85efdb813c8abfe55886",
+   "version": "https://git-lfs.github.com/spec/v1"
+  },
+  {
+   "name": "b3.bin",
+   "size": 2000000,
+   "checkout": true,
+   "downloaded": true,
+   "oid_type": "sha256",
+   "oid": "c5702ed4887635a1b82958782cdb050b32e51d9444f4fff5fd0a9dca4ec7828f",
+   "version": "https://git-lfs.github.com/spec/v1"
+  },
+  {
+   "name": "big.bin",
+   "size": 5000,
+   "checkout": true,
+   "downloaded": true,
+   "oid_type": "sha256",
+   "oid": "684020d93350806eaa61d3ce806e6d71c16f32e05093973b664795c285fb4e1f",
+   "version": "https://git-lfs.github.com/spec/v1"
+  }
+ ]
+}

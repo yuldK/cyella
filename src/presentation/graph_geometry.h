@@ -85,6 +85,8 @@ namespace cyella {
         std::u8string remote_name {};
         // 원격이 있는데 어느 원격에도 없는 태그다. 점선 테두리로 그린다.
         bool local_only { false };
+        // 로컬 브랜치가 **다른** worktree에 체크아웃되어 있으면 그 폴더다. 라벨 끝에 worktree 표지를 단다.
+        std::string worktree_path {};
 
         [[nodiscard]] bool operator==(const ref_label&) const noexcept = default;
     };

@@ -51,9 +51,13 @@ namespace cyella {
         remote,
         tags,
         stashes,
+        // submodule·worktree·Git LFS 구역이다. 뒤에 덧붙여 기존 비트 번호를 지킨다.
+        submodules,
+        worktrees,
+        lfs,
     };
 
-    inline constexpr std::size_t sidebar_section_count { 4 };
+    inline constexpr std::size_t sidebar_section_count { 7 };
 
     // 상세 패널이 보이는 것이다.
     enum class detail_mode

@@ -435,7 +435,18 @@ namespace cyella {
         {
         case ref_kind::local:
             if (intent.name != session->snapshot().summary.current_branch)
+            {
+                // 다른 worktree가 쓰는 브랜치는 git도 거절한다. 같은 이유를 먼저 알리고 operation은 내지 않는다.
+                const auto found { std::ranges::find_if(session->snapshot().refs, [&intent](const ref& value) { return value.kind == ref_kind::local && value.name == intent.name; }) };
+                if (found != session->snapshot().refs.end() && found->worktree_path.empty() == false)
+                {
+                    show_notice(u8"'" + std::u8string { intent.name.begin(), intent.name.end() } + u8"' 브랜치는 다른 worktree("
+                            + std::u8string { found->worktree_path.begin(), found->worktree_path.end() } + u8")에서 체크아웃되어 있어 옮길 수 없습니다. 사이드바 WORKTREES에서 그 worktree를 여세요.",
+                        true);
+                    return;
+                }
                 static_cast<void>(submit(checkout_branch_request { intent.name }));
+            }
             return;
         case ref_kind::remote:
             static_cast<void>(submit(checkout_remote_branch_request { intent.name }));
@@ -785,6 +796,8 @@ namespace cyella {
         }
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         if (settings_.handle(message))
+            return true;
+        if (handle_extension_message(message))
             return true;
         return handle_dialog_message(message);
     }

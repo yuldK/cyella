@@ -2,6 +2,7 @@
 
 #include "application/diff_view_protocol.h"
 #include "presentation/diff_view_intents.h"
+#include "presentation/ui/diff_special_card.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
 #include "presentation/ui/ui_helpers.h"
@@ -90,7 +91,7 @@ namespace cyella::ui {
             header->add(make_text(u8"diff-title", diff.title, text_style { .size = 12.0f, .bold = true }), text_button_width(diff.title));
             header->add_flexible(make_text(u8"diff-subtitle", diff.subtitle, text_style { .size = 11.0f, .color = dim_color }));
 
-            if (diff.use_webview == false)
+            if (diff.use_webview == false && diff.special.has_value() == false)
                 header->add(make_text(u8"diff-fallback-note", u8"WebView2 없이 텍스트로 보는 중", text_style { .size = 11.0f, .color = dim_color, .align = 2 }), fallback_note_width);
             else
             {
@@ -157,7 +158,11 @@ namespace cyella::ui {
         const diff_panel_view& diff { *repository.diff };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-area" }, luil::stack_config {}) };
         column->add(build_header(diff), diff_header_height);
-        column->add_flexible(diff.use_webview ? build_webview_slot(diff) : build_text_body(diff, sources));
+        // LFS 포인터·submodule 포인터는 텍스트 diff가 아니라 카드다 (웹뷰 여부와 무관하다).
+        if (diff.special.has_value())
+            column->add_flexible(build_diff_special_card(*diff.special, repository.repository_id));
+        else
+            column->add_flexible(diff.use_webview ? build_webview_slot(diff) : build_text_body(diff, sources));
         return panel_surface(u8"diff-panel", std::move(column));
     }
 

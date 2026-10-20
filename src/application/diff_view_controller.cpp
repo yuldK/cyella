@@ -70,6 +70,8 @@ namespace cyella {
         plan.new_path = file_.new_path;
         plan.status = file_.status;
         plan.untracked = untracked_;
+        // LFS 포인터의 diff면 blob 대신 로컬 LFS 객체를 꺼낸다.
+        plan.lfs = file_.lfs.has_value();
         return plan;
     }
 
@@ -103,8 +105,14 @@ namespace cyella {
         content_dirty_ = true;
         ++ticket_;
 
-        if (file_.is_binary)
+        if (file_.is_special())
         {
+            // 카드(luil)가 그린다. 웹뷰에는 비움을 보낸다.
+            kind_ = content_kind::special;
+        }
+        else if (file_.is_binary || file_.lfs.has_value())
+        {
+            // LFS 포인터라도 두 쪽의 실제 내용이 로컬에 있으면 이미지·바이너리 비교를 한다.
             const bool image { is_image_path(file_.display_path()) };
             kind_ = image ? content_kind::pending_image : content_kind::pending_binary;
             effects.emplace_back(prepare_sides_effect { ticket_, make_plan(), image });
@@ -164,6 +172,8 @@ namespace cyella {
             return diff_content::image;
         case content_kind::binary:
             return diff_content::binary;
+        case content_kind::special:
+            return diff_content::special;
         }
         return diff_content::empty;
     }
@@ -202,6 +212,7 @@ namespace cyella {
         case content_kind::empty:
         case content_kind::pending_image:
         case content_kind::pending_binary:
+        case content_kind::special:
             return serialize_clear(content_seq_, state_);
         case content_kind::text: {
             show_diff_message message {};

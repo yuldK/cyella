@@ -26,6 +26,9 @@ namespace cyella {
         push,
         rename_branch,
         confirm,
+        // worktree 추가, Git LFS 추적 패턴.
+        add_worktree,
+        lfs_track,
     };
 
     // 확인 뒤에 낼 operation 열이다. 둘째부터는 앞이 **성공해야** 이어서 낸다 (원격 태그를 먼저 지우고 로컬을 지운다,

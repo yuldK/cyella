@@ -49,6 +49,8 @@ namespace cyella {
                 return failure_kind::dirty_worktree;
             case git_failure_kind::not_possible_to_fast_forward:
                 return failure_kind::not_possible_to_fast_forward;
+            case git_failure_kind::branch_checked_out_elsewhere:
+                return failure_kind::branch_checked_out_elsewhere;
             }
             return failure_kind::other;
         }
@@ -103,16 +105,49 @@ namespace cyella {
         {
             if (chunk.stream != process_stream::standard_output)
                 return;
+            if (progress_on_standard_output_)
+                feed_progress(chunk.bytes);
             if (consumer_ != nullptr)
                 consumer_(chunk.bytes);
             else
                 outcome_.standard_output.append(chunk.bytes);
         }
 
+        void enable_standard_output_progress() noexcept
+        {
+            progress_on_standard_output_ = true;
+        }
+
     private:
+        // stdout을 줄바꿈(CR·LF)으로 끊어 진행 줄이면 진행률로 보낸다. 조각 경계에 걸린 줄은 다음 조각과 이어 붙인다.
+        void feed_progress(const std::string_view bytes)
+        {
+            for (const char value : bytes)
+            {
+                if (value == '\r' || value == '\n')
+                {
+                    flush_progress_line();
+                    continue;
+                }
+                if (progress_tail_.size() < 4096)
+                    progress_tail_.push_back(static_cast<char8_t>(value));
+            }
+        }
+
+        void flush_progress_line()
+        {
+            if (progress_tail_.empty())
+                return;
+            if (parse_git_progress(progress_tail_).has_value())
+                context_.report_progress(progress_tail_);
+            progress_tail_.clear();
+        }
+
         git_operation_context& context_;
         git_command_outcome& outcome_;
         const std::function<void(std::string_view)>& consumer_;
+        bool progress_on_standard_output_ { false };
+        std::u8string progress_tail_ {};
     };
 
     operation_outcome operation_outcome::succeeded(std::u8string summary)
@@ -196,6 +231,7 @@ namespace cyella {
         if (const temporary_ssh_trust* const trust { ssh_override_of(job_.operation) }; trust != nullptr)
             options.ssh_command = trust->command;
         options.standard_input = std::move(spec.standard_input);
+        options.extra_environment = std::move(spec.extra_environment);
         options.raw_standard_output = true;
         if (spec.on_standard_output != nullptr)
             options.maximum_captured_bytes_per_stream = unlimited_process_capture_bytes;
@@ -204,6 +240,8 @@ namespace cyella {
         {
             const git_operation_runner::activity_scope activity { owner_, directory };
             git_operation_sink sink { *this, outcome, spec.on_standard_output };
+            if (spec.progress_on_standard_output)
+                sink.enable_standard_output_progress();
             outcome.process = owner_.runner().run(request, &sink, job_.cancellation);
         }
 
@@ -278,6 +316,12 @@ namespace cyella {
         {
             if (const auto location { find_offending_known_hosts_line(standard_error) }; location.has_value() && location->line != 0)
                 summary = std::u8string { failure_kind_message(kind) } + u8" (" + to_utf8(location->path) + u8":" + to_decimal(location->line) + u8")";
+        }
+        if (kind == failure_kind::branch_checked_out_elsewhere)
+        {
+            summary = std::u8string { failure_kind_message(kind) };
+            if (const auto path { find_checked_out_worktree_path(standard_error) }; path.has_value())
+                summary += u8" (" + to_utf8(*path) + u8")";
         }
         return operation_outcome::failed(kind, std::move(summary), std::move(detail));
     }

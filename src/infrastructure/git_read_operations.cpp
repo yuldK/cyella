@@ -2,6 +2,7 @@
 
 #include "domain/path_syntax.h"
 #include "infrastructure/git_diff_parser.h"
+#include "infrastructure/git_extension_operations.h"
 #include "infrastructure/git_log_parser.h"
 #include "infrastructure/git_query_parser.h"
 #include "infrastructure/git_ref_parser.h"
@@ -213,6 +214,7 @@ namespace cyella {
             snapshot.staged = std::move(status.staged);
             snapshot.unstaged = std::move(status.unstaged);
             snapshot.conflicts = std::move(status.conflicts);
+            read_extension_snapshot(context, snapshot);
 
             const bool has_head { snapshot.summary.head_sha.empty() == false };
             const bool has_refs { snapshot.refs.empty() == false };
@@ -258,6 +260,8 @@ namespace cyella {
             if (context.run_required(std::move(numstat), outcome, stop) == false)
                 return *stop;
             apply_numstat(detail.files, parse_git_numstat(outcome.standard_output));
+            if (repository_uses_lfs(context))
+                mark_lfs_changes(context, detail.files);
 
             context.emit(commit_detail_loaded { std::move(detail) });
             return operation_outcome::succeeded();
@@ -296,6 +300,7 @@ namespace cyella {
             file_diff diff {};
             diff.request = request;
             diff.files = parse_git_diff(outcome.standard_output);
+            annotate_lfs_diff(context, request, diff.files);
             context.emit(file_diff_loaded { std::move(diff) });
             return operation_outcome::succeeded();
         }

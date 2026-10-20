@@ -59,6 +59,7 @@ cyella_add_source_filter(cyella_test_files "infrastructure"
 
 cyella_add_source_filter(cyella_test_files "presentation"
     diff_webview_tests.cpp
+    extension_view_tests.cpp
     graph_geometry_tests.cpp
     settings_tests.cpp
     settings_ui_tests.cpp
@@ -110,6 +111,15 @@ cyella_add_source_filter(cyella_test_files "infrastructure/git_parsers"
 
 cyella_add_source_filter(cyella_test_files "infrastructure/git_commands"
     git_command_builder_tests.cpp)
+
+# submodule·worktree·Git LFS의 해석기·조립기 test다. 고정 출력은 tests/data/git에 있다.
+cyella_add_source_filter(cyella_test_files "infrastructure/git_extensions"
+    git_extension_parser_tests.cpp
+    git_extension_runner_tests.cpp)
+
+# 실제 git(과 git-lfs)으로 submodule·worktree·LFS operation을 끝까지 돌린다. 태그는 `[integration]`이다.
+cyella_add_source_filter(cyella_test_files "application/repository_integration/extensions"
+    git_extension_integration_tests.cpp)
 
 # 저장소 세션: 가짜 runner(정해 둔 응답)와 수동 dispatcher로 명령 순서, 상태 전이, 늦은 결과
 # 버리기, needs_input, 실패 분류를 검증한다. git과 디스크가 필요 없다.

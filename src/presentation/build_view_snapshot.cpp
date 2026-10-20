@@ -1,6 +1,8 @@
 #include "presentation/build_view_snapshot.h"
 
 #include "domain/repository_path.h"
+#include "presentation/diff_special.h"
+#include "presentation/sidebar_extension.h"
 #include "presentation/snapshot_dialogs.h"
 
 #include <algorithm>
@@ -345,6 +347,12 @@ namespace cyella {
             }
             for (const diff_file& file : diff->files)
             {
+                // gitlink·LFS 포인터는 텍스트 diff 대신 카드다.
+                if (file.is_special())
+                {
+                    view.special = build_diff_special(file);
+                    break;
+                }
                 if (file.is_binary)
                 {
                     view.binary = true;
@@ -588,7 +596,10 @@ namespace cyella {
                 row.behind = value.behind;
                 row.no_upstream = value.upstream.empty();
                 row.upstream_gone = value.upstream_gone;
+                row.worktree_path = value.worktree_path;
                 row.tooltip = value.upstream.empty() ? row.label + u8" · upstream 없음" : row.label + u8" → " + to_u8(value.upstream);
+                if (value.worktree_path.empty() == false)
+                    row.tooltip += u8" · 다른 worktree에서 체크아웃됨: " + to_u8(value.worktree_path);
                 result.rows.push_back(std::move(row));
             }
             result.counts[header] = count;
@@ -703,6 +714,9 @@ namespace cyella {
             result.counts[header] = count;
             result.rows[header_row].count = count;
         }
+
+        // SUBMODULES·WORKTREES·GIT LFS
+        append_extension_sidebar_rows(result, snapshot, filter, collapsed_sections);
         return result;
     }
 
@@ -781,6 +795,22 @@ namespace cyella {
             return u8"SSH 키 만들기";
         case operation_kind::ssh_connection_test:
             return u8"SSH 연결 시험";
+        case operation_kind::submodule_update:
+            return u8"서브모듈 업데이트";
+        case operation_kind::submodule_sync:
+            return u8"서브모듈 url 동기화";
+        case operation_kind::worktree_add:
+            return u8"worktree 추가";
+        case operation_kind::worktree_remove:
+            return u8"worktree 제거";
+        case operation_kind::worktree_prune:
+            return u8"worktree 정리";
+        case operation_kind::lfs_pull:
+            return u8"LFS pull";
+        case operation_kind::lfs_fetch:
+            return u8"LFS fetch";
+        case operation_kind::lfs_track:
+            return u8"LFS 추적";
         default:
             break;
         }
@@ -799,9 +829,12 @@ namespace cyella {
         row.side = change.side;
         row.untracked = change.status == '?';
         row.conflicted = change.status == 'U' || change.conflict_code.empty() == false;
-        if (change.lines_added.has_value() && *change.lines_added > 0)
+        row.lfs = change.is_lfs;
+        row.submodule = change.is_submodule;
+        // submodule 포인터는 `Subproject commit` 한 줄이 바뀐 것이라 줄 수가 뜻이 없다.
+        if (change.is_submodule == false && change.lines_added.has_value() && *change.lines_added > 0)
             row.added = u8"+" + number(*change.lines_added);
-        if (change.lines_removed.has_value() && *change.lines_removed > 0)
+        if (change.is_submodule == false && change.lines_removed.has_value() && *change.lines_removed > 0)
             row.removed = u8"-" + number(*change.lines_removed);
         return row;
     }

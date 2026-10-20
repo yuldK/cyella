@@ -48,6 +48,8 @@ namespace cyella {
         char status { 'M' };
         // 추적하지 않는 파일의 diff다. 왼쪽이 없다.
         bool untracked { false };
+        // Git LFS 포인터의 diff다. 커밋·index의 blob은 포인터 텍스트이므로 로컬 LFS 객체(`lfs/objects`)를 꺼낸다.
+        bool lfs { false };
 
         [[nodiscard]] bool operator==(const diff_side_plan&) const noexcept = default;
         // 화면에 보일 경로다.

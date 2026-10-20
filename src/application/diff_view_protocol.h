@@ -63,6 +63,8 @@ namespace cyella {
         text,
         image,
         binary,
+        // 텍스트 diff로 보일 수 없는 변경(submodule 포인터, 실제 내용이 로컬에 없는 LFS 포인터)이다. 웹뷰는 비우고 luil 카드가 그린다.
+        special,
     };
 
     // 웹뷰가 쓰는 색이다. tokens는 CSS 변수 이름(`--window-background`)과 값(`#1e1e1e`)이며 비워 두면 뷰어에

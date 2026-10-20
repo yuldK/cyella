@@ -7,6 +7,7 @@
 #include "application/repository_tabs.h"
 #include "domain/app_settings.h"
 #include "presentation/dialog_intents.h"
+#include "presentation/extension_intents.h"
 #include "presentation/frame_feedback.h"
 #include "presentation/graph_index.h"
 #include "presentation/settings/settings_controller.h"
@@ -182,6 +183,16 @@ namespace cyella {
         void send_backend_intent(const luil::app_message& message);
         void handle_banner_action(const banner_action_intent& intent);
         void handle_conflict_action(conflict_action action);
+
+        // ---- submodule·worktree·Git LFS (shell_controller_extension.cpp)
+        bool handle_extension_message(const luil::app_message& message);
+        void activate_extension_row(const activate_sidebar_item_intent& intent);
+        void open_submodule(const std::string& path);
+        void open_worktree(const std::string& path);
+        // mode는 `worktree_dialog_mode`의 값이다. subject는 시작 위치(커밋 SHA, 비면 HEAD), branch는 칸에 미리 채울 이름이다.
+        void open_add_worktree_dialog(const std::string& subject, std::size_t mode, const std::string& branch);
+        void open_lfs_track_dialog(const std::string& pattern);
+        void run_extension_menu_action(const menu_target& target, const std::u8string& key, const menu_context& context);
 
         [[nodiscard]] std::u8string commit_label(const repository_session& session, const std::string& sha) const;
         void handle_text_edit(const luil::text_edit_request& request);

@@ -3,6 +3,7 @@
 #include "presentation/dialog_intents.h"
 #include "presentation/drop_hints.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/sidebar_extension_rows.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
@@ -74,6 +75,10 @@ namespace cyella::ui {
                 return codicons::icon_tag;
             case sidebar_section::stashes:
                 return codicons::icon_archive;
+            case sidebar_section::submodules:
+            case sidebar_section::worktrees:
+            case sidebar_section::lfs:
+                return extension_section_glyph(section);
             }
             return codicons::icon_git_branch;
         }
@@ -118,8 +123,8 @@ namespace cyella::ui {
             set_action(luil::ui_trigger::right_click,
                 [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { target, context.x, context.y }) }; });
 
-        // 로컬·원격 브랜치 행은 끌 수 있고 다른 브랜치가 놓일 수 있다.
-        if (row_.header || row_.group || (row_.kind != ref_kind::local && row_.kind != ref_kind::remote))
+        // 로컬·원격 브랜치 행은 끌 수 있고 다른 브랜치가 놓일 수 있다. submodule·worktree·LFS 행은 브랜치가 아니다.
+        if (row_.header || row_.group || row_.item != sidebar_item_kind::ref || (row_.kind != ref_kind::local && row_.kind != ref_kind::remote))
             return;
         const drop_party party { .kind = row_.kind, .name = row_.ref_name, .sha = row_.target_sha, .is_commit = false };
         const std::u8string key { branch_drag_key(row_.kind, row_.ref_name) };
@@ -158,6 +163,10 @@ namespace cyella::ui {
             return { .role = luil::access_role::static_text, .name = row_.label + u8" " + number_text(row_.count) };
         const luil::access_role role { action(luil::ui_trigger::double_click) != nullptr ? luil::access_role::button : luil::access_role::static_text };
         std::u8string name { row_.label + (row_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {}) };
+        if (row_.worktree_path.empty() == false)
+            name += u8" (다른 worktree에서 사용 중)";
+        if (row_.badge.empty() == false)
+            name += u8" " + row_.badge;
         return { .role = role, .name = std::move(name) };
     }
 
@@ -181,6 +190,12 @@ namespace cyella::ui {
             return;
         }
 
+        if (row_.item != sidebar_item_kind::ref)
+        {
+            draw_extension_sidebar_row(context, row_, box);
+            return;
+        }
+
         x += (20.0f + static_cast<float>(row_.depth) * indent_step) * scale;
         const luil::ui_color icon_color { row_.current ? palette.accent : palette.secondary_foreground };
         luil::draw_centered_glyph(context.canvas, sidebar_glyph(row_), { x, box.y, icon_size * scale, box.height }, icon_font(context, 13.0f), luil::solid_paint(icon_color));
@@ -188,6 +203,9 @@ namespace cyella::ui {
 
         // 오른쪽 꼬리: ↑앞섬 ↓뒤처짐, upstream 없음·원격에 없는 태그의 구름 아이콘이다.
         float right { box.x + box.width - row_padding * scale };
+        // 다른 worktree가 체크아웃한 브랜치다. git이 이 브랜치로 옮기는 것을 거절한다.
+        if (row_.worktree_path.empty() == false)
+            right -= draw_worktree_marker(context, box, right);
         const SkFont small { ui_font(context, 11.0f) };
         std::u8string tail {};
         if (row_.ahead > 0)
@@ -239,7 +257,15 @@ namespace cyella::ui {
         {
             set_tab_stop(false);
             if (select.has_value())
+            {
+                // 보조 기술의 "실행"은 줄을 눌러 diff를 여는 것과 같다 (UI Automation으로 파일을 고를 수 있다).
+                set_access_handler([select = *select](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
+                    if (request.command != luil::access_command::invoke)
+                        return std::nullopt;
+                    return std::vector<luil::input_action> { select };
+                });
                 set_action(luil::ui_trigger::left_click, action_of(std::move(*select)));
+            }
             if (menu.has_value())
                 set_action(luil::ui_trigger::right_click,
                     [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { target, context.x, context.y }) }; });
@@ -271,7 +297,12 @@ namespace cyella::ui {
 
     luil::access_info file_row_element::accessibility() const
     {
-        return { .role = luil::access_role::static_text, .name = row_.name };
+        std::u8string name { row_.name };
+        if (row_.submodule)
+            name += u8" (서브모듈)";
+        if (row_.lfs)
+            name += u8" (LFS)";
+        return { .role = action(luil::ui_trigger::left_click) != nullptr ? luil::access_role::button : luil::access_role::static_text, .name = std::move(name) };
     }
 
     void file_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
@@ -311,7 +342,23 @@ namespace cyella::ui {
         const SkFont font { ui_font(context, 12.0f) };
         const float drawn = luil::draw_text_within(
             context.canvas, row_.name, x, box.y + luil::centered_text_baseline(font, box.height), std::max(right - x, 0.0f), font, luil::solid_paint(palette.primary_foreground));
-        const float folder_x { x + drawn + 6.0f * scale };
+        float folder_x { x + drawn + 6.0f * scale };
+        // Git LFS 추적 파일과 submodule 포인터 표지다.
+        const auto draw_tag = [&](const std::u8string& tag, const luil::ui_color color) {
+            const SkFont tag_font { ui_font(context, 9.5f, true) };
+            const float width { luil::measure_text(tag, tag_font) + 8.0f * scale };
+            const float height { 14.0f * scale };
+            if (folder_x + width > right)
+                return;
+            const luil::rect_f pill { folder_x, box.y + (box.height - height) / 2.0f, width, height };
+            fill_rounded(context.canvas, pill, 3.0f * scale, luil::with_alpha(color, 0.18f));
+            static_cast<void>(luil::draw_text_within(context.canvas, tag, pill.x + 4.0f * scale, pill.y + luil::centered_text_baseline(tag_font, height), width, tag_font, luil::solid_paint(color)));
+            folder_x += width + 6.0f * scale;
+        };
+        if (row_.submodule)
+            draw_tag(u8"서브모듈", palette.accent);
+        if (row_.lfs)
+            draw_tag(u8"LFS", status_color(palette, 'M'));
         if (row_.folder.empty() == false && right - folder_x > 0.0f)
             static_cast<void>(luil::draw_text_within(context.canvas, row_.folder, folder_x, baseline_small, right - folder_x, small, luil::solid_paint(palette.secondary_foreground)));
         draw_children(context, interaction);

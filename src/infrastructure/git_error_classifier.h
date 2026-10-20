@@ -34,6 +34,8 @@ namespace cyella {
         connection_failed,
         // `merge --ff-only`·`pull --ff-only`가 fast-forward로 옮길 수 없다.
         not_possible_to_fast_forward,
+        // 브랜치가 다른 worktree에 체크아웃되어 있다(`'x' is already used by worktree at '<경로>'`).
+        branch_checked_out_elsewhere,
     };
 
     // `@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@` 뒤의 `Offending ... key in
@@ -47,6 +49,10 @@ namespace cyella {
     // OpenSSH가 만든 문구라 번역되지 않는다. 바뀐 호스트 키 경고가 아니면 값이 없다. 경고는
     // 있는데 위치 줄을 읽지 못하면 빈 위치를 돌려준다.
     [[nodiscard]] std::optional<known_hosts_location> find_offending_known_hosts_line(std::string_view standard_error);
+
+    // `branch_checked_out_elsewhere` 실패의 stderr에서 브랜치가 체크아웃된 worktree 폴더를 읽는다.
+    // `at '<경로>'`(새 git) 또는 `checked out at '<경로>'`(옛 git)의 따옴표 안이다. 읽지 못하면 값이 없다.
+    [[nodiscard]] std::optional<std::string> find_checked_out_worktree_path(std::string_view standard_error);
 
     // git 실패 출력을 분류한다. 입력은 종료 코드가 0이 아닌 명령의 stderr이며, 병합
     // 충돌처럼 stdout으로 나오는 문구(`CONFLICT (...)`)를 위해 stdout도 받는다.

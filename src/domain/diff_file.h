@@ -1,6 +1,9 @@
 #pragma once
 
+#include "domain/lfs.h"
+
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -58,11 +61,26 @@ namespace cyella {
         std::uint32_t lines_added { 0 };
         std::uint32_t lines_removed { 0 };
         std::vector<diff_hunk> hunks {};
+        // Git LFS 포인터 파일의 diff면 포인터 두 쪽과 실제 내용이 로컬에 있는지다. 읽는 쪽(worker)이 채운다.
+        std::optional<lfs_diff_info> lfs {};
 
         // 화면에 보일 경로다. 삭제된 파일은 옛 경로다.
         [[nodiscard]] const std::string& display_path() const noexcept
         {
             return new_path.empty() ? old_path : new_path;
+        }
+
+        // submodule 포인터(gitlink)의 변경이다. 모드 160000이며 내용은 `Subproject commit <sha>` 한 줄이다.
+        [[nodiscard]] bool is_gitlink() const noexcept
+        {
+            return old_mode == "160000" || new_mode == "160000";
+        }
+
+        // 텍스트 diff로 보이지 않고 카드로 그리는 변경이다: gitlink, 그리고 실제 내용이 로컬에 없는 LFS 포인터.
+        // LFS 포인터라도 두 쪽의 실제 내용이 로컬에 있으면 이미지·바이너리 비교가 맡는다.
+        [[nodiscard]] bool is_special() const noexcept
+        {
+            return is_gitlink() || (lfs.has_value() && lfs->all_local() == false);
         }
     };
 } // namespace cyella

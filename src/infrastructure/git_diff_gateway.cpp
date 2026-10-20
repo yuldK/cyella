@@ -1,6 +1,7 @@
 #include "infrastructure/git_diff_gateway.h"
 
 #include "infrastructure/git_execution_policy.h"
+#include "infrastructure/git_lfs_parser.h"
 
 #include <charconv>
 #include <cstdint>
@@ -107,6 +108,22 @@ namespace cyella {
 
         const std::filesystem::path repository { std::filesystem::path { plan.repository_path } };
 
+        // LFS 포인터의 diff면 blob이 포인터 텍스트이므로 로컬 LFS 객체를 대신 꺼낸다. 객체 저장소는 연결된 worktree도
+        // 주 저장소의 것을 같이 쓰므로 `--git-common-dir`이다. 처음 필요할 때 한 번만 묻는다.
+        std::optional<std::filesystem::path> lfs_storage {};
+        const auto storage_of = [&]() -> const std::filesystem::path& {
+            if (lfs_storage.has_value() == false)
+            {
+                stdout_sink sink { nullptr };
+                const process_result run { runner_.run(make_request(git_executable_, plan.repository_path, { u8"rev-parse", u8"--path-format=absolute", u8"--git-common-dir" }), &sink, cancellation) };
+                std::string text { sink.text() };
+                while (text.empty() == false && (text.back() == '\n' || text.back() == '\r'))
+                    text.pop_back();
+                lfs_storage = run.succeeded() && text.empty() == false ? std::filesystem::path { to_u8(text) } : std::filesystem::path {};
+            }
+            return *lfs_storage;
+        };
+
         const auto extract_side = [&](const diff_side_spec& spec, const char* folder) -> side_outcome {
             side_outcome outcome {};
             std::filesystem::path target {};
@@ -157,6 +174,38 @@ namespace cyella {
             }
 
             const std::string object { object_spec(spec) };
+            if (plan.lfs)
+            {
+                // 포인터면 로컬 객체가 이 쪽의 실제 내용이다. 포인터가 아니면(LFS로 옮기기 전의 일반 내용) 아래의 blob 경로다.
+                stdout_sink pointer_sink { nullptr };
+                const process_result pointer_run { runner_.run(make_request(git_executable_, plan.repository_path, { u8"cat-file", u8"blob", to_u8(object) }), &pointer_sink, cancellation) };
+                if (pointer_run.succeeded())
+                    if (const std::optional<lfs_pointer> pointer { parse_lfs_pointer(pointer_sink.text()) }; pointer.has_value())
+                    {
+                        const std::string relative { lfs_object_relative_path(pointer->oid) };
+                        const std::filesystem::path& storage { storage_of() };
+                        const std::filesystem::path source { storage / std::filesystem::path { to_u8(relative) } };
+                        std::error_code error {};
+                        const std::uintmax_t size { relative.empty() || storage.empty() ? 0 : std::filesystem::file_size(source, error) };
+                        if (relative.empty() || storage.empty() || error)
+                        {
+                            outcome.error = "LFS 객체가 로컬에 없습니다: " + spec.path;
+                            return outcome;
+                        }
+                        outcome.side.size = size;
+                        if (write_files)
+                        {
+                            std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, error);
+                            if (error)
+                            {
+                                outcome.error = "LFS 객체를 복사하지 못했습니다: " + spec.path;
+                                return outcome;
+                            }
+                            outcome.side.file = target.u8string();
+                        }
+                        return outcome;
+                    }
+            }
             if (write_files)
             {
                 std::ofstream file { target, std::ios::binary | std::ios::trunc };

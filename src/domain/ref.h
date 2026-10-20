@@ -38,6 +38,9 @@ namespace cyella {
         // 있어(origin, upstream) bool 하나로는 어느 원격에 push할지 정할 수 없다. fetch 뒤
         // `git ls-remote --tags <remote>`로 원격마다 갱신하며, 확인하기 전에는 비어 있다.
         std::vector<std::string> remotes {};
+        // 로컬 브랜치가 **다른** worktree에 체크아웃되어 있으면 그 폴더다. 이 저장소의 체크아웃은 비어 있다.
+        // git은 이런 브랜치로 switch하는 것을 거절하므로 사이드바·그래프가 표시를 단다.
+        std::string worktree_path {};
     };
 
     // `git ls-remote --tags <remote>`의 한 줄이다.
