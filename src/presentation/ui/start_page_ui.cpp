@@ -1,3 +1,4 @@
+#include "presentation/ui/app_symbol.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
 #include "presentation/ui/ui_helpers.h"
@@ -20,6 +21,8 @@ namespace cyella::ui {
         constexpr float start_content_width { 880.0f };
         constexpr float start_side_padding { 24.0f };
         constexpr float start_row_spacing { 2.0f };
+        // 머리말 왼쪽 앱 심볼의 한 변이다 (논리 픽셀). 심볼 그림은 이 크기의 4배까지 흐려지지 않는다.
+        constexpr float start_symbol_size { 64.0f };
 
         // `2026-10-20T09:30:12Z`를 유닉스 초로 읽는다. 읽지 못하면 0이다.
         std::int64_t parse_utc(const std::u8string_view text)
@@ -83,12 +86,30 @@ namespace cyella::ui {
             column->add_gap(length);
         };
 
-        add(make_text(u8"start-title", u8"시작", text_style { .size = 20.0f, .bold = true }), 30.0f);
-        add(make_text(u8"start-subtitle", u8"저장소를 열거나 새로 만드세요.", text_style { .size = 12.0f, .color = dim }), 20.0f);
+        // 머리말이다. 앱 심볼이 있으면 제목 묶음 왼쪽에 세운다.
+        auto heading { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-heading" }, luil::stack_config {}) };
+        float heading_height { 0.0f };
+        const auto add_heading = [&heading, &heading_height](std::unique_ptr<luil::ui_element> child, const float length) {
+            heading_height += length;
+            heading->add(std::move(child), length);
+        };
+        add_heading(make_text(u8"start-title", u8"시작", text_style { .size = 20.0f, .bold = true }), 30.0f);
+        add_heading(make_text(u8"start-subtitle", u8"저장소를 열거나 새로 만드세요.", text_style { .size = 12.0f, .color = dim }), 20.0f);
         if (start.git_message.empty() == false)
-            add(make_text(u8"start-git", start.git_message, text_style { .size = 12.0f, .color = [](const luil::ui_color_palette& palette) { return palette.error_accent; } }), 20.0f);
+            add_heading(make_text(u8"start-git", start.git_message, text_style { .size = 12.0f, .color = [](const luil::ui_color_palette& palette) { return palette.error_accent; } }), 20.0f);
         else if (start.git_version.empty() == false)
-            add(make_text(u8"start-git", start.git_version, text_style { .size = 11.0f, .color = dim, .code = true }), 18.0f);
+            add_heading(make_text(u8"start-git", start.git_version, text_style { .size = 11.0f, .color = dim, .code = true }), 18.0f);
+        if (app_symbol().valid())
+        {
+            luil::stack_config row_config { .direction = luil::stack_direction::row, .spacing = 16.0f };
+            row_config.cross_alignment = luil::stack_alignment::center;
+            auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-heading-row" }, row_config) };
+            row->add(make_app_symbol(u8"start-symbol"), luil::stack_item { .length = start_symbol_size, .cross_length = start_symbol_size });
+            row->add(std::move(heading), luil::stack_item { .length = 0.0f, .weight = 1.0f, .cross_length = heading_height });
+            add(std::move(row), std::max(heading_height, start_symbol_size));
+        }
+        else
+            add(std::move(heading), heading_height);
         gap(14.0f);
 
         const bool git_usable { start.git_message.empty() };

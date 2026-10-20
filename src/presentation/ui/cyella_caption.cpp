@@ -1,33 +1,15 @@
 #include "presentation/ui/cyella_caption.h"
 
+#include "presentation/ui/app_symbol.h"
+
 #include "luil/generated/codicons.h"
 
-#include <utility>
-
 namespace cyella::ui {
-    namespace {
-        luil::ui_image& caption_icon_storage() noexcept
-        {
-            static luil::ui_image image {};
-            return image;
-        }
-    } // namespace
-
-    void set_caption_icon(luil::ui_image image)
-    {
-        caption_icon_storage() = std::move(image);
-    }
-
-    const luil::ui_image& caption_icon() noexcept
-    {
-        return caption_icon_storage();
-    }
-
     luil::caption_config cyella_caption()
     {
         luil::caption_config caption {};
         caption.title = u8"cyella";
-        if (caption_icon().valid())
+        if (app_symbol().valid())
         {
             // 글리프를 끄면 luil은 제목을 왼쪽 여백에서 시작한다. 아이콘이 있을 때와 같은 자리에 오도록 여백을 칸 폭만큼 민다.
             // 아이콘 칸의 시스템 메뉴 판정은 칸 폭만 보므로 그대로다.

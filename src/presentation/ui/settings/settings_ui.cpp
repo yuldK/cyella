@@ -3,6 +3,7 @@
 #include "application/app_messages.h"
 #include "presentation/hosting_intents.h"
 #include "presentation/settings/settings_intents.h"
+#include "presentation/ui/app_symbol.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/settings/settings_page_parts.h"
 #include "presentation/ui/settings/settings_pages_ui.h"
@@ -415,6 +416,18 @@ namespace cyella::ui {
             entry(u8"settings-page-hosting", u8"호스팅", settings_page::hosting, codicons::icon_cloud);
             entry(u8"settings-page-profiles", u8"사용자 프로필", settings_page::profiles, codicons::icon_person);
             entry(u8"settings-page-shortcuts", u8"단축키", settings_page::shortcuts, codicons::icon_keyboard);
+            // 목록 맨 아래는 앱 심볼과 이름·버전이다. 따로 정보 화면을 두지 않고 이 자리가 그 몫을 한다.
+            column->add_flexible_gap();
+            auto about { make_row(u8"settings-about", 10.0f) };
+            if (app_symbol().valid())
+                about->add(make_app_symbol(u8"settings-symbol"), luil::stack_item { .length = 32.0f, .cross_length = 32.0f });
+            auto names { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-about-names" }, luil::stack_config {}) };
+            names->add(make_text(u8"settings-app-name", u8"cyella", text_style { .size = 13.0f, .bold = true }), 18.0f);
+            names->add(make_text(u8"settings-app-version", u8"버전 " + std::u8string { app_version() },
+                           text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } }),
+                16.0f);
+            about->add(std::move(names), luil::stack_item { .length = 0.0f, .weight = 1.0f, .cross_length = 34.0f });
+            column->add(std::move(about), 36.0f);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-navigation-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; } }, std::move(column));
         }

@@ -5,6 +5,7 @@
 #include "presentation/palette/palette_intents.h"
 #include "presentation/selector_intents.h"
 #include "presentation/settings/settings_intents.h"
+#include "presentation/ui/app_symbol.h"
 #include "presentation/ui/command_elements.h"
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/element_kinds.h"
@@ -19,7 +20,6 @@
 
 #include "luil/ui/caption_element.h"
 #include "luil/ui/dialog_elements.h"
-#include "luil/ui/image_element.h"
 #include "luil/ui/modal_host_element.h"
 #include "luil/ui/panel_element.h"
 #include "luil/ui/progress_element.h"
@@ -596,10 +596,9 @@ namespace cyella::ui {
         if (window_caption)
         {
             root->place(std::make_unique<luil::caption_element>(caption_config), { 0.0f, 0.0f, view.logical_width, caption_height });
-            // 앱 아이콘 그림은 캡션 위에 얹는다. 설명을 비워 장식으로 두므로 보조 기술에는 캡션 제목만 읽힌다.
-            if (caption_icon().valid())
-                root->place(
-                    std::make_unique<luil::image_element>(luil::ui_element_id { kind_image, u8"caption-icon" }, luil::image_config { .image = caption_icon() }), caption_icon_rect(caption_config));
+            // 앱 심볼은 캡션의 아이콘 칸 위에 얹는다.
+            if (app_symbol().valid())
+                root->place(make_app_symbol(u8"caption-symbol"), caption_icon_rect(caption_config));
         }
         // 끄는 동안의 문구는 대화 상자 아래, 나머지 화면 위에 그린다.
         if (view.repository.has_value() && view.repository->drop_hints != nullptr)

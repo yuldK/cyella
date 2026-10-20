@@ -3,6 +3,7 @@
 #include "platform/win32/resources/resource_ids.h"
 #include "platform/win32/utf8.h"
 #include "platform/win32/win32_app_settings_path.h"
+#include "presentation/ui/app_symbol.h"
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/cyella_policy.h"
 
@@ -58,11 +59,11 @@ namespace {
         return options;
     }
 
-    // 실행 파일에 실은 캡션 아이콘 PNG를 푼다. 없거나 풀지 못하면 빈 그림이라 캡션은 codicon 글리프로 물러선다.
-    luil::ui_image load_caption_icon()
+    // 실행 파일에 실은 앱 심볼 PNG를 푼다. 없거나 풀지 못하면 빈 그림이라 캡션은 codicon 글리프로 물러선다.
+    luil::ui_image load_app_symbol()
     {
         const HMODULE module { ::GetModuleHandleW(nullptr) };
-        const HRSRC resource { ::FindResourceW(module, MAKEINTRESOURCEW(IDR_CYELLA_CAPTION_ICON), RT_RCDATA) };
+        const HRSRC resource { ::FindResourceW(module, MAKEINTRESOURCEW(IDR_CYELLA_SYMBOL), RT_RCDATA) };
         if (resource == nullptr)
             return {};
         const HGLOBAL loaded { ::LoadResource(module, resource) };
@@ -84,8 +85,8 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
 
     // 기본 UI 글꼴 우선순위다. 설치되어 있지 않으면 luil이 내장 기본으로 물러선다.
     luil::set_ui_typeface_families({ u8"Malgun Gothic" });
-    // 캡션 값(`cyella_caption`)을 만들기 전에 아이콘 그림을 정한다.
-    cyella::ui::set_caption_icon(load_caption_icon());
+    // 캡션 값(`cyella_caption`)을 만들기 전에 앱 심볼을 정한다.
+    cyella::ui::set_app_symbol(load_app_symbol());
 
     // 창의 겉모습과 정책이다. 길이는 전부 논리 96 DPI 기준 px다.
     luil::win32::window_config config {};
