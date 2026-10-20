@@ -244,6 +244,22 @@ namespace cyella {
             return model;
         }
 
+        // 커밋 상세의 변경 파일이다. 커밋 안의 파일은 고칠 것이 없으니 diff 보기와 복사만 둔다.
+        menu_model commit_file_menu(const menu_target& target)
+        {
+            menu_model model {};
+            model.title = to_u8(target.name);
+            add_group(model.entries, { make_entry(u8"open_diff", u8"변경 내용 보기", icons::icon_diff) });
+            add_group(model.entries,
+                {
+                    make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy),
+                    make_entry(u8"copy_name", u8"파일 이름 복사", icons::icon_copy),
+                    // `git show abc1234:src/a.cpp`에 그대로 쓰는 꼴이다.
+                    make_entry(u8"copy_revision_path", short_sha(target.sha) + u8":" + to_u8(target.name) + u8" 복사", icons::icon_copy),
+                });
+            return model;
+        }
+
         // ---------------------------------------------------------------- 끌어 놓기
 
         menu_model drop_menu(const menu_target& target, const menu_context& context)
@@ -321,6 +337,8 @@ namespace cyella {
             return stash_menu(target);
         case menu_target_kind::file:
             return file_menu(target);
+        case menu_target_kind::commit_file:
+            return commit_file_menu(target);
         case menu_target_kind::tags_section:
             return tags_section_menu(context);
         case menu_target_kind::drop:

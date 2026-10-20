@@ -35,6 +35,8 @@ namespace cyella {
         worktrees_section,
         lfs_section,
         lfs_file,
+        // 커밋 상세의 변경 파일이다. `name`은 경로, `sha`는 그 커밋이다. 작업 영역 파일(`file`)과 달리 고칠 것이 없어 보기·복사만 있다.
+        commit_file,
     };
 
     // 끌어 놓기의 한쪽이다. 브랜치(`kind`가 local·remote)나 커밋이다.

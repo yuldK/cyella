@@ -947,6 +947,19 @@ namespace cyella {
             else if (key == u8"lfs_pull")
                 static_cast<void>(submit(lfs_pull_request {}));
             return;
+        case menu_target_kind::commit_file:
+            if (key == u8"open_diff")
+                static_cast<void>(handle(luil::app_message { select_file_intent { diff_file_request { .path = target.name, .view = diff_view::commit, .sha = target.sha } } }));
+            else if (key == u8"copy_path")
+                copy_text(to_u8(target.name));
+            else if (key == u8"copy_name")
+            {
+                const std::size_t slash { target.name.find_last_of('/') };
+                copy_text(to_u8(slash == std::string::npos ? target.name : target.name.substr(slash + 1)));
+            }
+            else if (key == u8"copy_revision_path")
+                copy_text(short_sha(target.sha) + u8":" + to_u8(target.name));
+            return;
         case menu_target_kind::submodule:
         case menu_target_kind::submodules_section:
         case menu_target_kind::worktree:

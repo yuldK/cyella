@@ -380,6 +380,21 @@ TEST_CASE("context menu entries depend on the target", "[presentation][menu]")
         const menu_model conflicted { build_context_menu({ .kind = menu_target_kind::file, .name = "c.cpp", .conflicted = true }, context) };
         CHECK_FALSE(has_entry(conflicted, u8"stage"));
     }
+
+    SECTION("files of a commit only open the diff and copy")
+    {
+        const menu_model model { build_context_menu({ .kind = menu_target_kind::commit_file, .name = "src/a.cpp", .sha = "1234567890abcdef" }, context) };
+        CHECK(model.title == u8"src/a.cpp");
+        CHECK(entry_enabled(model, u8"open_diff"));
+        CHECK(entry_enabled(model, u8"copy_path"));
+        CHECK(entry_enabled(model, u8"copy_name"));
+        const auto revision { std::ranges::find(model.entries, std::u8string { u8"copy_revision_path" }, &menu_entry::key) };
+        REQUIRE(revision != model.entries.end());
+        CHECK(revision->label == u8"1234567:src/a.cpp 복사");
+        // 커밋 안의 파일은 고칠 것이 없다.
+        CHECK_FALSE(has_entry(model, u8"stage"));
+        CHECK_FALSE(has_entry(model, u8"discard"));
+    }
 }
 
 TEST_CASE("branch drag keys round trip", "[presentation][drop]")

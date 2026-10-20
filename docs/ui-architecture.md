@@ -250,7 +250,10 @@ Shift+F10은 고른 사이드바 항목이나 커밋의 메뉴를 연다. SHA·�
 
 대상: 커밋(체크아웃(detached 경고)·브랜치/태그 만들기·cherry-pick·revert·reset soft/mixed/hard(hard는 확인)·SHA 복사), 로컬 브랜치(체크아웃·merge/rebase·
 push·upstream 설정·이름 바꾸기·삭제(확인, 강제는 체크)), 원격 브랜치, 태그(원격마다 push, 로컬 삭제, 원격에도 삭제), stash(apply·pop·삭제 확인),
-TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 확인·ignore·외부 diff·경로 복사).
+TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 확인·ignore·외부 diff·경로 복사), 커밋 상세의 변경 파일(`commit_file`: 변경 내용 보기·경로·파일 이름·`커밋:경로` 복사).
+
+목록 행 안의 내용 element가 툴팁·우클릭을 가지면 포인터의 hit를 그 element가 받는다(`ui_element::interactive`). 그래서 파일 행·그래프 행·사이드바 행은 한 번 누름의
+고르기 메시지를 스스로 다시 낸다. 내지 않으면 마우스 누름이 목록까지 가지 못해 키보드로만 고를 수 있다.
 
 ### 끌어 놓기
 

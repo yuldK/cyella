@@ -2,6 +2,7 @@
 // workspace는 가짜 runner와 수동 dispatcher로 세운다 — job을 실행하지 않고 낸 것만 센다.
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "presentation/dialog_intents.h"
 #include "presentation/shell_controller.h"
 #include "presentation/ui_intents.h"
 
@@ -171,6 +172,31 @@ TEST_CASE("choosing a changed file in the drawer closes it so the diff is not co
     REQUIRE(test.send(select_file_intent { diff_file_request { .path = "a.txt", .view = diff_view::commit, .sha = sha_of(1) } }));
     CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).diff.has_value());
     CHECK_FALSE(test.controller.state().drawer_open);
+}
+
+TEST_CASE("the commit file menu opens the diff and copies the path forms", "[presentation][controller]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    const menu_target target { .kind = menu_target_kind::commit_file, .name = "src/app/a.cpp", .sha = sha_of(1) };
+
+    REQUIRE(test.send(open_context_menu_intent { target, 0.0f, 0.0f }));
+    REQUIRE(test.send(menu_select_intent { u8"open_diff" }));
+    const auto& diff { test.controller.state().tabs.at(test.controller.tabs().selected().id).diff };
+    REQUIRE(diff.has_value());
+    CHECK(diff->path == "src/app/a.cpp");
+    CHECK(diff->view == diff_view::commit);
+    CHECK(diff->sha == sha_of(1));
+
+    const auto copied = [&test, &target](const std::u8string& key) {
+        REQUIRE(test.send(open_context_menu_intent { target, 0.0f, 0.0f }));
+        REQUIRE(test.send(menu_select_intent { key }));
+        return test.controller.take_clipboard_text().value_or(u8"");
+    };
+    CHECK(copied(u8"copy_path") == u8"src/app/a.cpp");
+    CHECK(copied(u8"copy_name") == u8"a.cpp");
+    const std::string prefix { sha_of(1).substr(0, 7) };
+    CHECK(copied(u8"copy_revision_path") == std::u8string { prefix.begin(), prefix.end() } + u8":src/app/a.cpp");
 }
 
 TEST_CASE("scroll is clamped to the last arranged maximum", "[presentation][controller]")

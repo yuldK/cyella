@@ -157,6 +157,7 @@ namespace cyella {
         case menu_target_kind::file:
         case menu_target_kind::tags_section:
         case menu_target_kind::drop:
+        case menu_target_kind::commit_file:
             break;
         }
         return {};

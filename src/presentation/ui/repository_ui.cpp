@@ -556,17 +556,18 @@ namespace cyella::ui {
             std::u8string selected {};
             const auto add_file = [&](const file_row_view& row, const std::optional<std::size_t> depth) {
                 items.push_back({ .key = row.key, .label = row.name });
-                if (depth.has_value())
-                {
-                    // 트리에서는 폴더가 이미 보이므로 이름 바꾸기(← 옛 경로)만 남긴다.
-                    file_row_view shown { row };
-                    if (shown.original_path.empty())
-                        shown.folder.clear();
-                    (*builders)[row.key] = [shown, depth] { return std::make_unique<file_row_element>(shown, std::vector<file_row_button> {}, std::nullopt, std::nullopt, depth); };
-                }
-                else
-                    (*builders)[row.key] = [row] { return std::make_unique<file_row_element>(row, std::vector<file_row_button> {}); };
-                (*requests)[row.key] = diff_file_request { .path = row.path, .view = diff_view::commit, .sha = commit.sha, .untracked = false };
+                const diff_file_request request { .path = row.path, .view = diff_view::commit, .sha = commit.sha, .untracked = false };
+                // 파일 행은 경로 툴팁이 있어 포인터의 hit를 직접 받는다. 고르기 메시지를 행이 다시 내지 않으면 마우스 누름이 목록까지
+                // 가지 못해 diff가 열리지 않는다 (키보드·보조 기술은 목록으로 바로 가므로 열린다). 작업 영역·그래프 행과 같은 이유다.
+                const luil::input_action select { message(select_file_intent { request }) };
+                // 우클릭 메뉴는 변경 내용 보기와 경로·이름·`커밋:경로` 복사다.
+                const menu_target target { .kind = menu_target_kind::commit_file, .name = row.path, .sha = commit.sha };
+                file_row_view shown { row };
+                // 트리에서는 폴더가 이미 보이므로 이름 바꾸기(← 옛 경로)만 남긴다.
+                if (depth.has_value() && shown.original_path.empty())
+                    shown.folder.clear();
+                (*builders)[row.key] = [shown, select, target, depth] { return std::make_unique<file_row_element>(shown, std::vector<file_row_button> {}, select, target, depth); };
+                (*requests)[row.key] = request;
                 if (row.selected)
                     selected = row.key;
             };
