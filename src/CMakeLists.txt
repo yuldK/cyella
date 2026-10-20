@@ -1,8 +1,15 @@
 set(cyella_resource_directory "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/resources")
 set(cyella_manifest_file "${cyella_resource_directory}/cyella.manifest")
+set(cyella_resource_ids_file "${cyella_resource_directory}/resource_ids.h")
 set(cyella_resource_template "${cyella_resource_directory}/cyella.rc.in")
+# 앱 아이콘과 캡션 아이콘은 assets/cyella.svg에서 scripts/generate_app_icon.py로 만든다.
+set(cyella_app_icon "${PROJECT_SOURCE_DIR}/assets/cyella.ico")
+set(cyella_caption_icon "${PROJECT_SOURCE_DIR}/assets/cyella-caption.png")
 
 file(TO_CMAKE_PATH "${cyella_manifest_file}" CYELLA_MANIFEST_PATH)
+file(TO_CMAKE_PATH "${cyella_resource_ids_file}" CYELLA_RESOURCE_IDS_PATH)
+file(TO_CMAKE_PATH "${cyella_app_icon}" CYELLA_APP_ICON_PATH)
+file(TO_CMAKE_PATH "${cyella_caption_icon}" CYELLA_CAPTION_ICON_PATH)
 configure_file(
     "${cyella_resource_template}"
     "${CYELLA_GENERATED_RESOURCE}"
@@ -11,7 +18,7 @@ set_source_files_properties(
     "${CYELLA_GENERATED_RESOURCE}"
     PROPERTIES
         GENERATED TRUE
-        OBJECT_DEPENDS "${cyella_manifest_file}")
+        OBJECT_DEPENDS "${cyella_manifest_file};${cyella_resource_ids_file};${cyella_app_icon};${cyella_caption_icon}")
 
 # 앱 코드 전체가 하나의 static library다. 계층(domain → application →
 # infrastructure → presentation → platform)은 디렉터리 구조와 코드 리뷰로 지키며,
@@ -429,6 +436,7 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/dialogs"
     presentation/ui/ref_chip_element.h)
 
 cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
+    presentation/ui/cyella_caption.cpp
     presentation/ui/cyella_caption.h
     presentation/ui/cyella_policy.cpp
     presentation/ui/cyella_policy.h
@@ -602,7 +610,7 @@ target_link_libraries(cyella_lib
         shell32)
 
 # resource는 두 .rc다: luil 조각(코디콘 폰트·라이선스·고지, ID 101~104)과 cyella
-# 조각(manifest·VERSIONINFO).
+# 조각(manifest·앱 아이콘(ID 105)·캡션 아이콘 PNG(ID 106)·VERSIONINFO).
 set(cyella_app_files)
 cyella_add_source_filter(cyella_app_files "app"
     platform/win32/main.cpp)

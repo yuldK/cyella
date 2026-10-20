@@ -1,5 +1,6 @@
 #include "platform/win32/cyella_delegate.h"
 #include "platform/win32/cyella_driver.h"
+#include "platform/win32/resources/resource_ids.h"
 #include "platform/win32/utf8.h"
 #include "platform/win32/win32_app_settings_path.h"
 #include "presentation/ui/cyella_caption.h"
@@ -7,11 +8,15 @@
 
 #include "luil/luil.h"
 #include "luil/text/fonts.h"
+#include "luil/ui/image_decode.h"
 
 #include <windows.h>
 
 #include <shellapi.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -52,6 +57,22 @@ namespace {
             options.settings_path = cyella::win32::app_settings_file_path();
         return options;
     }
+
+    // 실행 파일에 실은 캡션 아이콘 PNG를 푼다. 없거나 풀지 못하면 빈 그림이라 캡션은 codicon 글리프로 물러선다.
+    luil::ui_image load_caption_icon()
+    {
+        const HMODULE module { ::GetModuleHandleW(nullptr) };
+        const HRSRC resource { ::FindResourceW(module, MAKEINTRESOURCEW(IDR_CYELLA_CAPTION_ICON), RT_RCDATA) };
+        if (resource == nullptr)
+            return {};
+        const HGLOBAL loaded { ::LoadResource(module, resource) };
+        const DWORD size { ::SizeofResource(module, resource) };
+        const void* const data { loaded != nullptr ? ::LockResource(loaded) : nullptr };
+        if (data == nullptr || size == 0)
+            return {};
+        luil::image_decode_error error {};
+        return luil::decode_image_bytes(std::span { static_cast<const std::uint8_t*>(data), static_cast<std::size_t>(size) }, error);
+    }
 } // namespace
 
 int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
@@ -63,10 +84,13 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
 
     // 기본 UI 글꼴 우선순위다. 설치되어 있지 않으면 luil이 내장 기본으로 물러선다.
     luil::set_ui_typeface_families({ u8"Malgun Gothic" });
+    // 캡션 값(`cyella_caption`)을 만들기 전에 아이콘 그림을 정한다.
+    cyella::ui::set_caption_icon(load_caption_icon());
 
     // 창의 겉모습과 정책이다. 길이는 전부 논리 96 DPI 기준 px다.
     luil::win32::window_config config {};
     config.class_name = L"Cyella.Window";
+    config.icon_resource = IDI_CYELLA;
     // caption 값은 한곳에서만 만든다. 비클라이언트 hit test와 tree의 caption
     // element가 같은 값을 읽어야 버튼 자리가 어긋나지 않는다.
     config.caption = cyella::ui::cyella_caption();
