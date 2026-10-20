@@ -16,6 +16,7 @@
 
 #include "luil/ui/check_element.h"
 #include "luil/ui/dialog_elements.h"
+#include "luil/ui/list_element.h"
 #include "luil/ui/panel_element.h"
 #include "luil/ui/stack_element.h"
 #include "luil/ui/virtual_list_element.h"
@@ -584,7 +585,7 @@ namespace cyella::ui {
         return panel;
     }
 
-    std::unique_ptr<luil::ui_element> build_graph_area(const view_snapshot& view, const repository_view& repository, feedback_sources& sources)
+    std::unique_ptr<luil::ui_element> build_graph_area(const view_snapshot& view, const repository_view& repository, const float width, feedback_sources& sources)
     {
         if (repository.diff.has_value())
             return build_diff_area(view, repository, sources);
@@ -594,7 +595,12 @@ namespace cyella::ui {
             return build_conflict_screen(repository, *repository.conflict, repository.conflict_scroll, sources);
 
         const graph_view& graph { repository.graph };
-        const graph_columns columns { make_graph_columns(graph.lane_count, graph.compact_columns) };
+        // 행은 목록의 스크롤 막대만큼 좁다. 머리줄도 같은 열 폭을 써야 제목이 열 위에 선다.
+        float labels_width { 0.0f };
+        if (graph.labels != nullptr)
+            for (const auto& [sha, labels] : *graph.labels)
+                labels_width = std::max(labels_width, estimate_ref_label_strip_width(labels));
+        const graph_columns columns { make_graph_columns(graph.lane_count, graph.compact_columns, width - luil::list_scrollbar_width, labels_width) };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"graph-area" }, luil::stack_config {}) };
         column->add(std::make_unique<graph_header_element>(columns), 26.0f);
         if (repository.loaded == false || graph.items == nullptr || graph.items->empty())

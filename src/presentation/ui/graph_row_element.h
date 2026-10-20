@@ -16,7 +16,7 @@ namespace cyella::ui {
     // 그래프 목록의 열 폭이다 (논리 픽셀). 그래프 칸만 레인 수로 정한다.
     struct graph_columns
     {
-        float refs { 190.0f };
+        float refs { 160.0f };
         float graph { 60.0f };
         float author { 110.0f };
         float date { 90.0f };
@@ -27,7 +27,16 @@ namespace cyella::ui {
         static constexpr float maximum_graph { 240.0f };
     };
 
-    [[nodiscard]] graph_columns make_graph_columns(std::uint16_t lane_count, bool compact) noexcept;
+    // 목록 폭(`available_width`, 논리 픽셀)에 맞춘 열 폭이다. 0 이하면 폭을 모르는 것으로 보고 기본 폭을 그대로 쓴다.
+    //  - 브랜치/태그 열은 가장 넓은 라벨 줄(`labels_width`, 칩 폭의 합)만큼만 선다. 기본 폭이 상한이고 머리 글자가 들어가는 폭이 하한이다.
+    //    라벨이 짧은 저장소에서 빈 열이 메시지 자리를 먹지 않는다. 음수면 라벨을 모르는 것으로 보고 기본 폭을 쓴다.
+    //  - 커밋 메시지 열은 남는 자리를 갖는다. 그래서 폭이 모자라면 메시지가 몇 글자만 남는다. 메시지 열의 하한을 먼저 지키고,
+    //    모자란 만큼을 그래프 → 브랜치/태그 → 작성자 → 날짜 순으로 각자의 하한까지 줄여 마련한다.
+    //  - 그래프를 먼저 줄이는 것은 잘리는 쪽이 오른쪽 레인이라 지금 보는 줄기(왼쪽 레인)는 남기 때문이다.
+    [[nodiscard]] graph_columns make_graph_columns(std::uint16_t lane_count, bool compact, float available_width = 0.0f, float labels_width = -1.0f) noexcept;
+
+    // 라벨 칩을 한 줄로 늘어놓은 폭이다 (논리 픽셀, 칩 사이 간격 포함). 브랜치/태그 열의 폭을 정할 때 쓴다.
+    [[nodiscard]] float estimate_ref_label_strip_width(const std::vector<ref_label>& labels) noexcept;
 
     // 행 하나를 그리는 데 필요한 값이다. 짓는 순간 세션에서 복사해 와서 게시된 tree가 세션을 붙잡지 않는다.
     struct graph_row_data

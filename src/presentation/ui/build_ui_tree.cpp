@@ -562,7 +562,7 @@ namespace cyella::ui {
         if (view.repository.has_value())
         {
             const repository_view& repository { *view.repository };
-            root->place(build_graph_area(view, repository, sources), rects.graph);
+            root->place(build_graph_area(view, repository, rects.graph.width, sources), rects.graph);
             if (view.mode == layout_mode::narrow)
                 root->place(build_rail(repository), rects.sidebar);
             else

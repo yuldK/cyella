@@ -29,8 +29,8 @@ namespace cyella::ui {
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_rail(const repository_view& repository);
     // narrow의 아이콘 막대에서 연 구역의 떠 있는 판이다.
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_rail_popup(const repository_view& repository, sidebar_section section);
-    [[nodiscard]] std::unique_ptr<luil::ui_element> build_graph_area(const view_snapshot& view, const repository_view& repository, feedback_sources& sources);
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_detail(const view_snapshot& view, const repository_view& repository, bool drawer, feedback_sources& sources);
+    [[nodiscard]] std::unique_ptr<luil::ui_element> build_graph_area(const view_snapshot& view, const repository_view& repository, float width, feedback_sources& sources);
 
     // 대화 상자·메뉴·끌어 놓기·충돌 해결이다.
     // 모달 입력 상자다. 화면 전체를 덮고 가운데에 대화 상자를 놓는다.

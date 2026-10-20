@@ -86,12 +86,46 @@ namespace cyella::ui {
         }
     } // namespace
 
-    graph_columns make_graph_columns(const std::uint16_t lane_count, const bool compact) noexcept
+    float estimate_ref_label_strip_width(const std::vector<ref_label>& labels) noexcept
+    {
+        float width { 0.0f };
+        for (const ref_label& label : labels)
+            width += estimate_ref_label_width(label) + (width > 0.0f ? label_gap : 0.0f);
+        return width;
+    }
+
+    graph_columns make_graph_columns(const std::uint16_t lane_count, const bool compact, const float available_width, const float labels_width) noexcept
     {
         graph_columns columns {};
         columns.compact = compact;
-        columns.refs = compact ? 120.0f : 190.0f;
+        columns.refs = compact ? 110.0f : 160.0f;
+        const float minimum_refs { compact ? 72.0f : 112.0f };
+        // 칩은 칸 왼쪽 여백(cell_padding) 뒤에서 시작하고 오른쪽에 label_padding을 남긴다.
+        if (labels_width >= 0.0f)
+            columns.refs = std::clamp(labels_width + cell_padding + label_padding, minimum_refs, columns.refs);
         columns.graph = std::min(graph_column_width(lane_count), graph_columns::maximum_graph);
+        if (available_width <= 0.0f)
+            return columns;
+
+        // 메시지 열의 하한이다. 넓은 목록에서는 폭의 비율로, 좁은 목록에서도 제목의 앞부분이 읽히는 길이로 둔다.
+        const float minimum_summary { std::max(compact ? 140.0f : 220.0f, available_width * 0.34f) };
+        const float tail { compact ? 0.0f : columns.author + columns.date };
+        float shortage { columns.refs + columns.graph + tail + minimum_summary - available_width };
+        const auto shrink = [&shortage](float& width, const float minimum) {
+            if (shortage <= 0.0f || width <= minimum)
+                return;
+            const float give { std::min(shortage, width - minimum) };
+            width -= give;
+            shortage -= give;
+        };
+        // 그래프는 레인 셋이 보이는 폭까지만 줄인다. 레인이 그보다 적으면 지금 폭이 곧 하한이다.
+        shrink(columns.graph, std::min(columns.graph, graph_column_width(3)));
+        shrink(columns.refs, minimum_refs);
+        if (compact == false)
+        {
+            shrink(columns.author, 76.0f);
+            shrink(columns.date, 70.0f);
+        }
         return columns;
     }
 
