@@ -134,6 +134,14 @@ namespace {
         return ids.empty() ? nullptr : driver.workspace()->find_session(ids.front());
     }
 
+    bool all_operations_finished(const cyella::win32::cyella_driver& driver)
+    {
+        for (const cyella::operation_id id : driver.workspace()->operation_order())
+            if (const cyella::operation_status* const status { driver.workspace()->find_operation(id) }; status != nullptr && status->finished() == false)
+                return false;
+        return true;
+    }
+
     std::size_t operation_count_of(const cyella::win32::cyella_driver& driver, const cyella::operation_kind kind)
     {
         std::size_t count { 0 };
@@ -227,9 +235,14 @@ TEST_CASE("cyella_driver tells once that a vanished folder is no longer watched 
     };
     CHECK_FALSE(lost_notice());
 
-    std::error_code ignored {};
-    std::filesystem::remove_all(repo / ".git", ignored);
-    std::filesystem::remove_all(repo, ignored);
+    // 불러온 뒤 이어지는 자동 작업(서명 확인 등)이 끝나기를 기다린다. git이 이 폴더를 현재 디렉터리로 쥐고 있으면
+    // Windows는 폴더를 지우지 못하고(공유 위반) 폴더가 남으니 감시도 끊기지 않는다.
+    REQUIRE(pump_until(driver, [&] { return all_operations_finished(driver); }));
+    std::error_code removed {};
+    std::filesystem::remove_all(repo / ".git", removed);
+    std::filesystem::remove_all(repo, removed);
+    INFO("remove_all: " << removed.value() << " " << removed.message());
+    REQUIRE_FALSE(std::filesystem::exists(repo));
     REQUIRE(pump_until(driver, lost_notice, 5s));
     CHECK(driver.controller()->state().notice->warning);
     CHECK(driver.controller()->state().notice->text.find(u8"감시가 끊겨") != std::u8string::npos);
