@@ -149,6 +149,30 @@ TEST_CASE("selecting a commit submits show_commit and WIP does not", "[presentat
     CHECK_FALSE(test.controller.state().drawer_open);
 }
 
+TEST_CASE("choosing a changed file in the drawer closes it so the diff is not covered", "[presentation][controller]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    const std::uint64_t generation { session->begin_refresh() };
+    repository_snapshot snapshot {};
+    snapshot.summary.head_sha = sha_of(2);
+    REQUIRE(session->apply(snapshot_loaded { generation, snapshot }));
+    std::vector<commit_info> commits { { .sha = sha_of(2), .parents = { sha_of(1) } }, { .sha = sha_of(1) } };
+    REQUIRE(session->apply(commits_loaded { .generation = generation, .commits = commits, .page_complete = true, .history_complete = true }));
+
+    // medium 배치(논리 폭 1000)에서는 상세가 서랍이다. 커밋을 고르면 서랍이 열린다.
+    static_cast<void>(test.controller.make_view(1000.0f, 800.0f, 1.0f));
+    REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(1)) }));
+    REQUIRE(test.controller.state().drawer_open);
+
+    // 서랍의 변경 파일을 고르면 그래프 자리에 diff가 열리고 서랍은 닫힌다.
+    REQUIRE(test.send(select_file_intent { diff_file_request { .path = "a.txt", .view = diff_view::commit, .sha = sha_of(1) } }));
+    CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).diff.has_value());
+    CHECK_FALSE(test.controller.state().drawer_open);
+}
+
 TEST_CASE("scroll is clamped to the last arranged maximum", "[presentation][controller]")
 {
     controller_harness test {};

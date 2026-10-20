@@ -850,6 +850,10 @@ namespace cyella {
                 tab->diff = request;
                 tab->diff_scroll = 0.0f;
                 static_cast<void>(submit(std::move(request)));
+                // medium·narrow에서는 상세가 그래프 자리 위에 뜬 서랍이라, 그대로 두면 방금 연 diff를 서랍이 덮는다.
+                // diff를 가리지 않게 서랍을 닫는다. 파일 목록은 툴바의 "상세 패널" 단추로 다시 연다.
+                if (last_mode_ != layout_mode::wide)
+                    ui_.drawer_open = false;
             }
             return true;
         }
