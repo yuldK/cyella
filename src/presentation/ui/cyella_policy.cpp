@@ -68,6 +68,10 @@ namespace cyella::ui {
             return to_luil_target(text_target::rebase_message_body);
         if (kind == kind_selector_filter_input)
             return to_luil_target(text_target::selector_filter);
+        if (kind == kind_settings_hosting_host_input)
+            return to_luil_target(text_target::settings_hosting_host);
+        if (kind == kind_settings_hosting_api_input)
+            return to_luil_target(text_target::settings_hosting_api_base);
         if (kind == kind_palette_filter_input)
             return to_luil_target(text_target::palette_filter);
         if (kind == kind_shortcut_input)
@@ -224,6 +228,8 @@ namespace cyella::ui {
                 return { message(apply_git_path_intent {}) };
             if (focused == kind_settings_test_host_input)
                 return { message(test_ssh_connection_intent {}) };
+            if (focused == kind_settings_hosting_host_input || focused == kind_settings_hosting_api_input)
+                return { message(add_hosting_host_intent {}) };
             if (focused == kind_form_input_0 || focused == kind_form_input_1 || focused == kind_form_input_2)
                 return { message(form_enter_intent {}) };
             return {};

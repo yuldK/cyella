@@ -24,6 +24,7 @@ namespace cyella {
             list.push_back(make("app.settings.diff", u8"환경 설정: diff 보기·외부 도구", u8"settings diff tool external layout context", group::app));
             list.push_back(make("app.settings.ssh", u8"환경 설정: SSH 키·agent", u8"settings ssh key agent keygen", group::app));
             list.push_back(make("app.settings.profiles", u8"환경 설정: 사용자 프로필", u8"settings profile identity user name email author", group::app));
+            list.push_back(make("app.settings.hosting", u8"환경 설정: 호스팅 (GitHub·GitLab)", u8"settings hosting github gitlab server host token sign out logout", group::app));
             list.push_back(make("app.settings.shortcuts", u8"환경 설정: 단축키", u8"settings shortcut keybinding keys hotkey", group::app));
             list.push_back(make("app.theme", u8"테마 바꾸기 (시스템·밝게·어둡게)", u8"theme dark light color mode", group::app));
             list.push_back(make("app.log", u8"작업 로그 보기·숨기기", u8"log operations output command history", group::app));
@@ -53,6 +54,10 @@ namespace cyella {
             list.push_back(make("view.drawer", u8"상세 패널 열기·닫기", u8"detail panel drawer sidebar", group::view));
             list.push_back(make("view.menu", u8"고른 항목의 메뉴 열기", u8"context menu right click actions", group::view, { u8"Shift+F10" }));
             list.push_back(make("view.close", u8"열린 패널·알림 닫기", u8"close dismiss escape overlay", group::view, { u8"Escape" }, command_scope::global, false));
+            // ---- GitHub·GitLab
+            list.push_back(make("hosting.sign_in", u8"GitHub·GitLab에 로그인…", u8"login sign in github gitlab credential token", group::hosting));
+            list.push_back(make("hosting.refresh", u8"PR·MR 목록 새로 고침", u8"pull request merge request list refresh github gitlab", group::hosting));
+            list.push_back(make("hosting.pull_request.new", u8"현재 브랜치로 PR·MR 만들기…", u8"pull request merge request create new github gitlab", group::hosting));
             // ---- 프로필
             list.push_back(make("profile.apply", u8"이 저장소에 프로필 적용…", u8"profile apply identity author user name email", group::profile));
             return list;
@@ -107,6 +112,8 @@ namespace cyella {
             return u8"화면";
         case command_group::profile:
             return u8"사용자 프로필";
+        case command_group::hosting:
+            return u8"GitHub·GitLab";
         }
         return {};
     }
@@ -137,6 +144,13 @@ namespace cyella {
             return availability.selection_menu;
         if (id == "profile.apply")
             return availability.repository;
+        // 로그인은 서비스를 아는 원격이 있을 때, 목록·만들기는 로그인한 뒤에만 쓸 수 있다.
+        if (id == "hosting.sign_in")
+            return availability.hosting_supported && availability.hosting_signed_in == false;
+        if (id == "hosting.refresh")
+            return availability.hosting_supported && availability.hosting_signed_in;
+        if (id == "hosting.pull_request.new")
+            return availability.hosting_can_create;
         return true;
     }
 

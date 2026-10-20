@@ -52,6 +52,9 @@ namespace cyella::ui {
     inline constexpr luil::ui_element_kind kind_rebase_body_input { luil::application_element_kind(201) };
     // 툴바 저장소·브랜치 선택 상자 popup의 거르기 칸이다. 다른 칸과 겹치지 않게 110부터 쓴다.
     inline constexpr luil::ui_element_kind kind_selector_filter_input { luil::application_element_kind(110) };
+    // 환경 설정 "호스팅" 화면의 호스트·API 주소 칸이다. 500부터 쓴다.
+    inline constexpr luil::ui_element_kind kind_settings_hosting_host_input { luil::application_element_kind(500) };
+    inline constexpr luil::ui_element_kind kind_settings_hosting_api_input { luil::application_element_kind(501) };
     // 명령 팔레트의 거르기 칸·목록 행, 환경 설정의 단축키 입력 칸과 사용자 프로필·규칙 입력 칸이다. 300부터 쓴다.
     inline constexpr luil::ui_element_kind kind_palette_filter_input { luil::application_element_kind(300) };
     inline constexpr luil::ui_element_kind kind_palette_row { luil::application_element_kind(301) };

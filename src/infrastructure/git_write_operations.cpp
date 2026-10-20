@@ -506,6 +506,7 @@ namespace cyella {
                     options.remote = request.remote;
                     options.all = request.all;
                     options.prune = request.prune;
+                    options.refspec = request.refspec;
                     return run_single(context, make_git_fetch_args(options), network, u8"가져왔습니다.");
                 }
                 else if constexpr (std::is_same_v<request_type, pull_request>)

@@ -6,6 +6,7 @@
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
+#include "presentation/ui/hosting_ui.h"
 #include "presentation/ui/list_rows.h"
 #include "presentation/ui/sidebar_extension_rows.h"
 #include "presentation/ui/ui_helpers.h"
@@ -19,6 +20,7 @@
 #include "luil/ui/virtual_list_element.h"
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <memory>
 #include <utility>
@@ -85,6 +87,8 @@ namespace cyella::ui {
                 target.kind = menu_target_kind::lfs_file;
                 target.name = row.path;
                 return target;
+            case sidebar_item_kind::pull_request:
+                return std::nullopt;
             case sidebar_item_kind::ref:
                 break;
             }
@@ -211,6 +215,8 @@ namespace cyella::ui {
                 return u8"WORKTREES";
             case sidebar_section::lfs:
                 return u8"GIT LFS";
+            case sidebar_section::pull_requests:
+                return u8"PULL REQUESTS";
             }
             return {};
         }
@@ -230,6 +236,7 @@ namespace cyella::ui {
             case sidebar_section::submodules:
             case sidebar_section::worktrees:
             case sidebar_section::lfs:
+            case sidebar_section::pull_requests:
                 return extension_section_glyph(section);
             }
             return codicons::icon_git_branch;
@@ -306,6 +313,9 @@ namespace cyella::ui {
                 add(std::make_unique<ref_label_strip_element>(u8"detail-labels", commit.labels, commit.lane_color), 26.0f);
             add(make_text(u8"detail-author", u8"작성자  " + commit.author, text_style { .size = 11.0f, .color = dim_color }), detail_line_height);
             add(make_text(u8"detail-date", u8"날짜  " + commit.date, text_style { .size = 11.0f, .color = dim_color }), detail_line_height);
+            // 로그인한 GitHub·GitLab 호스트의 CI 상태다.
+            if (commit.ci.has_value())
+                add(build_commit_ci_line(*commit.ci), detail_line_height);
             add(make_text(u8"detail-sha", u8"SHA  " + to_u8(commit.sha), text_style { .size = 11.0f, .color = dim_color, .code = true }), detail_line_height);
             std::u8string parents {};
             for (const std::u8string& parent : commit.parents)
@@ -481,8 +491,16 @@ namespace cyella::ui {
     {
         auto column
             = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"rail" }, luil::stack_config { .spacing = 2.0f, .padding = luil::edge_insets { 2.0f, 6.0f, 2.0f, 6.0f } });
-        for (const sidebar_section section :
-            { sidebar_section::local, sidebar_section::remote, sidebar_section::tags, sidebar_section::stashes, sidebar_section::submodules, sidebar_section::worktrees })
+        const std::array rail_sections {
+            sidebar_section::local,
+            sidebar_section::remote,
+            sidebar_section::tags,
+            sidebar_section::stashes,
+            sidebar_section::submodules,
+            sidebar_section::worktrees,
+            sidebar_section::pull_requests,
+        };
+        for (const sidebar_section section : rail_sections)
         {
             const std::u8string title { section_title(section) };
             const std::u8string count { number_text(repository.section_counts[static_cast<std::size_t>(section)]) };
@@ -596,7 +614,9 @@ namespace cyella::ui {
     {
         static_cast<void>(view);
         std::unique_ptr<luil::ui_element> content {};
-        if (repository.detail == detail_mode::commit && repository.commit.has_value())
+        if (repository.detail == detail_mode::pull_request && repository.hosting.has_value() && repository.hosting->detail.has_value())
+            content = build_pull_request_detail(*repository.hosting->detail, drawer);
+        else if (repository.detail == detail_mode::commit && repository.commit.has_value())
             content = build_commit_detail(repository, *repository.commit, drawer, sources);
         else if (repository.detail == detail_mode::working && repository.working.has_value())
             content = build_working_area(repository, *repository.working, drawer, sources);

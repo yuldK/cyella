@@ -115,6 +115,12 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
 `diff` 객체: `layout`(`inline`·`split`, 기본 `inline`)과 `context_lines`(0~25의 정수, 기본 3). 틀린 필드만 기본값으로 두고 경고한다. 환경 설정의 "diff" 쪽에서 고른다
 (보기를 바꾸면 열려 있는 diff도 바로 바뀌고, 문맥 줄 수는 다음에 여는 diff부터 `git diff -U<n>`에 쓴다).
 
+## 설정의 hosting
+
+`hosting.hosts[]`: 자체 호스팅 서버 표다. 한 줄은 `{host, provider(github·gitlab), api_base}`다. `host`는 소문자 호스트 이름이고 포트가 있는 http(s) 서버는 `127.0.0.1:8123`처럼 포트를 포함한다.
+`api_base`를 비우면 GitHub는 `<사이트>/api/v3`, GitLab은 `<사이트>/api/v4`를 쓴다. 읽을 수 없거나 겹치는 줄은 건너뛰고 경고한다. 표가 비면 `hosting` 객체의 `hosts`를 지운다(알 수 없는 키는 보존한다).
+**토큰·계정 이름·로그인 상태는 어떤 키로도 쓰지 않는다**([ADR-007](decisions/ADR-007-hosting-integration.md)). 환경 설정의 "호스팅" 쪽에서 고친다.
+
 ## 파일 감시 (`platform/win32/win32_repository_watcher`)
 
 전용 스레드 하나가 `ReadDirectoryChangesW`(겹치기 I/O, 재귀)를 기다리고, 디바운스한 뒤 콜백으로

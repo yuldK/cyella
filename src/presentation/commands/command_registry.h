@@ -31,6 +31,8 @@ namespace cyella {
         git,
         view,
         profile,
+        // GitHub·GitLab 연동이다.
+        hosting,
     };
 
     struct command_definition
@@ -69,6 +71,10 @@ namespace cyella {
         // 고른 항목의 우클릭 메뉴가 있다.
         bool selection_menu { false };
         bool profiles_exist { false };
+        // 저장소의 원격이 GitHub·GitLab으로 알려진 호스트이고, 그 호스트에 로그인했으며, 현재 브랜치로 PR을 만들 수 있다.
+        bool hosting_supported { false };
+        bool hosting_signed_in { false };
+        bool hosting_can_create { false };
     };
     [[nodiscard]] bool command_available(std::string_view id, const command_availability& availability) noexcept;
 

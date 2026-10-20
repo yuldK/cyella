@@ -5,6 +5,7 @@
 #include "domain/app_settings.h"
 #include "domain/operation_status.h"
 #include "presentation/graph_index.h"
+#include "presentation/hosting_view.h"
 #include "presentation/start_page_view.h"
 #include "presentation/ui_state.h"
 #include "presentation/view_snapshot.h"
@@ -44,6 +45,9 @@ namespace cyella {
         std::function<std::shared_ptr<const std::vector<luil::virtual_list_item>>(const repository_session& session)> graph_items {};
         // 읽어 둔 이력의 부모 관계 cache다. 비어 있으면 매번 짓는다 (test).
         std::function<std::shared_ptr<const graph_index>(const repository_session& session)> history_index {};
+        // 저장소 탭의 GitHub·GitLab 값과 커밋의 CI 표시다. 비어 있으면 PULL REQUESTS 구역이 서지 않는다 (test).
+        std::function<hosting_repository_view(const std::string& repository_id)> hosting_view {};
+        std::function<std::optional<ci_mark_view>(const std::string& repository_id, const std::string& sha)> commit_ci {};
     };
 
     [[nodiscard]] view_snapshot build_view_snapshot(const view_inputs& inputs);

@@ -47,6 +47,8 @@ namespace cyella {
                 return settings_page::profiles;
             if (id == "app.settings.shortcuts")
                 return settings_page::shortcuts;
+            if (id == "app.settings.hosting")
+                return settings_page::hosting;
             return std::nullopt;
         }
     } // namespace
@@ -106,6 +108,10 @@ namespace cyella {
         availability.pop = ready && session->snapshot().stashes.empty() == false;
         availability.drawer = last_mode_ != layout_mode::wide;
         availability.selection_menu = selection_menu_target().has_value();
+        const hosting_repository_view hosting { hosting_.view_of(session->id()) };
+        availability.hosting_supported = hosting.support == hosting_support::supported;
+        availability.hosting_signed_in = hosting.signed_in;
+        availability.hosting_can_create = hosting.can_create;
         if (const tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
             availability.commit = ready && std::ranges::any_of(tab->commit_subject.text, [](const char8_t value) { return value != u8' ' && value != u8'\t' && value != u8'\r' && value != u8'\n'; });
         return availability;
@@ -170,6 +176,12 @@ namespace cyella {
             handle_toolbar(toolbar_action::pop);
         else if (id == "git.commit")
             handle_commit();
+        else if (id == "hosting.sign_in")
+            send(luil::app_message { hosting_sign_in_intent {} });
+        else if (id == "hosting.refresh")
+            hosting_.activate_row(selected_repository_id(), hosting_row_refresh);
+        else if (id == "hosting.pull_request.new")
+            open_create_pull_request_dialog();
         else if (id == "git.amend")
             send(luil::app_message { toggle_amend_intent {} });
         else if (id == "view.drawer")

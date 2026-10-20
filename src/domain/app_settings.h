@@ -1,6 +1,7 @@
 #pragma once
 
 #include "domain/external_diff_tool.h"
+#include "domain/hosting_remote.h"
 #include "domain/user_profile.h"
 
 #include <chrono>
@@ -100,6 +101,15 @@ namespace cyella {
         [[nodiscard]] bool operator==(const diff_settings&) const noexcept = default;
     };
 
+    // GitHub·GitLab 연동 설정이다. 자체 호스팅 서버의 호스트 이름 → 서비스 종류·API 주소 표뿐이다.
+    // 토큰은 어디에도 저장하지 않는다 (ADR-007).
+    struct hosting_settings
+    {
+        std::vector<hosting_host_setting> hosts {};
+
+        [[nodiscard]] bool operator==(const hosting_settings&) const noexcept = default;
+    };
+
     // 문서 밖에 남는 앱 단위 설정이다. `%APPDATA%\cyella\settings.json` 한 파일에 저장한다.
     struct app_settings
     {
@@ -118,6 +128,7 @@ namespace cyella {
         std::optional<window_placement> window {};
         ui_settings ui {};
         diff_settings diff {};
+        hosting_settings hosting {};
         // ---- 새 필드는 끝에 덧붙인다.
         // 저장소별 사용자 프로필(이름·user.name·user.email·서명 키)과, 열 때 프로필을 제안하는 경로 규칙, 적용해 둔 선택이다.
         std::vector<user_profile> profiles {};

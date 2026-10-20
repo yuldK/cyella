@@ -14,6 +14,7 @@
 #include "presentation/drop_hints.h"
 #include "presentation/form_view.h"
 #include "presentation/graph_geometry.h"
+#include "presentation/hosting_view.h"
 #include "presentation/palette/palette_view.h"
 #include "presentation/rebase/rebase_editor_view.h"
 #include "presentation/settings/settings_view.h"
@@ -178,6 +179,8 @@ namespace cyella {
         submodule,
         worktree,
         lfs,
+        // 사이드바 PULL REQUESTS 구역의 행(PR·MR과 동작 행)이다. `path`가 동작 열쇠다.
+        pull_request,
     };
 
     // 행 오른쪽 꼬리 글의 색 느낌이다.
@@ -290,6 +293,8 @@ namespace cyella {
         std::u8string date {};
         std::vector<std::u8string> parents {};
         std::vector<ref_label> labels {};
+        // 로그인한 호스트의 CI 상태다. 로그인하지 않았거나 서비스를 모르면 값이 없다.
+        std::optional<ci_mark_view> ci {};
         // 그래프에서 그 커밋 행의 레인 색 번호다. 라벨 칩이 그래프와 같은 색을 쓴다.
         std::uint8_t lane_color { 0 };
         std::vector<file_row_view> files {};
@@ -389,6 +394,8 @@ namespace cyella {
         std::optional<working_area_view> working {};
         float detail_scroll { 0.0f };
         std::optional<diff_panel_view> diff {};
+        // 열린 PR·MR 상세(`detail == detail_mode::pull_request`)와 호스팅 값이다.
+        std::optional<hosting_repository_view> hosting {};
         std::optional<sidebar_section> rail_section {};
         // rebase·merge·cherry-pick·revert가 멈춰 있으면 그래프 자리를 덮는 충돌 해결 화면이다.
         std::optional<conflict_view> conflict {};

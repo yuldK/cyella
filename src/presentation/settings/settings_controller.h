@@ -44,6 +44,9 @@ namespace cyella {
             std::u8string default_key_comment {};
             bool ssh_tools_found { false };
             std::u8string ssh_tools_origin {};
+            // 호스팅 화면이 쓴다. 호스트 줄(내장 호스트 + 설정의 표 + 로그인 상태)과 메모리 토큰을 잊는 길이다.
+            std::function<std::vector<hosting_host_row_view>(const std::vector<hosting_host_setting>&)> hosting_rows {};
+            std::function<void(const std::string& host_key)> hosting_sign_out {};
             // 사용자 프로필 쪽이 보이는 선택된 저장소의 값이다. 비어 있으면 저장소가 없는 것으로 본다.
             std::function<profiles_repository_inputs()> repository_profile {};
         };
@@ -81,6 +84,8 @@ namespace cyella {
         void save_tool();
         void remove_tool(std::size_t index);
         void request_ssh_info();
+        // 호스팅 화면의 메시지면 처리하고 true다 (`hosting_settings.cpp`).
+        bool handle_hosting(const luil::app_message& message);
         void create_ssh_key();
         void test_ssh_connection();
         void copy_public_key(const std::u8string& name);

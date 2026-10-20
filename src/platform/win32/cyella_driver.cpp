@@ -12,6 +12,7 @@
 #include "platform/win32/win32_repository_watcher.h"
 #include "platform/win32/win32_settings_file_system.h"
 #include "platform/win32/win32_ssh_environment.h"
+#include "platform/win32/win32_url_opener.h"
 #include "platform/win32/win32_webview_support.h"
 #include "platform/win32/win32_workspace_files.h"
 #include "presentation/dialog_intents.h"
@@ -26,6 +27,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -97,6 +99,9 @@ namespace cyella::win32 {
         dependencies.git_tool = git_tool_;
         dependencies.request_ssh_info = [this] { request_ssh_info(); };
         dependencies.copy_text = [this](std::string text) { copy_to_clipboard(text); };
+        dependencies.submit_hosting_job = [this](hosting_job job) { hosting_.submit(std::move(job)); };
+        dependencies.hosting_sign_out = [this](const hosting_sign_out_request& request) { hosting_.sign_out(request); };
+        dependencies.open_url = [this](const std::string& url) { open_url(url); };
         if (options_.ssh_directory.empty() == false)
             ssh_directory_ = std::filesystem::path { options_.ssh_directory };
         else if (const std::optional<std::filesystem::path> ssh_directory { user_ssh_directory() }; ssh_directory.has_value())
@@ -129,6 +134,16 @@ namespace cyella::win32 {
             scheduler_ = std::make_unique<task_scheduler>();
             task_scheduler* const scheduler { scheduler_.get() };
             operation_result_relay* const relay { &relay_ };
+            // GitHub·GitLab 연동: 토큰은 `git credential`로만 받고 메모리에만 둔다 (ADR-007).
+            {
+                hosting_bridge::options hosting_options {};
+                hosting_options.git_executable = git_tool_.executable;
+                hosting_options.use_system_proxy = options_.hosting_system_proxy;
+                hosting_options.post = [relay](luil::app_message message) { relay->post(std::move(message)); };
+                std::u8string hosting_error {};
+                if (hosting_.start(*process_runner_, scheduler, &registry_, std::move(hosting_options), hosting_error) == false)
+                    hosting_start_error_ = std::move(hosting_error);
+            }
             workspace_ = std::make_unique<git_workspace>(
                 *executor_, [scheduler](operation_request request) { return scheduler->submit(std::move(request)); },
                 [relay](operation_event event) { relay->post(luil::app_message { std::move(event) }); }, &registry_, workspace_options);
@@ -153,6 +168,8 @@ namespace cyella::win32 {
         watch_factory_ = options_.watcher_factory;
         // 시작할 때 복원된 탭에도 감시를 켠다.
         sync_watchers();
+        if (hosting_start_error_.empty() == false)
+            static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = u8"GitHub·GitLab 연동을 쓸 수 없습니다: " + hosting_start_error_, .warning = true } }));
         // 인증 도우미를 쓸 수 없으면 인증이 필요한 작업은 즉시 실패한다. 이유를 한 번 안내로 띄운다.
         if (const std::optional<diagnostic>& problem { askpass_.startup_diagnostic() }; problem.has_value() && git_tool_.usable())
             static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = problem->message, .warning = true } }));
@@ -212,6 +229,26 @@ namespace cyella::win32 {
             sources.cancellation = source->token();
             relay->post(luil::app_message { ssh_info_loaded_intent { collect_ssh_info(sources) } });
         };
+        static_cast<void>(scheduler_->submit(std::move(request)));
+    }
+
+    void cyella_driver::open_url(const std::string& url)
+    {
+        const std::u8string address { to_u8(url) };
+        if (is_openable_web_url(address) == false)
+            return;
+        if (options_.open_url_log.empty() == false)
+        {
+            // 검증용: 브라우저를 띄우지 않고 어떤 주소를 열려 했는지만 적는다.
+            std::ofstream log { std::filesystem::path { options_.open_url_log }, std::ios::app | std::ios::binary };
+            log << url << std::endl;
+            return;
+        }
+        if (scheduler_ == nullptr)
+            return;
+        operation_request request {};
+        request.repository_key = "open-url";
+        request.job = [address](const operation_context&) { static_cast<void>(open_url_in_browser(address)); };
         static_cast<void>(scheduler_->submit(std::move(request)));
     }
 
@@ -433,6 +470,8 @@ namespace cyella::win32 {
                 diff_->external_opened(*external);
             else if ((drained.get<ssh_info_loaded_intent>() != nullptr || drained.get<identity_loaded_intent>() != nullptr || drained.get<identity_applied_intent>() != nullptr)
                 && controller_ != nullptr)
+                static_cast<void>(controller_->handle(drained));
+            else if (drained.get<hosting_result_intent>() != nullptr && controller_ != nullptr)
                 static_cast<void>(controller_->handle(drained));
         });
         // 끝난 operation 뒤에 보류해 둔 새로 고침을 낸다. 한 묶음을 다 반영한 뒤라야 쓰기가 아직 줄 서 있는지 정확히 안다.
@@ -679,7 +718,8 @@ namespace cyella::win32 {
 
     void cyella_driver::cancel() noexcept
     {
-        // close 메시지가 유실돼도 실행 중인 git이 종료 예산 안에 끝나게 한다.
+        // close 메시지가 유실돼도 실행 중인 git이 종료 예산 안에 끝나게 한다. 응답을 기다리는 GitHub·GitLab 요청도 접는다.
+        hosting_.cancel_all();
         registry_.cancel_all();
     }
 
@@ -693,9 +733,12 @@ namespace cyella::win32 {
         // 서버를 먼저 닫아 대기 질문을 취소로 답한다. 그래야 프롬프트에서 멈춘 git과 도우미가 풀려
         // scheduler가 worker를 join할 때 매달리지 않는다.
         askpass_.shutdown();
+        hosting_.cancel_all();
         registry_.cancel_all();
         if (scheduler_ != nullptr)
             scheduler_->shutdown();
+        // 워커가 모두 멈췄다: 전송을 닫고 메모리의 토큰을 지운다.
+        hosting_.stop();
         relay_.unbind();
     }
 } // namespace cyella::win32

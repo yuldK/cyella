@@ -218,6 +218,9 @@ namespace cyella {
         bool all { false };
         bool prune { true };
         std::optional<temporary_ssh_trust> ssh_command_override {};
+        // 이 refspec 하나만 가져온다 (`pull/7/head:pr/7`). 비우면 기본 refspec이다. 있으면 `remote`가 있어야 하고 `all`·`prune`은 무시한다
+        // (prune은 명시한 refspec 밖의 추적 브랜치를 건드리지 않게 끈다).
+        std::string refspec {};
     };
 
     struct pull_request

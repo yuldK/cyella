@@ -338,6 +338,37 @@ rebase_editor_controller (shell_controller가 소유, presentation/rebase/*)
 - UIA로 닿지 않는 몸짓(라벨 끌어 놓기, 우클릭 메뉴, 할 일 줄 끌기, p·r·s·f·d, Alt+↑↓)은 `tests/rebase_shell_tests.cpp`가 그 몸짓의 intent·element 콜백(`drop()`·`drag()`·
   `key_search()`)·정책(`on_key`)을 직접 불러 확인한다.
 
+## GitHub·GitLab 연동
+
+결정은 [ADR-007](decisions/ADR-007-hosting-integration.md)에 있다.
+
+```text
+사이드바 행(두 번 누름·Enter·UIA Invoke) ─ activate_sidebar_item_intent{pull_request, path} ─▶ shell_controller::activate_extension_row
+   ├ create ─▶ open_create_pull_request_dialog (dialog_kind::create_pull_request, form_hosting.*)
+   └ 그 밖 ─▶ hosting_controller::activate_row ─▶ submit_hosting_job(hosting_job) ─▶ cyella_driver ─▶ hosting_bridge
+hosting_bridge: scheduler lane "hosting:<host>" 워커 ─ hosting_service(전송 luil http_client + git_credential_source) ─ relay.post(hosting_result_intent)
+cyella_driver::drain_relay ─▶ shell_controller::handle ─▶ hosting_controller::apply_result (serial로 낡은 결과 버림)
+build_view_snapshot ◀ hosting_controller::view_of / ci_mark   (view_inputs::hosting_view·commit_ci, 순수 값 hosting_repository_view)
+   append_hosting_sidebar_rows(hosting_sidebar.*) · repository_view::hosting · commit_detail_view::ci · detail_mode::pull_request
+ui::build_pull_request_detail / build_commit_ci_line (presentation/ui/hosting_ui.*)
+```
+
+- **사이드바 PULL REQUESTS**(여덟째 구역): 로그인 전에는 "로그인…" 행 하나뿐이다(원격이 없거나 GitHub·GitLab이 아니면 안내 행). 로그인하면 PR·MR 행(`#번호 제목`, 꼬리 글 = 초안·병합됨·닫힘과
+  CI 표시 `CI ✓`·`CI ✗`·`CI …`)과 "더 보기…", "닫힌·병합된 PR 포함"(켬/끔), "새로 고침"(계정 이름), "현재 브랜치로 PR 만들기…"가 선다. 행의 UIA 이름은 `#14 제목 (feature → main) 초안`이다.
+- **명령 팔레트·단축키**: `app.settings.hosting`(호스팅 설정 열기), `hosting.sign_in`(로그인…), `hosting.refresh`(목록 새로 고침), `hosting.pull_request.new`(PR·MR 만들기…)가 명령 레지스트리에 있다.
+  기본 단축키는 없다. 각 명령은 서비스를 아는 원격과 로그인 상태에 따라 팔레트에서 켜지고 꺼진다(`command_availability::hosting_*`).
+- **PR 상세**: 사이드바의 PR 행을 열면 오른쪽 상세 판이 PR 상세(제목·브랜치·상태·작성자·갱신·CI 요약과 check 목록·본문 앞부분)로 바뀌고 [브라우저에서 열기]·
+  [로컬에 체크아웃 (pr/14)]·[CI 새로고침]·닫기(×)가 있다. 커밋이나 WIP를 고르면 커밋 상세가 돌아온다(`handle_select_commit`이 PR 선택을 푼다). medium·narrow에서는 서랍으로도 열린다.
+  브라우저는 `http`·`https` 주소만 연다(`win32_url_opener`, 워커에서 `ShellExecuteW`). `--open-url-log=<경로>`를 주면 브라우저를 띄우지 않고 열려던 주소를 그 파일에 한 줄씩 적는다.
+- **커밋 상세의 CI 한 줄**(`detail-ci`): 로그인한 호스트이고 원격이 GitHub·GitLab일 때만 선다. 커밋을 고를 때와 로그인 직후 고른 커밋을 읽고, 진행 중 20초·확정 5분 안에는 다시 읽지 않는다.
+- **PR 만들기 대화 상자**(`form_view` 하나, `create-pull-request-dialog`): 대상 브랜치(처음 값은 원격의 main·master·develop·trunk 중 현재가 아닌 것), 제목(처음 값은 HEAD 커밋 제목), 본문(한 줄),
+  "초안으로 만들기", 그리고 브랜치가 원격에 없거나 앞서 있으면 "먼저 push하고 만들기"(기본 켬). 먼저 push하면 `push_execute{set_upstream}`을 내고 `after_events`가 그 operation의 성공을 지켜본 뒤에만 API를 부른다.
+  만든 뒤에는 그 PR이 상세로 열리고(`pr-created`에 주소) 안내 줄에도 주소가 나온다. 로그인하지 않았거나 detached HEAD면 대화 상자를 열지 않고 이유를 안내한다.
+- **환경 설정 "호스팅"**: github.com·gitlab.com(내장)과 설정의 표를 줄마다 서비스 종류·API 주소·이번 실행의 로그인 상태(계정)·호출 한도로 보이고, [로그아웃]은 메모리 토큰만 잊는다.
+  표에 호스트·서비스 종류(GitHub/GitLab)·API 주소(선택)를 입력해 더하고 [삭제]로 지운다. 로그인은 이 화면이 아니라 사이드바에서 한다(저장소의 원격이 있어야 도우미에 물을 호스트·프로토콜을 안다).
+- 브라우저 열기, 행 더블클릭 몸짓(UIA의 Invoke는 같은 `activate` 동작을 부른다), 한도가 풀린 뒤의 재시도는
+  `tests/hosting_shell_tests.cpp`·`tests/hosting_controller_tests.cpp`가 controller 수준에서 확인한다.
+- **알려 둔 한계**: PR 본문은 한 줄 입력이다. 같은 호스트에 계정 하나다. fork의 브랜치로 PR을 만들거나 리뷰·병합·닫기는 하지 않는다. GitLab의 초안은 제목의 `Draft: ` 접두어다.
 
 ## 명령 팔레트·단축키·사용자 프로필
 

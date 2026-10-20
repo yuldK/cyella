@@ -16,6 +16,26 @@ namespace cyella::ui {
         constexpr float icon_size { 14.0f };
         constexpr float indent_step { 14.0f };
 
+        // PR 행은 번호가 있으면 PR 아이콘, 동작 행은 동작을 닮은 아이콘이다.
+        char32_t pull_request_row_glyph(const sidebar_row_view& row) noexcept
+        {
+            if (row.key == u8"pr:login")
+                return codicons::icon_sign_in;
+            if (row.key == u8"pr:refresh")
+                return codicons::icon_refresh;
+            if (row.key == u8"pr:create")
+                return codicons::icon_add;
+            if (row.key == u8"pr:closed")
+                return codicons::icon_history;
+            if (row.key == u8"pr:more")
+                return codicons::icon_ellipsis;
+            if (row.key == u8"pr:error")
+                return codicons::icon_error;
+            if (row.path.empty())
+                return codicons::icon_info;
+            return codicons::icon_git_pull_request;
+        }
+
         char32_t row_glyph(const sidebar_row_view& row) noexcept
         {
             switch (row.item)
@@ -26,6 +46,8 @@ namespace cyella::ui {
                 return row.worktree_current ? codicons::icon_check : codicons::icon_worktree;
             case sidebar_item_kind::lfs:
                 return row.key == u8"lfs:status" ? codicons::icon_package : codicons::icon_file_binary;
+            case sidebar_item_kind::pull_request:
+                return pull_request_row_glyph(row);
             case sidebar_item_kind::ref:
                 break;
             }
@@ -66,6 +88,8 @@ namespace cyella::ui {
             return codicons::icon_worktree;
         case sidebar_section::lfs:
             return codicons::icon_package;
+        case sidebar_section::pull_requests:
+            return codicons::icon_git_pull_request;
         case sidebar_section::local:
         case sidebar_section::remote:
         case sidebar_section::tags:

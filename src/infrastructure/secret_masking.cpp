@@ -29,6 +29,11 @@ namespace cyella {
             std::u8string_view { u8"github_pat_" },
             std::u8string_view { u8"glpat-" },
         };
+        // `git credential`의 표준 입출력 줄(`password=...`)이다. 이 줄이 로그에 새어도 값은 가린다.
+        constexpr std::array credential_assignments {
+            std::u8string_view { u8"password=" },
+            std::u8string_view { u8"oauth_refresh_token=" },
+        };
         constexpr std::size_t minimum_basic_credential_length { 8 };
 
         constexpr char8_t ascii_lower(const char8_t value) noexcept
@@ -256,6 +261,25 @@ namespace cyella {
             return true;
         }
 
+        bool try_mask_assignment(const std::u8string_view text, std::size_t& index, std::u8string& output)
+        {
+            if (at_word_start(text, index) == false)
+                return false;
+            for (const std::u8string_view key : credential_assignments)
+            {
+                if (matches_ignoring_case(text, index, key) == false)
+                    continue;
+                std::size_t cursor { index + key.size() };
+                while (cursor < text.size() && is_line_break(text[cursor]) == false)
+                    ++cursor;
+                output.append(key);
+                output.append(secret_mask);
+                index = cursor;
+                return true;
+            }
+            return false;
+        }
+
         bool try_mask_token(const std::u8string_view text, std::size_t& index, std::u8string& output)
         {
             if (at_word_start(text, index) == false)
@@ -296,6 +320,8 @@ namespace cyella {
             if (try_mask_header_value(text, index, output))
                 continue;
             if (try_mask_basic_credentials(text, index, output))
+                continue;
+            if (try_mask_assignment(text, index, output))
                 continue;
             if (try_mask_token(text, index, output))
                 continue;

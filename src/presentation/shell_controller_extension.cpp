@@ -113,6 +113,17 @@ namespace cyella {
         case sidebar_item_kind::worktree:
             open_worktree(intent.path);
             return;
+        case sidebar_item_kind::pull_request:
+            // PULL REQUESTS 구역: 만들기는 대화 상자, 나머지는 hosting_controller가 맡는다. 번호 행을 열면 상세가 서랍으로도 열린다.
+            if (intent.path == hosting_row_create)
+                open_create_pull_request_dialog();
+            else
+            {
+                hosting_.activate_row(session->id(), intent.path);
+                if (last_mode_ != layout_mode::wide && hosting_.has_pull_request_detail(session->id()))
+                    ui_.drawer_open = true;
+            }
+            return;
         case sidebar_item_kind::ref:
         case sidebar_item_kind::lfs:
             return;

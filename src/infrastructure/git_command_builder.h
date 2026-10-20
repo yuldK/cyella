@@ -182,9 +182,11 @@ namespace cyella {
         bool tags { false };
         // 원격에서 사라진 추적 브랜치를 지운다(`--prune`).
         bool prune { true };
+        // 비어 있지 않으면 이것만 가져온다(`fetch --progress -- <remote> <refspec>`). `remote`가 있어야 하며 `all`·`prune`·`tags`는 무시한다.
+        std::string refspec {};
     };
 
-    // `fetch [--prune] --progress [--tags] [--all | -- <remote>]`.
+    // `fetch [--prune] --progress [--tags] [--all | -- <remote> [<refspec>]]`.
     [[nodiscard]] git_arguments make_git_fetch_args(const git_fetch_options& options = {});
 
     enum class git_pull_mode

@@ -3,6 +3,7 @@
 #include "presentation/build_view_snapshot.h"
 #include "presentation/form_builders.h"
 #include "presentation/form_extension.h"
+#include "presentation/form_hosting.h"
 
 #include <algorithm>
 #include <utility>
@@ -138,6 +139,8 @@ namespace cyella {
                 return build_lfs_track_form(*ui.dialog, context);
             case dialog_kind::set_upstream:
                 return build_set_upstream_form(*ui.dialog, context);
+            case dialog_kind::create_pull_request:
+                return build_create_pull_request_form(*ui.dialog, context);
             case dialog_kind::none:
                 break;
             }

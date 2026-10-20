@@ -85,6 +85,7 @@ namespace cyella {
         : dependencies_ { std::move(dependencies) }
         , settings_ { settings_dependencies() }
         , rebase_ { rebase_editor_controller::dependencies { dependencies_.workspace } }
+        , hosting_ { hosting_dependencies() }
     {
         if (dependencies_.clock == nullptr)
             dependencies_.clock = [] { return std::chrono::system_clock::now(); };
@@ -133,6 +134,8 @@ namespace cyella {
         result.default_key_comment = dependencies_.default_key_comment;
         result.ssh_tools_found = dependencies_.ssh_tools_found;
         result.ssh_tools_origin = dependencies_.ssh_tools_origin;
+        result.hosting_rows = [this](const std::vector<hosting_host_setting>& configured) { return hosting_.host_rows(configured); };
+        result.hosting_sign_out = [this](const std::string& host_key) { hosting_.sign_out(host_key); };
         return result;
     }
 
@@ -241,6 +244,8 @@ namespace cyella {
         ui_.tabs.erase(id);
         if (rebase_.state().has_value() && rebase_.state()->repository_id == repository)
             rebase_.close();
+        if (repository.empty() == false)
+            hosting_.on_repository_closed(repository);
         const bool still_open { std::any_of(tab_repositories_.begin(), tab_repositories_.end(), [&repository](const auto& entry) { return entry.second == repository; }) };
         if (dependencies_.workspace != nullptr && repository.empty() == false && still_open == false)
         {
@@ -301,6 +306,8 @@ namespace cyella {
         case text_target::settings_key_name:
         case text_target::settings_key_comment:
         case text_target::settings_test_host:
+        case text_target::settings_hosting_host:
+        case text_target::settings_hosting_api_base:
         case text_target::settings_shortcut_input:
         case text_target::settings_profile_name:
         case text_target::settings_profile_user_name:
@@ -452,13 +459,19 @@ namespace cyella {
         const auto found { std::find_if(commits.begin(), commits.end(), [&key](const commit_info& commit) { return commit.sha.compare(0, key.size(), key) == 0; }) };
         if (found == commits.end())
             return;
+        // 커밋을 고르면 열려 있던 PR 상세는 닫힌다 (이미 고른 커밋을 다시 눌러도 커밋 상세로 돌아온다).
+        hosting_.clear_selection(session->id());
         if (tab->selected_sha == found->sha)
             return;
         tab->selected_sha = found->sha;
         tab->diff.reset();
         tab->detail_scroll = 0.0f;
+        // 로그인한 호스트면 이 커밋의 CI 상태를 읽는다 (조용한 로그인은 하지 않는다).
         if (found->sha != graph_wip_sha)
+        {
             static_cast<void>(submit(show_commit_request { found->sha }));
+            hosting_.on_commit_selected(session->id(), found->sha);
+        }
         // medium·narrow에서는 상세가 서랍이라 고르면 연다.
         if (last_mode_ != layout_mode::wide)
             ui_.drawer_open = true;
@@ -870,7 +883,7 @@ namespace cyella {
         if (settings_.handle(message))
             return true;
         // submodule·worktree·LFS와 인터랙티브 rebase 편집기의 메시지다.
-        if (handle_extension_message(message) || handle_rebase_entry(message) || rebase_.handle(message))
+        if (handle_extension_message(message) || handle_rebase_entry(message) || rebase_.handle(message) || hosting_.handle(message))
             return true;
         return handle_dialog_message(message);
     }
@@ -880,6 +893,7 @@ namespace cyella {
         git_workspace* const workspace { dependencies_.workspace };
         if (workspace == nullptr)
             return;
+        hosting_.after_events();
 
         for (auto it { pending_inspections_.begin() }; it != pending_inspections_.end();)
         {
@@ -1070,6 +1084,8 @@ namespace cyella {
         inputs.git_version = dependencies_.git_version;
         inputs.now = dependencies_.clock();
         inputs.exists = [this](const std::u8string_view path) { return repository_exists(path); };
+        inputs.hosting_view = [this](const std::string& repository_id) { return hosting_.view_of(repository_id); };
+        inputs.commit_ci = [this](const std::string& repository_id, const std::string& sha) { return hosting_.ci_mark(repository_id, sha); };
         if (git_workspace* const workspace { dependencies_.workspace }; workspace != nullptr)
         {
             inputs.find_session = [workspace](const std::string& id) -> const repository_session* { return workspace->find_session(id); };

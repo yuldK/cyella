@@ -27,6 +27,23 @@ cyella_add_source_filter(cyella_test_files "platform/settings"
 cyella_add_source_filter(cyella_test_files "platform/watching"
     win32_repository_watcher_tests.cpp)
 
+cyella_add_source_filter(cyella_test_files "domain/hosting"
+    hosting_remote_tests.cpp
+    hosting_models_tests.cpp)
+
+# GitHub·GitLab 연동: 가짜 API 서버(127.0.0.1)와 격리한 git 설정으로만 돈다.
+cyella_add_source_filter(cyella_test_files "infrastructure/hosting"
+    fake_hosting_api.h
+    fake_hosting_server.h
+    hosting_api_tests.cpp
+    hosting_bridge_tests.cpp
+    hosting_checkout_integration_tests.cpp
+    hosting_controller_tests.cpp
+    hosting_settings_tests.cpp
+    hosting_shell_tests.cpp
+    hosting_integration_tests.cpp
+    hosting_service_tests.cpp)
+
 cyella_add_source_filter(cyella_test_files "domain/authentication"
     credential_prompt_tests.cpp)
 
@@ -86,6 +103,18 @@ target_link_libraries(cyella_test_child
     PRIVATE
         cyella_project_options)
 cyella_disable_automatic_windows_manifest(cyella_test_child)
+
+# 검증용 가짜 GitHub·GitLab API 서버다 (127.0.0.1). 앱을 UI Automation으로 돌릴 때 실제 서비스 대신 붙는다. CTest에 등록하지 않는다.
+add_executable(cyella_fake_hosting_server tools/fake_hosting_server_main.cpp fake_hosting_api.h fake_hosting_server.h)
+target_include_directories(cyella_fake_hosting_server
+    PRIVATE
+        "${CYELLA_TEST_DIRECTORY}")
+target_link_libraries(cyella_fake_hosting_server
+    PRIVATE
+        cyella_project_options
+        nlohmann_json::nlohmann_json
+        ws2_32)
+cyella_disable_automatic_windows_manifest(cyella_fake_hosting_server)
 
 # domain: 값 타입과 규칙의 test다. git이 필요 없다.
 cyella_add_source_filter(cyella_test_files "application/diff_view"

@@ -367,6 +367,64 @@ namespace cyella {
             }
         }
 
+        // `hosting.hosts[]`: 자체 호스팅 서버 표다. 틀린 줄만 건너뛴다.
+        void parse_hosting(const json& root, app_settings_load_result& result)
+        {
+            const auto source { root.find("hosting") };
+            if (source == root.end() || source->is_null())
+                return;
+            if (source->is_object() == false)
+            {
+                warn(result, u8"앱 설정의 hosting은 object여야 합니다. 무시합니다.");
+                return;
+            }
+            const auto hosts { source->find("hosts") };
+            if (hosts == source->end() || hosts->is_null())
+                return;
+            if (hosts->is_array() == false)
+            {
+                warn(result, u8"앱 설정의 hosting.hosts가 배열이 아니라 무시했습니다.");
+                return;
+            }
+            bool skipped { false };
+            for (const json& entry : *hosts)
+            {
+                if (entry.is_object() == false)
+                {
+                    skipped = true;
+                    continue;
+                }
+                const auto host { entry.find("host") };
+                const auto provider { entry.find("provider") };
+                const auto api_base { entry.find("api_base") };
+                if (host == entry.end() || host->is_string() == false || provider == entry.end() || provider->is_string() == false)
+                {
+                    skipped = true;
+                    continue;
+                }
+                hosting_host_setting setting {};
+                setting.host = normalize_hosting_host(host->get_ref<const std::string&>());
+                const std::optional<hosting_provider> parsed { parse_hosting_provider(provider->get_ref<const std::string&>()) };
+                if (parsed.has_value() == false)
+                {
+                    skipped = true;
+                    continue;
+                }
+                setting.provider = *parsed;
+                if (api_base != entry.end() && api_base->is_string())
+                    setting.api_base = api_base->get<std::string>();
+                if (validate_hosting_host_setting(setting).has_value()
+                    || std::ranges::any_of(result.settings.hosting.hosts, [&setting](const hosting_host_setting& other) { return other.host == setting.host; }))
+                {
+                    skipped = true;
+                    continue;
+                }
+                result.settings.hosting.hosts.push_back(std::move(setting));
+            }
+            if (skipped)
+                warn(result, u8"앱 설정의 hosting.hosts 중 읽을 수 없거나 겹치는 항목을 무시했습니다.");
+        }
+
         void parse_open_tabs(const json& root, app_settings_load_result& result)
         {
             const auto tabs { root.find("open_tabs") };
@@ -468,6 +526,29 @@ namespace cyella {
             root["ui"] = std::move(ui);
         }
 
+        // hosting 객체는 호스트 표가 있을 때만 쓴다. 알 수 없는 키는 보존한다.
+        if (settings.hosting.hosts.empty() == false)
+        {
+            json hosting { existing_object(root, "hosting") };
+            json hosts { json::array() };
+            for (const hosting_host_setting& host : settings.hosting.hosts)
+            {
+                json entry { json::object() };
+                entry["host"] = host.host;
+                entry["provider"] = std::string { hosting_provider_name(host.provider) };
+                entry["api_base"] = host.api_base;
+                hosts.push_back(std::move(entry));
+            }
+            hosting["hosts"] = std::move(hosts);
+            root["hosting"] = std::move(hosting);
+        }
+        else if (root.contains("hosting") && root["hosting"].is_object())
+        {
+            root["hosting"].erase("hosts");
+            if (root["hosting"].empty())
+                root.erase("hosting");
+        }
+
         if (settings.window.has_value())
         {
             json window { existing_object(root, "window") };
@@ -513,6 +594,7 @@ namespace cyella {
         result.settings.window = parse_window(root, result);
         parse_ui(root, result);
         parse_diff(root, result);
+        parse_hosting(root, result);
         parse_command_settings(root, result);
         return result;
     }

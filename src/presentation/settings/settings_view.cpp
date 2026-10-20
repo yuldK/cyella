@@ -507,6 +507,7 @@ namespace cyella {
         if (state.tool_edit.has_value())
             view.edit = make_edit_view(inputs, *state.tool_edit);
         fill_ssh(view.ssh, inputs);
+        fill_hosting_page(view.hosting, inputs);
         return view;
     }
 } // namespace cyella

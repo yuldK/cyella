@@ -23,6 +23,7 @@
 #include "infrastructure/json_app_settings_store.h"
 #include "infrastructure/ssh_info.h"
 #include "platform/win32/askpass_bridge.h"
+#include "platform/win32/hosting_bridge.h"
 #include "platform/win32/operation_result_relay.h"
 #include "presentation/shell_controller.h"
 
@@ -53,6 +54,10 @@ namespace cyella::win32 {
         std::shared_ptr<repository_watcher_factory> watcher_factory {};
         // 파일 감시를 쓰지 않는다 (감시가 안 되는 환경을 검증할 때 쓴다). 창 초점으로만 다시 읽는다.
         bool disable_file_watching { false };
+        // GitHub·GitLab 호출이 시스템 proxy를 따른다. 되돌이 주소의 가짜 서버로 검증할 때 끈다 (`--hosting-no-proxy`).
+        bool hosting_system_proxy { true };
+        // 비어 있지 않으면 "브라우저에서 열기"가 브라우저를 띄우지 않고 이 파일에 주소를 한 줄씩 적는다 (`--open-url-log=<경로>`, 검증용).
+        std::u8string open_url_log {};
     };
 
     // luil logic thread에 꽂는 cyella 구동기다. 백엔드(workspace·scheduler·relay)와 설정을 조립하고, 화면은
@@ -152,6 +157,8 @@ namespace cyella::win32 {
         void flush_pending_refreshes();
         // 환경 설정 SSH 화면의 agent·키 목록을 worker에게 읽게 한다.
         void request_ssh_info();
+        // "브라우저에서 열기"를 워커에 맡긴다 (검증용 `open_url_log`가 있으면 파일에 적는다).
+        void open_url(const std::string& url);
         // 저장소의 작성자 신원을 worker가 읽게 하고, 프로필을 `git config --local`로 쓰게 한다. 결과는 relay로 돌아온다.
         void request_identity(const std::string& repository_id, const std::u8string& path);
         void apply_identity(const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email);
@@ -185,6 +192,9 @@ namespace cyella::win32 {
         std::unique_ptr<git_workspace> workspace_ {};
         std::unique_ptr<shell_controller> controller_ {};
         std::unique_ptr<task_scheduler> scheduler_ {};
+        // GitHub·GitLab 호출이다. 워커가 쓰므로 scheduler 뒤에 둔다 (`stop_workers`가 scheduler를 먼저 join한 뒤 멈춘다).
+        hosting_bridge hosting_ {};
+        std::u8string hosting_start_error_ {};
         // diff 뷰어: 두 쪽 꺼내기·외부 도구 열기는 scheduler worker가 쓰므로 scheduler 뒤에 둔다 (stop_workers가 먼저 join한다).
         std::unique_ptr<diff_temp_directory> diff_temp_ {};
         std::unique_ptr<git_diff_gateway> diff_gateway_ {};

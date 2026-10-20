@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/git_operation.h"
+#include "domain/hosting_remote.h"
 #include "infrastructure/ssh_info.h"
 
 #include "luil/text/text_edit.h"
@@ -18,6 +19,8 @@ namespace cyella {
         general,
         diff_tools,
         ssh,
+        // GitHub·GitLab 호스트 표와 로그인 상태다.
+        hosting,
         // 새 쪽은 끝에 덧붙인다.
         profiles,
         shortcuts,
@@ -85,6 +88,12 @@ namespace cyella {
         std::optional<ssh_info_snapshot> ssh {};
         bool ssh_loading { false };
 
+        // 호스팅: 표에 더할 호스트와 API 주소의 입력 초안, 고른 서비스 종류다.
+        luil::text::text_edit_state hosting_host {};
+        luil::text::text_edit_state hosting_api_base {};
+        hosting_provider hosting_new_provider { hosting_provider::github };
+        // 마지막으로 더하려다 막힌 이유다.
+        std::u8string hosting_error {};
         // 단축키 쪽에서 고치는 중인 명령과, 사용자 프로필 쪽의 고치는 줄·규칙 입력이다.
         std::optional<shortcut_edit_state> shortcut_edit {};
         std::optional<profile_edit_state> profile_edit {};

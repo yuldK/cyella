@@ -124,4 +124,22 @@ namespace cyella {
 
     struct test_ssh_connection_intent
     {};
+
+    // ------------------------------------------------------------------ 호스팅
+
+    // 입력한 호스트·API 주소를 호스팅 표에 더한다.
+    struct add_hosting_host_intent
+    {};
+
+    // 호스팅 표에서 호스트 한 줄을 지운다 (내장 호스트는 지울 수 없다).
+    struct remove_hosting_host_intent
+    {
+        std::string host {};
+    };
+
+    // 새로 더할 호스트의 서비스 종류를 고른다.
+    struct set_new_hosting_provider_intent
+    {
+        hosting_provider provider { hosting_provider::github };
+    };
 } // namespace cyella

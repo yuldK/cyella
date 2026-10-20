@@ -18,7 +18,8 @@
 namespace {
     // 명령줄이다. 위치 인자 하나는 시작할 때 여는 저장소이고, `--settings=<경로>`는 설정 파일을 바꾼다
     // (검증할 때 사용자의 `%APPDATA%\cyella\settings.json`을 건드리지 않으려는 것이다). `--no-webview`는 diff를
-    // 웹뷰 없이 텍스트 대체 보기로만 보인다 (WebView2 Runtime이 없는 PC의 화면을 확인할 때 쓴다).
+    // 웹뷰 없이 텍스트 대체 보기로만 보인다 (WebView2 Runtime이 없는 PC의 화면을 확인할 때 쓴다). `--open-url-log=<경로>`는 "브라우저에서 열기"가
+    // 브라우저 대신 주소를 그 파일에 적게 하고, `--hosting-no-proxy`는 GitHub·GitLab 호출이 시스템 proxy를 따르지 않게 한다 (둘 다 가짜 서버로 검증할 때 쓴다).
     cyella::win32::cyella_driver_options command_line_options()
     {
         cyella::win32::cyella_driver_options options {};
@@ -28,6 +29,7 @@ namespace {
         {
             constexpr std::u8string_view settings_prefix { u8"--settings=" };
             constexpr std::u8string_view ssh_directory_prefix { u8"--ssh-dir=" };
+            constexpr std::u8string_view open_url_log_prefix { u8"--open-url-log=" };
             for (int index { 1 }; index < count; ++index)
             {
                 const std::u8string argument { cyella::win32::utf16_to_utf8(arguments[index]).value.value_or(std::u8string {}) };
@@ -37,6 +39,10 @@ namespace {
                     options.force_text_diff = true;
                 else if (argument.starts_with(ssh_directory_prefix))
                     options.ssh_directory = argument.substr(ssh_directory_prefix.size());
+                else if (argument.starts_with(open_url_log_prefix))
+                    options.open_url_log = argument.substr(open_url_log_prefix.size());
+                else if (argument == u8"--hosting-no-proxy")
+                    options.hosting_system_proxy = false;
                 else if (options.initial_repository.empty())
                     options.initial_repository = argument;
             }

@@ -11,6 +11,7 @@
 #include "presentation/extension_intents.h"
 #include "presentation/frame_feedback.h"
 #include "presentation/graph_index.h"
+#include "presentation/hosting_controller.h"
 #include "presentation/rebase/rebase_editor_controller.h"
 #include "presentation/selector_intents.h"
 #include "presentation/settings/settings_controller.h"
@@ -69,6 +70,11 @@ namespace cyella {
             // 인증 대화 상자가 내는 백엔드 메시지(`answer_input_intent`·`cancel_input_intent`)를 처리하는 길이다. driver가
             // 자기 백엔드 처리기를 꽂는다. 비어 있으면(test) controller가 같은 일을 workspace에 바로 한다.
             std::function<void(const luil::app_message&)> send_backend_intent {};
+            // GitHub·GitLab 호출을 워커에 맡기고, 메모리 토큰을 잊고, 브라우저로 주소를 여는 길이다. driver가 꽂는다. 비어 있으면(test)
+            // 일감을 내는 동작은 아무 일도 하지 않는다.
+            std::function<void(hosting_job)> submit_hosting_job {};
+            std::function<void(const hosting_sign_out_request&)> hosting_sign_out {};
+            std::function<void(const std::string& url)> open_url {};
             // 저장소의 작성자 신원을 worker에서 읽고 `git config --local`로 쓴다. 결과는 `identity_loaded_intent`·`identity_applied_intent`로 돌아온다.
             // 비어 있으면(test) 신원을 읽지 않고 프로필 적용도 하지 않는다.
             std::function<void(const std::string& repository_id, const std::u8string& path)> request_identity {};
@@ -122,6 +128,11 @@ namespace cyella {
         [[nodiscard]] const rebase_editor_controller& rebase_editor() const noexcept
         {
             return rebase_;
+        }
+        // GitHub·GitLab 화면의 상태다.
+        [[nodiscard]] const hosting_controller& hosting() const noexcept
+        {
+            return hosting_;
         }
         // 메뉴가 복사하라고 한 글이다 (SHA·이름·경로). 한 번 꺼내면 비워진다. 클립보드는 UI thread의 일이라 driver가
         // 이 글을 가져가 넘긴다.
@@ -222,6 +233,12 @@ namespace cyella {
         void open_lfs_track_dialog(const std::string& pattern);
         void run_extension_menu_action(const menu_target& target, const std::u8string& key, const menu_context& context);
 
+        // ---- GitHub·GitLab (shell_controller_hosting.cpp)
+        [[nodiscard]] hosting_controller::dependencies hosting_dependencies();
+        [[nodiscard]] std::optional<hosting_target> hosting_target_of(const std::string& repository_id) const;
+        void open_create_pull_request_dialog();
+        void submit_create_pull_request(const dialog_state& dialog);
+        [[nodiscard]] operation_id submit_git_sequence(const std::string& repository_id, std::vector<git_operation> operations);
         // ---- 명령 팔레트·단축키 (presentation/palette/shell_controller_palette.cpp)
         bool handle_command_message(const luil::app_message& message);
         // 레지스트리의 명령 하나를 실행한다 (단축키·팔레트·툴바가 같은 길이다). 지금 할 수 없는 명령은 아무 일도 하지 않는다.
@@ -285,6 +302,7 @@ namespace cyella {
         std::optional<std::pair<selector_kind, std::chrono::steady_clock::time_point>> selector_dismissed_ {};
         settings_controller settings_;
         rebase_editor_controller rebase_;
+        hosting_controller hosting_;
         // 판 폭을 설정에 쓸 시각이다. 폭을 끄는 동안 뒤로 밀리고, 값이 없으면 쓸 것이 없다.
         std::optional<std::chrono::steady_clock::time_point> pane_widths_flush_at_ {};
 

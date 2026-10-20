@@ -3,6 +3,7 @@
 #include "domain/ref_name.h"
 #include "domain/repository_summary.h"
 
+#include <algorithm>
 #include <initializer_list>
 #include <stdexcept>
 #include <utility>
@@ -403,6 +404,16 @@ namespace cyella {
     {
         git_arguments arguments {};
         push_text(arguments, "fetch");
+        if (options.refspec.empty() == false)
+        {
+            if (options.remote.empty())
+                reject("refspec", "requires remote");
+            // refspec은 `[+]src:dst` 꼴이고 ref 이름 규칙을 따른다. 옵션처럼 보이거나 공백·제어 문자가 있으면 거절한다.
+            if (options.refspec.front() == '-' || std::ranges::any_of(options.refspec, [](const char value) { return static_cast<unsigned char>(value) <= 0x20 || value == 0x7f || value == '\\'; }))
+                reject("refspec", "invalid characters");
+            push_all(arguments, { "--progress", "--", require_revision(options.remote, "remote"), options.refspec });
+            return arguments;
+        }
         if (options.prune)
             push_text(arguments, "--prune");
         push_text(arguments, "--progress");

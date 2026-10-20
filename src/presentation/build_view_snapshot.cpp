@@ -2,6 +2,7 @@
 
 #include "domain/repository_path.h"
 #include "presentation/diff_special.h"
+#include "presentation/hosting_sidebar.h"
 #include "presentation/sidebar_extension.h"
 #include "presentation/snapshot_dialogs.h"
 
@@ -416,6 +417,12 @@ namespace cyella {
 
             view.sidebar_filter = luil::make_text_input_view(tab_state.sidebar_filter, ui.composition, to_luil_target(text_target::sidebar_filter));
             sidebar_rows sidebar { build_sidebar_rows(snapshot, view.sidebar_filter.displayed_text(), tab_state.collapsed_sections) };
+            std::optional<hosting_repository_view> hosting {};
+            if (inputs.hosting_view != nullptr)
+            {
+                hosting = inputs.hosting_view(session.id());
+                append_hosting_sidebar_rows(sidebar, *hosting, view.sidebar_filter.displayed_text(), tab_state.collapsed_sections);
+            }
             view.sidebar = std::move(sidebar.rows);
             view.section_counts = sidebar.counts;
             view.selected_sidebar_key = tab_state.selected_sidebar_key;
@@ -453,7 +460,13 @@ namespace cyella {
             {
                 view.detail = detail_mode::commit;
                 view.commit = build_commit_detail(session, tab_state.selected_sha, tab_state, *labels, now);
+                if (inputs.commit_ci != nullptr)
+                    view.commit->ci = inputs.commit_ci(session.id(), tab_state.selected_sha);
             }
+            // 사이드바에서 연 PR·MR 상세는 커밋·WIP 상세를 덮는다. 커밋을 고르면 controller가 PR 선택을 풀어 커밋 상세가 돌아온다.
+            if (hosting.has_value() && hosting->detail.has_value())
+                view.detail = detail_mode::pull_request;
+            view.hosting = std::move(hosting);
             view.detail_scroll = tab_state.detail_scroll;
             if (tab_state.diff.has_value())
                 view.diff = build_diff(session, *tab_state.diff, tab_state.diff_scroll, ui.diff_surface);

@@ -3,6 +3,7 @@
 #include "infrastructure/ssh_tools.h"
 #include "presentation/form_builders.h"
 #include "presentation/form_extension.h"
+#include "presentation/form_hosting.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/menu_extension.h"
 #include "presentation/shell_controller.h"
@@ -1030,6 +1031,12 @@ namespace cyella {
                 return;
             case dialog_kind::create_tag:
             case dialog_kind::rename_branch:
+            case dialog_kind::create_pull_request:
+                if (index == 0)
+                    ui_.dialog->flag_a = ui_.dialog->flag_a == false;
+                else if (index == 1 && ui_.dialog->flag_c)
+                    ui_.dialog->flag_b = ui_.dialog->flag_b == false;
+                return;
             case dialog_kind::add_worktree:
             case dialog_kind::lfs_track:
             case dialog_kind::set_upstream:
@@ -1152,6 +1159,11 @@ namespace cyella {
             if (lfs_track_ready(dialog, ui_.form) == false)
                 return;
             static_cast<void>(submit(make_lfs_track_request(ui_.form)));
+            break;
+        case dialog_kind::create_pull_request:
+            if (create_pull_request_ready(dialog, ui_.form) == false)
+                return;
+            submit_create_pull_request(dialog);
             break;
         case dialog_kind::none:
             break;

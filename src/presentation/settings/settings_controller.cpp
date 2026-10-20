@@ -101,6 +101,10 @@ namespace cyella {
             return &state.key_comment;
         case text_target::settings_test_host:
             return &state.test_host;
+        case text_target::settings_hosting_host:
+            return &state.hosting_host;
+        case text_target::settings_hosting_api_base:
+            return &state.hosting_api_base;
         case text_target::settings_shortcut_input:
             return state.shortcut_edit.has_value() ? &state.shortcut_edit->text : nullptr;
         case text_target::settings_profile_name:
@@ -294,6 +298,8 @@ namespace cyella {
             }
             return true;
         }
+        if (handle_hosting(message))
+            return true;
         // 단축키와 사용자 프로필 쪽의 메시지다 (화면이 닫힌 뒤에 늦게 온 것은 삼킨다).
         if (is_shortcut_message(message))
         {
@@ -459,6 +465,8 @@ namespace cyella {
         inputs.keygen = task_of(state_->keygen_operation);
         inputs.test = task_of(state_->test_operation);
         inputs.composition = composition;
+        if (dependencies_.hosting_rows != nullptr)
+            inputs.hosting_hosts = dependencies_.hosting_rows(dependencies_.settings().hosting.hosts);
         settings_view view { build_settings_view(inputs) };
         // 단축키와 사용자 프로필 쪽은 열려 있을 때만 짓는다.
         if (state_->page == settings_page::shortcuts)

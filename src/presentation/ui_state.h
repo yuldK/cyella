@@ -50,6 +50,9 @@ namespace cyella {
         rebase_message_body,
         // 툴바 저장소·브랜치 선택 상자 popup의 거르기 칸이다.
         selector_filter = 110,
+        // 환경 설정 "호스팅" 화면의 호스트·API 주소 칸이다. 다른 칸과 겹치지 않게 500부터 쓴다.
+        settings_hosting_host = 500,
+        settings_hosting_api_base,
         // 명령 팔레트의 거르기 칸, 환경 설정의 단축키 입력 칸, 사용자 프로필·규칙 입력 칸이다. 다른 칸과 겹치지 않게 300부터 쓴다.
         palette_filter = 300,
         settings_shortcut_input,
@@ -71,9 +74,11 @@ namespace cyella {
         submodules,
         worktrees,
         lfs,
+        // GitHub·GitLab의 PR·MR 구역이다. 여덟째이자 `collapsed_sections`(uint8)의 마지막 비트다.
+        pull_requests,
     };
 
-    inline constexpr std::size_t sidebar_section_count { 7 };
+    inline constexpr std::size_t sidebar_section_count { 8 };
 
     // 상세 패널이 보이는 것이다.
     enum class detail_mode
@@ -83,6 +88,8 @@ namespace cyella {
         commit,
         // WIP 행을 골랐다. 작업 영역(unstaged·staged·커밋 상자)이다.
         working,
+        // 사이드바에서 연 PR·MR이다. 커밋·WIP를 고르면 닫힌다.
+        pull_request,
     };
 
     struct tab_ui_state
@@ -219,7 +226,8 @@ namespace cyella {
         const bool form { value >= static_cast<std::uint32_t>(text_target::form_field_0) && value <= static_cast<std::uint32_t>(text_target::form_field_2) };
         const bool rebase { value >= static_cast<std::uint32_t>(text_target::rebase_message_subject) && value <= static_cast<std::uint32_t>(text_target::rebase_message_body) };
         const bool selector { value == static_cast<std::uint32_t>(text_target::selector_filter) };
+        const bool hosting { value >= static_cast<std::uint32_t>(text_target::settings_hosting_host) && value <= static_cast<std::uint32_t>(text_target::settings_hosting_api_base) };
         const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_rule_prefix) };
-        return basic || form || rebase || selector || commands ? static_cast<text_target>(value) : text_target::none;
+        return basic || form || rebase || selector || hosting || commands ? static_cast<text_target>(value) : text_target::none;
     }
 } // namespace cyella

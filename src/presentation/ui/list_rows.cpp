@@ -78,6 +78,7 @@ namespace cyella::ui {
             case sidebar_section::submodules:
             case sidebar_section::worktrees:
             case sidebar_section::lfs:
+            case sidebar_section::pull_requests:
                 return extension_section_glyph(section);
             }
             return codicons::icon_git_branch;
@@ -165,6 +166,9 @@ namespace cyella::ui {
         std::u8string name { row_.label + (row_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {}) };
         if (row_.worktree_path.empty() == false)
             name += u8" (다른 worktree에서 사용 중)";
+        // PR 행은 브랜치 흐름(`feature → main`)이 화면 읽기에도 닿도록 이름에 넣는다.
+        if (row_.item == sidebar_item_kind::pull_request && row_.detail.empty() == false && row_.path.empty() == false)
+            name += u8" (" + row_.detail + u8")";
         if (row_.badge.empty() == false)
             name += u8" " + row_.badge;
         return { .role = role, .name = std::move(name) };

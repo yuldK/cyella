@@ -1,6 +1,7 @@
 #include "presentation/ui/settings/settings_ui.h"
 
 #include "application/app_messages.h"
+#include "presentation/hosting_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/settings/settings_pages_ui.h"
@@ -443,6 +444,63 @@ namespace cyella::ui {
             add_task_lines(page, u8"settings-test", ssh.test);
         }
 
+        // ------------------------------------------------------------------ 호스팅
+
+        void build_hosting(page_column& page, const settings_view& view)
+        {
+            const hosting_settings_page_view& hosting { view.hosting };
+            page.add(section_title(u8"settings-section-hosting", u8"호스팅 (GitHub·GitLab)"), section_height);
+            page.add(help_line(u8"settings-hosting-help", u8"토큰은 cyella가 저장하지 않습니다. 자격 증명 도우미(Git Credential Manager 등)에서 받아 이번 실행 동안 메모리에만 둡니다."), line_height);
+            page.add(help_line(u8"settings-hosting-help-2", u8"로그인은 사이드바 PULL REQUESTS의 '로그인…'에서 합니다. 로그아웃은 이 실행의 토큰만 잊고 도우미의 저장본은 그대로입니다."), line_height);
+            page.gap(small_gap);
+            for (const hosting_host_row_view& host : hosting.hosts)
+            {
+                const std::u8string name { to_u8(host.host) };
+                auto row { make_row(u8"settings-hosting-row-" + name, 8.0f) };
+                row->add(make_text(u8"settings-hosting-host-" + name, name, text_style { .size = 12.0f, .bold = true }), 170.0f);
+                const std::u8string kind { host.provider == hosting_provider::gitlab ? u8"GitLab" : u8"GitHub" };
+                row->add_flexible(make_text(u8"settings-hosting-kind-" + name, kind + u8" · " + (host.api_base.empty() ? std::u8string { u8"기본 API 주소" } : to_u8(host.api_base)),
+                    text_style { .size = 11.0f, .color = dim }));
+                const std::u8string state { host.signed_in ? u8"로그인됨 · " + (host.user.empty() ? std::u8string { u8"계정 확인 중" } : host.user) : std::u8string { u8"로그인하지 않음" } };
+                row->add(make_text(u8"settings-hosting-state-" + name, state,
+                             text_style { .size = 11.0f, .color = host.signed_in ? [](const luil::ui_color_palette& palette) { return success_color(palette); } : dim, .bold = host.signed_in }),
+                    150.0f);
+                row->add(
+                    button_of(u8"settings-hosting-logout-" + name, u8"로그아웃", message(hosting_sign_out_intent { host.host }), host.signed_in), { .length = 76.0f, .cross_length = button_height });
+                if (host.builtin == false)
+                    row->add(button_of(u8"settings-hosting-remove-" + name, u8"삭제", message(remove_hosting_host_intent { host.host }), true, luil::text_button_visual::danger),
+                        { .length = 56.0f, .cross_length = button_height });
+                page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-hosting-bar-" + name }, bar_style { .divider_bottom = true }, std::move(row)), row_height);
+                if (host.rate_limit_text.empty() == false)
+                    page.add(help_line(u8"settings-hosting-rate-" + name, host.rate_limit_text), line_height);
+            }
+            page.gap(large_gap);
+
+            page.add(section_title(u8"settings-section-hosting-add", u8"자체 호스팅 서버 더하기"), section_height);
+            page.add(help_line(u8"settings-hosting-add-help", u8"호스트 이름이 서비스 종류와 API 주소를 정합니다. API 주소를 비우면 GitHub는 /api/v3, GitLab은 /api/v4를 씁니다."), line_height);
+            page.add(field_label(u8"settings-hosting-host-label", u8"호스트 (git.example.com 또는 127.0.0.1:8123)"), label_height);
+            page.add(input_of(kind_settings_hosting_host_input, u8"settings-hosting-host-input", hosting.host, u8"git.example.com"), input_height);
+            page.add(field_label(u8"settings-hosting-provider-label", u8"서비스 종류"), label_height);
+            {
+                auto row { make_row(u8"settings-hosting-provider-row") };
+                row->add(button_of(u8"settings-hosting-provider-github", u8"GitHub", message(set_new_hosting_provider_intent { hosting_provider::github }), true,
+                             hosting.new_provider == hosting_provider::github ? luil::text_button_visual::accent : luil::text_button_visual::normal),
+                    { .length = 84.0f, .cross_length = button_height });
+                row->add(button_of(u8"settings-hosting-provider-gitlab", u8"GitLab", message(set_new_hosting_provider_intent { hosting_provider::gitlab }), true,
+                             hosting.new_provider == hosting_provider::gitlab ? luil::text_button_visual::accent : luil::text_button_visual::normal),
+                    { .length = 84.0f, .cross_length = button_height });
+                row->add_flexible_gap();
+                page.add(std::move(row), input_height);
+            }
+            page.add(field_label(u8"settings-hosting-api-label", u8"API 주소 (선택)"), label_height);
+            page.add(input_of(kind_settings_hosting_api_input, u8"settings-hosting-api-input", hosting.api_base, u8"https://git.example.com/api/v4"), input_height);
+            page.add(help_line(u8"settings-hosting-error", hosting.error, tone_color(tone::bad)), line_height);
+            auto add_row { make_row(u8"settings-hosting-add-row") };
+            add_row->add(button_of(u8"settings-hosting-add", u8"표에 더하기", message(add_hosting_host_intent {}), hosting.can_add, luil::text_button_visual::accent),
+                { .length = 100.0f, .cross_length = button_height });
+            page.add(std::move(add_row), input_height);
+        }
+
         // ------------------------------------------------------------------ 틀
 
         std::unique_ptr<luil::ui_element> build_navigation(const settings_view& view)
@@ -458,6 +516,7 @@ namespace cyella::ui {
             entry(u8"settings-page-general", u8"일반", settings_page::general, codicons::icon_settings_gear);
             entry(u8"settings-page-diff-tools", u8"diff", settings_page::diff_tools, codicons::icon_diff);
             entry(u8"settings-page-ssh", u8"SSH", settings_page::ssh, codicons::icon_key);
+            entry(u8"settings-page-hosting", u8"호스팅", settings_page::hosting, codicons::icon_cloud);
             entry(u8"settings-page-profiles", u8"사용자 프로필", settings_page::profiles, codicons::icon_person);
             entry(u8"settings-page-shortcuts", u8"단축키", settings_page::shortcuts, codicons::icon_keyboard);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-navigation-bar" },
@@ -515,6 +574,9 @@ namespace cyella::ui {
             break;
         case settings_page::ssh:
             build_ssh(page, view);
+            break;
+        case settings_page::hosting:
+            build_hosting(page, view);
             break;
         case settings_page::profiles:
             if (view.profiles.has_value())

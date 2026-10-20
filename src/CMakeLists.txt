@@ -110,6 +110,13 @@ cyella_add_source_filter(cyella_lib_files "domain/authentication"
     domain/ssh_connection.cpp
     domain/ssh_connection.h)
 
+# GitHub·GitLab 연동: 원격 URL 해석과 PR·CI 값 타입이다.
+cyella_add_source_filter(cyella_lib_files "domain/hosting"
+    domain/hosting_models.cpp
+    domain/hosting_models.h
+    domain/hosting_remote.cpp
+    domain/hosting_remote.h)
+
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
 # UI 헤더를 include하지 않는다.
 cyella_add_source_filter(cyella_lib_files "application/logic"
@@ -179,6 +186,25 @@ cyella_add_source_filter(cyella_lib_files "application/repository"
     application/repository_session.cpp
     application/repository_session.h
     application/workspace_files.h)
+
+# GitHub·GitLab 연동의 호출 조립이다. 자격 증명 도우미(git credential)와 luil의 HTTP client 위에 서고,
+# 토큰은 메모리에만 둔다.
+cyella_add_source_filter(cyella_lib_files "application/hosting"
+    application/hosting_credentials.cpp
+    application/hosting_credentials.h
+    application/hosting_messages.h
+    application/hosting_transport.cpp
+    application/hosting_transport.h)
+
+cyella_add_source_filter(cyella_lib_files "infrastructure/hosting"
+    infrastructure/git_credential_source.cpp
+    infrastructure/git_credential_source.h
+    infrastructure/hosting_api.cpp
+    infrastructure/hosting_api.h
+    infrastructure/hosting_service.cpp
+    infrastructure/hosting_service.h
+    infrastructure/luil_hosting_transport.cpp
+    infrastructure/luil_hosting_transport.h)
 
 # infrastructure: application 계약의 구현이다 (Git 호출 등). Win32 API를 직접 부르지 않는다.
 cyella_add_source_filter(cyella_lib_files "infrastructure/process"
@@ -252,6 +278,22 @@ cyella_add_source_filter(cyella_lib_files "presentation/extensions"
     presentation/sidebar_extension.cpp
     presentation/sidebar_extension.h)
 
+# GitHub·GitLab 화면: 컨트롤러, 사이드바 구역, PR 만들기 대화 상자, 상세 판이다. luil 없이 test한다.
+cyella_add_source_filter(cyella_lib_files "presentation/hosting"
+    presentation/form_hosting.cpp
+    presentation/form_hosting.h
+    presentation/hosting_controller.cpp
+    presentation/hosting_controller.h
+    presentation/hosting_intents.h
+    presentation/hosting_sidebar.cpp
+    presentation/hosting_sidebar.h
+    presentation/hosting_view.h
+    presentation/shell_controller_hosting.cpp)
+
+cyella_add_source_filter(cyella_lib_files "presentation/ui/hosting"
+    presentation/ui/hosting_ui.cpp
+    presentation/ui/hosting_ui.h)
+
 cyella_add_source_filter(cyella_lib_files "infrastructure/git_extensions"
     infrastructure/git_extension_arguments.h
     infrastructure/git_extension_operations.cpp
@@ -299,6 +341,7 @@ cyella_add_source_filter(cyella_lib_files "presentation/settings"
     presentation/settings/settings_controller.h
     presentation/settings/settings_intents.h
     presentation/settings/settings_state.h
+    presentation/settings/hosting_settings.cpp
     presentation/settings/settings_view.cpp
     presentation/settings/settings_view.h)
 # 대화 상자·메뉴·끌어 놓기·충돌 해결의 상태와 규칙이다. 모두 UI 없이 test하는 순수 함수다.
@@ -397,6 +440,13 @@ cyella_add_source_filter(cyella_lib_files "platform/process"
     platform/win32/win32_text_transcoder.h
     platform/win32/win32_workspace_files.cpp
     platform/win32/win32_workspace_files.h)
+
+# GitHub·GitLab 호출 조립과 브라우저 열기다.
+cyella_add_source_filter(cyella_lib_files "platform/hosting"
+    platform/win32/hosting_bridge.cpp
+    platform/win32/hosting_bridge.h
+    platform/win32/win32_url_opener.cpp
+    platform/win32/win32_url_opener.h)
 
 cyella_add_source_filter(cyella_lib_files "platform/diff_view"
     platform/win32/win32_diff_tool_launcher.cpp

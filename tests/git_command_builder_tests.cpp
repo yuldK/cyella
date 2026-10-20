@@ -358,3 +358,20 @@ TEST_CASE("textconv detection builders", "[git][builder]")
     CHECK_THROWS_AS(make_git_config_get_args("--global"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_config_get_args("diff.a\nb.textconv"), std::invalid_argument);
 }
+
+TEST_CASE("a fetch refspec fetches only that ref and never prunes", "[git][builder]")
+{
+    git_fetch_options fetch {};
+    fetch.remote = "origin";
+    fetch.refspec = "+pull/7/head:pr/7";
+    fetch.all = true;
+    CHECK(to_text(make_git_fetch_args(fetch)) == text_list { "fetch", "--progress", "--", "origin", "+pull/7/head:pr/7" });
+    fetch.remote.clear();
+    CHECK_THROWS_AS(make_git_fetch_args(fetch), std::invalid_argument);
+    fetch.remote = "origin";
+    for (const char* bad : { "--upload-pack=evil", "a b:c", "x\n:y", "a\b:c" })
+    {
+        fetch.refspec = bad;
+        CHECK_THROWS_AS(make_git_fetch_args(fetch), std::invalid_argument);
+    }
+}

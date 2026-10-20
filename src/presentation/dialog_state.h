@@ -31,6 +31,8 @@ namespace cyella {
         lfs_track,
         // upstream 설정: 원격과 원격 브랜치를 골라 `branch --set-upstream-to`를 낸다. push 없이 잇기만 한다.
         set_upstream,
+        // GitHub·GitLab에 PR·MR을 만든다 (`form_hosting.h`가 `dialog_state` 필드의 쓰임을 정한다).
+        create_pull_request,
     };
 
     // 확인 뒤에 낼 operation 열이다. 둘째부터는 앞이 **성공해야** 이어서 낸다 (원격 태그를 먼저 지우고 로컬을 지운다,

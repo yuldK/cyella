@@ -6,6 +6,7 @@
 #include "domain/git_tool.h"
 #include "domain/operation_status.h"
 #include "domain/ssh_connection.h"
+#include "presentation/hosting_view.h"
 #include "presentation/settings/profiles_page.h"
 #include "presentation/settings/settings_state.h"
 #include "presentation/settings/shortcuts_page.h"
@@ -138,6 +139,19 @@ namespace cyella {
         task_view test {};
     };
 
+    // ------------------------------------------------------------------ 호스팅
+
+    struct hosting_settings_page_view
+    {
+        // 내장 호스트(github.com·gitlab.com)에 설정의 표를 더한 줄들이다. 로그인 상태는 이번 실행의 메모리 값이다.
+        std::vector<hosting_host_row_view> hosts {};
+        luil::text_input_view host {};
+        luil::text_input_view api_base {};
+        hosting_provider new_provider { hosting_provider::github };
+        std::u8string error {};
+        bool can_add { false };
+    };
+
     struct settings_view
     {
         settings_page page { settings_page::general };
@@ -154,6 +168,8 @@ namespace cyella {
         std::vector<tool_row_view> tools {};
         std::optional<tool_edit_view> edit {};
         ssh_view ssh {};
+        // 호스팅 화면이다.
+        hosting_settings_page_view hosting {};
         // 단축키·사용자 프로필 쪽은 그 쪽이 열려 있을 때만 값이 있다.
         std::optional<shortcuts_page_view> shortcuts {};
         std::optional<profiles_page_view> profiles {};
@@ -204,6 +220,9 @@ namespace cyella {
     // 키 파일 이름(폴더 없이)의 검사 결과다. 비어 있으면 쓸 수 있다.
     [[nodiscard]] std::u8string check_key_name(std::u8string_view name);
 
+    // 호스팅 표에 더할 줄의 검사 결과다. 비어 있으면 더할 수 있다. 호스트 형식, API 주소 형식, 이미 있는 호스트를 가린다.
+    [[nodiscard]] std::u8string check_hosting_draft(std::u8string_view host, hosting_provider provider, std::u8string_view api_base, const std::vector<hosting_host_setting>& existing);
+
     // ------------------------------------------------------------------ snapshot
 
     // 가장 최근에 낸 ssh 작업의 상태다 (workspace의 operation 표에서 읽은 값). 낸 적이 없으면 `id`가 0이다.
@@ -237,7 +256,12 @@ namespace cyella {
         ssh_task_input keygen {};
         ssh_task_input test {};
         std::optional<luil::text_composition_event> composition {};
+        // 호스팅 화면의 호스트 줄이다 (`hosting_controller::host_rows`).
+        std::vector<hosting_host_row_view> hosting_hosts {};
     };
+
+    // 호스팅 화면의 값을 채운다 (`hosting_settings.cpp`).
+    void fill_hosting_page(hosting_settings_page_view& view, const settings_view_inputs& inputs);
 
     [[nodiscard]] settings_view build_settings_view(const settings_view_inputs& inputs);
 } // namespace cyella
