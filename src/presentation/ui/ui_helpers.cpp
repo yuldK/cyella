@@ -1,5 +1,7 @@
 #include "presentation/ui/ui_helpers.h"
 
+#include "presentation/text_wrap.h"
+
 #include "luil/ui/font_scale.h"
 
 #include "include/core/SkCanvas.h"
@@ -11,6 +13,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <vector>
 
 namespace cyella::ui {
     namespace {
@@ -222,6 +226,208 @@ namespace cyella::ui {
     luil::access_info text_element::accessibility() const
     {
         return { .role = luil::access_role::static_text, .name = text_ };
+    }
+
+    wrapped_text_element::wrapped_text_element(luil::ui_element_id id, std::u8string text, text_style style, const float line_height)
+        : ui_element { std::move(id) }
+        , text_ { std::move(text) }
+        , style_ { std::move(style) }
+        , line_height_ { line_height }
+    {
+        set_hit_opaque(false);
+    }
+
+    void wrapped_text_element::arrange(const luil::arrange_context& context)
+    {
+        set_bounds(context.slot);
+    }
+
+    void wrapped_text_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
+    {
+        const luil::rect_f box { bounds() };
+        if (box.width <= 0.0f || text_.empty())
+            return;
+        const float scale { context.scale };
+        const SkFont font { style_.code ? code_font(context, style_.size) : ui_font(context, style_.size, style_.bold) };
+        const SkPaint paint { luil::solid_paint(style_.color != nullptr ? style_.color(context.palette) : context.palette.primary_foreground) };
+        const std::vector<text_line> lines { wrap_text_lines(text_, box.width, [&font](const std::u8string_view part) { return luil::measure_text(part, font); }) };
+        const float step { line_height_ * scale };
+        const auto room { static_cast<std::size_t>(std::max(std::floor(box.height / step + 0.01f), 1.0f)) };
+        const std::u8string_view text { text_ };
+        for (std::size_t index { 0 }; index < lines.size() && index < room; ++index)
+        {
+            std::size_t end { lines[index].end };
+            // 자리가 모자라면 마지막 줄은 그 문단 끝까지 잇고 말줄임으로 자른다.
+            if (index + 1 == room && lines.size() > room)
+            {
+                end = text.find(u8'\n', lines[index].begin);
+                if (end == std::u8string_view::npos)
+                    end = text.size();
+                if (end > lines[index].begin && text[end - 1] == u8'\r')
+                    --end;
+            }
+            const std::u8string_view part { text.substr(lines[index].begin, end - lines[index].begin) };
+            const float top { box.y + static_cast<float>(index) * step };
+            static_cast<void>(luil::draw_text_within(context.canvas, part, box.x, top + luil::centered_text_baseline(font, step), box.width, font, paint));
+        }
+    }
+
+    luil::access_info wrapped_text_element::accessibility() const
+    {
+        return { .role = luil::access_role::static_text, .name = text_ };
+    }
+
+    namespace {
+        // 작성자 줄의 치수다 (논리 픽셀).
+        constexpr float author_photo_size { 20.0f };
+        constexpr float author_gap { 6.0f };
+        constexpr float author_font_size { 12.0f };
+    } // namespace
+
+    author_element::author_element(std::u8string owner, std::u8string name, std::u8string email)
+        : ui_element { luil::ui_element_id { kind_label, std::move(owner) } }
+        , name_ { std::move(name) }
+        , email_ { std::move(email) }
+    {
+        // 첫 글자 하나다 (UTF-8 한 글자, 라틴 소문자는 대문자로). 이름이 없으면 비운다.
+        std::size_t length { 0 };
+        if (name_.empty() == false)
+        {
+            const auto lead { static_cast<unsigned char>(name_.front()) };
+            length = lead < 0x80u ? 1 : (lead & 0xE0u) == 0xC0u ? 2 : (lead & 0xF0u) == 0xE0u ? 3 : 4;
+        }
+        initial_ = name_.substr(0, std::min(length, name_.size()));
+        if (initial_.size() == 1 && initial_[0] >= u8'a' && initial_[0] <= u8'z')
+            initial_[0] = static_cast<char8_t>(initial_[0] - u8'a' + u8'A');
+        // 올려서 메일을 보는 자리라 누름은 받지 않되 hover는 받는다.
+        set_tab_stop(false);
+        if (email_.empty() == false)
+            set_tooltip(email_);
+    }
+
+    float author_element::width_for(const std::u8string_view name) noexcept
+    {
+        return author_photo_size + author_gap + estimate_text_width(name, author_font_size, true) + 2.0f;
+    }
+
+    void author_element::arrange(const luil::arrange_context& context)
+    {
+        set_bounds(context.slot);
+    }
+
+    luil::access_info author_element::accessibility() const
+    {
+        return { .role = luil::access_role::static_text, .name = email_.empty() ? name_ : name_ + u8" <" + email_ + u8">" };
+    }
+
+    void author_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
+    {
+        const luil::rect_f box { bounds() };
+        const float scale { context.scale };
+        const float size { author_photo_size * scale };
+        const float x { box.x };
+        const float y { box.y + (box.height - size) / 2.0f };
+        const SkRect circle { SkRect::MakeXYWH(x, y, size, size) };
+        // 강조색을 옅게 깐 동그라미에 본문색 글자다. 강조색 글자는 옅은 강조 바탕 위에서 대비가 모자랐다.
+        SkPaint fill { luil::solid_paint(luil::with_alpha(context.palette.accent, 0.35f)) };
+        fill.setAntiAlias(true);
+        context.canvas.drawOval(circle, fill);
+        if (initial_.empty() == false)
+        {
+            const SkFont font { ui_font(context, 11.0f, true) };
+            const float width { luil::measure_text(initial_, font) };
+            static_cast<void>(luil::draw_text_within(
+                context.canvas, initial_, x + (size - width) / 2.0f, y + luil::centered_text_baseline(font, size), size, font, luil::solid_paint(context.palette.primary_foreground)));
+        }
+        const float text_x { x + size + author_gap * scale };
+        if (box.x + box.width - text_x <= 0.0f)
+            return;
+        const SkFont font { ui_font(context, author_font_size, true) };
+        static_cast<void>(luil::draw_text_within(
+            context.canvas, name_, text_x, box.y + luil::centered_text_baseline(font, box.height), box.x + box.width - text_x, font, luil::solid_paint(context.palette.primary_foreground)));
+    }
+
+    card_element::card_element(std::u8string owner, std::u8string access_name, std::vector<section> sections)
+        : ui_element { luil::ui_element_id { kind_panel, std::move(owner) } }
+        , access_name_ { std::move(access_name) }
+    {
+        set_hit_opaque(false);
+        for (section& part : sections)
+        {
+            if (part.content == nullptr)
+                continue;
+            sections_.push_back({ .content = part.content.get(), .height = part.height, .tinted = part.tinted });
+            add_child(std::move(part.content));
+        }
+    }
+
+    float card_element::height_for(const std::vector<section>& sections) noexcept
+    {
+        float height { 2.0f };
+        for (const section& part : sections)
+            if (part.content != nullptr)
+                height += part.height;
+        return height;
+    }
+
+    void card_element::arrange(const luil::arrange_context& context)
+    {
+        set_bounds(context.slot);
+        const float border { context.scale };
+        float y { context.slot.y + border };
+        for (const placed& part : sections_)
+        {
+            const float height { part.height * context.scale };
+            part.content->arrange(context.for_child({ context.slot.x + border, y, std::max(context.slot.width - border * 2.0f, 0.0f), height }));
+            y += height;
+        }
+    }
+
+    luil::access_info card_element::accessibility() const
+    {
+        return { .role = luil::access_role::group, .name = access_name_ };
+    }
+
+    void card_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
+    {
+        const luil::rect_f box { bounds() };
+        if (box.width <= 0.0f || box.height <= 0.0f)
+            return;
+        const float scale { context.scale };
+        const float radius { context.metrics.control_corner_radius * scale };
+        const SkRect shape { SkRect::MakeXYWH(box.x, box.y, box.width, box.height) };
+        const SkRRect rounded { SkRRect::MakeRectXY(shape, radius, radius) };
+        context.canvas.save();
+        context.canvas.clipRRect(rounded, true);
+        float y { box.y + scale };
+        bool first { true };
+        for (const placed& part : sections_)
+        {
+            const float height { part.height * scale };
+            if (part.tinted)
+                context.canvas.drawRect(SkRect::MakeXYWH(box.x, y, box.width, height), luil::solid_paint(context.palette.input_background));
+            if (first == false)
+                context.canvas.drawRect(SkRect::MakeXYWH(box.x, y, box.width, scale), luil::solid_paint(context.palette.divider));
+            first = false;
+            y += height;
+        }
+        draw_children(context, interaction);
+        context.canvas.restore();
+        SkPaint border { luil::solid_paint(context.palette.group_border) };
+        border.setAntiAlias(true);
+        border.setStyle(SkPaint::kStroke_Style);
+        border.setStrokeWidth(scale);
+        context.canvas.drawRRect(SkRRect::MakeRectXY(shape.makeInset(scale / 2.0f, scale / 2.0f), radius, radius), border);
+    }
+
+    float wrapped_text_height(const std::u8string_view text, const float width, const text_style& style, const float line_height)
+    {
+        return static_cast<float>(estimate_wrapped_line_count(text, width, style.size, style.bold || style.code)) * line_height;
+    }
+
+    std::unique_ptr<luil::ui_element> make_wrapped_text(std::u8string owner, std::u8string text, text_style style, const float line_height)
+    {
+        return std::make_unique<wrapped_text_element>(luil::ui_element_id { kind_label, std::move(owner) }, std::move(text), std::move(style), line_height);
     }
 
     std::unique_ptr<luil::ui_element> make_text(std::u8string owner, std::u8string text, text_style style)

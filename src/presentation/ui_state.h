@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -105,6 +106,10 @@ namespace cyella {
         float graph_scroll { 0.0f };
         float sidebar_scroll { 0.0f };
         float detail_scroll { 0.0f };
+        // 커밋 상세의 메시지·메타 칸이다. 커밋을 바꾸면 처음으로 돌아간다.
+        float commit_meta_scroll { 0.0f };
+        // 변경 파일 트리에서 접은 폴더다 (끝에 `/`가 없는 경로). 커밋을 바꿔도 같은 폴더는 접힌 채다.
+        std::set<std::string> collapsed_folders {};
         float diff_scroll { 0.0f };
         // 접힌 구역이다 (`sidebar_section` 비트).
         std::uint8_t collapsed_sections { 0 };

@@ -68,7 +68,9 @@ namespace cyella::ui {
     public:
         // `select`는 행을 눌렀을 때의 메시지(고르기)이고 `menu`는 우클릭 메뉴의 대상이다. 둘 중 하나라도 있으면 이 element가 눌림을
         // 직접 받으므로 목록 행의 고르기를 다시 낸다.
-        file_row_element(file_row_view row, std::vector<file_row_button> buttons, std::optional<luil::input_action> select = std::nullopt, std::optional<menu_target> menu = std::nullopt);
+        // `tree_depth`는 변경 파일 트리의 들여쓰기 단계다. 목록 보기는 값이 없다.
+        file_row_element(file_row_view row, std::vector<file_row_button> buttons, std::optional<luil::input_action> select = std::nullopt, std::optional<menu_target> menu = std::nullopt,
+            std::optional<std::size_t> tree_depth = std::nullopt);
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
@@ -77,6 +79,21 @@ namespace cyella::ui {
     private:
         file_row_view row_ {};
         std::size_t button_count_ { 0 };
+        std::optional<std::size_t> tree_depth_ {};
+    };
+
+    // 변경 파일 트리의 폴더 행이다 (› 폴더 이름 · 파일 수). 누르면 접거나 편다. 키보드 훑기는 이 행을 건너뛴다.
+    class folder_row_element final : public luil::ui_element
+    {
+    public:
+        folder_row_element(file_tree_row row, luil::input_action toggle);
+
+        void arrange(const luil::arrange_context& context) override;
+        void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
+        [[nodiscard]] luil::access_info accessibility() const override;
+
+    private:
+        file_tree_row row_ {};
     };
 
     // 작업 영역 목록의 묶음 머리다 (Unstaged 변경 4 [모두 stage]).

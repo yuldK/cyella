@@ -35,7 +35,7 @@ cyella_driver::make_frame
 
 | 범위 | 값 |
 | --- | --- |
-| 탭마다 (`tab_ui_state`, 탭 id가 key) | 고른 커밋 SHA(WIP는 `"WIP"`), 사이드바 고른 항목, 그래프·사이드바·상세·diff 스크롤, 접힌 구역, 사이드바 거르기 초안, 커밋 제목·본문 초안, amend, 연 diff 요청, 낸 커밋 operation, 닫은 배너 |
+| 탭마다 (`tab_ui_state`, 탭 id가 key) | 고른 커밋 SHA(WIP는 `"WIP"`), 사이드바 고른 항목, 그래프·사이드바·상세·커밋 메타·diff 스크롤, 접힌 구역, 변경 파일 트리에서 접은 폴더, 사이드바 거르기 초안, 커밋 제목·본문 초안, amend, 연 diff 요청, 낸 커밋 operation, 닫은 배너 |
 | 셸 전체 | 사이드바·상세 폭, 작업 로그 열림, 시작 페이지 검색 초안·스크롤, 서랍 열림, 아이콘 막대에서 연 구역, Clone 대화 상자 초안, 안내 한 줄, IME 조합 |
 
 - 탭 목록의 정본은 `repository_tabs`, git 상태의 정본은 workspace·세션, 설정의 정본은 `app_settings_service`다.
@@ -56,6 +56,30 @@ cyella_driver::make_frame
 | 그래프 목록 폭 | 브랜치/태그 열은 가장 넓은 라벨 줄만큼(112~160)만 선다. 목록이 좁으면 메시지 열의 하한(220 또는 폭의 34%)을 먼저 지키고 그래프 → 브랜치/태그 → 작성자 → 날짜 순으로 줄인다 (`make_graph_columns`). |
 | 960 미만 | 툴바 단추의 글자가 빠진다. |
 | 480 미만 | 툴바의 저장소 선택 상자가 숨는다 (창 최소 폭이 480이라 실제로는 경계에서만). |
+
+## 커밋 상세 판 (`build_commit_detail`, `presentation/ui/repository_ui.cpp`)
+
+순서는 머리 → 메시지 카드 → 라벨 칩 → 라벨·값 표 → [이후 커밋 N개 편집…] → 변경 파일이다.
+
+- **머리**: "커밋" · 짧은 SHA(고정폭) · [SHA 복사](`detail-copy-sha`, `copy_commit_sha_intent`) · 서랍이면 ×.
+- **메시지 카드**(`commit-message-card`, `card_element`): 커밋 메시지는 제목과 본문으로 나뉜 한 글이라 한 테두리 안에 둔다.
+  - 머리 칸은 제목(굵게, 옅은 바탕), 몸 칸은 본문(흐린 글, 없으면 빠진다), 바닥 칸은 작성 정보(옅은 바탕)다.
+  - 제목과 본문은 카드 폭에서 줄을 바꾼다(`wrapped_text_element`). 공백에서만 나누고(어절 보존) 한 줄보다 긴 단어만 글자 단위로 자른다
+    (`presentation/text_wrap.*`). 측정 단계가 없어 배치 높이는 글자 종류로 넉넉히 짐작하고, 그릴 때 실제 글꼴로 다시 나눈다.
+  - 바닥 칸 왼쪽은 작성자(`detail-author`, `author_element`): 이름 첫 글자 동그라미와 굵은 이름이다. 메일은 올리면 툴팁으로 보이고 보조 기술에는
+    "이름 <메일>"로 읽힌다. 오른쪽 끝은 시각(`detail-date` 이 컴퓨터 시간대의 절대 시각, `detail-date-relative` 상대 시각)이다.
+    폭이 모자라면 상대 시각부터 빠진다(절대 시각의 툴팁에 남는다).
+- **라벨·값 표**: 흐린 64px 라벨 칸(SHA·부모·서명·서명자·키·CI) 옆에 값을 둔다. 부모는 누르면 그 커밋을 고르는 링크(`detail-parent-N`)다.
+- **[이후 커밋 N개 편집…]**(`detail-interactive-rebase`): 판 폭 전체 단추다. 커밋 우클릭 메뉴의 "여기서부터 인터랙티브 rebase…"와 같은 일이고
+  툴팁이 인터랙티브 rebase임을 알린다. N은 `rev-list --count 커밋..HEAD`(`commit_detail_view::commits_above`)다. 다른 갈래의 커밋(main 끝 등)이면
+  현재 브랜치를 그 위로 옮겨 쌓는 편집이라 "현재 브랜치 커밋 N개를 이 위로 편집…"이다(`on_current_branch`). N이 0이면(HEAD 커밋 등)
+  "이후 커밋 편집…"으로 꺼지고 툴팁이 이유를 말한다.
+- 메시지·메타 칸이 판 높이의 55%(최소 160)를 넘으면 그 칸만 흘린다(`scroll_target::commit_meta`, 커밋을 바꾸면 처음으로). 파일 목록 자리는 지킨다.
+- **변경 파일 머리**: "변경 파일 N개 +a −r"과 [경로 목록](`detail-files-list`)·[폴더 트리](`detail-files-tree`) 전환 단추.
+  고른 보기는 앱 설정 `ui.commit_files_view`(list·tree)에 남는다.
+- **폴더 트리**: `build_file_tree`가 경로를 폴더 먼저·이름 순으로 펴고, 파일 없이 하위 폴더 하나뿐인 사슬은 `src/presentation`처럼 한 행으로 합친다.
+  폴더 행(`folder-d:<경로>`)은 누르거나 UIA ExpandCollapse로 접고 펴며(`toggle_file_folder_intent`), 키보드 훑기는 파일 행만 지난다.
+  접은 폴더는 탭마다 기억하고 커밋을 바꿔도 같은 경로면 접힌 채다.
 
 ## 화면 세부
 
@@ -304,7 +328,7 @@ shell_controller_extension.cpp: 행 활성화·메뉴 실행·대화 상자 열�
 
 ```text
 여는 곳: 끌어 놓기 메뉴(interactive_rebase) · 커밋 메뉴(interactive_rebase_here) · 브랜치 메뉴(interactive_rebase_current_onto)
-        · 커밋 상세 판의 [여기서부터 인터랙티브 rebase…] (open_interactive_rebase_here_intent)
+        · 커밋 상세 판의 [이후 커밋 N개 편집…] (open_interactive_rebase_here_intent)
    └▶ shell_controller::open_rebase_editor ─▶ rebase_editor_controller.open ─▶ load_rebase_plan
 rebase_editor_controller (shell_controller가 소유, presentation/rebase/*)
    ├ after_events: rebase_plan_of(op)가 오면 start_rebase_editing (fixup!·squash!·amend! 자동 정렬)
@@ -355,7 +379,7 @@ settings_controller ─ signing_page_controller ─ request_info/write ─▶ cy
   한 줄이 환경 설정으로 안내한다(`signing_setup_hint`). 서명하는 커밋은 passphrase를 기다리므로 시간 제한 없이 돌고 취소만 받는다.
 - **태그 대화 상자**: 종류 선택 아래에 "서명 (tag -s)" 체크가 선다(기본값 `tag.gpgsign`). 서명한 태그는 항상 annotated라 켜면 종류가 annotated로 옮겨가고(메시지 칸이 선다),
   lightweight를 고르면 꺼진다. 설정이 서명인데 끄면 `create_tag_request.sign=false`(`--no-sign`)로 설정을 덮는다.
-- **상세 패널 배지**(`detail-signature`, `detail-signature-detail`, `-signer`, `-key`): "서명  서명 확인됨"·"알 수 없는 키"·"서명이 올바르지 않음"·"서명 만료"·"키 만료"·"키 폐기됨"·"확인할 수 없음"·"서명 없음".
+- **상세 패널 배지**(`detail-signature`, `detail-signature-detail`, `-signer`, `-key`): "서명" 라벨 칸 옆의 값으로 "서명 확인됨"·"알 수 없는 키"·"서명이 올바르지 않음"·"서명 만료"·"키 만료"·"키 폐기됨"·"확인할 수 없음"·"서명 없음".
   읽는 동안은 "확인 중…"이다. ssh 서명이 `allowedSignersFile` 없이 읽히면 "확인할 수 없음 (allowed signers 없음)"과 이유 한 줄이다. 색은 확인됨 초록, 알 수 없음·만료·확인 불가 주황, 올바르지 않음·폐기 빨강이다.
 - **그래프 표지**: 서명이 있는 커밋(`none`이 아닌 것)의 제목 앞에 13px 방패(확인됨은 채운 방패, 그 밖은 빈 방패)를 같은 색으로 단다. 서명을 읽기 전과 서명 없는 커밋에는 없다.
   요청은 보이는 행 앞 8행·뒤 24행(한 번에 40행까지)을 한 묶음으로 낸다(`shell_controller_signing.cpp`). 같은 커밋은 세션이 한 번만 읽고(`signature_requested`) 스크롤 때마다 새 묶음이 나가지 않는다.

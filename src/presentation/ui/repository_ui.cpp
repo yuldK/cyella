@@ -4,6 +4,7 @@
 #include "presentation/extension_intents.h"
 #include "presentation/rebase/rebase_editor_intents.h"
 #include "presentation/signing_intents.h"
+#include "presentation/text_wrap.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
@@ -18,6 +19,7 @@
 #include "luil/ui/dialog_elements.h"
 #include "luil/ui/list_element.h"
 #include "luil/ui/panel_element.h"
+#include "luil/ui/scroll_area_element.h"
 #include "luil/ui/stack_element.h"
 #include "luil/ui/virtual_list_element.h"
 
@@ -31,8 +33,19 @@ namespace cyella::ui {
     namespace {
         constexpr float pane_header_height { 36.0f };
         constexpr float filter_row_height { 36.0f };
-        constexpr float detail_line_height { 18.0f };
-        constexpr std::size_t detail_body_line_limit { 10 };
+        // 커밋 상세의 치수다. 라벨 칸은 "부모 (병합)"이 들어가는 폭이다.
+        constexpr float detail_padding { 14.0f };
+        constexpr float detail_label_width { 64.0f };
+        constexpr float detail_row_height { 22.0f };
+        constexpr float subject_line_height { 20.0f };
+        constexpr float body_line_height { 18.0f };
+        constexpr float files_header_height { 30.0f };
+        // 커밋 메시지 카드의 칸 안 여백과 바닥줄(작성자·시각) 높이다.
+        constexpr float message_card_padding { 10.0f };
+        constexpr float message_footer_height { 30.0f };
+        // 메시지·메타 칸이 판 높이에서 가질 수 있는 몫이다. 넘치면 그 칸만 흘리고 파일 목록 자리를 지킨다.
+        constexpr float commit_meta_share { 0.55f };
+        constexpr float commit_meta_minimum { 160.0f };
         constexpr float commit_box_height { 172.0f };
         constexpr float amend_warning_extra { 44.0f };
         // 커밋 상자에서 amend 토글 옆에 서는 서명 토글의 폭이다.
@@ -267,15 +280,204 @@ namespace cyella::ui {
 
         // ---------------------------------------------------------------- 상세
 
-        std::unique_ptr<luil::ui_element> detail_header(std::u8string title, std::u8string tail, const bool drawer)
+        // 상세 판의 머리다. `tail`은 제목 옆의 흐린 글이고 `code`면 고정폭이다 (커밋 SHA). `extra`는 닫기 단추 앞에 서는 단추다.
+        std::unique_ptr<luil::ui_element> detail_header(std::u8string title, std::u8string tail, const bool drawer, const bool code = false, std::unique_ptr<luil::ui_element> extra = nullptr)
         {
             auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"detail-header" },
-                luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 12.0f, 0.0f, 6.0f, 0.0f } });
+                luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 14.0f, 0.0f, 6.0f, 0.0f } });
             row->add(make_text(u8"detail-title", title, text_style { .size = 13.0f, .bold = true }), text_button_width(title));
-            row->add_flexible(make_text(u8"detail-subtitle", std::move(tail), text_style { .size = 11.0f, .color = dim_color }));
+            row->add_flexible(make_text(u8"detail-subtitle", std::move(tail), text_style { .size = code ? 12.0f : 11.0f, .color = dim_color, .code = code }));
+            if (extra != nullptr)
+                row->add(std::move(extra), 28.0f);
             if (drawer)
                 row->add(make_icon_button(u8"detail-close", codicons::icon_close, u8"상세 서랍 닫기", message(toggle_drawer_intent { false })), 28.0f);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"detail-header-bar" }, bar_style { .divider_bottom = true }, std::move(row));
+        }
+
+        // 커밋 상세의 라벨·값 한 줄이다. 라벨은 흐린 고정 폭 칸이고 값이 나머지를 갖는다.
+        std::unique_ptr<luil::ui_element> detail_field(const std::u8string& owner, std::u8string label, std::unique_ptr<luil::ui_element> value)
+        {
+            auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, owner + u8"-row" }, luil::stack_config { .direction = luil::stack_direction::row }) };
+            row->add(make_text(owner + u8"-label", std::move(label), text_style { .size = 11.0f, .color = dim_color }), detail_label_width);
+            row->add_flexible(std::move(value));
+            return row;
+        }
+
+        // 커밋 메시지 카드다: 제목 머리 · 본문 · 작성 정보 바닥이 한 테두리 안에 선다.
+        //  - 커밋 메시지는 제목과 본문으로 나뉜 한 글이라 한 카드에 둔다. 바닥줄은 "누가 언제 썼나"다: 왼쪽에 작성자(첫 글자·이름, 올리면 메일),
+        //    오른쪽 끝에 시각.
+        //  - `width`는 카드 바깥 폭이다 (논리 픽셀). 줄 나누기 짐작은 테두리와 칸 여백을 뺀 폭으로 한다.
+        std::unique_ptr<luil::ui_element> build_message_card(const commit_detail_view& commit, const float width, float& height)
+        {
+            const float text_width { std::max(width - 2.0f - message_card_padding * 2.0f, 0.0f) };
+            std::vector<card_element::section> sections {};
+
+            const std::u8string subject { commit.subject.empty() ? std::u8string { u8"…" } : commit.subject };
+            const text_style subject_style { .size = 13.5f, .bold = true };
+            const float subject_height { std::max(wrapped_text_height(subject, text_width, subject_style, subject_line_height), subject_line_height) };
+            {
+                auto head = std::make_unique<luil::stack_element>(
+                    luil::ui_element_id { kind_layout, u8"detail-subject-cell" }, luil::stack_config { .padding = luil::edge_insets { message_card_padding, 7.0f, message_card_padding, 7.0f } });
+                head->add(make_wrapped_text(u8"detail-subject", subject, subject_style, subject_line_height), subject_height);
+                sections.push_back({ .content = std::move(head), .height = subject_height + 14.0f, .tinted = true });
+            }
+
+            std::u8string_view body { commit.body };
+            while (body.empty() == false && (body.back() == u8'\n' || body.back() == u8'\r' || body.back() == u8' '))
+                body.remove_suffix(1);
+            if (body.empty() == false)
+            {
+                const text_style body_style { .size = 12.0f, .color = dim_color };
+                const float body_height { wrapped_text_height(body, text_width, body_style, body_line_height) };
+                auto cell = std::make_unique<luil::stack_element>(
+                    luil::ui_element_id { kind_layout, u8"detail-body-cell" }, luil::stack_config { .padding = luil::edge_insets { message_card_padding, 8.0f, message_card_padding, 8.0f } });
+                cell->add(make_wrapped_text(u8"detail-body", std::u8string { body }, body_style, body_line_height), body_height);
+                sections.push_back({ .content = std::move(cell), .height = body_height + 16.0f, .tinted = false });
+            }
+
+            // 바닥줄: 작성자는 왼쪽, 시각은 오른쪽 끝이다. 폭이 모자라면 상대 시각부터 빼고(절대 시각의 툴팁에 남는다) 그다음 이름을 줄인다.
+            {
+                auto foot = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"detail-message-footer" },
+                    luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { message_card_padding, 0.0f, message_card_padding, 0.0f } });
+                const std::u8string relative { commit.date.empty() ? std::u8string {} : u8"· " + commit.date };
+                const float when_width { estimate_text_width(commit.date_absolute, 11.0f, false) + 2.0f };
+                float relative_width { relative.empty() ? 0.0f : estimate_text_width(relative, 11.0f, false) + 2.0f };
+                float author_width { author_element::width_for(commit.author_name) };
+                if (author_width + when_width + relative_width + 18.0f > text_width)
+                    relative_width = 0.0f;
+                author_width = std::max(std::min(author_width, text_width - when_width - relative_width - 18.0f), 40.0f);
+                foot->add(std::make_unique<author_element>(u8"detail-author", commit.author_name, commit.author_email), author_width);
+                foot->add_flexible_gap();
+                auto when { make_text(u8"detail-date", commit.date_absolute, text_style { .size = 11.0f, .align = 2 }) };
+                if (relative_width <= 0.0f && commit.date.empty() == false)
+                    when->set_tooltip(commit.date_absolute + u8" · " + commit.date);
+                foot->add(std::move(when), when_width);
+                if (relative_width > 0.0f)
+                    foot->add(make_text(u8"detail-date-relative", relative, text_style { .size = 11.0f, .color = dim_color, .align = 2 }), relative_width);
+                sections.push_back({ .content = std::move(foot), .height = message_footer_height, .tinted = true });
+            }
+
+            height = card_element::height_for(sections);
+            return std::make_unique<card_element>(u8"commit-message-card", u8"커밋 메시지", std::move(sections));
+        }
+
+        // [이후 커밋 N개 편집…]이다. 커밋 우클릭 메뉴의 "여기서부터 인터랙티브 rebase…"와 같은 일이고, 판 폭 전체로 서서 글이 잘리지 않는다.
+        std::unique_ptr<luil::ui_element> build_rebase_button(const repository_view& repository, const commit_detail_view& commit)
+        {
+            const std::uint32_t above { commit.commits_above.value_or(0) };
+            const std::u8string count { number_text(above) };
+            std::u8string label { u8"이후 커밋 편집…" };
+            std::u8string tooltip {};
+            if (above > 0 && commit.on_current_branch)
+            {
+                label = u8"이후 커밋 " + count + u8"개 편집…";
+                tooltip = u8"이 커밋 다음의 커밋 " + count + u8"개를 인터랙티브 rebase로 편집합니다 (순서 바꾸기·합치기·메시지 고치기·빼기).";
+            }
+            else if (above > 0)
+            {
+                // 다른 갈래의 커밋이다. 현재 브랜치에만 있는 커밋을 이 커밋 위로 옮겨 쌓으며 편집한다.
+                label = u8"현재 브랜치 커밋 " + count + u8"개를 이 위로 편집…";
+                tooltip = u8"현재 브랜치에만 있는 커밋 " + count + u8"개를 이 커밋 위로 다시 쌓으며 인터랙티브 rebase로 편집합니다.";
+            }
+            else if (commit.sha == repository.graph.head_sha)
+                tooltip = u8"HEAD 커밋이라 다음에 쌓인 커밋이 없습니다.";
+            else
+                tooltip = u8"현재 브랜치의 커밋이 모두 이 커밋 안에 있어 편집할 커밋이 없습니다.";
+            auto button = make_text_button(
+                u8"detail-interactive-rebase", label, luil::text_button_visual::normal, message(open_interactive_rebase_here_intent { commit.sha }), above > 0, codicons::icon_list_ordered);
+            button->set_tooltip(std::move(tooltip));
+            return button;
+        }
+
+        std::unique_ptr<luil::ui_element> build_commit_meta(const repository_view& repository, const commit_detail_view& commit, const float text_width, float& height)
+        {
+            auto meta = std::make_unique<luil::stack_element>(
+                luil::ui_element_id { kind_layout, u8"commit-meta" }, luil::stack_config { .padding = luil::edge_insets { detail_padding, 12.0f, detail_padding, 12.0f } });
+            height = 24.0f;
+            const auto add = [&meta, &height](std::unique_ptr<luil::ui_element> child, const float length) {
+                height += length;
+                meta->add(std::move(child), length);
+            };
+            const auto gap = [&meta, &height](const float length) {
+                height += length;
+                meta->add_gap(length);
+            };
+
+            // 메시지 카드 → 라벨 → 라벨·값 표 → [이후 커밋 편집…] 순서다.
+            float card_height { 0.0f };
+            auto card { build_message_card(commit, text_width, card_height) };
+            add(std::move(card), card_height);
+            if (commit.labels.empty() == false)
+            {
+                gap(10.0f);
+                add(std::make_unique<ref_label_strip_element>(u8"detail-labels", commit.labels, commit.lane_color), 22.0f);
+            }
+            gap(10.0f);
+
+            const float value_width { std::max(text_width - detail_label_width, 0.0f) };
+            add(detail_field(u8"detail-sha", u8"SHA", make_text(u8"detail-sha", to_u8(commit.sha), text_style { .size = 11.5f, .code = true })), detail_row_height);
+            // 부모는 누르면 그 커밋으로 간다.
+            {
+                auto parents
+                    = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"detail-parents" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 10.0f });
+                if (commit.parent_shas.empty())
+                    parents->add_flexible(make_text(u8"detail-parents-none", u8"없음 (최초 커밋)", text_style { .size = 12.0f, .color = dim_color }));
+                for (std::size_t index { 0 }; index < commit.parent_shas.size() && index < commit.parents.size(); ++index)
+                {
+                    auto link = make_text_button(
+                        u8"detail-parent-" + number_text(index), commit.parents[index], luil::text_button_visual::link, message(select_commit_intent { graph_item_key(commit.parent_shas[index]) }));
+                    link->set_tooltip(u8"부모 커밋 " + to_u8(commit.parent_shas[index]) + u8"로 가기");
+                    parents->add(std::move(link), { .length = estimate_text_width(commit.parents[index], 12.0f, false) + 8.0f, .cross_length = 18.0f });
+                }
+                if (commit.parent_shas.empty() == false)
+                    parents->add_flexible_gap();
+                add(detail_field(u8"detail-parents", commit.parent_shas.size() > 1 ? u8"부모 (병합)" : u8"부모", std::move(parents)), detail_row_height);
+            }
+            // 서명 배지다. 서명 검증은 파일 목록과 따로 읽는다.
+            {
+                const signature_view& signature { commit.signature };
+                add(detail_field(u8"detail-signature", u8"서명",
+                        make_text(u8"detail-signature", signature.badge,
+                            text_style { .size = 12.0f, .color = signature_color(signature.tone), .bold = signature.known && signature.status != signature_status::none })),
+                    detail_row_height);
+                if (signature.signer.empty() == false)
+                    add(detail_field(u8"detail-signature-signer", u8"서명자", make_text(u8"detail-signature-signer", signature.signer, text_style { .size = 12.0f })), detail_row_height);
+                if (signature.key.empty() == false)
+                    add(detail_field(u8"detail-signature-key", u8"키", make_text(u8"detail-signature-key", signature.key, text_style { .size = 11.5f, .code = true })), detail_row_height);
+                if (signature.description.empty() == false)
+                {
+                    // 설명은 값 칸에서 줄을 바꾼다 (allowed signers 안내처럼 길다).
+                    const text_style style { .size = 11.0f, .color = dim_color };
+                    const float lines { std::max(wrapped_text_height(signature.description, value_width, style, 16.0f), 16.0f) };
+                    add(detail_field(u8"detail-signature-detail", {}, make_wrapped_text(u8"detail-signature-detail", signature.description, style, 16.0f)), lines + 2.0f);
+                }
+            }
+            // 로그인한 GitHub·GitLab 호스트의 CI 상태다.
+            if (commit.ci.has_value())
+                add(detail_field(u8"detail-ci", u8"CI", build_commit_ci_line(*commit.ci)), detail_row_height);
+            gap(10.0f);
+            add(build_rebase_button(repository, commit), 28.0f);
+            return meta;
+        }
+
+        // 변경 파일 머리다: "변경 파일 N개 +a −r"와 목록·트리 전환 단추.
+        std::unique_ptr<luil::ui_element> build_files_header(const commit_detail_view& commit)
+        {
+            auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"detail-files-header" },
+                luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { detail_padding, 0.0f, 6.0f, 0.0f } });
+            const std::u8string title { u8"변경 파일 " + number_text(commit.files.size()) + u8"개" };
+            row->add(make_text(u8"detail-files-title", title, text_style { .size = 11.0f, .color = dim_color, .bold = true }), estimate_text_width(title, 11.0f, true) + 4.0f);
+            if (commit.added_total.empty() == false)
+                row->add(make_text(u8"detail-files-added", commit.added_total, text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return success_color(palette); } }),
+                    estimate_text_width(commit.added_total, 11.0f, false) + 2.0f);
+            if (commit.removed_total.empty() == false)
+                row->add(make_text(u8"detail-files-removed", commit.removed_total, text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.error_accent; } }),
+                    estimate_text_width(commit.removed_total, 11.0f, false) + 2.0f);
+            row->add_flexible_gap();
+            const bool tree { commit.files_tree };
+            row->add(make_icon_button(u8"detail-files-list", codicons::icon_list_flat, u8"경로 목록으로 보기", message(set_commit_files_view_intent { false }), true, tree == false), 26.0f);
+            row->add(make_icon_button(u8"detail-files-tree", codicons::icon_list_tree, u8"폴더 트리로 보기", message(set_commit_files_view_intent { true }), true, tree), 26.0f);
+            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"detail-files-header-bar" }, bar_style { .divider_bottom = true, .divider_top = true }, std::move(row));
         }
 
         std::unique_ptr<luil::ui_element> make_file_list(std::u8string owner, std::vector<luil::virtual_list_item> items,
@@ -308,88 +510,79 @@ namespace cyella::ui {
             return list;
         }
 
-        std::unique_ptr<luil::ui_element> build_commit_detail(const repository_view& repository, const commit_detail_view& commit, const bool drawer, feedback_sources& sources)
+        std::unique_ptr<luil::ui_element> build_commit_detail(
+            const repository_view& repository, const commit_detail_view& commit, const bool drawer, const float width, const float height, feedback_sources& sources)
         {
             auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-detail" }, luil::stack_config {}) };
-            column->add(detail_header(u8"커밋", commit.short_sha, drawer), pane_header_height);
+            auto copy { make_icon_button(u8"detail-copy-sha", codicons::icon_copy, u8"SHA 복사", message(copy_commit_sha_intent { commit.sha })) };
+            column->add(detail_header(u8"커밋", commit.short_sha, drawer, true, std::move(copy)), pane_header_height);
 
-            auto meta { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-meta" }, luil::stack_config { .padding = luil::edge_insets { 12.0f, 8.0f, 12.0f, 6.0f } }) };
-            float meta_height { 14.0f };
-            const auto add = [&meta, &meta_height](std::unique_ptr<luil::ui_element> child, const float length) {
-                meta_height += length;
-                meta->add(std::move(child), length);
-            };
-            add(make_text(u8"detail-subject", commit.subject.empty() ? std::u8string { u8"…" } : commit.subject, text_style { .size = 14.0f, .bold = true }), 24.0f);
-            std::size_t line_index { 0 };
-            std::size_t start { 0 };
-            const std::u8string& body { commit.body };
-            while (start < body.size() && line_index < detail_body_line_limit)
+            // 메시지·메타 칸은 내용만큼 서되, 판 높이의 일정 몫을 넘으면 그 칸만 흘린다. 흘릴 때는 막대 폭만큼 글이 좁아진다.
+            const float text_width { std::max(width - detail_padding * 2.0f, 0.0f) };
+            const float limit { std::max(height * commit_meta_share, commit_meta_minimum) };
+            float meta_height { 0.0f };
+            auto meta { build_commit_meta(repository, commit, text_width, meta_height) };
+            if (meta_height > limit)
             {
-                std::size_t end { body.find(u8'\n', start) };
-                if (end == std::u8string::npos)
-                    end = body.size();
-                add(make_text(u8"detail-body-" + number_text(line_index), body.substr(start, end - start), text_style { .size = 12.0f }), 17.0f);
-                ++line_index;
-                start = end + 1;
+                meta = build_commit_meta(repository, commit, std::max(text_width - luil::scroll_area_bar_width, 0.0f), meta_height);
+                luil::scroll_area_config config {};
+                config.owner = u8"commit-meta-scroll";
+                config.content_height = meta_height;
+                config.scroll_offset = repository.commit_meta_scroll;
+                config.scroll = [](const float delta) { return message(scroll_intent { .target = scroll_target::commit_meta, .value = delta }); };
+                config.scroll_to = [](const float offset) { return message(scroll_intent { .target = scroll_target::commit_meta, .value = offset, .absolute = true }); };
+                config.bar = luil::scrollbar_visibility::always;
+                config.edges = luil::scroll_edges { .shadows = true };
+                auto area { std::make_unique<luil::scroll_area_element>(std::move(config)) };
+                area->set_content(std::move(meta));
+                sources.commit_meta = area.get();
+                column->add(std::move(area), limit);
             }
-            if (commit.labels.empty() == false)
-                add(std::make_unique<ref_label_strip_element>(u8"detail-labels", commit.labels, commit.lane_color), 26.0f);
-            add(make_text(u8"detail-author", u8"작성자  " + commit.author, text_style { .size = 11.0f, .color = dim_color }), detail_line_height);
-            add(make_text(u8"detail-date", u8"날짜  " + commit.date, text_style { .size = 11.0f, .color = dim_color }), detail_line_height);
-            // 로그인한 GitHub·GitLab 호스트의 CI 상태다.
-            if (commit.ci.has_value())
-                add(build_commit_ci_line(*commit.ci), detail_line_height);
-            add(make_text(u8"detail-sha", u8"SHA  " + to_u8(commit.sha), text_style { .size = 11.0f, .color = dim_color, .code = true }), detail_line_height);
-            std::u8string parents {};
-            for (const std::u8string& parent : commit.parents)
-                parents += (parents.empty() ? u8"" : u8", ") + parent;
-            add(make_text(u8"detail-parents", u8"부모  " + (parents.empty() ? std::u8string { u8"(없음)" } : parents), text_style { .size = 11.0f, .color = dim_color, .code = true }),
-                detail_line_height);
-            // 서명 배지다. 서명 검증은 파일 목록과 따로 읽는다.
-            {
-                const signature_view& signature { commit.signature };
-                const signature_tone tone { signature.tone };
-                const color_selector badge_color { signature_color(tone) };
-                add(make_text(
-                        u8"detail-signature", u8"서명  " + signature.badge, text_style { .size = 11.0f, .color = badge_color, .bold = signature.known && signature.status != signature_status::none }),
-                    detail_line_height);
-                if (signature.description.empty() == false)
-                    add(make_text(u8"detail-signature-detail", signature.description, text_style { .size = 11.0f, .color = dim_color }), detail_line_height);
-                if (signature.signer.empty() == false)
-                    add(make_text(u8"detail-signature-signer", u8"서명자  " + signature.signer, text_style { .size = 11.0f, .color = dim_color }), detail_line_height);
-                if (signature.key.empty() == false)
-                    add(make_text(u8"detail-signature-key", u8"키  " + signature.key, text_style { .size = 11.0f, .color = dim_color, .code = true }), detail_line_height);
-            }
-            // 커밋 우클릭 메뉴의 "여기서부터 인터랙티브 rebase…"와 같은 일이다. 키보드·보조 기술로도 닿는 자리다.
-            {
-                auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"detail-actions" }, luil::stack_config { .direction = luil::stack_direction::row }) };
-                row->add(
-                    make_text_button(u8"detail-interactive-rebase", u8"여기서부터 인터랙티브 rebase…", luil::text_button_visual::normal, message(open_interactive_rebase_here_intent { commit.sha }),
-                        commit.sha != repository.graph.head_sha && repository.graph.head_sha.empty() == false, codicons::icon_list_ordered),
-                    { .length = 236.0f, .cross_length = 24.0f });
-                row->add_flexible_gap();
-                add(std::move(row), 30.0f);
-            }
-            column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"commit-meta-bar" }, bar_style { .divider_bottom = true }, std::move(meta)), meta_height);
+            else
+                column->add(std::move(meta), meta_height);
 
             if (commit.loading)
             {
                 column->add_flexible(centered_message(u8"detail-loading", u8"변경 파일을 읽는 중…"));
                 return column;
             }
-            column->add(make_text(u8"detail-files-title", u8"   변경 파일 " + number_text(commit.files.size()) + u8"개", text_style { .size = 11.0f, .color = dim_color, .bold = true }), 26.0f);
+            column->add(build_files_header(commit), files_header_height);
             auto builders { std::make_shared<std::map<std::u8string, std::function<std::unique_ptr<luil::ui_element>()>>>() };
             auto requests { std::make_shared<std::map<std::u8string, diff_file_request>>() };
             std::vector<luil::virtual_list_item> items {};
             std::u8string selected {};
-            for (const file_row_view& row : commit.files)
-            {
+            const auto add_file = [&](const file_row_view& row, const std::optional<std::size_t> depth) {
                 items.push_back({ .key = row.key, .label = row.name });
-                (*builders)[row.key] = [row] { return std::make_unique<file_row_element>(row, std::vector<file_row_button> {}); };
+                if (depth.has_value())
+                {
+                    // 트리에서는 폴더가 이미 보이므로 이름 바꾸기(← 옛 경로)만 남긴다.
+                    file_row_view shown { row };
+                    if (shown.original_path.empty())
+                        shown.folder.clear();
+                    (*builders)[row.key] = [shown, depth] { return std::make_unique<file_row_element>(shown, std::vector<file_row_button> {}, std::nullopt, std::nullopt, depth); };
+                }
+                else
+                    (*builders)[row.key] = [row] { return std::make_unique<file_row_element>(row, std::vector<file_row_button> {}); };
                 (*requests)[row.key] = diff_file_request { .path = row.path, .view = diff_view::commit, .sha = commit.sha, .untracked = false };
                 if (row.selected)
                     selected = row.key;
-            }
+            };
+            if (commit.files_tree)
+                for (const file_tree_row& node : commit.tree)
+                {
+                    if (node.folder == false)
+                    {
+                        if (node.file_index < commit.files.size())
+                            add_file(commit.files[node.file_index], node.depth);
+                        continue;
+                    }
+                    // 폴더 행은 키보드 훑기가 건너뛴다 (고를 것이 아니다). 누르면 접거나 편다.
+                    items.push_back({ .key = node.key, .label = node.label, .enabled = false });
+                    (*builders)[node.key] = [node] { return std::make_unique<folder_row_element>(node, message(toggle_file_folder_intent { node.path })); };
+                }
+            else
+                for (const file_row_view& row : commit.files)
+                    add_file(row, std::nullopt);
             column->add_flexible(make_file_list(u8"commit-files", std::move(items), std::move(builders), std::move(requests), std::move(selected), repository.detail_scroll, sources));
             return column;
         }
@@ -672,14 +865,14 @@ namespace cyella::ui {
         return surface(u8"graph-panel", std::move(column));
     }
 
-    std::unique_ptr<luil::ui_element> build_detail(const view_snapshot& view, const repository_view& repository, const bool drawer, feedback_sources& sources)
+    std::unique_ptr<luil::ui_element> build_detail(const view_snapshot& view, const repository_view& repository, const bool drawer, const float width, const float height, feedback_sources& sources)
     {
         static_cast<void>(view);
         std::unique_ptr<luil::ui_element> content {};
         if (repository.detail == detail_mode::pull_request && repository.hosting.has_value() && repository.hosting->detail.has_value())
             content = build_pull_request_detail(*repository.hosting->detail, drawer);
         else if (repository.detail == detail_mode::commit && repository.commit.has_value())
-            content = build_commit_detail(repository, *repository.commit, drawer, sources);
+            content = build_commit_detail(repository, *repository.commit, drawer, width, height, sources);
         else if (repository.detail == detail_mode::working && repository.working.has_value())
             content = build_working_area(repository, *repository.working, drawer, sources);
         else

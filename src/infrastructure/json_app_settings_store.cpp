@@ -325,6 +325,13 @@ namespace cyella {
                 warn(result, u8"앱 설정의 ui는 object여야 합니다. 기본값을 사용합니다.");
                 return;
             }
+            if (const auto view { source->find("commit_files_view") }; view != source->end() && view->is_null() == false)
+            {
+                if (view->is_string() && view->get<std::string>() == "tree")
+                    result.settings.ui.commit_files_tree = true;
+                else if (view->is_string() == false || view->get<std::string>() != "list")
+                    warn(result, u8"앱 설정의 ui.commit_files_view는 \"list\"나 \"tree\"여야 합니다. 목록으로 봅니다.");
+            }
             const auto panes { source->find("pane_widths") };
             if (panes == source->end() || panes->is_null())
                 return;
@@ -508,21 +515,29 @@ namespace cyella {
             root["diff"] = std::move(diff);
         }
 
-        // ui 객체는 판 폭이 있을 때만 쓴다. 쓰지 않는 사용자의 파일을 짧게 두고, 알 수 없는 키는 보존한다.
-        if (settings.ui.pane_widths.sidebar.has_value() || settings.ui.pane_widths.detail.has_value())
+        // ui 객체는 기본값과 다른 값이 있을 때만 쓴다. 쓰지 않는 사용자의 파일을 짧게 두고, 알 수 없는 키는 보존한다.
+        const bool has_widths { settings.ui.pane_widths.sidebar.has_value() || settings.ui.pane_widths.detail.has_value() };
+        // 보기는 트리를 골랐거나, 골랐다가 목록으로 되돌린 파일(키가 이미 있다)에만 쓴다.
+        const bool has_view { settings.ui.commit_files_tree || existing_object(root, "ui").contains("commit_files_view") };
+        if (has_widths || has_view)
         {
             json ui { existing_object(root, "ui") };
-            json panes { existing_object(ui, "pane_widths") };
-            const auto write_width = [&panes](const char* const key, const std::optional<float>& width) {
-                // 끌어서 얻은 float(237.33334350585938)를 그대로 쓰면 파일이 지저분하다. 0.01 논리 픽셀로 맞춘다.
-                if (width.has_value())
-                    panes[key] = std::round(static_cast<double>(*width) * 100.0) / 100.0;
-                else
-                    panes.erase(key);
-            };
-            write_width("sidebar", settings.ui.pane_widths.sidebar);
-            write_width("detail", settings.ui.pane_widths.detail);
-            ui["pane_widths"] = std::move(panes);
+            if (has_widths)
+            {
+                json panes { existing_object(ui, "pane_widths") };
+                const auto write_width = [&panes](const char* const key, const std::optional<float>& width) {
+                    // 끌어서 얻은 float(237.33334350585938)를 그대로 쓰면 파일이 지저분하다. 0.01 논리 픽셀로 맞춘다.
+                    if (width.has_value())
+                        panes[key] = std::round(static_cast<double>(*width) * 100.0) / 100.0;
+                    else
+                        panes.erase(key);
+                };
+                write_width("sidebar", settings.ui.pane_widths.sidebar);
+                write_width("detail", settings.ui.pane_widths.detail);
+                ui["pane_widths"] = std::move(panes);
+            }
+            if (has_view)
+                ui["commit_files_view"] = settings.ui.commit_files_tree ? "tree" : "list";
             root["ui"] = std::move(ui);
         }
 

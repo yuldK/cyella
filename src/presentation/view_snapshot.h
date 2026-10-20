@@ -12,6 +12,7 @@
 #include "domain/submodule.h"
 #include "presentation/commands/command_registry.h"
 #include "presentation/drop_hints.h"
+#include "presentation/file_tree.h"
 #include "presentation/form_view.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/hosting_view.h"
@@ -294,14 +295,31 @@ namespace cyella {
         std::u8string subject {};
         std::u8string body {};
         std::u8string author {};
+        // 상세 패널은 이름과 메일을 따로 그린다 (`author`는 둘을 이은 한 줄이다).
+        std::u8string author_name {};
+        std::u8string author_email {};
+        // `date`는 상대 시각("3일 전"), `date_absolute`는 이 컴퓨터 시간대의 "2026-10-20 14:03"이다.
         std::u8string date {};
+        std::u8string date_absolute {};
         std::vector<std::u8string> parents {};
+        // `parents`와 같은 순서의 전체 SHA다. 부모를 누르면 그 커밋을 고른다.
+        std::vector<std::string> parent_shas {};
         std::vector<ref_label> labels {};
         // 로그인한 호스트의 CI 상태다. 로그인하지 않았거나 서비스를 모르면 값이 없다.
         std::optional<ci_mark_view> ci {};
         // 그래프에서 그 커밋 행의 레인 색 번호다. 라벨 칩이 그래프와 같은 색을 쓴다.
         std::uint8_t lane_color { 0 };
         std::vector<file_row_view> files {};
+        // 이 커밋 위로 다시 쌓을 현재 브랜치(HEAD)의 커밋 수다 (`rev-list --count 커밋..HEAD`). HEAD 자신이거나 이력을 덜 읽었으면 값이 없다.
+        std::optional<std::uint32_t> commits_above {};
+        // HEAD의 조상이다 (현재 브랜치 위의 커밋). 아니면 현재 브랜치를 이 커밋 위로 옮겨 쌓는 편집이다.
+        bool on_current_branch { false };
+        // 변경 파일 머리의 줄 수 합계다 ("+12", "-3"). 없으면 비어 있다.
+        std::u8string added_total {};
+        std::u8string removed_total {};
+        // 변경 파일을 폴더 트리로 본다 (앱 설정). 그때만 `tree`가 차고, 파일 행은 `files`의 번호로 가리킨다.
+        bool files_tree { false };
+        std::vector<file_tree_row> tree {};
         // 고른 커밋의 `show_commit` 결과가 아직 오지 않았다.
         bool loading { false };
         // 서명 배지다. 서명 검증은 파일 목록과 따로 읽으므로 `loading`과 무관하게 먼저 보일 수 있다.
@@ -403,6 +421,8 @@ namespace cyella {
         std::optional<commit_detail_view> commit {};
         std::optional<working_area_view> working {};
         float detail_scroll { 0.0f };
+        // 커밋 상세의 메시지·메타 칸의 스크롤이다.
+        float commit_meta_scroll { 0.0f };
         std::optional<diff_panel_view> diff {};
         // 열린 PR·MR 상세(`detail == detail_mode::pull_request`)와 호스팅 값이다.
         std::optional<hosting_repository_view> hosting {};

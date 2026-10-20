@@ -433,6 +433,10 @@ namespace cyella {
             value = tab != nullptr ? &tab->detail_scroll : nullptr;
             maximum = feedback_.detail_maximum;
             break;
+        case scroll_target::commit_meta:
+            value = tab != nullptr ? &tab->commit_meta_scroll : nullptr;
+            maximum = feedback_.commit_meta_maximum;
+            break;
         case scroll_target::diff:
             value = tab != nullptr ? &tab->diff_scroll : nullptr;
             maximum = feedback_.diff_maximum;
@@ -475,6 +479,7 @@ namespace cyella {
         tab->selected_sha = found->sha;
         tab->diff.reset();
         tab->detail_scroll = 0.0f;
+        tab->commit_meta_scroll = 0.0f;
         // 로그인한 호스트면 이 커밋의 CI 상태를 읽는다 (조용한 로그인은 하지 않는다).
         if (found->sha != graph_wip_sha)
         {
@@ -843,6 +848,30 @@ namespace cyella {
         {
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
                 tab->diff.reset();
+            return true;
+        }
+        if (const auto* const intent { message.get<set_commit_files_view_intent>() }; intent != nullptr)
+        {
+            if (settings().ui.commit_files_tree != intent->tree)
+            {
+                const bool tree { intent->tree };
+                update_settings([tree](app_settings& value) { value.ui.commit_files_tree = tree; });
+                // 행 수가 바뀌므로 목록을 처음부터 보인다.
+                if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+                    tab->detail_scroll = 0.0f;
+            }
+            return true;
+        }
+        if (const auto* const intent { message.get<toggle_file_folder_intent>() }; intent != nullptr)
+        {
+            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+                if (tab->collapsed_folders.erase(intent->path) == 0)
+                    tab->collapsed_folders.insert(intent->path);
+            return true;
+        }
+        if (const auto* const intent { message.get<copy_commit_sha_intent>() }; intent != nullptr)
+        {
+            copy_text(to_u8(intent->sha));
             return true;
         }
         if (message.get<toggle_amend_intent>() != nullptr)

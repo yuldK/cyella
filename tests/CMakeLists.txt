@@ -78,6 +78,7 @@ cyella_add_source_filter(cyella_test_files "infrastructure"
 cyella_add_source_filter(cyella_test_files "presentation"
     diff_webview_tests.cpp
     extension_view_tests.cpp
+    commit_detail_tests.cpp
     graph_columns_tests.cpp
     graph_geometry_tests.cpp
     settings_tests.cpp

@@ -189,6 +189,8 @@ namespace cyella {
         diff,
         start_page,
         operation_log,
+        // 커밋 상세의 메시지·메타 칸이다. 본문이 길면 파일 목록(`detail`)과 따로 흘린다.
+        commit_meta,
     };
 
     // 흘리는 창의 스크롤이다. `absolute`면 `value`가 자리, 아니면 변화량이다 (논리 픽셀).
@@ -232,6 +234,24 @@ namespace cyella {
 
     struct close_diff_intent
     {};
+
+    // 커밋 상세의 변경 파일을 경로 목록으로 볼지 폴더 트리로 볼지다. 앱 설정에 남는다.
+    struct set_commit_files_view_intent
+    {
+        bool tree { false };
+    };
+
+    // 변경 파일 트리의 폴더를 접거나 편다. `path`는 끝에 `/`가 없는 폴더 경로다.
+    struct toggle_file_folder_intent
+    {
+        std::string path {};
+    };
+
+    // 커밋 상세 머리의 SHA 복사 단추다 (커밋 우클릭 메뉴의 "SHA 복사"와 같다).
+    struct copy_commit_sha_intent
+    {
+        std::string sha {};
+    };
 
     struct toggle_amend_intent
     {};

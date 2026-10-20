@@ -594,6 +594,28 @@ TEST_CASE("pane widths are written under ui and absent widths are left out", "[j
     CHECK(loaded.settings == settings);
 }
 
+TEST_CASE("the commit files view is written under ui once the tree is chosen", "[json_app_settings]")
+{
+    app_settings settings {};
+    settings.ui.commit_files_tree = true;
+    const std::u8string bytes { serialize_app_settings_json(settings, u8"") };
+    CHECK(json::parse(text_of(bytes)).at("ui").at("commit_files_view") == "tree");
+    const app_settings_load_result loaded { parse_app_settings_json(bytes) };
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings == settings);
+
+    // 목록으로 되돌리면 같은 키에 "list"가 남는다. 처음부터 목록이면 ui를 쓰지 않는다.
+    app_settings back { loaded.settings };
+    back.ui.commit_files_tree = false;
+    const json saved { json::parse(text_of(serialize_app_settings_json(back, loaded.shadow_source_json))) };
+    CHECK(saved.at("ui").at("commit_files_view") == "list");
+    CHECK_FALSE(parse_app_settings_json(serialize_app_settings_json(back, loaded.shadow_source_json)).settings.ui.commit_files_tree);
+
+    const app_settings_load_result wrong { parse_app_settings_json(u8R"({"ui":{"commit_files_view":"grid"}})") };
+    CHECK_FALSE(wrong.settings.ui.commit_files_tree);
+    CHECK(wrong.diagnostics.size() == 1);
+}
+
 TEST_CASE("a dragged pane width is written with two decimals", "[json_app_settings]")
 {
     app_settings settings {};

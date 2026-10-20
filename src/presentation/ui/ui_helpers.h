@@ -98,6 +98,82 @@ namespace cyella::ui {
 
     [[nodiscard]] std::unique_ptr<luil::ui_element> make_text(std::u8string owner, std::u8string text, text_style style);
 
+    // 폭에 맞춰 줄을 바꾸는 글이다 (커밋 제목·본문). 줄 나누기는 그릴 때 실제 글꼴로 한다(`wrap_text_lines`).
+    //  - 높이는 담는 쪽이 `wrapped_text_height`로 짐작해 준다. 측정 단계가 없어서다. 짐작은 넉넉하게 잡혀 대개 줄이 남는다.
+    //  - 그래도 자리보다 줄이 많으면 마지막 줄을 그 문단 끝까지 이어 그리고 말줄임으로 자른다. 글이 조용히 사라지지 않는다.
+    class wrapped_text_element final : public luil::ui_element
+    {
+    public:
+        wrapped_text_element(luil::ui_element_id id, std::u8string text, text_style style, float line_height);
+
+        void arrange(const luil::arrange_context& context) override;
+        void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
+        [[nodiscard]] luil::access_info accessibility() const override;
+
+    private:
+        std::u8string text_ {};
+        text_style style_ {};
+        float line_height_ { 18.0f };
+    };
+
+    // 작성자 한 사람이다: 이름 첫 글자 동그라미와 굵은 이름 (커밋 메시지 카드의 아랫줄).
+    //  - 메일은 화면에 늘어놓지 않고 올리면 툴팁으로 보인다. 보조 기술에는 이름과 메일을 함께 읽힌다.
+    class author_element final : public luil::ui_element
+    {
+    public:
+        author_element(std::u8string owner, std::u8string name, std::u8string email);
+
+        void arrange(const luil::arrange_context& context) override;
+        void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
+        [[nodiscard]] luil::access_info accessibility() const override;
+
+        // 동그라미·간격·이름이 차지할 폭이다 (논리 픽셀, 이름은 글자로 짐작한다). 담는 쪽이 줄의 남은 자리를 나눌 때 쓴다.
+        [[nodiscard]] static float width_for(std::u8string_view name) noexcept;
+
+    private:
+        std::u8string name_ {};
+        std::u8string email_ {};
+        std::u8string initial_ {};
+    };
+
+    // 칸 여럿을 위에서 아래로 한 테두리 안에 담는 카드다 (커밋 메시지: 제목 · 본문 · 작성 정보).
+    //  - 칸 사이는 구분선이고, `tinted` 칸(머리·바닥)은 옅은 바탕이다. 둥근 모서리로 바탕과 자식을 함께 자른다.
+    //  - 높이는 칸 높이의 합에 테두리 두 줄을 더한 값이다 (`height_for`). 담는 쪽이 그 높이로 놓는다.
+    class card_element final : public luil::ui_element
+    {
+    public:
+        struct section
+        {
+            std::unique_ptr<luil::ui_element> content {};
+            // 논리 픽셀이다.
+            float height { 0.0f };
+            bool tinted { false };
+        };
+
+        card_element(std::u8string owner, std::u8string access_name, std::vector<section> sections);
+
+        void arrange(const luil::arrange_context& context) override;
+        void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
+        [[nodiscard]] luil::access_info accessibility() const override;
+
+        [[nodiscard]] static float height_for(const std::vector<section>& sections) noexcept;
+
+    private:
+        struct placed
+        {
+            luil::ui_element* content { nullptr };
+            float height { 0.0f };
+            bool tinted { false };
+        };
+
+        std::u8string access_name_ {};
+        std::vector<placed> sections_ {};
+    };
+
+    // `width`(논리 픽셀)에 담을 때 잡을 높이다. 빈 글은 0이다.
+    [[nodiscard]] float wrapped_text_height(std::u8string_view text, float width, const text_style& style, float line_height);
+    [[nodiscard]] std::unique_ptr<luil::ui_element> make_wrapped_text(std::u8string owner, std::u8string text, text_style style, float line_height);
+
     // 서랍·떠 있는 판·대화 상자가 쓰는 바탕이다 (표면색, 구분선 테두리, 그림자).
     [[nodiscard]] luil::panel_config floating_panel_config(float corner_radius, float shadow);
 

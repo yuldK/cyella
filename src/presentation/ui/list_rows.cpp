@@ -250,10 +250,12 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- file_row_element
 
-    file_row_element::file_row_element(file_row_view row, std::vector<file_row_button> buttons, std::optional<luil::input_action> select, std::optional<menu_target> menu)
+    file_row_element::file_row_element(
+        file_row_view row, std::vector<file_row_button> buttons, std::optional<luil::input_action> select, std::optional<menu_target> menu, const std::optional<std::size_t> tree_depth)
         : ui_element { luil::ui_element_id { kind_file_row, u8"file-" + row.key } }
         , row_ { std::move(row) }
         , button_count_ { buttons.size() }
+        , tree_depth_ { tree_depth }
     {
         if (select.has_value() == false && menu.has_value() == false)
             set_hit_opaque(false);
@@ -314,7 +316,8 @@ namespace cyella::ui {
         const luil::rect_f box { bounds() };
         const float scale { context.scale };
         const luil::ui_color_palette& palette { context.palette };
-        float x { box.x + row_padding * scale };
+        // 트리의 파일은 폴더의 펼침 표지 자리만큼 더 들어가 폴더 이름과 줄을 맞춘다.
+        float x { box.x + (row_padding + (tree_depth_.has_value() ? static_cast<float>(*tree_depth_) * indent_step + icon_size + 4.0f : 0.0f)) * scale };
 
         const float letter { 16.0f * scale };
         const luil::rect_f badge { x, box.y + (box.height - letter) / 2.0f, letter, letter };
@@ -366,6 +369,58 @@ namespace cyella::ui {
         if (row_.folder.empty() == false && right - folder_x > 0.0f)
             static_cast<void>(luil::draw_text_within(context.canvas, row_.folder, folder_x, baseline_small, right - folder_x, small, luil::solid_paint(palette.secondary_foreground)));
         draw_children(context, interaction);
+    }
+
+    // ---------------------------------------------------------------- folder_row_element
+
+    folder_row_element::folder_row_element(file_tree_row row, luil::input_action toggle)
+        : ui_element { luil::ui_element_id { kind_file_row, u8"folder-" + row.key } }
+        , row_ { std::move(row) }
+    {
+        set_tab_stop(false);
+        set_cursor(luil::ui_cursor::hand);
+        set_tooltip(to_u8(row_.path));
+        // 보조 기술의 펼치기·접기·실행은 모두 같은 뒤집기다. 이미 그 상태면 아무것도 내지 않는다.
+        set_access_handler([toggle, expanded = row_.expanded](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
+            if (request.command == luil::access_command::invoke || (request.command == luil::access_command::expand && expanded == false)
+                || (request.command == luil::access_command::collapse && expanded))
+                return std::vector<luil::input_action> { toggle };
+            return std::nullopt;
+        });
+        set_action(luil::ui_trigger::left_click, action_of(std::move(toggle)));
+    }
+
+    void folder_row_element::arrange(const luil::arrange_context& context)
+    {
+        set_bounds(context.slot);
+    }
+
+    luil::access_info folder_row_element::accessibility() const
+    {
+        return { .role = luil::access_role::button, .name = row_.label + u8" 폴더 (파일 " + number_text(row_.file_count) + u8"개)", .expanded = row_.expanded };
+    }
+
+    void folder_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
+    {
+        const luil::rect_f box { bounds() };
+        const float scale { context.scale };
+        const luil::ui_color_palette& palette { context.palette };
+        const SkPaint dim { luil::solid_paint(palette.secondary_foreground) };
+        float x { box.x + (row_padding + static_cast<float>(row_.depth) * indent_step) * scale };
+        luil::draw_centered_glyph(
+            context.canvas, row_.expanded ? codicons::icon_chevron_down : codicons::icon_chevron_right, { x, box.y, icon_size * scale, box.height }, icon_font(context, 12.0f), dim);
+        x += (icon_size + 4.0f) * scale;
+        luil::draw_centered_glyph(context.canvas, row_.expanded ? codicons::icon_folder_opened : codicons::icon_folder, { x, box.y, 16.0f * scale, box.height }, icon_font(context, icon_size), dim);
+        x += (16.0f + 8.0f) * scale;
+
+        const SkFont small { ui_font(context, 11.0f) };
+        const std::u8string count { number_text(row_.file_count) };
+        const float count_width { luil::measure_text(count, small) };
+        const float right { box.x + box.width - (row_padding + 4.0f) * scale };
+        static_cast<void>(luil::draw_text_within(context.canvas, count, right - count_width, box.y + luil::centered_text_baseline(small, box.height), count_width, small, dim));
+        const SkFont font { ui_font(context, 12.0f) };
+        static_cast<void>(luil::draw_text_within(context.canvas, row_.label, x, box.y + luil::centered_text_baseline(font, box.height), std::max(right - count_width - 8.0f * scale - x, 0.0f), font,
+            luil::solid_paint(palette.primary_foreground)));
     }
 
     // ---------------------------------------------------------------- file_group_element

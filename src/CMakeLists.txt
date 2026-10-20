@@ -350,6 +350,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/start_page"
 cyella_add_source_filter(cyella_lib_files "presentation/shell"
     presentation/build_view_snapshot.cpp
     presentation/build_view_snapshot.h
+    presentation/file_tree.cpp
+    presentation/file_tree.h
     presentation/frame_feedback.h
     presentation/graph_geometry.cpp
     presentation/diff_view_intents.h
@@ -358,6 +360,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/shell"
     presentation/shell_controller.h
     presentation/shell_layout.cpp
     presentation/shell_layout.h
+    presentation/text_wrap.cpp
+    presentation/text_wrap.h
     presentation/ui_intents.h
     presentation/ui_state.h
     presentation/view_snapshot.h)

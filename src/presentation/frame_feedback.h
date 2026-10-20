@@ -12,6 +12,7 @@ namespace cyella {
         std::optional<float> graph_maximum {};
         std::optional<float> sidebar_maximum {};
         std::optional<float> detail_maximum {};
+        std::optional<float> commit_meta_maximum {};
         std::optional<float> diff_maximum {};
         std::optional<float> start_maximum {};
         std::optional<float> log_maximum {};

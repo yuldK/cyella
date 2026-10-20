@@ -7,7 +7,9 @@
 #include "presentation/snapshot_dialogs.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <format>
 #include <string>
 #include <utility>
 
@@ -60,6 +62,19 @@ namespace cyella {
         std::size_t character_count(const std::u8string_view text) noexcept
         {
             return static_cast<std::size_t>(std::count_if(text.begin(), text.end(), [](const char8_t value) { return (value & 0xC0u) != 0x80u; }));
+        }
+
+        // 이 컴퓨터의 시간대다. tzdb를 읽지 못하면 null이다.
+        const std::chrono::time_zone* local_time_zone() noexcept
+        {
+            try
+            {
+                return std::chrono::current_zone();
+            }
+            catch (...)
+            {
+                return nullptr;
+            }
         }
 
         std::u8string short_sha(const std::string_view sha)
@@ -282,7 +297,8 @@ namespace cyella {
             return view;
         }
 
-        commit_detail_view build_commit_detail(const repository_session& session, const std::string& sha, const tab_ui_state& tab, const ref_label_map& labels, const std::int64_t now)
+        commit_detail_view build_commit_detail(
+            const repository_session& session, const std::string& sha, const tab_ui_state& tab, const ref_label_map& labels, const std::int64_t now, const bool files_tree)
         {
             commit_detail_view view {};
             view.sha = sha;
@@ -308,18 +324,45 @@ namespace cyella {
                 view.subject = to_u8(info->subject);
                 view.body = to_u8(info->body.value_or(std::string {}));
                 view.author = to_u8(info->author_name) + (info->author_email.empty() ? std::u8string {} : u8" <" + to_u8(info->author_email) + u8">");
+                view.author_name = to_u8(info->author_name);
+                view.author_email = to_u8(info->author_email);
                 view.date = relative_time_text(now, info->author_time);
+                view.date_absolute = absolute_time_text(info->author_time);
                 for (const std::string& parent : info->parents)
+                {
                     view.parents.push_back(short_sha(parent));
+                    view.parent_shas.push_back(parent);
+                }
             }
             if (const auto labelled { labels.find(sha) }; labelled != labels.end())
                 view.labels = labelled->second;
             view.signature = make_signature_view(session.signature_of(sha));
+            view.files_tree = files_tree;
             if (view.loading == false)
             {
+                std::uint64_t added { 0 };
+                std::uint64_t removed { 0 };
                 for (const file_change& change : detail->files)
+                {
                     view.files.push_back(make_file_row(change, u8"f:"));
+                    if (change.is_submodule)
+                        continue;
+                    added += change.lines_added.value_or(0);
+                    removed += change.lines_removed.value_or(0);
+                }
+                if (added > 0)
+                    view.added_total = u8"+" + number(added);
+                if (removed > 0)
+                    view.removed_total = u8"-" + number(removed);
                 mark_selected(view.files, tab.diff, diff_view::commit, sha);
+                if (files_tree)
+                {
+                    std::vector<std::string> paths {};
+                    paths.reserve(view.files.size());
+                    for (const file_row_view& row : view.files)
+                        paths.push_back(row.path);
+                    view.tree = build_file_tree(paths, tab.collapsed_folders);
+                }
             }
             return view;
         }
@@ -463,15 +506,24 @@ namespace cyella {
             else if (tab_state.selected_sha.empty() == false && tab_state.selected_sha != graph_wip_sha)
             {
                 view.detail = detail_mode::commit;
-                view.commit = build_commit_detail(session, tab_state.selected_sha, tab_state, *labels, now);
+                view.commit = build_commit_detail(session, tab_state.selected_sha, tab_state, *labels, now, inputs.settings->ui.commit_files_tree);
                 if (inputs.commit_ci != nullptr)
                     view.commit->ci = inputs.commit_ci(session.id(), tab_state.selected_sha);
+                // [이후 커밋 N개 편집…]이 말할 수다: `rev-list --count 커밋..HEAD`, 곧 이 커밋 위로 다시 쌓을 현재 브랜치의 커밋이다.
+                // 다른 갈래의 커밋(main 끝 등)을 고르면 현재 브랜치를 그 위로 옮겨 쌓는 일이 된다. 그 차이는 `on_current_branch`가 말한다.
+                const std::string& head { snapshot.summary.head_sha };
+                if (index != nullptr && head.empty() == false && head != tab_state.selected_sha)
+                {
+                    view.commit->commits_above = index->count(tab_state.selected_sha, head);
+                    view.commit->on_current_branch = index->is_ancestor(tab_state.selected_sha, head).value_or(false);
+                }
             }
             // 사이드바에서 연 PR·MR 상세는 커밋·WIP 상세를 덮는다. 커밋을 고르면 controller가 PR 선택을 풀어 커밋 상세가 돌아온다.
             if (hosting.has_value() && hosting->detail.has_value())
                 view.detail = detail_mode::pull_request;
             view.hosting = std::move(hosting);
             view.detail_scroll = tab_state.detail_scroll;
+            view.commit_meta_scroll = tab_state.commit_meta_scroll;
             if (tab_state.diff.has_value())
                 view.diff = build_diff(session, *tab_state.diff, tab_state.diff_scroll, ui.diff_surface);
             graph.labels = std::move(labels);
@@ -771,6 +823,16 @@ namespace cyella {
         if (elapsed < year)
             return count(elapsed / month) + u8"개월 전";
         return count(elapsed / year) + u8"년 전";
+    }
+
+    std::u8string absolute_time_text(const std::int64_t seconds)
+    {
+        // 시간대 조회는 한 번만 한다. 실패를 매 frame 예외로 되풀이하지 않는다.
+        static const std::chrono::time_zone* const zone { local_time_zone() };
+        const std::chrono::sys_seconds point { std::chrono::seconds { seconds } };
+        if (zone == nullptr)
+            return to_u8(std::format("{:%Y-%m-%d %H:%M} UTC", point));
+        return to_u8(std::format("{:%Y-%m-%d %H:%M}", std::chrono::zoned_time { zone, point }));
     }
 
     std::u8string operation_display_name(const operation_kind kind)

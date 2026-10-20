@@ -146,9 +146,13 @@ namespace cyella::ui {
 
     std::unique_ptr<luil::ui_element> build_commit_ci_line(const ci_mark_view& ci)
     {
-        std::u8string text { ci_prefix(ci.state) + ci.text };
+        // 커밋 상세의 "CI" 라벨 칸 옆에 서므로 값 앞의 "CI "는 뺀다 ("CI  ✓ 통과 · GitHub Actions").
+        std::u8string_view state { ci.text };
+        if (state.starts_with(u8"CI "))
+            state.remove_prefix(3);
+        std::u8string text { ci_prefix(ci.state) + std::u8string { state } };
         if (ci.source.empty() == false)
             text += u8" · " + ci.source;
-        return make_text(u8"detail-ci", std::move(text), text_style { .size = 11.0f, .color = ci_color(ci.state) });
+        return make_text(u8"detail-ci", std::move(text), text_style { .size = 12.0f, .color = ci_color(ci.state) });
     }
 } // namespace cyella::ui

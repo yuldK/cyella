@@ -82,6 +82,8 @@ namespace cyella {
     struct ui_settings
     {
         pane_widths_settings pane_widths {};
+        // 커밋 상세의 변경 파일을 폴더 트리로 본다. 거짓이면 경로 목록이다 (`commit_files_view`: list·tree).
+        bool commit_files_tree { false };
 
         [[nodiscard]] bool operator==(const ui_settings&) const noexcept = default;
     };

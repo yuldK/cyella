@@ -572,11 +572,11 @@ namespace cyella::ui {
             }
             if (rects.detail_is_drawer == false && rects.detail.empty() == false)
             {
-                root->place(build_detail(view, repository, false, sources), rects.detail);
+                root->place(build_detail(view, repository, false, rects.detail.width, rects.detail.height, sources), rects.detail);
                 root->place(make_splitter(false), rects.detail_splitter);
             }
             else if (rects.detail_is_drawer)
-                root->place(drawer_frame(build_detail(view, repository, true, sources)), rects.detail);
+                root->place(drawer_frame(build_detail(view, repository, true, rects.detail.width, rects.detail.height, sources)), rects.detail);
             if (view.mode == layout_mode::narrow && repository.rail_section.has_value())
             {
                 const float height { std::min(rects.body.height - 8.0f, 420.0f) };
@@ -634,6 +634,8 @@ namespace cyella::ui {
             built.feedback.sidebar_maximum = sources.sidebar->metrics().maximum_scroll;
         if (sources.detail != nullptr)
             built.feedback.detail_maximum = sources.detail->metrics().maximum_scroll;
+        if (sources.commit_meta != nullptr)
+            built.feedback.commit_meta_maximum = sources.commit_meta->metrics().maximum_scroll;
         if (sources.diff != nullptr)
             built.feedback.diff_maximum = sources.diff->metrics().maximum_scroll;
         if (sources.log != nullptr)
