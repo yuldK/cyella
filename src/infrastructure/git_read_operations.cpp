@@ -255,6 +255,14 @@ namespace cyella {
                 if (counted.accepted)
                     apply_numstat(source == diff_source::staged ? std::span<file_change> { status.staged } : std::span<file_change> { status.unstaged }, parse_git_numstat(counted.standard_output));
             }
+            // 전체 refresh(`read_extension_snapshot`)와 같이 LFS 표시를 붙인다. 빠뜨리면 파일 감시가 낸 가벼운
+            // 새로 고침 뒤에 작업 영역의 LFS 배지가 사라진다.
+            if (repository_uses_lfs(context))
+            {
+                mark_lfs_changes(context, status.staged);
+                mark_lfs_changes(context, status.unstaged);
+                mark_lfs_changes(context, status.conflicts);
+            }
 
             status_loaded loaded {};
             apply_git_status(loaded.summary, status);

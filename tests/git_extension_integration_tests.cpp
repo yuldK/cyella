@@ -516,6 +516,12 @@ TEST_CASE("integration: lfs_track edits .gitattributes and tracked files are mar
     CHECK(big->is_lfs);
     CHECK_FALSE(plain->is_lfs);
 
+    // 파일 감시가 내는 가벼운 새로 고침(status만)도 LFS 표시를 지켜야 한다.
+    live.require_succeeded(live.run(repo, refresh_status_request {}));
+    const auto status_big { std::find_if(live.snapshot(repo).unstaged.begin(), live.snapshot(repo).unstaged.end(), [](const file_change& value) { return value.path == "big.bin"; }) };
+    REQUIRE(status_big != live.snapshot(repo).unstaged.end());
+    CHECK(status_big->is_lfs);
+
     live.require_succeeded(live.run(repo, diff_file_request { .path = "big.bin" }));
     REQUIRE(live.session(repo).selected_diff().has_value());
     REQUIRE(live.session(repo).selected_diff()->files.size() == 1);
