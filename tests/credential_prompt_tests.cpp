@@ -43,6 +43,20 @@ TEST_CASE("classifier reads the ssh-keygen and ssh-add passphrase shapes", "[cre
     CHECK(no_file.key_path.empty());
 }
 
+TEST_CASE("classifier reads the passphrase prompt of ssh-keygen -Y sign used by git commit -S", "[credential]")
+{
+    // ssh 서명은 git이 `ssh-keygen -Y sign -f <키>`를 부르고, 이 도구가 키 경로를 큰따옴표로 감싸 askpass에 넘긴다
+    // (Git for Windows의 ssh-keygen에서 `SSH_ASKPASS_REQUIRE=force`로 직접 얻은 값이다). 경로 구분자가 역슬래시다.
+    const credential_prompt signing { classify_credential_prompt(u8"Enter passphrase for \"C:\\Users\\x\\.ssh\\id_ed25519\": ") };
+    CHECK(signing.kind == credential_prompt_kind::ssh_key_passphrase);
+    CHECK(signing.key_path == u8"C:\\Users\\x\\.ssh\\id_ed25519");
+    CHECK(credential_prompt_expects_secret(signing.kind));
+
+    const credential_prompt slashes { classify_credential_prompt(u8"Enter passphrase for \"C:/Users/홍 길동/.ssh/id_ed25519\": ") };
+    CHECK(slashes.kind == credential_prompt_kind::ssh_key_passphrase);
+    CHECK(slashes.key_path == u8"C:/Users/홍 길동/.ssh/id_ed25519");
+}
+
 TEST_CASE("classifier separates new key passphrase prompts from the unlock prompt", "[credential]")
 {
     const credential_prompt with_file { classify_credential_prompt(u8"Enter passphrase for \"g\" (empty for no passphrase): ") };

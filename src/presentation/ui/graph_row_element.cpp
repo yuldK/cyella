@@ -2,6 +2,7 @@
 
 #include "presentation/dialog_intents.h"
 #include "presentation/drop_hints.h"
+#include "presentation/signing_view.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/ui_helpers.h"
@@ -29,6 +30,9 @@ namespace cyella::ui {
         constexpr float label_font_size { 11.0f };
         constexpr float label_max_text { 140.0f };
         constexpr float cell_padding { 8.0f };
+        // 서명이 있는 커밋의 제목 앞 표지다.
+        constexpr float signature_mark_size { 13.0f };
+        constexpr float signature_mark_gap { 4.0f };
 
         char32_t label_glyph(const ref_label& label) noexcept
         {
@@ -388,7 +392,35 @@ namespace cyella::ui {
                     x + summary - padding - count_x, small, luil::solid_paint(context.palette.warning_accent)));
         }
         else if (summary > padding * 2.0f)
-            static_cast<void>(luil::draw_text_within(context.canvas, data_.subject, x + padding, baseline, summary - padding * 2.0f, body, luil::solid_paint(context.palette.primary_foreground)));
+        {
+            float text_x { x + padding };
+            float text_width { summary - padding * 2.0f };
+            // 서명이 있는 커밋은 제목 앞에 작은 표지를 단다: 확인됨은 채운 방패, 그 밖은 방패에 물음표 느낌의 빈 표지다.
+            if (data_.signature_known && is_signed(data_.signature) && text_width > (signature_mark_size + signature_mark_gap) * scale * 2.0f)
+            {
+                const bool verified { data_.signature == signature_status::good };
+                luil::ui_color mark_color { context.palette.secondary_foreground };
+                switch (signature_tone_of(data_.signature))
+                {
+                case signature_tone::good:
+                    mark_color = success_color(context.palette);
+                    break;
+                case signature_tone::warning:
+                    mark_color = context.palette.warning_accent;
+                    break;
+                case signature_tone::bad:
+                    mark_color = context.palette.error_accent;
+                    break;
+                case signature_tone::neutral:
+                    break;
+                }
+                luil::draw_centered_glyph(context.canvas, verified ? codicons::icon_verified_filled : codicons::icon_unverified, { text_x, box.y, signature_mark_size * scale, box.height },
+                    icon_font(context, signature_mark_size), luil::solid_paint(mark_color));
+                text_x += (signature_mark_size + signature_mark_gap) * scale;
+                text_width -= (signature_mark_size + signature_mark_gap) * scale;
+            }
+            static_cast<void>(luil::draw_text_within(context.canvas, data_.subject, text_x, baseline, text_width, body, luil::solid_paint(context.palette.primary_foreground)));
+        }
         x += summary;
         draw_children(context, interaction);
         if (columns_.compact || data_.wip)

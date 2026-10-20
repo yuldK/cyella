@@ -203,6 +203,48 @@ namespace cyella {
         ++revision_;
     }
 
+    const commit_signature* repository_session::signature_of(const std::string& sha) const noexcept
+    {
+        const auto found { signatures_.find(sha) };
+        return found == signatures_.end() ? nullptr : &found->second;
+    }
+
+    bool repository_session::signature_requested(const std::string& sha) const noexcept
+    {
+        return requested_signatures_.contains(sha) || signatures_.contains(sha);
+    }
+
+    void repository_session::note_signatures_requested(const std::vector<std::string>& shas)
+    {
+        requested_signatures_.insert(shas.begin(), shas.end());
+    }
+
+    void repository_session::abandon_signatures_requested(const std::vector<std::string>& shas)
+    {
+        for (const std::string& sha : shas)
+            requested_signatures_.erase(sha);
+    }
+
+    void repository_session::forget_signatures()
+    {
+        if (signatures_.empty() && requested_signatures_.empty())
+            return;
+        signatures_.clear();
+        requested_signatures_.clear();
+        ++revision_;
+    }
+
+    bool repository_session::apply(const signatures_verified& event)
+    {
+        for (const commit_signature& signature : event.signatures)
+        {
+            signatures_[signature.sha] = signature;
+            requested_signatures_.erase(signature.sha);
+        }
+        ++revision_;
+        return true;
+    }
+
     void repository_session::apply_known_remote_tags()
     {
         for (const auto& [remote, tags] : remote_tags_)

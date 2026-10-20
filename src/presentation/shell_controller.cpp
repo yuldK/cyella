@@ -134,6 +134,11 @@ namespace cyella {
         result.default_key_comment = dependencies_.default_key_comment;
         result.ssh_tools_found = dependencies_.ssh_tools_found;
         result.ssh_tools_origin = dependencies_.ssh_tools_origin;
+        // 서명 쪽이다.
+        result.request_signing_info = dependencies_.request_signing_info;
+        result.write_signing_config = dependencies_.write_signing_config;
+        result.selected_repository_path = [this] { return selected_repository_path(); };
+        result.signing_changed = [this](const bool global) { on_signing_changed(global); };
         result.hosting_rows = [this](const std::vector<hosting_host_setting>& configured) { return hosting_.host_rows(configured); };
         result.hosting_sign_out = [this](const std::string& host_key) { hosting_.sign_out(host_key); };
         return result;
@@ -306,6 +311,9 @@ namespace cyella {
         case text_target::settings_key_name:
         case text_target::settings_key_comment:
         case text_target::settings_test_host:
+        case text_target::settings_signing_gpg_program:
+        case text_target::settings_signing_ssh_program:
+        case text_target::settings_signing_allowed_signers:
         case text_target::settings_hosting_host:
         case text_target::settings_hosting_api_base:
         case text_target::settings_shortcut_input:
@@ -446,6 +454,7 @@ namespace cyella {
         *value = std::max(next, 0.0f);
         if (intent.target == scroll_target::graph)
             maybe_load_more();
+        request_visible_signatures();
     }
 
     void shell_controller::handle_select_commit(const select_commit_intent& intent)
@@ -470,6 +479,8 @@ namespace cyella {
         if (found->sha != graph_wip_sha)
         {
             static_cast<void>(submit(show_commit_request { found->sha }));
+            // 상세 패널의 서명 배지다. 그래프에 보이는 행으로 이미 읽었으면 workspace가 뺀다.
+            request_signatures({ found->sha });
             hosting_.on_commit_selected(session->id(), found->sha);
         }
         // medium·narrow에서는 상세가 서랍이라 고르면 연다.
@@ -542,7 +553,9 @@ namespace cyella {
         std::u8string message { subject };
         if (body.empty() == false)
             message += u8"\n\n" + body;
-        tab->pending_commit = submit(commit_request { .message = to_text(message), .amend = tab->amend, .stage_all = false });
+        const repository_session* const session { selected_session() };
+        const std::optional<bool> sign { session != nullptr ? commit_sign_request(*tab, session->snapshot()) : std::nullopt };
+        tab->pending_commit = submit(commit_request { .message = to_text(message), .amend = tab->amend, .stage_all = false, .sign = sign });
     }
 
     void shell_controller::handle_folder(const folder_chosen_intent& intent)
@@ -885,6 +898,9 @@ namespace cyella {
         // submodule·worktree·LFS와 인터랙티브 rebase 편집기의 메시지다.
         if (handle_extension_message(message) || handle_rebase_entry(message) || rebase_.handle(message) || hosting_.handle(message))
             return true;
+        // 커밋 서명의 메시지다.
+        if (handle_signing_message(message))
+            return true;
         return handle_dialog_message(message);
     }
 
@@ -1027,6 +1043,7 @@ namespace cyella {
             it = trusted_retries_.erase(it);
         }
         maybe_load_more();
+        request_visible_signatures();
         // 선택된 저장소의 작성자 신원을 읽고, 규칙에 맞는 프로필이 있으면 제안한다.
         sync_identity();
     }

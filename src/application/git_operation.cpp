@@ -125,6 +125,8 @@ namespace cyella {
                 return operation_kind::unset_upstream;
             else if constexpr (std::is_same_v<request_type, trash_files_request>)
                 return operation_kind::trash_files;
+            else if constexpr (std::is_same_v<request_type, verify_signatures_request>)
+                return operation_kind::verify_signatures;
             else
                 return operation_kind::refresh;
         }
@@ -158,6 +160,7 @@ namespace cyella {
         case operation_kind::refresh_status:
         case operation_kind::inspect_path:
         case operation_kind::load_rebase_plan:
+        case operation_kind::verify_signatures:
             return operation_lane::read;
         case operation_kind::clone:
         case operation_kind::init:

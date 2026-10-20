@@ -63,6 +63,62 @@ namespace cyella {
             return false;
         }
 
+        // git이 `--status-fd=2`로 부르는 gpg의 `[GNUPG:] FAILURE sign <코드>`에서 코드의 아래 16비트(gpg-error 코드)를 읽는다.
+        // 위 비트는 오류를 낸 부품(gpg 8, gpg-agent 4)이라 부품마다 달라진다.
+        std::optional<std::uint32_t> read_gpg_failure_code(const std::string_view text) noexcept
+        {
+            constexpr std::string_view marker { "[GNUPG:] FAILURE sign " };
+            const std::size_t begin { text.find(marker) };
+            if (begin == std::string_view::npos)
+                return std::nullopt;
+            std::uint64_t value { 0 };
+            std::size_t index { begin + marker.size() };
+            std::size_t digits { 0 };
+            while (index < text.size() && is_ascii_digit(text[index]) && digits < 12)
+            {
+                value = value * 10u + static_cast<std::uint64_t>(text[index] - '0');
+                ++index;
+                ++digits;
+            }
+            if (digits == 0)
+                return std::nullopt;
+            return static_cast<std::uint32_t>(value & 0xFFFFu);
+        }
+
+        // 커밋·태그 서명이 실패한 출력인가. 문구마다 서명과 무관한 곳에서도 나올 수 있어(ssh 키 passphrase 오류는 fetch에서도 나온다)
+        // 서명 도구를 부르다 실패했다는 git의 문장과 함께 있을 때만 인정한다.
+        git_failure_kind classify_signing_text(const std::string_view text) noexcept
+        {
+            const std::optional<std::uint32_t> gpg_code { read_gpg_failure_code(text) };
+            // ssh 서명은 git이 gpg처럼 "failed to sign"이라고 말하지 않고 `fatal: failed to write commit object`로 끝난다. 그 문장만으로는
+            // 디스크 오류와 구별되지 않으므로 서명 도구가 낸 오류가 함께 있을 때만 서명 실패로 본다.
+            const bool tool_complained = contains_ignoring_case(text, "cannot spawn") || contains_ignoring_case(text, "Load key") || contains_ignoring_case(text, "ssh-keygen")
+                || contains_ignoring_case(text, "passphrase") || contains_ignoring_case(text, "gpg");
+            const bool git_says_signing_failed = contains_ignoring_case(text, "gpg failed to sign the data") || contains_ignoring_case(text, "unable to sign the tag")
+                || contains_ignoring_case(text, "failed to sign") || contains_ignoring_case(text, "Couldn't load public key")
+                || (contains_ignoring_case(text, "failed to write commit object") && tool_complained);
+            if (gpg_code.has_value() == false && git_says_signing_failed == false)
+                return git_failure_kind::unclassified;
+
+            // gpg-error 코드: 11 BAD_PASSPHRASE, 17 NO_SECKEY, 85 NO_PINENTRY, 99 CANCELED.
+            if (gpg_code == 17u || contains_ignoring_case(text, "No secret key") || contains_ignoring_case(text, "Couldn't load public key")
+                || contains_ignoring_case(text, "user.signingkey needs to be") || contains_ignoring_case(text, "No public key"))
+                return git_failure_kind::signing_key_missing;
+            constexpr std::array passphrase {
+                std::string_view { "No pinentry" },
+                std::string_view { "Bad passphrase" },
+                std::string_view { "Operation cancelled" },
+                std::string_view { "incorrect passphrase" },
+                std::string_view { "Inappropriate ioctl for device" },
+                std::string_view { "can't get input" },
+                std::string_view { "pinentry" },
+            };
+            if (gpg_code == 11u || gpg_code == 85u || gpg_code == 99u || contains_any(text, passphrase))
+                return git_failure_kind::signing_passphrase_failed;
+            // 서명 도구를 아예 실행하지 못한 경우 (`cannot spawn <program>`)도 여기다.
+            return git_failure_kind::signing_failed;
+        }
+
         git_failure_kind classify_text(const std::string_view text) noexcept
         {
             // 새 git은 `is already used by worktree at`, 옛 git은 `is already checked out at`이라고 한다. 경로와 이름만
@@ -82,6 +138,8 @@ namespace cyella {
             };
             if (contains_any(text, publickey))
                 return git_failure_kind::permission_denied_publickey;
+            if (const git_failure_kind signing { classify_signing_text(text) }; signing != git_failure_kind::unclassified)
+                return signing;
 
             // libcurl과 OpenSSH가 만드는 문구다. 둘 다 번역 catalog가 없다.
             constexpr std::array resolve {
@@ -232,6 +290,11 @@ namespace cyella {
         return std::nullopt;
     }
 
+    bool signing_failure_is_from_gpg(const std::string_view standard_error) noexcept
+    {
+        return contains_ignoring_case(standard_error, "[GNUPG:]") || contains_ignoring_case(standard_error, "gpg:") || contains_ignoring_case(standard_error, "gpg failed to sign");
+    }
+
     git_failure_kind classify_git_failure(const std::string_view standard_error, const std::string_view standard_output) noexcept
     {
         // stderr의 신호가 더 믿을 만하다. stdout은 충돌 문구처럼 git이 stdout으로
@@ -280,6 +343,12 @@ namespace cyella {
             return "not_possible_to_fast_forward";
         case git_failure_kind::branch_checked_out_elsewhere:
             return "branch_checked_out_elsewhere";
+        case git_failure_kind::signing_failed:
+            return "signing_failed";
+        case git_failure_kind::signing_key_missing:
+            return "signing_key_missing";
+        case git_failure_kind::signing_passphrase_failed:
+            return "signing_passphrase_failed";
         }
         return "unclassified";
     }
@@ -322,6 +391,12 @@ namespace cyella {
             return u8"fast-forward로 옮길 수 없습니다.";
         case git_failure_kind::branch_checked_out_elsewhere:
             return u8"이 브랜치는 다른 worktree에서 체크아웃되어 있어 옮길 수 없습니다.";
+        case git_failure_kind::signing_failed:
+            return u8"서명하지 못했습니다. 환경 설정의 서명에서 서명 프로그램(gpg·ssh-keygen)과 키를 확인하세요.";
+        case git_failure_kind::signing_key_missing:
+            return u8"서명할 키를 찾지 못했습니다. 환경 설정의 서명에서 키를 고르세요.";
+        case git_failure_kind::signing_passphrase_failed:
+            return u8"서명 키의 passphrase를 받지 못했습니다.";
         }
         return u8"명령이 실패했습니다.";
     }

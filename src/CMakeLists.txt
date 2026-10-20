@@ -314,6 +314,26 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/git_extensions"
     infrastructure/git_worktree_parser.cpp
     infrastructure/git_worktree_parser.h)
 
+# 커밋 서명: 서명 상태·설정·gpg 키 값 타입, git·gpg 출력 해석기, 명령 조립기, 검증 operation이다.
+cyella_add_source_filter(cyella_lib_files "domain/signing"
+    domain/commit_signature.cpp
+    domain/commit_signature.h
+    domain/gpg_key.h
+    domain/signing_config.cpp
+    domain/signing_config.h)
+
+cyella_add_source_filter(cyella_lib_files "infrastructure/signing"
+    infrastructure/git_signing_commands.cpp
+    infrastructure/git_signing_commands.h
+    infrastructure/git_signing_failure.cpp
+    infrastructure/git_signing_failure.h
+    infrastructure/git_signing_operations.cpp
+    infrastructure/git_signing_operations.h
+    infrastructure/git_signing_parser.cpp
+    infrastructure/git_signing_parser.h
+    infrastructure/signing_info.cpp
+    infrastructure/signing_info.h)
+
 # presentation: view snapshot을 luil element tree로 짓는 앱 element 계층이다.
 cyella_add_source_filter(cyella_lib_files "presentation/start_page"
     presentation/start_page_view.cpp
@@ -366,6 +386,19 @@ cyella_add_source_filter(cyella_lib_files "presentation/dialogs"
     presentation/shell_controller_selectors.cpp
     presentation/snapshot_dialogs.cpp
     presentation/snapshot_dialogs.h)
+
+# 커밋 서명의 화면 쪽이다: 서명 배지·표지 값, 커밋 상자의 서명 토글, 보이는 커밋의 서명 검증 요청.
+cyella_add_source_filter(cyella_lib_files "presentation/signing"
+    presentation/settings/signing_intents.h
+    presentation/settings/signing_page_controller.cpp
+    presentation/settings/signing_page_controller.h
+    presentation/settings/signing_page_state.h
+    presentation/settings/signing_page_view.cpp
+    presentation/settings/signing_page_view.h
+    presentation/shell_controller_signing.cpp
+    presentation/signing_intents.h
+    presentation/signing_view.cpp
+    presentation/signing_view.h)
 
 # 인터랙티브 rebase 편집기의 상태·메시지·규칙·snapshot과 그 controller다. luil 없이 test한다.
 cyella_add_source_filter(cyella_lib_files "presentation/rebase"
@@ -420,8 +453,11 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/screens"
     presentation/ui/repository_ui.cpp
     presentation/ui/sidebar_extension_rows.cpp
     presentation/ui/sidebar_extension_rows.h
+    presentation/ui/settings/settings_page_parts.h
     presentation/ui/settings/settings_ui.cpp
     presentation/ui/settings/settings_ui.h
+    presentation/ui/settings/signing_ui.cpp
+    presentation/ui/settings/signing_ui.h
     presentation/ui/start_page_ui.cpp
     presentation/ui/ui_parts.h)
 
@@ -488,7 +524,8 @@ cyella_add_source_filter(cyella_lib_files "platform/host"
     platform/win32/cyella_delegate.cpp
     platform/win32/cyella_delegate.h
     platform/win32/cyella_driver.cpp
-    platform/win32/cyella_driver.h)
+    platform/win32/cyella_driver.h
+    platform/win32/cyella_driver_signing.cpp)
 
 # 저장소별 사용자 프로필, 명령 팔레트, 단축키 설정이다. 새 파일은 이 블록에 모은다.
 cyella_add_source_filter(cyella_lib_files "domain/profiles"

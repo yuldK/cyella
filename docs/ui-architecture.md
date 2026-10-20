@@ -338,6 +338,45 @@ rebase_editor_controller (shell_controller가 소유, presentation/rebase/*)
 - UIA로 닿지 않는 몸짓(라벨 끌어 놓기, 우클릭 메뉴, 할 일 줄 끌기, p·r·s·f·d, Alt+↑↓)은 `tests/rebase_shell_tests.cpp`가 그 몸짓의 intent·element 콜백(`drop()`·`drag()`·
   `key_search()`)·정책(`on_key`)을 직접 불러 확인한다.
 
+## 커밋 서명
+
+결정은 [ADR-006](decisions/ADR-006-commit-signing.md)에 있다.
+
+```text
+refresh ─ read_signing_snapshot ─▶ repository_snapshot.signing  (commit.gpgsign 등 실효 값)  ─▶ 커밋 상자·태그 상자의 서명 기본값
+commit 선택·그래프 스크롤 ─▶ shell_controller.request_(visible_)signatures ─▶ verify_signatures(자동 operation, 읽기 lane)
+        └▶ signatures_verified ─▶ repository_session::signatures() ─▶ commit_detail_view::signature · graph_row_data::signature
+settings_controller ─ signing_page_controller ─ request_info/write ─▶ cyella_driver_signing.cpp ─▶ task_scheduler worker ─▶ signing_info_loaded_intent·signing_write_done_intent
+```
+
+- **커밋 상자**: amend 토글 옆의 "서명"(`commit-sign`)이다. 기본값은 `snapshot.signing.commit_signing()`이고 사용자가 누른 값은 `tab_ui_state::sign`(값이 없으면 설정을 따른다)이다.
+  `commit_request.sign`은 켜면 `true`(`-S`), 설정이 켜져 있는데 껐으면 `false`(`--no-gpg-sign`), 설정을 따르면 값 없음이다. ssh 형식인데 `user.signingkey`가 없으면 커밋 단추 아래
+  한 줄이 환경 설정으로 안내한다(`signing_setup_hint`). 서명하는 커밋은 passphrase를 기다리므로 시간 제한 없이 돌고 취소만 받는다.
+- **태그 대화 상자**: 종류 선택 아래에 "서명 (tag -s)" 체크가 선다(기본값 `tag.gpgsign`). 서명한 태그는 항상 annotated라 켜면 종류가 annotated로 옮겨가고(메시지 칸이 선다),
+  lightweight를 고르면 꺼진다. 설정이 서명인데 끄면 `create_tag_request.sign=false`(`--no-sign`)로 설정을 덮는다.
+- **상세 패널 배지**(`detail-signature`, `detail-signature-detail`, `-signer`, `-key`): "서명  서명 확인됨"·"알 수 없는 키"·"서명이 올바르지 않음"·"서명 만료"·"키 만료"·"키 폐기됨"·"확인할 수 없음"·"서명 없음".
+  읽는 동안은 "확인 중…"이다. ssh 서명이 `allowedSignersFile` 없이 읽히면 "확인할 수 없음 (allowed signers 없음)"과 이유 한 줄이다. 색은 확인됨 초록, 알 수 없음·만료·확인 불가 주황, 올바르지 않음·폐기 빨강이다.
+- **그래프 표지**: 서명이 있는 커밋(`none`이 아닌 것)의 제목 앞에 13px 방패(확인됨은 채운 방패, 그 밖은 빈 방패)를 같은 색으로 단다. 서명을 읽기 전과 서명 없는 커밋에는 없다.
+  요청은 보이는 행 앞 8행·뒤 24행(한 번에 40행까지)을 한 묶음으로 낸다(`shell_controller_signing.cpp`). 같은 커밋은 세션이 한 번만 읽고(`signature_requested`) 스크롤 때마다 새 묶음이 나가지 않는다.
+  표지는 행의 UIA 이름에 넣지 않는다(행 이름은 제목 그대로다).
+- **환경 설정 "서명" 쪽**(`settings_page::signing`, `presentation/settings/signing_page_*`, `ui/settings/signing_ui.cpp`): 위에서부터
+  1. 바꿀 범위(이 저장소 / 전역)와 새로고침. 전역을 고르면 모든 변경이 확인 상자(`settings-signing-confirm-*`)를 거친다. 저장소 탭이 없으면 전역만 선다.
+  2. "지금 적용되는 설정" 표: 일곱 설정의 적용되는 값·출처·이 저장소·전역 값(`settings-signing-effective-<키>`·`-origin-`·`-local-`·`-global-`).
+  3. commit.gpgsign·tag.gpgsign(켜기·끄기·설정 지우기), gpg.format(openpgp·ssh·지우기). 선택지의 값은 화면 안에서 유일해야 해서(항목이 값으로 id를 얻는다) `commit:enabled`처럼 그룹 접두어가 붙는다.
+  4. 서명 키: ssh면 SSH 화면이 읽은 `~/.ssh`의 공개 키(`<개인 키>.pub`, 슬래시 경로), openpgp면 `gpg --list-secret-keys --with-colons`의 비밀 키(지문). 만료·폐기·서명 불가 키는 [사용]이 꺼진다.
+  5. gpg.program(Git for Windows의 gpg를 찾아 [이 gpg로 정하기]), gpg.ssh.program, gpg.ssh.allowedSignersFile 입력과 [적용]·[지우기]. 절대 경로가 아니면 막는다.
+  읽기·쓰기는 SSH 화면처럼 worker가 한다(저장소 operation이 아니다: 저장소가 없어도 전역 설정을 보아야 하고 작업 로그에 남길 일이 아니다). gpg 키 목록은 gpg-agent를 띄우느라 수 초 걸릴 수 있어
+  설정을 먼저 보이고 키 목록을 따라 보낸다(`gpg_pending`). 입력 칸의 kind는 `kind_settings_signing_*_input`(400번부터), 텍스트 대상은 `text_target::settings_signing_*`(400번부터)이다. 명령·프로필 칸은 300번대를 쓴다.
+  쓰기가 끝나면 `shell_controller::on_signing_changed`가 읽어 둔 서명을 버리고 refresh를 낸다(전역이면 열린 모든 저장소).
+- 쪽 조각(`page_column`·`make_row`·`help_line`·`tone_color`·`code_line`…)은 `ui/settings/settings_page_parts.h`(`pages` namespace)에 있고, `settings_ui.cpp`의 일반·diff·SSH 쪽도 `using namespace pages`로 같은 조각을 쓴다.
+
+### 알아 둘 것
+
+- 태그 대화 상자는 우클릭 메뉴로만 열려 UI Automation으로 열 수 없다. `tests/signing_ui_tests.cpp`가 controller 수준에서 검증한다.
+- passphrase가 걸린 gpg 키는 Git for Windows의 `pinentry-w32`(GUI)가 창을 띄운다. gpg 서명·검증은 통합 test(`tests/signing_integration_tests.cpp`)가
+  passphrase 없는 임시 키로, 실패 분류는 실제 stderr 고정 출력으로 덮는다.
+- 서명 설정의 실효 값은 refresh가 읽는다. 터미널에서 `git config`로 바꾸면 `.git/config`는 감시가 알려 주지만 전역 파일은 감시하지 않으므로 다음 전체 새로 고침(F5, 쓰기 뒤의 자동 refresh)에 따라온다. 환경 설정 "서명" 쪽은 열 때와 [새로고침]에서 git에서 다시 읽는다.
+
 ## GitHub·GitLab 연동
 
 결정은 [ADR-007](decisions/ADR-007-hosting-integration.md)에 있다.

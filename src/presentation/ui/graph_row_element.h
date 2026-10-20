@@ -1,6 +1,7 @@
 #pragma once
 
 #include "domain/commit_graph_layout.h"
+#include "domain/commit_signature.h"
 #include "presentation/graph_geometry.h"
 
 #include "luil/ui/ui_element.h"
@@ -47,6 +48,9 @@ namespace cyella::ui {
         // 그 커밋의 항목 키(`graph_item_key`)와 SHA다. 행과 라벨 칩이 누르면 이 커밋을 고르고, 메뉴·끌어 놓기가 이 커밋을 가리킨다.
         std::u8string row_key {};
         std::string sha {};
+        // 세션이 읽어 둔 서명이다. 읽지 않았거나 서명이 없으면 표지를 달지 않는다.
+        bool signature_known { false };
+        signature_status signature { signature_status::none };
     };
 
     class ref_chip_element;

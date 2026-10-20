@@ -4,6 +4,7 @@
 #include "domain/path_syntax.h"
 #include "infrastructure/git_progress_parser.h"
 #include "infrastructure/git_query_parser.h"
+#include "infrastructure/git_signing_failure.h"
 
 #include <algorithm>
 #include <utility>
@@ -51,6 +52,12 @@ namespace cyella {
                 return failure_kind::not_possible_to_fast_forward;
             case git_failure_kind::branch_checked_out_elsewhere:
                 return failure_kind::branch_checked_out_elsewhere;
+            case git_failure_kind::signing_failed:
+                return failure_kind::signing_failed;
+            case git_failure_kind::signing_key_missing:
+                return failure_kind::signing_key_missing;
+            case git_failure_kind::signing_passphrase_failed:
+                return failure_kind::signing_passphrase_failed;
             }
             return failure_kind::other;
         }
@@ -300,7 +307,8 @@ namespace cyella {
         failure_kind kind { map_failure_kind(classified) };
         // 호스트 키 대화 상자를 닫은 것도 취소다. ssh는 답이 없으면 "Host key verification failed."로 끝나지만,
         // 사용자가 `no`라고 답한 것(`host_key_refused`)과는 다르다.
-        if ((kind == failure_kind::auth_failed || kind == failure_kind::host_key_refused) && authentication_cancelled_)
+        // 서명 키의 passphrase 대화 상자를 닫은 것도 같다. ssh-keygen이 빈 답으로 "incorrect passphrase"를 내므로 사용자가 취소한 것과 구별한다.
+        if ((kind == failure_kind::auth_failed || kind == failure_kind::host_key_refused || kind == failure_kind::signing_passphrase_failed) && authentication_cancelled_)
             kind = failure_kind::auth_cancelled;
 
         std::u8string detail { outcome.standard_error_text() };
@@ -323,6 +331,8 @@ namespace cyella {
             if (const auto path { find_checked_out_worktree_path(standard_error) }; path.has_value())
                 summary += u8" (" + to_utf8(*path) + u8")";
         }
+        if (kind == failure_kind::signing_failed || kind == failure_kind::signing_key_missing || kind == failure_kind::signing_passphrase_failed)
+            summary = signing_failure_summary(kind, standard_error);
         return operation_outcome::failed(kind, std::move(summary), std::move(detail));
     }
 

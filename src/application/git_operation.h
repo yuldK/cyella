@@ -151,6 +151,9 @@ namespace cyella {
         bool amend { false };
         // 커밋 전에 `add --all`을 한다.
         bool stage_all { false };
+        // 서명 여부다. 값이 없으면 git 설정(`commit.gpgsign`)을 따르고, 참이면 `-S`, 거짓이면 `--no-gpg-sign`이다.
+        // 서명 키는 항상 `user.signingkey`다. 참이면 passphrase를 기다릴 수 있어 시간 제한 없이 돌고 취소만 된다.
+        std::optional<bool> sign {};
     };
 
     // hunk·줄 단위 stage에 쓴다. C++이 만든 patch를 stdin으로 `git apply`에 넘긴다.
@@ -315,6 +318,9 @@ namespace cyella {
         // UI가 종류를 먼저 고른다. 메시지는 annotated일 때만 쓴다.
         bool annotated { false };
         std::string message {};
+        // 서명 여부다. 참이면 `tag -s`(서명한 주석 태그, `annotated`를 무시한다), 거짓이면 설정 `tag.gpgsign`을 덮어 서명하지 않는다
+        // (`--no-sign`). 값이 없으면 설정을 따른다.
+        std::optional<bool> sign {};
     };
 
     struct push_tag_request
@@ -517,6 +523,16 @@ namespace cyella {
         std::vector<std::string> paths {};
     };
 
+    // ------------------------------------------------------------------ 커밋 서명
+
+    // 커밋들의 서명을 검증한다 (읽기 lane). `log --no-walk --stdin`이 `%G?`·`%GS`·`%GK`를 돌려주고 결과는 `signatures_verified` 사건이다.
+    // 서명된 커밋마다 gpg·ssh-keygen이 한 번씩 돌아 느리므로 그래프 로그 스트림에 넣지 않고 화면이 필요한 커밋만 요청한다.
+    struct verify_signatures_request
+    {
+        // 전체 SHA다.
+        std::vector<std::string> shas {};
+    };
+
     using git_operation = std::variant<refresh_request, load_more_log_request, show_commit_request, diff_file_request, is_ancestor_request, count_commits_request, refresh_remote_tags_request,
         stage_files_request, unstage_files_request, discard_files_request, ignore_path_request, commit_request, apply_patch_request, checkout_branch_request, checkout_remote_branch_request,
         checkout_detached_request, create_branch_request, rename_branch_request, delete_branch_request, fetch_request, pull_request, push_execute_request, merge_request, rebase_request,
@@ -524,7 +540,7 @@ namespace cyella {
         push_tags_request, delete_tag_request, delete_remote_tag_request, sequence_control_request, resolve_file_request, mark_resolved_request, remove_stale_index_lock_request, clone_request,
         init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
         worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request, refresh_status_request, set_upstream_request,
-        unset_upstream_request, trash_files_request>;
+        unset_upstream_request, trash_files_request, verify_signatures_request>;
 
     // 실행 lane이다.
     enum class operation_lane

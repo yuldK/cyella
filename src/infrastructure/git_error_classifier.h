@@ -36,6 +36,12 @@ namespace cyella {
         not_possible_to_fast_forward,
         // 브랜치가 다른 worktree에 체크아웃되어 있다(`'x' is already used by worktree at '<경로>'`).
         branch_checked_out_elsewhere,
+        // 커밋·태그 서명이 실패했다. 아래 둘로 가르지 못한 경우(서명 프로그램을 실행하지 못했다 등)다.
+        signing_failed,
+        // 서명할 키가 없다 (gpg의 `No secret key`, ssh의 `Couldn't load public key`, `user.signingkey`가 비었다).
+        signing_key_missing,
+        // 키의 passphrase를 받지 못했다 (gpg의 `No pinentry`·`Bad passphrase`·`Operation cancelled`, ssh-keygen의 `incorrect passphrase`).
+        signing_passphrase_failed,
     };
 
     // `@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@` 뒤의 `Offending ... key in
@@ -53,6 +59,10 @@ namespace cyella {
     // `branch_checked_out_elsewhere` 실패의 stderr에서 브랜치가 체크아웃된 worktree 폴더를 읽는다.
     // `at '<경로>'`(새 git) 또는 `checked out at '<경로>'`(옛 git)의 따옴표 안이다. 읽지 못하면 값이 없다.
     [[nodiscard]] std::optional<std::string> find_checked_out_worktree_path(std::string_view standard_error);
+
+    // 서명 실패(`signing_*`)의 stderr가 gpg에서 온 것인가. 아니면 ssh-keygen(ssh 서명)이다. 안내 문구가 gpg-agent·pinentry와
+    // ssh-agent·passphrase 중 어느 쪽을 가리킬지 정하는 데 쓴다. gpg는 git이 `--status-fd=2`로 부르므로 `[GNUPG:]` 줄이 있다.
+    [[nodiscard]] bool signing_failure_is_from_gpg(std::string_view standard_error) noexcept;
 
     // git 실패 출력을 분류한다. 입력은 종료 코드가 0이 아닌 명령의 stderr이며, 병합
     // 충돌처럼 stdout으로 나오는 문구(`CONFLICT (...)`)를 위해 stdout도 받는다.

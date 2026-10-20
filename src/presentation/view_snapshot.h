@@ -19,6 +19,7 @@
 #include "presentation/rebase/rebase_editor_view.h"
 #include "presentation/settings/settings_view.h"
 #include "presentation/shell_layout.h"
+#include "presentation/signing_view.h"
 #include "presentation/start_page_view.h"
 #include "presentation/ui_state.h"
 
@@ -28,6 +29,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -261,6 +263,8 @@ namespace cyella {
         bool compact_columns { false };
         // 날짜 열의 "N분 전"을 셀 기준 시각이다 (유닉스 초).
         std::int64_t now { 0 };
+        // 세션이 읽어 둔 커밋 서명이다. 행에 서명 표지를 단다. 위의 포인터 규칙을 따른다.
+        const std::map<std::string, commit_signature>* signatures { nullptr };
     };
 
     struct file_row_view
@@ -300,6 +304,8 @@ namespace cyella {
         std::vector<file_row_view> files {};
         // 고른 커밋의 `show_commit` 결과가 아직 오지 않았다.
         bool loading { false };
+        // 서명 배지다. 서명 검증은 파일 목록과 따로 읽으므로 `loading`과 무관하게 먼저 보일 수 있다.
+        signature_view signature {};
     };
 
     struct working_area_view
@@ -319,6 +325,10 @@ namespace cyella {
         bool committing { false };
         // amend를 켰고 HEAD 커밋이 이미 upstream에 있다. 고쳐 쓰면 강제 push가 필요하다.
         bool amend_warning { false };
+        // 커밋 상자의 "서명" 토글이다. 켜져 있으면 `commit -S`다. 기본값은 설정 `commit.gpgsign`이다.
+        bool sign { false };
+        // 서명이 켜져 있는데 서명할 수 없는 설정이다 (ssh 서명인데 키가 없다). 단추 아래 한 줄로 알린다.
+        std::u8string sign_hint {};
     };
 
     struct diff_line_view

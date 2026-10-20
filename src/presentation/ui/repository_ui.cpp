@@ -3,6 +3,7 @@
 #include "presentation/dialog_intents.h"
 #include "presentation/extension_intents.h"
 #include "presentation/rebase/rebase_editor_intents.h"
+#include "presentation/signing_intents.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
@@ -33,8 +34,29 @@ namespace cyella::ui {
         constexpr std::size_t detail_body_line_limit { 10 };
         constexpr float commit_box_height { 172.0f };
         constexpr float amend_warning_extra { 44.0f };
+        // 커밋 상자에서 amend 토글 옆에 서는 서명 토글의 폭이다.
+        constexpr float sign_toggle_width { 76.0f };
 
         const color_selector dim_color { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
+
+        // 서명 배지의 색이다.
+        color_selector signature_color(const signature_tone tone)
+        {
+            return [tone](const luil::ui_color_palette& palette) {
+                switch (tone)
+                {
+                case signature_tone::good:
+                    return success_color(palette);
+                case signature_tone::warning:
+                    return palette.warning_accent;
+                case signature_tone::bad:
+                    return palette.error_accent;
+                case signature_tone::neutral:
+                    break;
+                }
+                return palette.secondary_foreground;
+            };
+        }
 
         std::unique_ptr<luil::ui_element> surface(std::u8string owner, std::unique_ptr<luil::ui_element> content, const bool window = false)
         {
@@ -322,6 +344,21 @@ namespace cyella::ui {
                 parents += (parents.empty() ? u8"" : u8", ") + parent;
             add(make_text(u8"detail-parents", u8"부모  " + (parents.empty() ? std::u8string { u8"(없음)" } : parents), text_style { .size = 11.0f, .color = dim_color, .code = true }),
                 detail_line_height);
+            // 서명 배지다. 서명 검증은 파일 목록과 따로 읽는다.
+            {
+                const signature_view& signature { commit.signature };
+                const signature_tone tone { signature.tone };
+                const color_selector badge_color { signature_color(tone) };
+                add(make_text(
+                        u8"detail-signature", u8"서명  " + signature.badge, text_style { .size = 11.0f, .color = badge_color, .bold = signature.known && signature.status != signature_status::none }),
+                    detail_line_height);
+                if (signature.description.empty() == false)
+                    add(make_text(u8"detail-signature-detail", signature.description, text_style { .size = 11.0f, .color = dim_color }), detail_line_height);
+                if (signature.signer.empty() == false)
+                    add(make_text(u8"detail-signature-signer", u8"서명자  " + signature.signer, text_style { .size = 11.0f, .color = dim_color }), detail_line_height);
+                if (signature.key.empty() == false)
+                    add(make_text(u8"detail-signature-key", u8"키  " + signature.key, text_style { .size = 11.0f, .color = dim_color, .code = true }), detail_line_height);
+            }
             // 커밋 우클릭 메뉴의 "여기서부터 인터랙티브 rebase…"와 같은 일이다. 키보드·보조 기술로도 닿는 자리다.
             {
                 auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"detail-actions" }, luil::stack_config { .direction = luil::stack_direction::row }) };
@@ -442,8 +479,14 @@ namespace cyella::ui {
             box->add(std::make_unique<luil::text_input_element>(
                          luil::ui_element_id { kind_commit_body_input, u8"commit-body" }, working.body, luil::text_input_config { .placeholder = u8"본문 (선택) — 무엇을 왜 바꿨는지" }),
                 28.0f);
+            // amend와 서명 토글은 한 줄이다. 서명 토글의 기본값은 설정 `commit.gpgsign`이다.
+            auto toggles
+                = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-toggles" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f });
             luil::check_config amend { .owner = u8"commit-amend", .label = u8"직전 커밋 수정(amend)", .checked = working.amend, .toggle = action_of(message(toggle_amend_intent {})) };
-            box->add(std::make_unique<luil::check_element>(std::move(amend)), luil::check_row_height);
+            toggles->add_flexible(std::make_unique<luil::check_element>(std::move(amend)));
+            luil::check_config sign { .owner = u8"commit-sign", .label = u8"서명", .checked = working.sign, .toggle = action_of(message(toggle_sign_intent {})) };
+            toggles->add(std::make_unique<luil::check_element>(std::move(sign)), sign_toggle_width);
+            box->add(std::move(toggles), luil::check_row_height);
             if (working.amend_warning)
             {
                 const color_selector warning { [](const luil::ui_color_palette& palette) { return palette.warning_accent; } };
@@ -452,7 +495,14 @@ namespace cyella::ui {
             }
             box->add(
                 make_text_button(u8"commit-button", working.commit_label, luil::text_button_visual::accent, message(commit_intent {}), working.can_commit, codicons::icon_git_commit, true), 30.0f);
-            box->add(make_text(u8"commit-blocked", working.blocked_reason, text_style { .size = 11.0f, .color = dim_color }), 16.0f);
+            // 커밋 단추가 막힌 이유가 없을 때는 서명 설정의 문제를 같은 자리에 알린다.
+            if (working.blocked_reason.empty() && working.sign_hint.empty() == false)
+            {
+                const color_selector warning { [](const luil::ui_color_palette& palette) { return palette.warning_accent; } };
+                box->add(make_text(u8"commit-blocked", working.sign_hint, text_style { .size = 11.0f, .color = warning }), 16.0f);
+            }
+            else
+                box->add(make_text(u8"commit-blocked", working.blocked_reason, text_style { .size = 11.0f, .color = dim_color }), 16.0f);
             column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"commit-box-bar" }, bar_style { .divider_top = true }, std::move(box)),
                 commit_box_height + (working.amend_warning ? amend_warning_extra : 0.0f));
             return column;
@@ -586,6 +636,12 @@ namespace cyella::ui {
             data.head = commit.sha == graph_state.head_sha;
             data.row_key = graph_item_key(commit.sha);
             data.sha = commit.sha;
+            if (graph_state.signatures != nullptr)
+                if (const auto signature { graph_state.signatures->find(commit.sha) }; signature != graph_state.signatures->end())
+                {
+                    data.signature_known = true;
+                    data.signature = signature->second.status;
+                }
             if (data.wip == false)
             {
                 data.subject = to_u8(commit.subject);

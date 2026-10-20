@@ -1,0 +1,4 @@
+error: cannot spawn /scratch/nowhere/gpg.exe: No such file or directory
+error: gpg failed to sign the data:
+(no gpg output)
+fatal: failed to write commit object

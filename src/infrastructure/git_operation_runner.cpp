@@ -3,6 +3,7 @@
 #include "domain/path_syntax.h"
 #include "infrastructure/git_extension_operations.h"
 #include "infrastructure/git_operation_context.h"
+#include "infrastructure/git_signing_operations.h"
 
 #include <exception>
 #include <stdexcept>
@@ -20,6 +21,9 @@ namespace cyella {
             // submodule·worktree·Git LFS의 operation이다.
             if (std::optional<operation_outcome> extension { run_extension_operation(context) }; extension.has_value())
                 return std::move(*extension);
+            // 커밋 서명의 operation이다.
+            if (std::optional<operation_outcome> signing { run_signing_operation(context) }; signing.has_value())
+                return std::move(*signing);
             if (operation_lane_of(kind) == operation_lane::read)
                 return run_read_operation(context);
             return run_write_operation(context);

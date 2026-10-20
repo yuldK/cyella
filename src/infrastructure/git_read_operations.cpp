@@ -7,6 +7,7 @@
 #include "infrastructure/git_log_parser.h"
 #include "infrastructure/git_query_parser.h"
 #include "infrastructure/git_ref_parser.h"
+#include "infrastructure/git_signing_operations.h"
 #include "infrastructure/git_stash_parser.h"
 #include "infrastructure/git_text.h"
 
@@ -216,6 +217,7 @@ namespace cyella {
             snapshot.unstaged = std::move(status.unstaged);
             snapshot.conflicts = std::move(status.conflicts);
             read_extension_snapshot(context, snapshot);
+            read_signing_snapshot(context, snapshot);
 
             const bool has_head { snapshot.summary.head_sha.empty() == false };
             const bool has_refs { snapshot.refs.empty() == false };

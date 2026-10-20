@@ -191,8 +191,11 @@ namespace cyella {
             options.amend = request.amend;
             // amend에서 메시지를 비우면 기존 메시지를 쓴다. 새 커밋의 빈 메시지는 git이 거절한다.
             options.keep_message = request.amend && request.message.empty();
+            options.sign = request.sign;
             const std::string message { options.keep_message ? std::string {} : with_trailing_newline(request.message) };
-            return run_single(context, make_git_commit_args(options), git_command_class::local_write, request.amend ? u8"직전 커밋을 고쳤습니다." : u8"커밋했습니다.", message);
+            // 서명하면 gpg의 pinentry나 ssh 키 passphrase 대화 상자를 사용자가 열 때까지 기다린다. 그동안 시간 제한(300초)으로 끊지 않고 취소만 받는다.
+            const git_command_class command_class { request.sign == true ? git_command_class::network : git_command_class::local_write };
+            return run_single(context, make_git_commit_args(options), command_class, request.amend ? u8"직전 커밋을 고쳤습니다." : u8"커밋했습니다.", message);
         }
 
         // 추적하지 않는 파일을 휴지통으로 보낸다. git을 실행하지 않는 파일 연산이다.
@@ -356,13 +359,17 @@ namespace cyella {
 
         operation_outcome create_tag(git_operation_context& context, const create_tag_request& request)
         {
-            if (request.annotated)
+            const bool signed_tag { request.sign == true };
+            const bool no_sign { request.sign == false };
+            // 서명한 태그는 항상 주석 태그다 (`tag -s`). passphrase를 기다릴 수 있어 시간 제한 없이 돈다.
+            if (request.annotated || signed_tag)
             {
                 // annotated 태그는 메시지가 필요하다. 비우면 이름을 메시지로 쓴다.
                 const std::string message { with_trailing_newline(request.message.empty() ? request.name : request.message) };
-                return run_single(context, make_git_annotated_tag_args(request.name, request.sha), git_command_class::local_write, name_of(request.name) + u8" 태그를 만들었습니다.", message);
+                git_arguments arguments { signed_tag ? make_git_signed_tag_args(request.name, request.sha) : make_git_annotated_tag_args(request.name, request.sha, no_sign) };
+                return run_single(context, std::move(arguments), signed_tag ? git_command_class::network : git_command_class::local_write, name_of(request.name) + u8" 태그를 만들었습니다.", message);
             }
-            return run_single(context, make_git_tag_args(request.name, request.sha), git_command_class::local_write, name_of(request.name) + u8" 태그를 만들었습니다.");
+            return run_single(context, make_git_tag_args(request.name, request.sha, no_sign), git_command_class::local_write, name_of(request.name) + u8" 태그를 만들었습니다.");
         }
 
         git_arguments sequence_arguments(const operation_kind kind)

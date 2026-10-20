@@ -134,10 +134,12 @@ TEST_CASE("selecting a commit submits show_commit and WIP does not", "[presentat
     std::vector<commit_info> commits { { .sha = sha_of(2), .parents = { sha_of(1) } }, { .sha = sha_of(1) } };
     REQUIRE(session->apply(commits_loaded { .generation = generation, .commits = commits, .page_complete = true, .history_complete = true }));
 
-    const std::size_t before { test.dispatcher.pending() };
     REQUIRE(test.send(select_commit_intent { u8"WIP" }));
     CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).selected_sha == "WIP");
-    CHECK(test.dispatcher.pending() == before);
+    // WIP 행은 show_commit을 내지 않는다. (보이는 커밋의 서명을 읽는 자동 operation은 나갈 수 있다.)
+    for (const operation_id id : test.workspace.operation_order())
+        CHECK(test.workspace.find_operation(id)->kind != operation_kind::show_commit);
+    const std::size_t before { test.dispatcher.pending() };
 
     REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(1)) }));
     CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).selected_sha == sha_of(1));

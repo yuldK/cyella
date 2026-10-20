@@ -67,10 +67,22 @@ namespace cyella {
         {
             return kind == input_kind::passphrase || kind == input_kind::host_key || kind == input_kind::credentials;
         }
+
+        // 서명 쪽이 빌리는 길이다.
+        signing_page_controller::dependencies signing_dependencies(const settings_controller::dependencies& source)
+        {
+            signing_page_controller::dependencies result {};
+            result.request_info = source.request_signing_info;
+            result.write = source.write_signing_config;
+            result.repository_path = source.selected_repository_path;
+            result.changed = source.signing_changed;
+            return result;
+        }
     } // namespace
 
     settings_controller::settings_controller(dependencies dependencies)
         : dependencies_ { std::move(dependencies) }
+        , signing_ { signing_dependencies(dependencies_) }
     {}
 
     void settings_controller::apply_scroll_maximum(const std::optional<float> maximum)
@@ -101,6 +113,10 @@ namespace cyella {
             return &state.key_comment;
         case text_target::settings_test_host:
             return &state.test_host;
+        case text_target::settings_signing_gpg_program:
+        case text_target::settings_signing_ssh_program:
+        case text_target::settings_signing_allowed_signers:
+            return signing_.draft(target);
         case text_target::settings_hosting_host:
             return &state.hosting_host;
         case text_target::settings_hosting_api_base:
@@ -147,6 +163,9 @@ namespace cyella {
         state_ = std::move(state);
         scroll_maximum_.reset();
         request_ssh_info();
+        signing_.on_closed();
+        if (page == settings_page::signing)
+            signing_.on_page_opened();
     }
 
     void settings_controller::request_ssh_info()
@@ -280,8 +299,12 @@ namespace cyella {
         if (message.get<close_settings_intent>() != nullptr)
         {
             state_.reset();
+            signing_.on_closed();
             return true;
         }
+        // "서명" 쪽의 메시지다. 화면이 닫힌 뒤에 늦게 온 결과는 삼킨다.
+        if (signing_.handle(message, state_.has_value()))
+            return true;
         if (const auto* const intent { message.get<ssh_info_loaded_intent>() }; intent != nullptr)
         {
             // 닫은 뒤에 도착한 결과는 버린다.
@@ -333,8 +356,10 @@ namespace cyella {
             state.page = page_intent->page;
             state.scroll = 0.0f;
             state.message.clear();
-            if (page_intent->page == settings_page::ssh && state.ssh.has_value() == false && state.ssh_loading == false)
+            if ((page_intent->page == settings_page::ssh || page_intent->page == settings_page::signing) && state.ssh.has_value() == false && state.ssh_loading == false)
                 request_ssh_info();
+            if (page_intent->page == settings_page::signing)
+                signing_.on_page_opened();
         }
         else if (const auto* const scrolled { message.get<settings_scroll_intent>() }; scrolled != nullptr)
         {
@@ -468,6 +493,7 @@ namespace cyella {
         if (dependencies_.hosting_rows != nullptr)
             inputs.hosting_hosts = dependencies_.hosting_rows(dependencies_.settings().hosting.hosts);
         settings_view view { build_settings_view(inputs) };
+        view.signing = signing_.make_view(state_->ssh.has_value() ? &*state_->ssh : nullptr, dependencies_.probe, composition);
         // 단축키와 사용자 프로필 쪽은 열려 있을 때만 짓는다.
         if (state_->page == settings_page::shortcuts)
             view.shortcuts = build_shortcuts_page_view(dependencies_.settings(), state_->shortcut_edit, composition);

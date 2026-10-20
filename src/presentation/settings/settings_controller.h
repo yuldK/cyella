@@ -8,6 +8,7 @@
 #include "presentation/settings/settings_intents.h"
 #include "presentation/settings/settings_state.h"
 #include "presentation/settings/settings_view.h"
+#include "presentation/settings/signing_page_controller.h"
 #include "presentation/ui_state.h"
 
 #include "luil/ui/app_message.h"
@@ -44,6 +45,12 @@ namespace cyella {
             std::u8string default_key_comment {};
             bool ssh_tools_found { false };
             std::u8string ssh_tools_origin {};
+            // "서명" 쪽이 worker에게 시킬 일과 선택한 탭의 저장소 폴더다.
+            std::function<void(const std::u8string& repository_path)> request_signing_info {};
+            std::function<void(bool global, const std::u8string& repository_path, std::vector<signing_change> changes)> write_signing_config {};
+            std::function<std::u8string()> selected_repository_path {};
+            // 서명 설정을 바꾸는 데 성공했다 (전역 여부).
+            std::function<void(bool global)> signing_changed {};
             // 호스팅 화면이 쓴다. 호스트 줄(내장 호스트 + 설정의 표 + 로그인 상태)과 메모리 토큰을 잊는 길이다.
             std::function<std::vector<hosting_host_row_view>(const std::vector<hosting_host_setting>&)> hosting_rows {};
             std::function<void(const std::string& host_key)> hosting_sign_out {};
@@ -98,6 +105,7 @@ namespace cyella {
         void handle_profile_message(const luil::app_message& message);
 
         dependencies dependencies_ {};
+        signing_page_controller signing_;
         std::optional<settings_state> state_ {};
         std::optional<float> scroll_maximum_ {};
         // 목록을 이미 다시 읽은 키 만들기 operation이다.

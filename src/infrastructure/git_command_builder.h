@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -131,6 +132,9 @@ namespace cyella {
         // amend할 때 메시지를 바꾸지 않는다(`--no-edit`). 이 경우 stdin이 필요 없다.
         bool keep_message { false };
         bool allow_empty { false };
+        // 서명 여부다. 값이 없으면 git 설정(`commit.gpgsign`)을 따른다. 참이면 `-S`(`user.signingkey`의 키로 서명),
+        // 거짓이면 설정과 무관하게 `--no-gpg-sign`이다.
+        std::optional<bool> sign {};
     };
 
     // 메시지는 stdin으로 받는다(`commit -F -`). 명령줄 길이와 인용 문제를 피하고 여러 줄
@@ -244,11 +248,15 @@ namespace cyella {
 
     // ------------------------------------------------------------------ 태그
 
-    // `tag -- <name> [<target>]`. lightweight.
-    [[nodiscard]] git_arguments make_git_tag_args(std::string_view name, std::string_view target = {});
+    // `tag [--no-sign] -- <name> [<target>]`. lightweight. `tag.gpgsign`이 켜져 있으면 git이 가벼운 태그도 서명한 주석 태그로 만들려다
+    // 메시지가 없어 실패하므로, 사용자가 서명을 껐을 때는 `no_sign`으로 설정을 덮는다.
+    [[nodiscard]] git_arguments make_git_tag_args(std::string_view name, std::string_view target = {}, bool no_sign = false);
 
-    // `tag -a -F - -- <name> [<target>]`. 메시지는 stdin으로 넘긴다.
-    [[nodiscard]] git_arguments make_git_annotated_tag_args(std::string_view name, std::string_view target = {});
+    // `tag -a [--no-sign] -F - -- <name> [<target>]`. 메시지는 stdin으로 넘긴다.
+    [[nodiscard]] git_arguments make_git_annotated_tag_args(std::string_view name, std::string_view target = {}, bool no_sign = false);
+
+    // `tag -s -F - -- <name> [<target>]`. 서명한 주석 태그다. 서명 키는 `user.signingkey`다. 메시지는 stdin으로 넘긴다.
+    [[nodiscard]] git_arguments make_git_signed_tag_args(std::string_view name, std::string_view target = {});
 
     // `tag -d -- <name>`.
     [[nodiscard]] git_arguments make_git_delete_tag_args(std::string_view name);

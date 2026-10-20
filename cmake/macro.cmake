@@ -96,8 +96,13 @@ function(cyella_add_clang_format_targets)
         message(FATAL_ERROR "No source files were found for clang-format.")
     endif()
 
+    # 파일이 많아지면 명령줄이 Windows의 한도(32 KiB)를 넘는다. 목록을 파일로 써서 `--files`로 넘긴다.
+    set(format_file_list "${CMAKE_CURRENT_BINARY_DIR}/${arguments_FORMAT_TARGET}_files.txt")
+    list(JOIN format_sources "\n" format_file_list_text)
+    file(WRITE "${format_file_list}" "${format_file_list_text}\n")
+
     add_custom_target("${arguments_FORMAT_TARGET}"
-        COMMAND "${arguments_CLANG_FORMAT_EXECUTABLE}" -i ${format_sources}
+        COMMAND "${arguments_CLANG_FORMAT_EXECUTABLE}" -i "--files=${format_file_list}"
         COMMENT "Applying clang-format to project C++ sources"
         VERBATIM)
 
@@ -107,7 +112,7 @@ function(cyella_add_clang_format_targets)
                 "${arguments_CLANG_FORMAT_EXECUTABLE}"
                 --dry-run
                 --Werror
-                ${format_sources}
+                "--files=${format_file_list}"
             COMMAND ${arguments_CHECK_COMMAND}
             COMMENT "Checking clang-format and project source style"
             VERBATIM)
@@ -117,7 +122,7 @@ function(cyella_add_clang_format_targets)
                 "${arguments_CLANG_FORMAT_EXECUTABLE}"
                 --dry-run
                 --Werror
-                ${format_sources}
+                "--files=${format_file_list}"
             COMMENT "Checking clang-format"
             VERBATIM)
     endif()

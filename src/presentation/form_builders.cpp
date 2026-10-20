@@ -1,6 +1,7 @@
 #include "presentation/form_builders.h"
 
 #include "domain/ref_name.h"
+#include "presentation/signing_view.h"
 #include "presentation/ui_state.h"
 
 #include <algorithm>
@@ -225,6 +226,11 @@ namespace cyella {
         form.choices.push_back({ .label = u8"lightweight (이름만)" });
         form.choices.push_back({ .label = u8"annotated (메시지·작성자·날짜를 남김)" });
         form.chosen = dialog.choice;
+        // 서명 토글이다. 기본값은 설정 `tag.gpgsign`이다.
+        form.checks.push_back({ .label = u8"서명 (tag -s)", .checked = dialog.flag_b });
+        if (dialog.flag_b)
+            if (const std::u8string hint { signing_setup_hint(snapshot.signing, true) }; hint.empty() == false)
+                form.warnings.push_back({ .text = hint, .warning = true });
         if (annotated)
             form.fields.push_back(make_field(context, 1, u8"태그 메시지", u8"이 태그가 무엇인지 한 줄로 적습니다"));
         if (name.empty() == false)
@@ -235,7 +241,7 @@ namespace cyella {
         const std::string at { dialog.subject.empty() ? std::string {} : dialog.subject.substr(0, 12) };
         const std::string shown_name { name.empty() ? std::string { "<이름>" } : name };
         std::string preview { "git tag " };
-        preview += annotated ? "-a " + shown_name + " -m \"…\"" : shown_name;
+        preview += annotated ? (dialog.flag_b ? "-s " : "-a ") + shown_name + " -m \"…\"" : shown_name;
         if (at.empty() == false)
             preview += " " + at;
         form.preview = to_u8(preview);

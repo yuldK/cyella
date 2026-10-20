@@ -337,6 +337,8 @@ namespace cyella {
             push_text(arguments, "--amend");
         if (options.allow_empty)
             push_text(arguments, "--allow-empty");
+        if (options.sign.has_value())
+            push_text(arguments, *options.sign ? "-S" : "--no-gpg-sign");
         if (options.keep_message)
             push_text(arguments, "--no-edit");
         else
@@ -521,19 +523,34 @@ namespace cyella {
 
     // ------------------------------------------------------------------ 태그
 
-    git_arguments make_git_tag_args(const std::string_view name, const std::string_view target)
+    git_arguments make_git_tag_args(const std::string_view name, const std::string_view target, const bool no_sign)
     {
         git_arguments arguments {};
-        push_all(arguments, { "tag", "--", require_new_ref_name(name, "tag name") });
+        push_text(arguments, "tag");
+        if (no_sign)
+            push_text(arguments, "--no-sign");
+        push_all(arguments, { "--", require_new_ref_name(name, "tag name") });
         if (target.empty() == false)
             push_text(arguments, require_revision(target, "tag target"));
         return arguments;
     }
 
-    git_arguments make_git_annotated_tag_args(const std::string_view name, const std::string_view target)
+    git_arguments make_git_annotated_tag_args(const std::string_view name, const std::string_view target, const bool no_sign)
     {
         git_arguments arguments {};
-        push_all(arguments, { "tag", "-a", "-F", "-", "--", require_new_ref_name(name, "tag name") });
+        push_all(arguments, { "tag", "-a" });
+        if (no_sign)
+            push_text(arguments, "--no-sign");
+        push_all(arguments, { "-F", "-", "--", require_new_ref_name(name, "tag name") });
+        if (target.empty() == false)
+            push_text(arguments, require_revision(target, "tag target"));
+        return arguments;
+    }
+
+    git_arguments make_git_signed_tag_args(const std::string_view name, const std::string_view target)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "tag", "-s", "-F", "-", "--", require_new_ref_name(name, "tag name") });
         if (target.empty() == false)
             push_text(arguments, require_revision(target, "tag target"));
         return arguments;

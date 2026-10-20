@@ -10,6 +10,7 @@
 #include "presentation/settings/profiles_page.h"
 #include "presentation/settings/settings_state.h"
 #include "presentation/settings/shortcuts_page.h"
+#include "presentation/settings/signing_page_view.h"
 #include "presentation/ui_state.h"
 
 #include "luil/ui/text_input_state.h"
@@ -168,6 +169,8 @@ namespace cyella {
         std::vector<tool_row_view> tools {};
         std::optional<tool_edit_view> edit {};
         ssh_view ssh {};
+        // "서명" 쪽이다.
+        signing_page_view signing {};
         // 호스팅 화면이다.
         hosting_settings_page_view hosting {};
         // 단축키·사용자 프로필 쪽은 그 쪽이 열려 있을 때만 값이 있다.

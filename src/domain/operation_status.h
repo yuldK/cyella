@@ -103,6 +103,8 @@ namespace cyella {
         set_upstream,
         unset_upstream,
         trash_files,
+        // 커밋 서명을 검증한다(읽기 lane). 결과는 `signatures_verified` 사건이다.
+        verify_signatures,
     };
 
     enum class operation_state
@@ -152,6 +154,12 @@ namespace cyella {
         timed_out,
         // 브랜치가 다른 worktree에 체크아웃되어 있어 git이 체크아웃을 거절했다. 요약에 그 폴더가 든다.
         branch_checked_out_elsewhere,
+        // 커밋·태그 서명이 실패했다 (서명 프로그램을 실행하지 못했다 등 아래 둘로 가르지 못한 경우).
+        signing_failed,
+        // 서명할 키가 없다 (`user.signingkey`가 비었거나 가리키는 키를 찾을 수 없다).
+        signing_key_missing,
+        // 서명 키의 passphrase를 받지 못했다 (gpg의 pinentry가 없거나 취소했다, ssh 키 passphrase가 틀렸다).
+        signing_passphrase_failed,
     };
 
     struct operation_failure

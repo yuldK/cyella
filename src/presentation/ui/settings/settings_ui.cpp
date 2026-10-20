@@ -4,7 +4,9 @@
 #include "presentation/hosting_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/settings/settings_page_parts.h"
 #include "presentation/ui/settings/settings_pages_ui.h"
+#include "presentation/ui/settings/signing_ui.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
@@ -19,6 +21,8 @@
 
 namespace cyella::ui {
     namespace {
+        using namespace pages;
+
         constexpr float dialog_maximum_width { 900.0f };
         constexpr float dialog_maximum_height { 700.0f };
         constexpr float dialog_margin { 24.0f };
@@ -26,117 +30,8 @@ namespace cyella::ui {
         constexpr float content_padding { 16.0f };
         constexpr float banner_height { 34.0f };
         constexpr float footer_height { 26.0f };
-        constexpr float section_height { 30.0f };
-        constexpr float line_height { 18.0f };
-        constexpr float label_height { 17.0f };
-        constexpr float input_height { 28.0f };
-        constexpr float button_height { 26.0f };
-        constexpr float row_height { 30.0f };
         // 미리보기가 한 줄씩 보이는 인자의 상한이다.
         constexpr std::size_t maximum_preview_arguments { 8 };
-        constexpr float small_gap { 6.0f };
-        constexpr float large_gap { 14.0f };
-
-        const color_selector dim { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
-
-        color_selector tone_color(const tone value)
-        {
-            return [value](const luil::ui_color_palette& palette) {
-                switch (value)
-                {
-                case tone::good:
-                    return success_color(palette);
-                case tone::warning:
-                    return palette.warning_accent;
-                case tone::bad:
-                    return palette.error_accent;
-                case tone::neutral:
-                    break;
-                }
-                return palette.secondary_foreground;
-            };
-        }
-
-        std::unique_ptr<luil::stack_element> make_column(std::u8string owner)
-        {
-            luil::ui_element_id id { kind_layout, std::move(owner) };
-            const luil::stack_config config { .padding = luil::edge_insets { 0.0f, 0.0f, 0.0f, 0.0f } };
-            return std::make_unique<luil::stack_element>(std::move(id), config);
-        }
-
-        // 한 쪽(page)의 내용을 쌓는다. 측정 단계가 없으므로 담을 때 높이를 함께 더해 두었다가 흘리는 창에 알려 준다.
-        class page_column
-        {
-        public:
-            explicit page_column(std::u8string owner)
-                : column_ { make_column(std::move(owner)) }
-            {}
-
-            void add(std::unique_ptr<luil::ui_element> child, const float height)
-            {
-                column_->add(std::move(child), height);
-                height_ += height;
-            }
-
-            void gap(const float height)
-            {
-                column_->add_gap(height);
-                height_ += height;
-            }
-
-            [[nodiscard]] float height() const noexcept
-            {
-                return height_;
-            }
-
-            [[nodiscard]] std::unique_ptr<luil::ui_element> take()
-            {
-                return std::move(column_);
-            }
-
-        private:
-            std::unique_ptr<luil::stack_element> column_;
-            float height_ { 0.0f };
-        };
-
-        std::unique_ptr<luil::stack_element> make_row(std::u8string owner, const float spacing = small_gap)
-        {
-            luil::stack_config config { .direction = luil::stack_direction::row, .spacing = spacing };
-            config.cross_alignment = luil::stack_alignment::center;
-            return std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, std::move(owner) }, config);
-        }
-
-        std::unique_ptr<luil::ui_element> section_title(std::u8string owner, std::u8string text)
-        {
-            return make_text(std::move(owner), std::move(text), text_style { .size = 13.0f, .bold = true });
-        }
-
-        std::unique_ptr<luil::ui_element> help_line(std::u8string owner, std::u8string text, color_selector color = dim)
-        {
-            return make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .color = std::move(color) });
-        }
-
-        std::unique_ptr<luil::ui_element> field_label(std::u8string owner, std::u8string text)
-        {
-            return make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .color = dim, .bold = true });
-        }
-
-        std::unique_ptr<luil::ui_element> code_line(std::u8string owner, std::u8string text)
-        {
-            return make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .color = dim, .code = true });
-        }
-
-        std::unique_ptr<luil::ui_element> input_of(const luil::ui_element_kind kind, std::u8string owner, const luil::text_input_view& view, std::u8string placeholder)
-        {
-            return std::make_unique<luil::text_input_element>(luil::ui_element_id { kind, std::move(owner) }, view, luil::text_input_config { .placeholder = std::move(placeholder) });
-        }
-
-        std::unique_ptr<luil::ui_element> button_of(
-            std::u8string owner, std::u8string text, luil::input_action action, const bool enabled = true, const luil::text_button_visual visual = luil::text_button_visual::normal)
-        {
-            return make_text_button(std::move(owner), std::move(text), visual, std::move(action), enabled);
-        }
-
         // 작업(키 만들기·연결 시험)의 상태를 한두 줄로 보인다. 줄 자리는 항상 잡아 아래가 밀리지 않게 한다.
         void add_task_lines(page_column& page, const std::u8string& owner, const task_view& task)
         {
@@ -516,6 +411,7 @@ namespace cyella::ui {
             entry(u8"settings-page-general", u8"일반", settings_page::general, codicons::icon_settings_gear);
             entry(u8"settings-page-diff-tools", u8"diff", settings_page::diff_tools, codicons::icon_diff);
             entry(u8"settings-page-ssh", u8"SSH", settings_page::ssh, codicons::icon_key);
+            entry(u8"settings-page-signing", u8"서명", settings_page::signing, codicons::icon_verified);
             entry(u8"settings-page-hosting", u8"호스팅", settings_page::hosting, codicons::icon_cloud);
             entry(u8"settings-page-profiles", u8"사용자 프로필", settings_page::profiles, codicons::icon_person);
             entry(u8"settings-page-shortcuts", u8"단축키", settings_page::shortcuts, codicons::icon_keyboard);
@@ -574,6 +470,9 @@ namespace cyella::ui {
             break;
         case settings_page::ssh:
             build_ssh(page, view);
+            break;
+        case settings_page::signing:
+            build_signing_page(page, view.signing);
             break;
         case settings_page::hosting:
             build_hosting(page, view);

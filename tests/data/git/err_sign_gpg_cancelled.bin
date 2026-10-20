@@ -1,0 +1,8 @@
+error: gpg failed to sign the data:
+[GNUPG:] KEY_CONSIDERED A9F7E2EC0CAF6F290070A0C1FAA6010F7E9FD1D2 2
+[GNUPG:] BEGIN_SIGNING H10
+gpg: signing failed: Operation cancelled
+[GNUPG:] FAILURE sign 67108963
+gpg: signing failed: Operation cancelled
+
+fatal: failed to write commit object

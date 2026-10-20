@@ -204,7 +204,7 @@ namespace cyella {
             {
                 const operation_status& status { **it };
                 if (status.kind == operation_kind::load_more_log || status.kind == operation_kind::diff_file || status.kind == operation_kind::show_commit
-                    || status.kind == operation_kind::refresh_status)
+                    || status.kind == operation_kind::refresh_status || status.kind == operation_kind::verify_signatures)
                     continue;
                 ++shown;
                 std::u8string heading { u8"#" + number(status.id) + u8"  " + (status.finished() ? result_text(status) : phase_text(status)) };
@@ -262,6 +262,8 @@ namespace cyella {
             view.body = luil::make_text_input_view(tab.commit_body, composition, to_luil_target(text_target::commit_body));
             view.subject_length = character_count(view.subject.displayed_text());
             view.amend = tab.amend;
+            view.sign = tab.sign.value_or(snapshot.signing.commit_signing());
+            view.sign_hint = signing_setup_hint(snapshot.signing, view.sign);
             view.committing = committing;
             const std::u8string staged_count { u8"(staged " + number(view.staged.size()) + u8"개)" };
             view.commit_label = tab.amend ? u8"직전 커밋 수정 " + staged_count : view.branch + u8"에 커밋 " + staged_count;
@@ -312,6 +314,7 @@ namespace cyella {
             }
             if (const auto labelled { labels.find(sha) }; labelled != labels.end())
                 view.labels = labelled->second;
+            view.signature = make_signature_view(session.signature_of(sha));
             if (view.loading == false)
             {
                 for (const file_change& change : detail->files)
@@ -433,6 +436,7 @@ namespace cyella {
             graph_view& graph { view.graph };
             graph.rows = &session.graph_rows();
             graph.commits = &session.graph_commits();
+            graph.signatures = &session.signatures();
             graph.items = inputs.graph_items != nullptr ? inputs.graph_items(session) : std::make_shared<const std::vector<luil::virtual_list_item>>(build_graph_items(session.graph_commits()));
             graph.selected_key = tab_state.selected_sha.empty() ? std::u8string {} : graph_item_key(tab_state.selected_sha);
             graph.scroll = tab_state.graph_scroll;
@@ -543,6 +547,7 @@ namespace cyella {
         case operation_kind::is_ancestor:
         case operation_kind::count_commits:
         case operation_kind::refresh_remote_tags:
+        case operation_kind::verify_signatures:
         case operation_kind::refresh_status:
         case operation_kind::inspect_path:
         // 편집기가 자기 자리에 읽는 중과 실패를 보인다.

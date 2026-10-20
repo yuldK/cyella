@@ -153,6 +153,20 @@ cyella_add_source_filter(cyella_test_files "infrastructure/git_extensions"
 cyella_add_source_filter(cyella_test_files "application/repository_integration/extensions"
     git_extension_integration_tests.cpp)
 
+# 커밋 서명: 상태·설정·gpg 키 목록 해석, 명령줄 조립, 서명 실패 분류의 단위 test다. 고정 출력은 tests/data/git에 있다.
+cyella_add_source_filter(cyella_test_files "infrastructure/signing"
+    git_signing_tests.cpp)
+
+# 서명의 화면 흐름: 커밋 상자 토글, 태그 대화 상자, 상세 패널 배지, 보이는 커밋의 검증 요청.
+cyella_add_source_filter(cyella_test_files "presentation/signing"
+    signing_settings_tests.cpp
+    signing_ui_tests.cpp)
+
+# 실제 git·ssh-keygen·gpg·askpass로 서명 커밋과 태그, 검증, passphrase 질문을 끝까지 돌린다. 격리된 임시 환경만 쓴다. 태그는 `[integration]`이다.
+cyella_add_source_filter(cyella_test_files "application/repository_integration/signing"
+    signing_integration_tests.cpp
+    signing_test_support.h)
+
 # 저장소 세션: 가짜 runner(정해 둔 응답)와 수동 dispatcher로 명령 순서, 상태 전이, 늦은 결과
 # 버리기, needs_input, 실패 분류를 검증한다. git과 디스크가 필요 없다.
 cyella_add_source_filter(cyella_test_files "application/repository"

@@ -61,6 +61,10 @@ namespace cyella {
         settings_profile_user_email,
         settings_profile_signing_key,
         settings_rule_prefix,
+        // 환경 설정 "서명" 쪽의 프로그램 경로·allowed signers 입력 칸이다. 팔레트·단축키·프로필 칸의 300대와 겹치지 않게 400부터 쓴다.
+        settings_signing_gpg_program = 400,
+        settings_signing_ssh_program,
+        settings_signing_allowed_signers,
     };
 
     // 사이드바 구역이다. 순서가 곧 화면 순서다.
@@ -108,6 +112,8 @@ namespace cyella {
         luil::text::text_edit_state commit_subject {};
         luil::text::text_edit_state commit_body {};
         bool amend { false };
+        // 커밋 상자의 "서명" 토글을 사용자가 바꾼 값이다. 값이 없으면 설정 `commit.gpgsign`을 따른다.
+        std::optional<bool> sign {};
         // 상세 패널에서 고른 파일의 diff 요청이다. 있으면 그래프 자리를 diff가 덮는다.
         std::optional<diff_file_request> diff {};
         // 낸 커밋 operation이다. 성공하면 커밋 상자를 비운다.
@@ -226,8 +232,9 @@ namespace cyella {
         const bool form { value >= static_cast<std::uint32_t>(text_target::form_field_0) && value <= static_cast<std::uint32_t>(text_target::form_field_2) };
         const bool rebase { value >= static_cast<std::uint32_t>(text_target::rebase_message_subject) && value <= static_cast<std::uint32_t>(text_target::rebase_message_body) };
         const bool selector { value == static_cast<std::uint32_t>(text_target::selector_filter) };
+        const bool signing { value >= static_cast<std::uint32_t>(text_target::settings_signing_gpg_program) && value <= static_cast<std::uint32_t>(text_target::settings_signing_allowed_signers) };
         const bool hosting { value >= static_cast<std::uint32_t>(text_target::settings_hosting_host) && value <= static_cast<std::uint32_t>(text_target::settings_hosting_api_base) };
         const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_rule_prefix) };
-        return basic || form || rebase || selector || hosting || commands ? static_cast<text_target>(value) : text_target::none;
+        return basic || form || rebase || selector || hosting || commands || signing ? static_cast<text_target>(value) : text_target::none;
     }
 } // namespace cyella

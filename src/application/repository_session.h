@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -120,6 +121,21 @@ namespace cyella {
             return file_diff_;
         }
 
+        // 읽어 둔 서명 정보다. 아직 검증하지 않은 커밋은 null이다. SHA별로 한 번만 읽고 refresh가 지우지 않는다 (커밋은 바뀌지 않는다).
+        // 서명 설정이 바뀌면 `forget_signatures`로 비운다.
+        [[nodiscard]] const commit_signature* signature_of(const std::string& sha) const noexcept;
+        // 읽어 둔 서명 전체다 (SHA별). 그래프 행의 서명 표지가 읽는다.
+        [[nodiscard]] const std::map<std::string, commit_signature>& signatures() const noexcept
+        {
+            return signatures_;
+        }
+        // 검증 요청을 이미 냈거나 결과가 있는 커밋이다 (같은 커밋을 거듭 요청하지 않으려는 용도).
+        [[nodiscard]] bool signature_requested(const std::string& sha) const noexcept;
+        void note_signatures_requested(const std::vector<std::string>& shas);
+        // 검증이 끝나지 못했다 (취소, 실패). 다음에 다시 요청할 수 있게 한다.
+        void abandon_signatures_requested(const std::vector<std::string>& shas);
+        void forget_signatures();
+
         [[nodiscard]] std::optional<bool> ancestry(const std::string& ancestor, const std::string& descendant) const;
         [[nodiscard]] std::optional<std::uint32_t> commit_count(const std::string& from, const std::string& to) const;
 
@@ -154,6 +170,7 @@ namespace cyella {
         status_apply_result apply(operation_id id, const status_loaded& event);
         bool apply(const ancestry_answered& event);
         bool apply(const commit_count_answered& event);
+        bool apply(const signatures_verified& event);
         // 이 generation의 log 쪽이 실패로 끝났다. 더 기다리지 않는다.
         void abandon_log_page(std::uint64_t generation) noexcept;
 
@@ -184,6 +201,9 @@ namespace cyella {
         operation_id expected_status_ { 0 };
         std::map<std::pair<std::string, std::string>, bool> ancestry_ {};
         std::map<std::pair<std::string, std::string>, std::uint32_t> commit_counts_ {};
+        std::map<std::string, commit_signature> signatures_ {};
+        // 검증을 요청한 커밋이다. 결과가 오기 전에 같은 커밋을 다시 요청하지 않는다.
+        std::set<std::string> requested_signatures_ {};
         std::optional<operation_id> awaiting_input_ {};
         std::uint64_t revision_ { 0 };
     };

@@ -160,6 +160,18 @@ namespace cyella {
         // 표시도 함께 버려져 읽는 중 상태가 풀리지 않는다. 이어 읽을 것이 없을 때도 내지 않는다.
         if (kind == operation_kind::load_more_log && (session->loaded() == false || session->log_page_loading() || session->history_complete()))
             return 0;
+        // 서명 검증은 커밋마다 gpg·ssh-keygen이 돈다. 이미 읽었거나 읽는 중인 커밋은 빼고, 남은 것이 없으면 내지 않는다.
+        if (kind == operation_kind::verify_signatures)
+        {
+            std::vector<std::string> wanted {};
+            for (const std::string& sha : std::get<verify_signatures_request>(operation).shas)
+                if (session->signature_requested(sha) == false && std::ranges::find(wanted, sha) == wanted.end())
+                    wanted.push_back(sha);
+            if (wanted.empty())
+                return 0;
+            session->note_signatures_requested(wanted);
+            std::get<verify_signatures_request>(operation).shas = std::move(wanted);
+        }
 
         operation_record record {};
         record.status.kind = kind;
@@ -543,6 +555,10 @@ namespace cyella {
             // 실패한 log 쪽을 계속 기다리지 않게 한다.
             if ((record.status.kind == operation_kind::refresh || record.status.kind == operation_kind::load_more_log) && finished.state != operation_state::succeeded)
                 session->abandon_log_page(record.generation);
+            // 취소된 검증은 다시 요청할 수 있어야 한다. 실패한 검증은 다시 요청하지 않는다(화면이 같은 요청을 끝없이 되풀이하지 않게).
+            if (record.status.kind == operation_kind::verify_signatures && finished.state == operation_state::cancelled)
+                if (const auto* const verify { std::get_if<verify_signatures_request>(&record.request) }; verify != nullptr)
+                    session->abandon_signatures_requested(verify->shas);
         }
 
         // 실행되지 않은 쓰기는 저장소를 바꾸지 않았다. 시작한 쓰기는 실패·취소여도 일부가 바뀌었을 수 있다.

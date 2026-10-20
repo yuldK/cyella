@@ -3,6 +3,7 @@
 #include "application/askpass_service.h"
 #include "application/git_operation.h"
 #include "domain/commit_info.h"
+#include "domain/commit_signature.h"
 #include "domain/credential_prompt.h"
 #include "domain/diff_file.h"
 #include "domain/file_change.h"
@@ -11,6 +12,7 @@
 #include "domain/operation_status.h"
 #include "domain/ref.h"
 #include "domain/repository_summary.h"
+#include "domain/signing_config.h"
 #include "domain/ssh_connection.h"
 #include "domain/stash_entry.h"
 #include "domain/submodule.h"
@@ -72,6 +74,8 @@ namespace cyella {
         std::vector<submodule_info> submodules {};
         std::vector<worktree_info> worktrees {};
         lfs_repository_state lfs {};
+        // 서명 설정의 실효 값이다. 커밋 상자의 "서명" 기본값(`commit.gpgsign`)과 태그 대화 상자가 읽는다. refresh가 채운다.
+        signing_config signing {};
     };
 
     struct snapshot_loaded
@@ -191,8 +195,15 @@ namespace cyella {
         std::vector<file_change> conflicts {};
     };
 
-    using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded,
-        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded, status_loaded>;
+    // `verify_signatures`의 결과다. 요청한 커밋마다 하나씩이고, 서명이 없는 커밋도 `none`으로 온다.
+    struct signatures_verified
+    {
+        std::vector<commit_signature> signatures {};
+    };
+
+    using operation_event_payload
+        = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded, commit_detail_loaded,
+            file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded, status_loaded, signatures_verified>;
 
     struct operation_event
     {

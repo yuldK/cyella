@@ -24,6 +24,8 @@ namespace cyella {
         // 새 쪽은 끝에 덧붙인다.
         profiles,
         shortcuts,
+        // 커밋 서명 설정이다. 상태는 `signing_page_controller`가 따로 소유한다.
+        signing,
     };
 
     // 단축키 하나를 고치는 중이다. 입력 칸의 글은 ` / `로 이은 정규 표기(`Ctrl+Shift+P / Ctrl+P`)다. 실제 키를 누르면 그 키로 바뀌고,

@@ -57,6 +57,9 @@ namespace cyella {
             // 환경 설정 화면이 쓰는 값이다. 이번 실행이 찾은 git, ssh 도구의 위치, worker에게 시킬 일이다.
             git_tool_info git_tool {};
             std::function<void()> request_ssh_info {};
+            // 환경 설정 "서명" 쪽이 worker에게 시킬 일이다. 결과는 signing_info_loaded_intent·signing_write_done_intent로 온다.
+            std::function<void(const std::u8string& repository_path)> request_signing_info {};
+            std::function<void(bool global, const std::u8string& repository_path, std::vector<signing_change> changes)> write_signing_config {};
             std::function<void(std::string text)> copy_text {};
             std::u8string ssh_directory {};
             std::u8string default_key_comment {};
@@ -233,6 +236,20 @@ namespace cyella {
         void open_lfs_track_dialog(const std::string& pattern);
         void run_extension_menu_action(const menu_target& target, const std::u8string& key, const menu_context& context);
 
+        // ---- 커밋 서명 (shell_controller_signing.cpp)
+        bool handle_signing_message(const luil::app_message& message);
+        // 아직 확인하지 않은 커밋의 서명을 읽기 lane에 요청한다 (이미 요청했거나 읽은 커밋은 workspace가 뺀다).
+        void request_signatures(const std::vector<std::string>& shas);
+        // 그래프에 보이는 행 둘레의 서명을 요청한다. 스크롤과 새 로그 묶음 뒤에 부른다.
+        void request_visible_signatures();
+        // 지금 선택한 탭의 저장소 폴더다. 저장소 탭이 아니면 비어 있다.
+        [[nodiscard]] std::u8string selected_repository_path() const;
+        // 서명 설정이 바뀌었다: 읽어 둔 서명을 버리고 refresh로 설정의 실효 값(커밋 상자의 서명 기본값)을 다시 읽는다. 전역이면 열린 모든 저장소다.
+        void on_signing_changed(bool global);
+        // 커밋 상자의 서명 토글이 지금 켜져 있는가 (사용자가 바꾼 값, 없으면 `commit.gpgsign`).
+        [[nodiscard]] bool commit_sign_enabled(const tab_ui_state& tab, const repository_snapshot& snapshot) const;
+        // 커밋 요청에 실을 `sign` 값이다: 켜면 true, 설정이 켜져 있는데 껐으면 false, 설정을 따르면 값 없음.
+        [[nodiscard]] std::optional<bool> commit_sign_request(const tab_ui_state& tab, const repository_snapshot& snapshot) const;
         // ---- GitHub·GitLab (shell_controller_hosting.cpp)
         [[nodiscard]] hosting_controller::dependencies hosting_dependencies();
         [[nodiscard]] std::optional<hosting_target> hosting_target_of(const std::string& repository_id) const;

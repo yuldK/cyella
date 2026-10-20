@@ -21,6 +21,7 @@
 #include "infrastructure/git_identity_gateway.h"
 #include "infrastructure/git_operation_runner.h"
 #include "infrastructure/json_app_settings_store.h"
+#include "infrastructure/signing_info.h"
 #include "infrastructure/ssh_info.h"
 #include "platform/win32/askpass_bridge.h"
 #include "platform/win32/hosting_bridge.h"
@@ -157,6 +158,9 @@ namespace cyella::win32 {
         void flush_pending_refreshes();
         // 환경 설정 SSH 화면의 agent·키 목록을 worker에게 읽게 한다.
         void request_ssh_info();
+        // 환경 설정 "서명" 쪽의 설정 읽기·쓰기를 worker에게 시킨다 (cyella_driver_signing.cpp). 결과는 relay로 돌아온다.
+        void request_signing_info(const std::u8string& repository_path);
+        void write_signing_config(bool global, const std::u8string& repository_path, std::vector<signing_change> changes);
         // "브라우저에서 열기"를 워커에 맡긴다 (검증용 `open_url_log`가 있으면 파일에 적는다).
         void open_url(const std::string& url);
         // 저장소의 작성자 신원을 worker가 읽게 하고, 프로필을 `git config --local`로 쓰게 한다. 결과는 relay로 돌아온다.

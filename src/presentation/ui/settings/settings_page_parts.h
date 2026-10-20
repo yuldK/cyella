@@ -1,5 +1,6 @@
 #pragma once
 
+#include "presentation/settings/settings_view.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
 
@@ -22,6 +23,25 @@ namespace cyella::ui::pages {
     inline constexpr float large_gap { 14.0f };
 
     inline const color_selector dim { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
+
+    // 환경 설정 화면의 `tone`(좋음·주의·나쁨)을 색으로 바꾼다 (서명 쪽이 쓴다).
+    inline color_selector tone_color(const tone value)
+    {
+        return [value](const luil::ui_color_palette& palette) {
+            switch (value)
+            {
+            case tone::good:
+                return success_color(palette);
+            case tone::warning:
+                return palette.warning_accent;
+            case tone::bad:
+                return palette.error_accent;
+            case tone::neutral:
+                break;
+            }
+            return palette.secondary_foreground;
+        };
+    }
 
     inline color_selector warning_color()
     {
@@ -88,6 +108,11 @@ namespace cyella::ui::pages {
     inline std::unique_ptr<luil::ui_element> field_label(std::u8string owner, std::u8string text)
     {
         return make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .color = dim, .bold = true });
+    }
+
+    inline std::unique_ptr<luil::ui_element> code_line(std::u8string owner, std::u8string text)
+    {
+        return make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .color = dim, .code = true });
     }
 
     inline std::unique_ptr<luil::ui_element> input_of(

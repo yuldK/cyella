@@ -20,6 +20,7 @@
 #include "presentation/selector_intents.h"
 #include "presentation/settings/profiles_intents.h"
 #include "presentation/settings/settings_intents.h"
+#include "presentation/settings/signing_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/diff_webview_theme.h"
@@ -98,6 +99,9 @@ namespace cyella::win32 {
         dependencies.probe = probe_.get();
         dependencies.git_tool = git_tool_;
         dependencies.request_ssh_info = [this] { request_ssh_info(); };
+        dependencies.request_signing_info = [this](const std::u8string& repository_path) { request_signing_info(repository_path); };
+        dependencies.write_signing_config
+            = [this](const bool global, const std::u8string& repository_path, std::vector<signing_change> changes) { write_signing_config(global, repository_path, std::move(changes)); };
         dependencies.copy_text = [this](std::string text) { copy_to_clipboard(text); };
         dependencies.submit_hosting_job = [this](hosting_job job) { hosting_.submit(std::move(job)); };
         dependencies.hosting_sign_out = [this](const hosting_sign_out_request& request) { hosting_.sign_out(request); };
@@ -468,7 +472,8 @@ namespace cyella::win32 {
                 diff_->sides_prepared(*sides);
             else if (const auto* const external { drained.get<external_open_done_intent>() }; external != nullptr && diff_ != nullptr)
                 diff_->external_opened(*external);
-            else if ((drained.get<ssh_info_loaded_intent>() != nullptr || drained.get<identity_loaded_intent>() != nullptr || drained.get<identity_applied_intent>() != nullptr)
+            else if ((drained.get<ssh_info_loaded_intent>() != nullptr || drained.get<signing_info_loaded_intent>() != nullptr || drained.get<signing_write_done_intent>() != nullptr
+                         || drained.get<identity_loaded_intent>() != nullptr || drained.get<identity_applied_intent>() != nullptr)
                 && controller_ != nullptr)
                 static_cast<void>(controller_->handle(drained));
             else if (drained.get<hosting_result_intent>() != nullptr && controller_ != nullptr)

@@ -154,6 +154,8 @@ namespace cyella {
             return "unset_upstream";
         case operation_kind::trash_files:
             return "trash_files";
+        case operation_kind::verify_signatures:
+            return "verify_signatures";
         }
         return "unknown";
     }
@@ -220,6 +222,12 @@ namespace cyella {
             return "timed_out";
         case failure_kind::branch_checked_out_elsewhere:
             return "branch_checked_out_elsewhere";
+        case failure_kind::signing_failed:
+            return "signing_failed";
+        case failure_kind::signing_key_missing:
+            return "signing_key_missing";
+        case failure_kind::signing_passphrase_failed:
+            return "signing_passphrase_failed";
         }
         return "other";
     }
@@ -303,6 +311,12 @@ namespace cyella {
             return u8"명령이 제한 시간 안에 끝나지 않았습니다.";
         case failure_kind::branch_checked_out_elsewhere:
             return u8"이 브랜치는 다른 worktree에서 체크아웃되어 있어 옮길 수 없습니다.";
+        case failure_kind::signing_failed:
+            return u8"서명하지 못했습니다. 환경 설정의 서명에서 서명 프로그램(gpg·ssh-keygen)과 키를 확인하세요.";
+        case failure_kind::signing_key_missing:
+            return u8"서명할 키를 찾지 못했습니다. 환경 설정의 서명에서 키를 고르세요.";
+        case failure_kind::signing_passphrase_failed:
+            return u8"서명 키의 passphrase를 받지 못했습니다.";
         }
         return u8"명령이 실패했습니다.";
     }

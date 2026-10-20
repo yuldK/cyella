@@ -104,7 +104,7 @@ TEST_CASE("refresh reads status before the log and streams commits in batches", 
     const std::vector<operation_event> events { test.execute(refresh_request {}, 3) };
 
     // HEAD를 알아야 WIP 행을 끼우므로 status·refs가 log보다 먼저다.
-    CHECK(test.process.command_names() == text_list { "rev-parse", "status", "diff", "diff", "for-each-ref", "stash", "remote", "merge-base", "worktree", "log" });
+    CHECK(test.process.command_names() == text_list { "rev-parse", "status", "diff", "diff", "for-each-ref", "stash", "remote", "merge-base", "worktree", "config", "log" });
     for (const test::recorded_call& call : test.process.calls())
         CHECK(call.no_optional_locks);
 
@@ -676,4 +676,107 @@ TEST_CASE("apply_patch passes --unidiff-zero for zero-context diffs", "[operatio
     request.unidiff_zero = true;
     CHECK(finished_of(test.execute(request)).state == operation_state::succeeded);
     CHECK(join(test.process.calls().back().arguments).find("--unidiff-zero") != std::string::npos);
+}
+
+TEST_CASE("verify_signatures sends the commits on stdin and says why an ssh signature could not be checked", "[operation][signing]")
+{
+    harness test {};
+    // allowedSignersFile이 설정에 없다 (종료 코드 1) -> 검증 명령이 빈 값으로 덮어 읽는다.
+    test.process.when({ "config", "--type=path" }, scripted_response { 1 });
+    const std::string first(40, 'a');
+    const std::string second(40, 'b');
+    std::string records { first };
+    records += "\x1f";
+    records += "U\x1f\x1f";
+    records += "SHA256:abc";
+    records.push_back('\0');
+    test.process.when({ "-c", "gpg.ssh.allowedSignersFile=", "log" }, scripted_response { 0, records });
+
+    const std::vector<operation_event> events { test.execute(verify_signatures_request { { first, second } }) };
+    CHECK(finished_of(events).state == operation_state::succeeded);
+    const std::vector<test::recorded_call> calls { test.process.calls() };
+    REQUIRE(calls.size() == 2);
+    CHECK(calls[1].arguments == text_list { "-c", "gpg.ssh.allowedSignersFile=", "log", "--no-walk=unsorted", "--stdin", "-z", "--format=%H%x1f%G?%x1f%GS%x1f%GK" });
+    CHECK(calls[1].standard_input == first + "\n" + second + "\n");
+    CHECK(calls[1].no_optional_locks);
+
+    const std::vector<signatures_verified> verified { payloads<signatures_verified>(events) };
+    REQUIRE(verified.size() == 1);
+    REQUIRE(verified[0].signatures.size() == 2);
+    // 서명자가 비고 키가 SHA256:인 U는 목록이 없어 대조하지 못한 것이다.
+    CHECK(verified[0].signatures[0].status == signature_status::cannot_check);
+    CHECK(verified[0].signatures[0].note == signature_note::allowed_signers_missing);
+    // git이 돌려주지 않은 커밋도 "읽는 중"으로 남지 않고 확인할 수 없음으로 풀린다.
+    CHECK(verified[0].signatures[1].sha == second);
+    CHECK(verified[0].signatures[1].status == signature_status::cannot_check);
+    CHECK(verified[0].signatures[1].note == signature_note::none);
+}
+
+TEST_CASE("a failed verification still resolves every requested commit so the badge does not wait forever", "[operation][signing]")
+{
+    harness test {};
+    const std::string first(40, 'a');
+    const std::string second(40, 'b');
+    test.process.when({ "log" }, scripted_response { 128, "", { "fatal: bad object " + first } });
+    const std::vector<operation_event> events { test.execute(verify_signatures_request { { first, second } }) };
+    const operation_finished finished { finished_of(events) };
+    CHECK(finished.state == operation_state::failed);
+    const std::vector<signatures_verified> verified { payloads<signatures_verified>(events) };
+    REQUIRE(verified.size() == 1);
+    REQUIRE(verified[0].signatures.size() == 2);
+    for (const commit_signature& signature : verified[0].signatures)
+        CHECK(signature.status == signature_status::cannot_check);
+
+    // 완전한 SHA가 아니면 git을 부르지 않고 같은 방식으로 끝난다.
+    harness invalid {};
+    const std::vector<operation_event> rejected { invalid.execute(verify_signatures_request { { "HEAD" } }) };
+    CHECK(finished_of(rejected).failure->kind == failure_kind::invalid_request);
+    CHECK(payloads<signatures_verified>(rejected).size() == 1);
+    const text_list names { invalid.process.command_names() };
+    CHECK(std::ranges::find(names, std::string { "log" }) == names.end());
+}
+
+TEST_CASE("commit and tag requests carry the signing flags to git", "[operation][signing]")
+{
+    harness test {};
+    static_cast<void>(test.execute(commit_request { .message = "m", .sign = true }));
+    CHECK(test.process.calls().back().arguments == text_list { "commit", "-S", "-F", "-" });
+    static_cast<void>(test.execute(commit_request { .message = "m", .sign = false }));
+    CHECK(test.process.calls().back().arguments == text_list { "commit", "--no-gpg-sign", "-F", "-" });
+    static_cast<void>(test.execute(commit_request { .message = "m" }));
+    CHECK(test.process.calls().back().arguments == text_list { "commit", "-F", "-" });
+
+    // 서명한 태그는 항상 annotated다 (`annotated`가 거짓이어도).
+    static_cast<void>(test.execute(create_tag_request { .name = "v1", .message = "release", .sign = true }));
+    CHECK(test.process.calls().back().arguments == text_list { "tag", "-s", "-F", "-", "--", "v1" });
+    CHECK(test.process.calls().back().standard_input == "release\n");
+    static_cast<void>(test.execute(create_tag_request { .name = "v2", .annotated = true, .message = "m", .sign = false }));
+    CHECK(test.process.calls().back().arguments == text_list { "tag", "-a", "--no-sign", "-F", "-", "--", "v2" });
+    static_cast<void>(test.execute(create_tag_request { .name = "v3", .sign = false }));
+    CHECK(test.process.calls().back().arguments == text_list { "tag", "--no-sign", "--", "v3" });
+    static_cast<void>(test.execute(create_tag_request { .name = "v4" }));
+    CHECK(test.process.calls().back().arguments == text_list { "tag", "--", "v4" });
+}
+
+TEST_CASE("signing failures end with the failure kind and the gpg or ssh summary", "[operation][signing]")
+{
+    harness test {};
+    scripted_response gpg { 128, "", {} };
+    gpg.standard_error_lines
+        = { "error: gpg failed to sign the data:", "[GNUPG:] BEGIN_SIGNING H10", "gpg: signing failed: No pinentry", "[GNUPG:] FAILURE sign 67108949", "", "fatal: failed to write commit object" };
+    test.process.when({ "commit" }, gpg);
+    const operation_finished finished { finished_of(test.execute(commit_request { .message = "m", .sign = true })) };
+    REQUIRE(finished.failure.has_value());
+    CHECK(finished.failure->kind == failure_kind::signing_passphrase_failed);
+    CHECK(finished.failure->summary == u8"gpg가 passphrase를 받지 못했습니다 — gpg-agent 또는 pinentry 설정을 확인하세요.");
+    CHECK(finished.failure->detail.find(u8"No pinentry") != std::u8string::npos);
+
+    harness ssh {};
+    scripted_response missing { 128, "", {} };
+    missing.standard_error_lines = { "error: Couldn't load public key C:/nowhere/id.pub: No such file or directory?", "", "fatal: failed to write commit object" };
+    ssh.process.when({ "commit" }, missing);
+    const operation_finished ssh_finished { finished_of(ssh.execute(commit_request { .message = "m", .sign = true })) };
+    REQUIRE(ssh_finished.failure.has_value());
+    CHECK(ssh_finished.failure->kind == failure_kind::signing_key_missing);
+    CHECK(ssh_finished.failure->summary.find(u8".pub") != std::u8string::npos);
 }

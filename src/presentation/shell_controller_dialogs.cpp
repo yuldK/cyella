@@ -455,6 +455,9 @@ namespace cyella {
         dialog.serial = ++ui_.dialog_serial;
         dialog.subject = sha.empty() ? summary.head_sha : sha;
         dialog.subject_label = commit_label(*session, dialog.subject);
+        // 서명 토글의 기본값은 설정 `tag.gpgsign`이다. 서명한 태그는 항상 annotated라 켜져 있으면 종류도 annotated다.
+        dialog.flag_b = session->snapshot().signing.tag_signing();
+        dialog.choice = dialog.flag_b ? 1 : 0;
         clear_form_inputs();
         ui_.form.identity = dialog_identity(dialog);
         ui_.dialog = std::move(dialog);
@@ -1030,6 +1033,14 @@ namespace cyella {
                     ui_.dialog->flag_c = ui_.dialog->flag_c == false;
                 return;
             case dialog_kind::create_tag:
+                // 서명 토글이다. 서명한 태그는 annotated뿐이라 켜면 종류도 annotated로 옮긴다.
+                if (index == 0)
+                {
+                    ui_.dialog->flag_b = ui_.dialog->flag_b == false;
+                    if (ui_.dialog->flag_b)
+                        ui_.dialog->choice = 1;
+                }
+                return;
             case dialog_kind::rename_branch:
             case dialog_kind::create_pull_request:
                 if (index == 0)
@@ -1063,7 +1074,12 @@ namespace cyella {
         if ((ui_.dialog->kind == dialog_kind::push || ui_.dialog->kind == dialog_kind::set_upstream) && index < ui_.dialog->choices.size())
             ui_.dialog->choice = index;
         else if (ui_.dialog->kind == dialog_kind::create_tag && index < 2)
+        {
             ui_.dialog->choice = index;
+            // lightweight 태그는 서명할 수 없다.
+            if (index == 0)
+                ui_.dialog->flag_b = false;
+        }
         else if (ui_.dialog->kind == dialog_kind::add_worktree && index < 3)
             ui_.dialog->choice = index;
     }
@@ -1125,6 +1141,11 @@ namespace cyella {
                 request.annotated = dialog.choice == 1;
                 if (request.annotated)
                     request.message = trimmed_text(ui_.form.fields[1].text);
+                // 서명: 켜면 true, 설정(`tag.gpgsign`)이 켜져 있는데 껐으면 false(설정을 덮는다), 설정을 따르면 값 없음.
+                if (dialog.flag_b)
+                    request.sign = true;
+                else if (snapshot.signing.tag_signing())
+                    request.sign = false;
                 static_cast<void>(submit(std::move(request)));
                 break;
             }
