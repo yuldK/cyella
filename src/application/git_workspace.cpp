@@ -461,6 +461,10 @@ namespace cyella {
                 {
                     ssh_tests_[event.id] = payload.classification;
                 }
+                else if constexpr (std::is_same_v<payload_type, rebase_plan_loaded>)
+                {
+                    rebase_plans_[event.id] = payload.plan;
+                }
                 else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded>)
                 {
                     if (session != nullptr)
@@ -543,6 +547,7 @@ namespace cyella {
             if (oldest == order_.end())
                 break;
             ssh_tests_.erase(*oldest);
+            rebase_plans_.erase(*oldest);
             operations_.erase(*oldest);
             order_.erase(oldest);
             --finished_count;
@@ -567,6 +572,12 @@ namespace cyella {
         if (found == inspections_.end())
             return std::nullopt;
         return found->second;
+    }
+
+    const rebase_plan* git_workspace::rebase_plan_of(const operation_id id) const
+    {
+        const auto found { rebase_plans_.find(id) };
+        return found == rebase_plans_.end() ? nullptr : &found->second;
     }
 
     std::optional<ssh_connection_classification> git_workspace::ssh_connection_result_of(const operation_id id) const

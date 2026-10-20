@@ -6,6 +6,7 @@
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
+#include "presentation/ui/rebase/rebase_editor_ui.h"
 #include "presentation/ui/settings/settings_ui.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui/ui_parts.h"
@@ -563,6 +564,9 @@ namespace cyella::ui {
             root->place(build_clone_dialog(*view.clone), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         if (view.settings.has_value())
             root->place(build_settings_dialog(*view.settings, view.logical_width, view.logical_height, sources), { 0.0f, 0.0f, view.logical_width, view.logical_height });
+        // 인터랙티브 rebase 편집기다. 인증 질문·확인 상자는 그 위에 선다.
+        if (view.rebase_editor.has_value())
+            root->place(build_rebase_editor(*view.rebase_editor, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         if (view.form.has_value())
             root->place(build_form_dialog(*view.form, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
 

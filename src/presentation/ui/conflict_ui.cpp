@@ -128,7 +128,12 @@ namespace cyella::ui {
         header->add(make_text(u8"conflict-detail", conflict.detail.empty() ? std::u8string { u8"충돌은 닫을 수 없습니다. 끝내려면 계속하거나 중단하세요." } : conflict.detail,
                         text_style { .size = 11.0f, .color = dim_color }),
             16.0f);
-        column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"conflict-header-bar" }, bar_style { .divider_bottom = true }, std::move(header)), conflict_header_height);
+        // 인터랙티브 rebase는 멈춘 할 일을 한 줄 더 보인다.
+        const bool has_note { conflict.todo_note.empty() == false };
+        if (has_note)
+            header->add(make_text(u8"conflict-todo", conflict.todo_note, text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.accent; } }), 16.0f);
+        column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"conflict-header-bar" }, bar_style { .divider_bottom = true }, std::move(header)),
+            conflict_header_height + (has_note ? 20.0f : 0.0f));
 
         if (conflict.files.empty())
         {

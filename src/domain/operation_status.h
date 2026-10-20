@@ -95,6 +95,9 @@ namespace cyella {
         lfs_pull,
         lfs_fetch,
         lfs_track,
+        // 인터랙티브 rebase: 편집기를 채울 범위 읽기와 실행이다.
+        load_rebase_plan,
+        interactive_rebase,
     };
 
     enum class operation_state

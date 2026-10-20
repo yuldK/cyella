@@ -63,7 +63,7 @@ namespace cyella {
 
         bool is_single_line(const text_target target) noexcept
         {
-            return target != text_target::none;
+            return target != text_target::none && target != text_target::rebase_message_body;
         }
 
         // 한 줄 칸이라 줄바꿈과 탭은 공백 하나로 바꾼다 (붙여넣기).
@@ -84,6 +84,7 @@ namespace cyella {
     shell_controller::shell_controller(dependencies dependencies)
         : dependencies_ { std::move(dependencies) }
         , settings_ { settings_dependencies() }
+        , rebase_ { rebase_editor_controller::dependencies { dependencies_.workspace } }
     {
         if (dependencies_.clock == nullptr)
             dependencies_.clock = [] { return std::chrono::system_clock::now(); };
@@ -225,6 +226,8 @@ namespace cyella {
             return;
         tab_repositories_.erase(id);
         ui_.tabs.erase(id);
+        if (rebase_.state().has_value() && rebase_.state()->repository_id == repository)
+            rebase_.close();
         const bool still_open { std::any_of(tab_repositories_.begin(), tab_repositories_.end(), [&repository](const auto& entry) { return entry.second == repository; }) };
         if (dependencies_.workspace != nullptr && repository.empty() == false && still_open == false)
         {
@@ -285,6 +288,9 @@ namespace cyella {
         case text_target::settings_key_comment:
         case text_target::settings_test_host:
             return settings_.draft(target);
+        case text_target::rebase_message_subject:
+        case text_target::rebase_message_body:
+            return rebase_.draft(target);
         case text_target::form_field_0:
         case text_target::form_field_1:
         case text_target::form_field_2:
@@ -301,6 +307,9 @@ namespace cyella {
 
     void shell_controller::handle_text_edit(const luil::text_edit_request& request)
     {
+        // 인터랙티브 rebase 편집기의 메시지 칸은 편집기가 직접 적용한다 (본문은 여러 줄이다).
+        if (rebase_.edit_text(request))
+            return;
         const text_target target { from_luil_target(request.target) };
         luil::text::text_edit_state* const state { draft(target) };
         if (state == nullptr)
@@ -797,7 +806,8 @@ namespace cyella {
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         if (settings_.handle(message))
             return true;
-        if (handle_extension_message(message))
+        // submodule·worktree·LFS와 인터랙티브 rebase 편집기의 메시지다.
+        if (handle_extension_message(message) || handle_rebase_entry(message) || rebase_.handle(message))
             return true;
         return handle_dialog_message(message);
     }
@@ -873,6 +883,7 @@ namespace cyella {
             tab.pending_commit = 0;
         }
         settings_.after_events();
+        rebase_.after_events();
         process_chains();
         cancel_automatic_prompts();
         // "이번만 연결"로 다시 낸 작업이 성공하면 같은 임시 신뢰로 원격 태그 표시를 한 번 갱신한다. 쓰기 뒤 자동으로 나가는
@@ -965,6 +976,7 @@ namespace cyella {
         }
         view_snapshot view { build_view_snapshot(inputs) };
         view.settings = settings_.make_view(ui_.composition);
+        view.rebase_editor = rebase_.make_view(ui_.composition);
         last_mode_ = view.mode;
         // 상세 서랍은 medium·narrow에서 커밋을 고르면 열린다. 고른 것이 없으면 닫는다.
         if (view.repository.has_value() && view.repository->detail == detail_mode::none)

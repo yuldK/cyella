@@ -233,6 +233,17 @@ namespace cyella {
             view.detail = progress.head_name.empty() ? std::u8string {} : branch_of_head_name(progress.head_name) + u8"를 ";
             if (progress.onto.empty() == false)
                 view.detail += to_u8(std::string_view { progress.onto }.substr(0, std::min<std::size_t>(progress.onto.size(), 7))) + u8" 위로 옮기는 중";
+            if (progress.interactive)
+            {
+                // 인터랙티브 rebase는 멈춘 할 일과, 이어서 적용할 메시지가 남았는지를 알린다.
+                view.title = u8"인터랙티브 rebase 중 · 충돌 해결";
+                view.todo_note = u8"할 일 " + number(progress.step) + u8"/" + number(progress.total);
+                if (progress.current_action.empty() == false)
+                    view.todo_note
+                        += u8" · " + to_u8(progress.current_action) + u8" " + to_u8(std::string_view { progress.current_sha }.substr(0, std::min<std::size_t>(progress.current_sha.size(), 7)));
+                view.todo_note += progress.cyella_messages ? std::u8string { u8" · 남은 reword·squash 메시지는 계속하거나 건너뛰면 그대로 적용됩니다." }
+                                                           : std::u8string { u8" · 이 rebase는 cyella 밖에서 시작해 메시지는 git의 기본값을 씁니다." };
+            }
             break;
         case repository_operation_state::merge:
             view.progress = u8"병합 진행 중";

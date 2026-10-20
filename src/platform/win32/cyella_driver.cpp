@@ -4,6 +4,7 @@
 #include "infrastructure/git_operation_runner.h"
 #include "infrastructure/git_tool_discovery.h"
 #include "platform/win32/askpass_helper_path.h"
+#include "platform/win32/rebase_editor_path.h"
 #include "platform/win32/win32_diff_tool_launcher.h"
 #include "platform/win32/win32_file_probe.h"
 #include "platform/win32/win32_process_runner.h"
@@ -110,6 +111,9 @@ namespace cyella::win32 {
             ssh_programs_ = locate_ssh_programs(git_tool_.executable, windows_directory(), *probe_);
             runner_options.ssh_executable = ssh_programs_.ssh;
             runner_options.ssh_keygen_executable = ssh_programs_.ssh_keygen;
+            // 인터랙티브 rebase의 편집기 도우미다. 없으면 그 operation만 이유를 알리고 실패한다.
+            if (const std::optional<std::filesystem::path> rebase_editor { locate_rebase_editor_helper() }; rebase_editor.has_value())
+                runner_options.rebase_editor_helper = rebase_editor->u8string();
             dependencies.ssh_tools_found = ssh_programs_.found() && askpass_.available();
             dependencies.ssh_tools_origin = ssh_programs_.origin;
             git_workspace_options workspace_options {};

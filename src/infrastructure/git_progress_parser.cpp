@@ -98,11 +98,30 @@ namespace cyella {
             const bool finished { rest.find(u8"done") != std::u8string_view::npos };
             return git_progress { std::u8string { phase }, finished ? std::optional<double> { 1.0 } : std::nullopt, remote };
         }
+
+        std::optional<git_progress> rebase_step(std::u8string_view line) noexcept
+        {
+            constexpr std::u8string_view prefix { u8"Rebasing (" };
+            if (line.starts_with(prefix) == false)
+                return std::nullopt;
+            line.remove_prefix(prefix.size());
+            const std::optional<std::uint64_t> done { take_number(line) };
+            if (done.has_value() == false || line.empty() || line.front() != u8'/')
+                return std::nullopt;
+            line.remove_prefix(1);
+            const std::optional<std::uint64_t> total { take_number(line) };
+            if (total.has_value() == false || *total == 0 || line != u8")")
+                return std::nullopt;
+            return git_progress { std::u8string { u8"Rebasing" }, std::min(static_cast<double>(*done) / static_cast<double>(*total), 1.0), false };
+        }
     } // namespace
 
     std::optional<git_progress> parse_git_progress(std::u8string_view line)
     {
         line = trim(line);
+        // rebase는 `Rebasing (2/6)`처럼 콜론 없이 단계 수만 낸다 (merge 방식의 진행 줄).
+        if (const std::optional<git_progress> step { rebase_step(line) }; step.has_value())
+            return step;
         bool remote { false };
         if (line.starts_with(remote_prefix))
         {

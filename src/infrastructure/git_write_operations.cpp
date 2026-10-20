@@ -1,5 +1,6 @@
 #include "infrastructure/git_operation_context.h"
 
+#include "infrastructure/git_interactive_rebase.h"
 #include "infrastructure/git_query_parser.h"
 
 #include <type_traits>
@@ -375,7 +376,14 @@ namespace cyella {
             git_arguments arguments { sequence_arguments(request.kind) };
             if (arguments.empty())
                 return operation_outcome::failed(failure_kind::invalid_request, u8"continue·skip·abort 종류가 아닙니다.");
-            return run_sequence(context, std::move(arguments), git_command_class::local_write, u8"진행 중 작업을 이어서 처리했습니다.");
+            git_command_spec spec {};
+            spec.arguments = std::move(arguments);
+            spec.command_class = git_command_class::local_write;
+            // 인터랙티브 rebase가 맡긴 reword·squash 메시지는 충돌 뒤 이어지는 줄에서도 써야 한다 (ADR-005).
+            if (request.kind == operation_kind::rebase_continue || request.kind == operation_kind::rebase_skip)
+                spec.environment = interactive_rebase_continue_environment(context);
+            const git_command_outcome outcome { context.run(std::move(spec)) };
+            return context.finish_sequence(outcome, u8"진행 중 작업을 이어서 처리했습니다.");
         }
 
         operation_outcome resolve_file(git_operation_context& context, const resolve_file_request& request)
@@ -526,6 +534,8 @@ namespace cyella {
                 }
                 else if constexpr (std::is_same_v<request_type, remove_stale_index_lock_request>)
                     return remove_stale_index_lock(context);
+                else if constexpr (std::is_same_v<request_type, interactive_rebase_request>)
+                    return run_interactive_rebase(context, request);
                 else
                     return operation_outcome::failed(failure_kind::invalid_request, u8"쓰기 lane에서 실행할 수 없는 작업입니다.");
             },

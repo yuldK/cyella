@@ -132,5 +132,7 @@ namespace cyella {
         // 직전 계속 시도가 다시 충돌이나 오류로 끝났다.
         std::u8string message {};
         std::optional<std::u8string> merge_tool {};
+        // 인터랙티브 rebase면 지금 멈춘 할 일과 남은 메시지 안내다 ("할 일 2/3 · pick abc1234 …"). 아니면 비어 있다.
+        std::u8string todo_note {};
     };
 } // namespace cyella

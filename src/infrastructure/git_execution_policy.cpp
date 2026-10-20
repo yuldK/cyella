@@ -16,6 +16,12 @@ namespace cyella {
             };
         }
 
+        bool equal_ignoring_ascii_case(const std::u8string_view left, const std::u8string_view right) noexcept
+        {
+            const auto lower = [](const char8_t value) noexcept { return value >= u8'A' && value <= u8'Z' ? static_cast<char8_t>(value - u8'A' + u8'a') : value; };
+            return left.size() == right.size() && std::equal(left.begin(), left.end(), right.begin(), [&lower](const char8_t a, const char8_t b) noexcept { return lower(a) == lower(b); });
+        }
+
         process_environment_override remove_variable(const std::u8string_view name)
         {
             return {
@@ -105,8 +111,15 @@ namespace cyella {
         // "이번만 연결"이다. 이 요청 하나에서만 사용자의 `core.sshCommand`를 덮어쓴다.
         if (options.ssh_command.empty() == false)
             request.environment_overrides.push_back(set_variable(u8"GIT_SSH_COMMAND", options.ssh_command));
-        for (const process_environment_override& entry : options.extra_environment)
-            request.environment_overrides.push_back(entry);
+        // 같은 이름이 둘이면 실행기가 요청을 거절하므로 이미 있는 항목은 값을 바꾼다.
+        for (const process_environment_override& entry : options.environment)
+        {
+            const auto same_name = [&entry](const process_environment_override& existing) { return equal_ignoring_ascii_case(existing.name, entry.name); };
+            if (const auto found { std::find_if(request.environment_overrides.begin(), request.environment_overrides.end(), same_name) }; found != request.environment_overrides.end())
+                found->value = entry.value;
+            else
+                request.environment_overrides.push_back(entry);
+        }
         request.standard_input = options.standard_input;
         request.timeout = limits.timeout;
         request.maximum_captured_bytes_per_stream = options.maximum_captured_bytes_per_stream.value_or(limits.maximum_captured_bytes_per_stream);

@@ -1,5 +1,6 @@
 #include "infrastructure/git_query_parser.h"
 
+#include "domain/interactive_rebase.h"
 #include "infrastructure/git_text.h"
 
 #include <cstdint>
@@ -154,6 +155,16 @@ namespace cyella {
                 result.head_name = read_trimmed(read("rebase-merge/head-name"));
                 if (const auto message { read("rebase-merge/message") })
                     result.current_summary = std::string { first_line(*message) };
+                if (const auto done { read("rebase-merge/done") })
+                {
+                    if (const auto last { last_done_line(*done) })
+                    {
+                        result.current_action = last->command;
+                        result.current_sha = last->sha;
+                    }
+                }
+                result.interactive = read("rebase-merge/interactive").has_value();
+                result.cyella_messages = read("rebase-merge/cyella/active").has_value();
             }
             else
             {

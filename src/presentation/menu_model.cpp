@@ -90,6 +90,9 @@ namespace cyella {
                 });
             const std::u8string where { has_current_branch(context) ? to_u8(context.current_branch) : std::u8string { u8"HEAD" } };
             add_group(entries, reset_group(where, short_sha(target.sha), is_head == false));
+            // 이 커밋 위에 쌓인 커밋들을 편집한다 (`rebase -i <이 커밋>`).
+            add_group(entries,
+                { make_entry(u8"interactive_rebase_here", u8"여기서부터 인터랙티브 rebase… (이 커밋 위의 커밋)", icons::icon_list_ordered, is_head == false && context.head_sha.empty() == false) });
             add_group(entries, { make_entry(u8"copy_sha", u8"SHA 복사", icons::icon_copy) });
             model.entries = std::move(entries);
             return model;
@@ -104,6 +107,7 @@ namespace cyella {
             std::vector<menu_entry> group {};
             group.push_back(make_entry(u8"merge_into_current", with_eul_reul(name) + u8" " + current + u8"에 merge", icons::icon_git_merge, unavailable == false));
             group.push_back(make_entry(u8"rebase_current_onto", with_eul_reul(current) + u8" " + name + u8" 위로 rebase", icons::icon_repo_forked, unavailable == false));
+            group.push_back(make_entry(u8"interactive_rebase_current_onto", with_eul_reul(current) + u8" " + name + u8" 위로 인터랙티브 rebase…", icons::icon_list_ordered, unavailable == false));
             return group;
         }
 
@@ -289,7 +293,8 @@ namespace cyella {
                 const bool on_top { same_tip || facts.destination_is_ancestor.value_or(false) };
                 group.push_back(make_entry(u8"rebase", with_eul_reul(a) + u8" " + b + u8" 위로 rebase" + (on_top ? std::u8string { u8" · 이미 위에 있음" } : count_suffix(facts.only_in_source)),
                     icons::icon_repo_forked, on_top == false));
-                group.push_back(make_entry(u8"interactive_rebase", with_eul_reul(a) + u8" " + b + u8" 위로 인터랙티브 rebase", icons::icon_list_ordered, false));
+                group.push_back(make_entry(u8"interactive_rebase", with_eul_reul(a) + u8" " + b + u8" 위로 인터랙티브 rebase…" + (on_top ? std::u8string {} : count_suffix(facts.only_in_source)),
+                    icons::icon_list_ordered, same_tip == false));
             }
             add_group(model.entries, std::move(group));
             if (destination_is_current && same_tip == false)

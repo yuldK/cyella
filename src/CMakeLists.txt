@@ -67,6 +67,12 @@ cyella_add_source_filter(cyella_lib_files "domain/rules"
     domain/ref_name.cpp
     domain/ref_name.h)
 
+# 인터랙티브 rebase의 할 일 목록 규칙이다 (검사, git todo 형식, 자동 squash 정렬, 메시지 짝). 편집기 도우미도
+# 이 파일을 직접 컴파일한다.
+cyella_add_source_filter(cyella_lib_files "domain/rebase"
+    domain/interactive_rebase.cpp
+    domain/interactive_rebase.h)
+
 # infrastructure: application 계약의 구현이다. git 출력 해석기와 명령줄 조립기는
 # 프로세스를 실행하지 않는 순수 함수다 (실행은 process runner가 맡는다).
 cyella_add_source_filter(cyella_lib_files "infrastructure/git_parsers"
@@ -213,6 +219,8 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/diff_view"
 
 # operation을 git 명령으로 바꿔 실행하는 실행기다. 명령 조립기·해석기·process runner를 잇는다.
 cyella_add_source_filter(cyella_lib_files "infrastructure/git_operations"
+    infrastructure/git_interactive_rebase.cpp
+    infrastructure/git_interactive_rebase.h
     infrastructure/git_operation_context.cpp
     infrastructure/git_operation_context.h
     infrastructure/git_operation_runner.cpp
@@ -309,6 +317,25 @@ cyella_add_source_filter(cyella_lib_files "presentation/dialogs"
     presentation/snapshot_dialogs.cpp
     presentation/snapshot_dialogs.h)
 
+# 인터랙티브 rebase 편집기의 상태·메시지·규칙·snapshot과 그 controller다. luil 없이 test한다.
+cyella_add_source_filter(cyella_lib_files "presentation/rebase"
+    presentation/rebase/rebase_editor_controller.cpp
+    presentation/rebase/rebase_editor_controller.h
+    presentation/rebase/rebase_editor_intents.h
+    presentation/rebase/rebase_editor_model.cpp
+    presentation/rebase/rebase_editor_model.h
+    presentation/rebase/rebase_editor_state.h
+    presentation/rebase/rebase_editor_view.cpp
+    presentation/rebase/rebase_editor_view.h
+    presentation/rebase/shell_controller_rebase.cpp)
+
+# 인터랙티브 rebase 편집기의 luil element다 (대화 상자, 여러 줄 메시지 칸).
+cyella_add_source_filter(cyella_lib_files "presentation/ui/rebase"
+    presentation/ui/rebase/multiline_text_element.cpp
+    presentation/ui/rebase/multiline_text_element.h
+    presentation/ui/rebase/rebase_editor_ui.cpp
+    presentation/ui/rebase/rebase_editor_ui.h)
+
 # 대화 상자·메뉴·라벨 칩·충돌 해결 화면의 luil element다.
 cyella_add_source_filter(cyella_lib_files "presentation/ui/dialogs"
     presentation/ui/conflict_ui.cpp
@@ -390,6 +417,8 @@ cyella_add_source_filter(cyella_lib_files "platform/authentication"
     platform/win32/askpass_helper_path.h
     platform/win32/askpass_protocol.cpp
     platform/win32/askpass_protocol.h
+    platform/win32/rebase_editor_path.cpp
+    platform/win32/rebase_editor_path.h
     platform/win32/win32_askpass_server.cpp
     platform/win32/win32_askpass_server.h
     platform/win32/win32_ssh_environment.cpp
@@ -451,8 +480,24 @@ target_link_libraries(cyella_askpass
         shell32)
 cyella_disable_automatic_windows_manifest(cyella_askpass)
 
+# 인터랙티브 rebase의 편집기 도우미다 (ADR-005). git이 `GIT_SEQUENCE_EDITOR`·`GIT_EDITOR`로 실행해 앱이 준비한
+# 할 일 목록과 메시지를 파일에 쓴다. askpass 도우미처럼 luil·Skia에 링크하지 않고 할 일 규칙만 직접 컴파일한다.
+set(cyella_rebase_editor_files)
+cyella_add_source_filter(cyella_rebase_editor_files "rebase_editor"
+    domain/interactive_rebase.cpp
+    domain/interactive_rebase.h
+    platform/win32/rebase_editor_main.cpp)
+add_executable(cyella_rebase_editor WIN32 ${cyella_rebase_editor_files})
+set_target_properties(cyella_rebase_editor PROPERTIES OUTPUT_NAME "cyella-rebase-editor")
+target_include_directories(cyella_rebase_editor PRIVATE "${CYELLA_SOURCE_DIRECTORY}")
+target_link_libraries(cyella_rebase_editor
+    PRIVATE
+        cyella_project_options
+        shell32)
+cyella_disable_automatic_windows_manifest(cyella_rebase_editor)
+
 # 앱이 도우미를 자기 옆에서 찾으므로 둘을 같은 디렉터리에 설치한다.
-add_dependencies(cyella cyella_askpass)
-install(TARGETS cyella cyella_askpass RUNTIME DESTINATION .)
+add_dependencies(cyella cyella_askpass cyella_rebase_editor)
+install(TARGETS cyella cyella_askpass cyella_rebase_editor RUNTIME DESTINATION .)
 # 웹뷰가 실행 파일 옆의 이 폴더에서 `file://`로 뷰어를 연다.
 install(DIRECTORY "${CYELLA_DIFF_VIEWER_DIRECTORY}/" DESTINATION diff-viewer)

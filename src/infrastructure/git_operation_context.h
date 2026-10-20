@@ -46,8 +46,8 @@ namespace cyella {
         std::u8string working_directory {};
         // 있으면 stdout 조각을 모으지 않고 바로 넘긴다(log 스트림).
         std::function<void(std::string_view)> on_standard_output {};
-        // 이 명령에만 더하는 환경 변수다.
-        std::vector<process_environment_override> extra_environment {};
+        // 이 명령에만 더하거나 바꿀 환경 변수다 (`git_request_options::environment`).
+        std::vector<process_environment_override> environment {};
         // 진행 표시가 stderr가 아니라 stdout으로 나온다(git-lfs). 줄바꿈(CR·LF)으로 끊어 진행률로 보낸다.
         bool progress_on_standard_output { false };
     };

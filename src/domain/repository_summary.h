@@ -44,6 +44,14 @@ namespace cyella {
         std::string onto {};
         // rebase 중인 브랜치의 전체 이름(`refs/heads/feature`)이다. detached rebase면 비어 있다.
         std::string head_name {};
+        // 아래는 인터랙티브 rebase의 값이다. `rebase-merge/done`의 마지막 커밋 줄이 지금 처리 중인 할 일이다.
+        // 명령어(`pick`, `reword`, `squash`, `fixup`, `drop`)와 SHA 전체다. 읽지 못하면 비어 있다.
+        std::string current_action {};
+        std::string current_sha {};
+        // `rebase -i`로 시작했다 (`rebase-merge/interactive`).
+        bool interactive { false };
+        // cyella가 맡긴 reword·squash 메시지가 남아 있다 (`rebase-merge/cyella`). 계속하면 앱이 그 메시지를 쓴다.
+        bool cyella_messages { false };
     };
 
     // `git remote -v`의 원격 하나다. 사이드바 REMOTE 묶음과 push 대화 상자의 원격 선택이 쓴다.

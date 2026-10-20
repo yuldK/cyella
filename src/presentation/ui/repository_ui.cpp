@@ -2,6 +2,7 @@
 #include "presentation/build_view_snapshot.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/extension_intents.h"
+#include "presentation/rebase/rebase_editor_intents.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
@@ -311,6 +312,16 @@ namespace cyella::ui {
                 parents += (parents.empty() ? u8"" : u8", ") + parent;
             add(make_text(u8"detail-parents", u8"부모  " + (parents.empty() ? std::u8string { u8"(없음)" } : parents), text_style { .size = 11.0f, .color = dim_color, .code = true }),
                 detail_line_height);
+            // 커밋 우클릭 메뉴의 "여기서부터 인터랙티브 rebase…"와 같은 일이다. 키보드·보조 기술로도 닿는 자리다.
+            {
+                auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"detail-actions" }, luil::stack_config { .direction = luil::stack_direction::row }) };
+                row->add(
+                    make_text_button(u8"detail-interactive-rebase", u8"여기서부터 인터랙티브 rebase…", luil::text_button_visual::normal, message(open_interactive_rebase_here_intent { commit.sha }),
+                        commit.sha != repository.graph.head_sha && repository.graph.head_sha.empty() == false, codicons::icon_list_ordered),
+                    { .length = 236.0f, .cross_length = 24.0f });
+                row->add_flexible_gap();
+                add(std::move(row), 30.0f);
+            }
             column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"commit-meta-bar" }, bar_style { .divider_bottom = true }, std::move(meta)), meta_height);
 
             if (commit.loading)

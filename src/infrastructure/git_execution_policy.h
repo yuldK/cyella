@@ -54,8 +54,9 @@ namespace cyella {
         // 부류별 기본 캡처 상한을 바꾼다. 해석기가 조각을 바로 소비해 버퍼에 쌓지 않는
         // 스트리밍 요청은 `unlimited_process_capture_bytes`를 넘긴다.
         std::optional<std::size_t> maximum_captured_bytes_per_stream {};
-        // 이 요청 하나에만 더하는 환경 변수다 (Git LFS의 `GIT_LFS_FORCE_PROGRESS` 등). 공통 override 뒤에 붙는다.
-        std::vector<process_environment_override> extra_environment {};
+        // 이 요청에만 더하거나 바꿀 환경 변수다. 공통 정책과 이름이 같으면 그 값을 바꾼다 (인터랙티브 rebase의
+        // `GIT_EDITOR`·`GIT_SEQUENCE_EDITOR`). 이름은 대소문자를 가리지 않는다.
+        std::vector<process_environment_override> environment {};
     };
 
     // git을 비대화형으로 실행하는 환경 override다.

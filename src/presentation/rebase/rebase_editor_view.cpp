@@ -1,0 +1,216 @@
+#include "presentation/rebase/rebase_editor_view.h"
+
+#include "presentation/korean_josa.h"
+#include "presentation/rebase/rebase_editor_model.h"
+#include "presentation/ui_state.h"
+
+#include <algorithm>
+#include <string>
+
+namespace cyella {
+    namespace {
+        std::u8string to_u8(const std::string_view text)
+        {
+            return std::u8string { text.begin(), text.end() };
+        }
+
+        std::u8string number(const std::size_t value)
+        {
+            return to_u8(std::to_string(value));
+        }
+
+        std::u8string short_of(const std::string_view sha)
+        {
+            return to_u8(sha.substr(0, std::min<std::size_t>(sha.size(), 7)));
+        }
+
+        const rebase_commit* find_commit(const rebase_plan& plan, const std::string_view sha)
+        {
+            for (const rebase_commit& commit : plan.commits)
+                if (commit.sha == sha)
+                    return &commit;
+            return nullptr;
+        }
+
+        std::u8string phase_status(const rebase_editor_state& state)
+        {
+            switch (state.phase)
+            {
+            case rebase_editor_phase::loading:
+                return u8"rebase할 커밋을 읽는 중…";
+            case rebase_editor_phase::running:
+                return u8"인터랙티브 rebase를 실행하는 중…";
+            case rebase_editor_phase::load_failed:
+                return state.error.empty() ? std::u8string { u8"rebase할 커밋을 읽지 못했습니다." } : state.error;
+            case rebase_editor_phase::editing:
+                break;
+            }
+            return {};
+        }
+
+        std::u8string action_caption(const rebase_action action)
+        {
+            switch (action)
+            {
+            case rebase_action::pick:
+                return u8"그대로 둡니다.";
+            case rebase_action::reword:
+                return u8"내용은 두고 메시지만 바꿉니다.";
+            case rebase_action::squash:
+                return u8"앞 커밋에 합치고 두 메시지를 합칩니다.";
+            case rebase_action::fixup:
+                return u8"앞 커밋에 합치고 이 커밋의 메시지는 버립니다.";
+            case rebase_action::fixup_keep_message:
+                return u8"앞 커밋에 합치고 메시지는 이 커밋의 것을 씁니다.";
+            case rebase_action::drop:
+                return u8"이 커밋을 지웁니다.";
+            }
+            return {};
+        }
+    } // namespace
+
+    rebase_editor_view build_rebase_editor_view(const rebase_editor_state& state, const std::optional<luil::text_composition_event>& composition)
+    {
+        rebase_editor_view view {};
+        view.phase = state.phase;
+        view.status_text = phase_status(state);
+        view.list_scroll = state.list_scroll;
+        view.side_scroll = state.side_scroll;
+        const std::u8string branch { state.branch_label.empty() ? std::u8string { u8"HEAD" } : state.branch_label };
+        view.title = with_eul_reul(branch) + u8" " + state.onto_label + u8" 위로 인터랙티브 rebase";
+        if (state.phase == rebase_editor_phase::loading || state.phase == rebase_editor_phase::load_failed)
+            return view;
+
+        const rebase_plan& plan { state.plan };
+        view.subtitle = branch + u8"의 커밋 " + number(plan.commits.size()) + u8"개를 " + state.onto_label + (plan.onto_sha.empty() ? std::u8string {} : u8"(" + short_of(plan.onto_sha) + u8")")
+            + u8" 위로 다시 쌓습니다.";
+
+        // ---- 목록
+        const std::vector<rebase_group> groups { rebase_groups(state.todo) };
+        std::vector<bool> melded(state.todo.size(), false);
+        for (const rebase_group& group : groups)
+            for (const std::size_t member : group.members)
+                if (member != group.head)
+                    melded[member] = true;
+        std::size_t pushed_count { 0 };
+        for (std::size_t index { 0 }; index < state.todo.size(); ++index)
+        {
+            const rebase_todo_entry& entry { state.todo[index] };
+            const rebase_commit* const commit { find_commit(plan, entry.sha) };
+            rebase_row_view row {};
+            row.key = rebase_row_key(entry.sha);
+            row.sha = entry.sha;
+            row.number = index + 1;
+            row.action = entry.action;
+            row.short_sha = short_of(entry.sha);
+            row.subject = commit != nullptr ? to_u8(commit->subject) : std::u8string {};
+            row.pushed = commit != nullptr && commit->pushed;
+            row.marker = commit != nullptr ? autosquash_marker_of(commit->subject) : autosquash_marker::none;
+            row.melded = melded[index];
+            if (row.pushed)
+                ++pushed_count;
+            // 줄 이름은 숫자로 시작한다. 목록의 글자 탐색이 p·r·s·f·d 단축키를 줄 찾기로 가져가지 않는다.
+            row.label = number(row.number) + u8"  " + std::u8string { rebase_action_label(entry.action) } + u8"  " + row.short_sha + u8"  " + row.subject;
+            if (row.pushed)
+                row.label += u8"  · 원격에 있음";
+            view.rows.push_back(std::move(row));
+        }
+
+        // ---- 고른 줄
+        if (const std::optional<std::size_t> index { rebase_row_index(state, state.selected) }; index.has_value())
+        {
+            const rebase_todo_entry& entry { state.todo[*index] };
+            const rebase_commit* const commit { find_commit(plan, entry.sha) };
+            view.has_selection = true;
+            view.selected_key = rebase_row_key(entry.sha);
+            view.selected_title = short_of(entry.sha) + u8"  " + (commit != nullptr ? to_u8(commit->subject) : std::u8string {});
+            view.selected_action = entry.action;
+            view.can_move_up = *index > 0;
+            view.can_move_down = *index + 1 < state.todo.size();
+            view.can_meld
+                = std::any_of(state.todo.begin(), state.todo.begin() + static_cast<std::ptrdiff_t>(*index), [](const rebase_todo_entry& other) { return other.action != rebase_action::drop; });
+
+            const std::optional<std::string> key { rebase_draft_key(state, entry.sha) };
+            const auto draft { key.has_value() ? state.drafts.find(*key) : state.drafts.end() };
+            if (draft != state.drafts.end())
+            {
+                view.message_editable = true;
+                view.message_edited = draft->second.edited;
+                view.subject = luil::make_text_input_view(draft->second.subject, composition, to_luil_target(text_target::rebase_message_subject));
+                view.body = luil::make_text_input_view(draft->second.body, composition, to_luil_target(text_target::rebase_message_body));
+                if (key->starts_with("g:"))
+                {
+                    std::size_t members { 0 };
+                    for (const rebase_group& group : groups)
+                        if (group.has_squash && state.todo[group.head].sha == key->substr(2))
+                            members = group.members.size();
+                    view.message_caption = u8"squash 묶음의 합친 메시지 · 커밋 " + number(members) + u8"개";
+                    view.message_note = u8"git이 묶음 끝에서 쓰는 메시지입니다. 고치지 않으면 합치는 커밋의 메시지가 차례로 이어집니다.";
+                }
+                else
+                {
+                    view.message_caption = u8"reword · 새 메시지";
+                    view.message_note = u8"commit-msg hook이 이 메시지로 한 번 더 돕니다.";
+                }
+            }
+            else
+                view.message_note = action_caption(entry.action) + (entry.action == rebase_action::pick ? u8" 메시지를 바꾸려면 reword를 고르세요." : u8"");
+        }
+
+        // ---- 결과 미리보기
+        const std::vector<rebase_todo_entry> final_todo { rebase_final_todo(state) };
+        const rebase_preview preview { preview_rebase(final_todo, plan.commits) };
+        for (const rebase_result_commit& result : preview.commits)
+        {
+            rebase_preview_view row {};
+            row.key = u8"rebase-result:" + number(result.head);
+            row.subject = to_u8(result.subject);
+            std::u8string detail {};
+            if (result.combined > 1)
+                detail = u8"커밋 " + number(result.combined) + u8"개 합침";
+            if (result.message_changed)
+                detail += (detail.empty() ? u8"" : u8" · ") + std::u8string { u8"메시지 바뀜" };
+            row.detail = std::move(detail);
+            row.changed = result.rewritten;
+            view.preview.push_back(std::move(row));
+        }
+        view.preview_caption = u8"결과 미리보기 · 커밋 " + number(preview.commits.size()) + u8"개" + (preview.dropped_count > 0 ? u8" · 지움 " + number(preview.dropped_count) + u8"개" : u8"")
+            + (preview.reordered ? u8" · 순서 바뀜" : u8"");
+        view.summary = u8"커밋 " + number(state.todo.size()) + u8"개 → " + number(preview.commits.size()) + u8"개";
+
+        // ---- 경고
+        if (pushed_count > 0)
+            view.warnings.push_back(u8"원격 브랜치에 이미 있는 커밋 " + number(pushed_count) + u8"개를 고쳐 씁니다. 다시 올리려면 강제 push(--force-with-lease)가 필요합니다.");
+        if (plan.merge_count > 0)
+        {
+            view.warnings.push_back(u8"범위에 병합 커밋이 " + number(plan.merge_count) + u8"개 있습니다. 병합 커밋은 빠지고 이력이 한 줄로 펴집니다 (병합에서 고친 충돌 해결도 사라집니다).");
+            view.needs_flatten_confirm = true;
+            view.flatten_confirmed = state.flatten_confirmed;
+        }
+        view.show_autosquash = std::ranges::any_of(plan.commits, [](const rebase_commit& commit) { return autosquash_marker_of(commit.subject) != autosquash_marker::none; });
+        view.autosquash = state.autosquash;
+        view.show_autostash = state.worktree_dirty;
+        view.autostash = state.autostash;
+
+        // ---- 시작할 수 있는가
+        std::vector<std::string> range {};
+        range.reserve(plan.commits.size());
+        for (const rebase_commit& commit : plan.commits)
+            range.push_back(commit.sha);
+        if (state.phase == rebase_editor_phase::running)
+            view.problem.clear();
+        else if (plan.commits.empty())
+            view.problem = u8"rebase할 커밋이 없습니다. 이미 " + state.onto_label + u8" 위에 있습니다.";
+        else if (const auto issue { find_rebase_todo_problem(final_todo, range) }; issue.has_value())
+            view.problem = rebase_todo_problem_text(*issue);
+        else if (view.needs_flatten_confirm && state.flatten_confirmed == false)
+            view.problem = u8"병합 커밋을 한 줄로 펴도 되는지 위에서 확인하세요.";
+        else if (state.worktree_dirty && state.autostash == false)
+            view.problem = u8"작업 트리에 변경이 있습니다. 보관(autostash)을 켜거나 먼저 커밋하세요.";
+        else if (state.error.empty() == false)
+            view.problem = state.error;
+        view.can_start = state.phase == rebase_editor_phase::editing && plan.commits.empty() == false && find_rebase_todo_problem(final_todo, range).has_value() == false
+            && (view.needs_flatten_confirm == false || state.flatten_confirmed) && (state.worktree_dirty == false || state.autostash);
+        return view;
+    }
+} // namespace cyella

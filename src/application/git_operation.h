@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/interactive_rebase.h"
 #include "domain/operation_status.h"
 
 #include <cstdint>
@@ -454,13 +455,39 @@ namespace cyella {
         std::string pattern {};
     };
 
+    // ------------------------------------------------------------------ 인터랙티브 rebase
+
+    // 편집기를 채울 범위를 읽는다 (읽기 lane). branch를 비우면 HEAD다. 결과는 `rebase_plan_loaded` 사건이고
+    // `git_workspace::rebase_plan_of`로 읽는다. 커밋은 git이 todo에 넣을 것과 같다 (`log --reverse --topo-order
+    // --max-parents=1 --right-only --cherry-pick onto...branch`). 병합 커밋 수와 원격에 이미 있는 커밋도 함께 준다.
+    struct load_rebase_plan_request
+    {
+        std::string onto {};
+        std::string branch {};
+    };
+
+    // `rebase -i`를 앱이 고친 목록으로 실행한다. git의 순서 편집기와 메시지 편집기 자리에 cyella의 편집기 도우미가
+    // 들어간다 (ADR-005). 충돌하면 `needs_input{conflict}`로 끝나고, 남은 reword·squash 메시지는
+    // `rebase_continue`·`rebase_skip`에서도 적용된다.
+    struct interactive_rebase_request
+    {
+        std::string onto {};
+        // 비우면 현재 HEAD다.
+        std::string branch {};
+        // 범위의 커밋 전부가 한 번씩 들어 있어야 한다. 지울 커밋은 drop으로 둔다.
+        std::vector<rebase_todo_entry> todo {};
+        bool autostash { false };
+        // 범위에 병합 커밋이 있어도 실행한다. 병합 커밋은 빠지고 이력이 한 줄로 펴진다. 끄면 `refused`로 끝난다.
+        bool allow_flatten_merges { false };
+    };
+
     using git_operation = std::variant<refresh_request, load_more_log_request, show_commit_request, diff_file_request, is_ancestor_request, count_commits_request, refresh_remote_tags_request,
         stage_files_request, unstage_files_request, discard_files_request, ignore_path_request, commit_request, apply_patch_request, checkout_branch_request, checkout_remote_branch_request,
         checkout_detached_request, create_branch_request, rename_branch_request, delete_branch_request, fetch_request, pull_request, push_execute_request, merge_request, rebase_request,
         fast_forward_request, reset_request, cherry_pick_request, revert_request, stash_push_request, stash_apply_request, stash_pop_request, stash_drop_request, create_tag_request, push_tag_request,
         push_tags_request, delete_tag_request, delete_remote_tag_request, sequence_control_request, resolve_file_request, mark_resolved_request, remove_stale_index_lock_request, clone_request,
         init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
-        worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request>;
+        worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request>;
 
     // 실행 lane이다.
     enum class operation_lane

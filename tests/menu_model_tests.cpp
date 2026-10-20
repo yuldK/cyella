@@ -154,7 +154,11 @@ TEST_CASE("the drop menu follows the contract table", "[presentation][drop]")
         CHECK_FALSE(has_entry(model, u8"fast_forward"));
         CHECK(entry_enabled(model, u8"merge"));
         CHECK(entry_enabled(model, u8"rebase"));
-        CHECK_FALSE(entry_enabled(model, u8"interactive_rebase"));
+        // 인터랙티브 rebase도 켜져 있고 움직일 커밋 수가 보인다.
+        CHECK(entry_enabled(model, u8"interactive_rebase"));
+        const auto interactive { std::find_if(model.entries.begin(), model.entries.end(), [](const menu_entry& entry) { return entry.key == u8"interactive_rebase"; }) };
+        REQUIRE(interactive != model.entries.end());
+        CHECK(interactive->label == u8"feature를 main 위로 인터랙티브 rebase… · 커밋 2개");
         // 놓은 쪽이 현재 브랜치라 reset이 보인다. hard는 위험 표시다.
         CHECK(has_entry(model, u8"reset_soft"));
         CHECK(has_entry(model, u8"reset_mixed"));
@@ -267,10 +271,13 @@ TEST_CASE("context menu entries depend on the target", "[presentation][menu]")
         for (const char8_t* key : { u8"checkout_detached", u8"create_branch", u8"create_tag", u8"cherry_pick", u8"revert", u8"reset_soft", u8"reset_mixed", u8"reset_hard", u8"copy_sha" })
             CHECK(has_entry(model, key));
         CHECK(entry_enabled(model, u8"cherry_pick"));
-        // HEAD 커밋은 cherry-pick·reset의 대상이 아니다.
+        // 그 커밋 위의 커밋들을 인터랙티브 rebase한다.
+        CHECK(entry_enabled(model, u8"interactive_rebase_here"));
+        // HEAD 커밋은 cherry-pick·reset·인터랙티브 rebase의 대상이 아니다.
         const menu_model head { build_context_menu({ .kind = menu_target_kind::commit, .sha = sha_of(7) }, context) };
         CHECK_FALSE(entry_enabled(head, u8"cherry_pick"));
         CHECK_FALSE(entry_enabled(head, u8"reset_hard"));
+        CHECK_FALSE(entry_enabled(head, u8"interactive_rebase_here"));
         // 병합 커밋은 cherry-pick과 revert가 꺼진다.
         context.commit_is_merge = true;
         const menu_model merge { build_context_menu({ .kind = menu_target_kind::commit, .sha = sha_of(9) }, context) };
@@ -281,8 +288,10 @@ TEST_CASE("context menu entries depend on the target", "[presentation][menu]")
     SECTION("local branch")
     {
         const menu_model other { build_context_menu({ .kind = menu_target_kind::local_branch, .name = "feature", .sha = sha_of(9) }, context) };
-        for (const char8_t* key : { u8"checkout", u8"merge_into_current", u8"rebase_current_onto", u8"push", u8"set_upstream", u8"rename", u8"delete", u8"copy_name" })
+        for (const char8_t* key :
+            { u8"checkout", u8"merge_into_current", u8"rebase_current_onto", u8"interactive_rebase_current_onto", u8"push", u8"set_upstream", u8"rename", u8"delete", u8"copy_name" })
             CHECK(has_entry(other, key));
+        CHECK(entry_enabled(other, u8"interactive_rebase_current_onto"));
         CHECK(entry_enabled(other, u8"checkout"));
         CHECK(entry_enabled(other, u8"delete"));
         CHECK(other.entries.front().label == u8"체크아웃");
@@ -291,6 +300,7 @@ TEST_CASE("context menu entries depend on the target", "[presentation][menu]")
         CHECK_FALSE(entry_enabled(current, u8"checkout"));
         CHECK_FALSE(entry_enabled(current, u8"delete"));
         CHECK_FALSE(entry_enabled(current, u8"merge_into_current"));
+        CHECK_FALSE(entry_enabled(current, u8"interactive_rebase_current_onto"));
         // detached HEAD에서는 현재 브랜치가 없어 merge·rebase를 쓸 수 없다.
         context.detached = true;
         const menu_model detached { build_context_menu({ .kind = menu_target_kind::local_branch, .name = "feature", .sha = sha_of(9) }, context) };

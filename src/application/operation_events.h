@@ -6,6 +6,7 @@
 #include "domain/credential_prompt.h"
 #include "domain/diff_file.h"
 #include "domain/file_change.h"
+#include "domain/interactive_rebase.h"
 #include "domain/lfs.h"
 #include "domain/operation_status.h"
 #include "domain/ref.h"
@@ -162,6 +163,12 @@ namespace cyella {
         ssh_connection_classification classification {};
     };
 
+    // `load_rebase_plan`이 읽은 범위다. 인터랙티브 rebase 편집기를 채운다.
+    struct rebase_plan_loaded
+    {
+        rebase_plan plan {};
+    };
+
     // 마지막 사건이다. 반드시 한 번 온다. state는 succeeded·failed·cancelled·needs_input이다.
     struct operation_finished
     {
@@ -172,7 +179,7 @@ namespace cyella {
     };
 
     using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded,
-        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished>;
+        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded>;
 
     struct operation_event
     {

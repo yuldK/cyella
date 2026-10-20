@@ -142,6 +142,10 @@ namespace cyella {
             return "lfs_fetch";
         case operation_kind::lfs_track:
             return "lfs_track";
+        case operation_kind::load_rebase_plan:
+            return "load_rebase_plan";
+        case operation_kind::interactive_rebase:
+            return "interactive_rebase";
         }
         return "unknown";
     }

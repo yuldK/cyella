@@ -282,3 +282,44 @@ shell_controller_extension.cpp: 행 활성화·메뉴 실행·대화 상자 열�
 - LFS 카드의 "현재 내용"은 unstaged 보기에서만 작업 트리 파일로 판정하고 staged·커밋 보기는 객체 저장소로 본다. 커밋 보기에서 객체를 받아 둔 저장소는 이미지 비교가 뜬다.
 - 커밋 파일 목록의 LFS 배지는 그 커밋이 아니라 지금 작업 트리의 `.gitattributes`로 판정한다(과거 커밋에서 LFS를 쓰지 않았던 파일도 지금 패턴에 맞으면 배지가 붙는다).
 - submodule 상태에서 `out_of_date`와 `modified`의 구분은 `+`인 항목마다 submodule 안에서 `git merge-base --is-ancestor`를 한 번 부른다.
+
+## 인터랙티브 rebase 편집기
+
+결정은 [ADR-005](decisions/ADR-005-interactive-rebase.md)에 있다.
+
+```text
+여는 곳: 끌어 놓기 메뉴(interactive_rebase) · 커밋 메뉴(interactive_rebase_here) · 브랜치 메뉴(interactive_rebase_current_onto)
+        · 커밋 상세 판의 [여기서부터 인터랙티브 rebase…] (open_interactive_rebase_here_intent)
+   └▶ shell_controller::open_rebase_editor ─▶ rebase_editor_controller.open ─▶ load_rebase_plan
+rebase_editor_controller (shell_controller가 소유, presentation/rebase/*)
+   ├ after_events: rebase_plan_of(op)가 오면 start_rebase_editing (fixup!·squash!·amend! 자동 정렬)
+   ├ handle: 고르기·동작·옮기기(Alt+↑↓·[위로]·[아래로]·끌기)·켬끔·메시지 되돌리기·시작
+   ├ edit_text: 제목(한 줄)·본문(여러 줄) 초안
+   └ make_view ─▶ build_rebase_editor_view (순수) ─▶ ui::build_rebase_editor (presentation/ui/rebase/*)
+시작: interactive_rebase{todo=rebase_final_todo} → 성공·충돌이면 닫는다(충돌 화면이 이어 받는다), 실행 전 거절(invalid_request·refused)이면 열어 두고 이유를 보인다
+```
+
+- **상태**(`rebase_editor_state`)는 열려 있는 동안만 있다. 목록(`todo`)은 메시지를 비워 두고, 메시지 초안은 `drafts`가 든다. 열쇠는 reword 줄이면 `r:<sha>`,
+  squash가 든 묶음이면 묶음 첫 줄의 `g:<sha>`다. 고치지 않은 묶음 초안은 묶음이 바뀔 때마다 git과 같은 규칙(`combined_squash_message`)으로 다시 만들고,
+  고친 초안은 남긴다. 시작할 때 `rebase_final_todo`가 reword 줄과 묶음 **마지막 줄**에 메시지를 채운다.
+- **목록**은 `virtual_list_element`(`rebase-todo`)이고 행 키는 `rebase-row:<sha>`다. 행 내용은 손잡이·번호·동작 알약·SHA·제목·"원격에 있음"이다.
+  행 이름(`virtual_list_item::label`)은 번호로 시작한다(`1  squash  abc1234  제목`) — 화면 읽기가 이 글을 읽는다.
+  - 커서가 곧 고른 줄이다(`move`도 `rebase_select_intent`). 오른쪽 판이 고른 줄의 동작 선택지·메시지·결과 미리보기를 보인다.
+  - **p·r·s·f·d**: Windows는 수식 키 없는 글자를 키(`key_pressed_event`)가 아니라 문자로만 보낸다. 그래서 정책의 `on_key`가 아니라 목록의 글자 탐색 자리
+    (`set_key_search_target`)가 받는다. 질의의 마지막 글자가 이번 키다. 글자로 줄을 찾는 기능은 이 목록에 없다.
+  - **Alt+↑↓**는 `cyella_policy::on_key`가 편집기 목록이 tree에 있을 때만 `rebase_move_intent`로 바꾼다. 같은 일을 하는 [위로]·[아래로] 단추가 오른쪽 판에 있다
+    (마우스 없이, 보조 기술로도 순서를 바꾼다).
+  - 끌기는 목록의 `drag`·`accepts_drop`·`drop`이다. 같은 목록의 다른 줄에만 놓이고 `rebase_reorder_intent{moved, target}`가 나간다(아래로 옮기면 대상 뒤, 위로 옮기면 앞).
+- **메시지 칸**: 제목은 luil `text_input_element`(한 줄, `text_target::rebase_message_subject`, kind 200), 본문은 앱이 지은 **여러 줄 칸**
+  `multiline_text_element`(`text_target::rebase_message_body`, kind 201)다. luil은 여러 줄 붙여넣기·포인터 판정만 지원하고 여러 줄 칸 element는 없다.
+  - `text_input()`이 `multiline`을 켜 붙여넣기가 줄바꿈을 지키고, `offset_at_point`가 줄(y)·열(x)로 caret을 정한다. 줄을 감싸지 않는다(긴 줄은 잘린다). caret 줄이 보이게 세로로만 흐른다.
+  - Enter는 정책이 줄바꿈 입력(`edit_text_intent{insert "\n"}`)으로, ↑↓는 `rebase_body_line_intent`(같은 열의 윗줄·아랫줄)로 바꾼다. Home·End는 controller가 그 줄의 처음·끝으로 옮긴다.
+    그래서 편집기의 [rebase 시작]은 기본 단추가 아니다 (기본 단추가 있으면 본문의 Enter를 먼저 가져간다).
+  - 커밋 상자의 본문은 여전히 한 줄이다. 같은 element로 바꿀 수 있다.
+- **경고**: 원격 브랜치에 있는 커밋(`pushed`)이 있으면 강제 push 경고, 병합 커밋이 있으면 경고와 "한 줄로 펴도 됩니다" 확인 칸(켜야 시작)이다. 작업 트리에 추적 파일 변경이 있으면
+  autostash 칸이 서고 켜야 시작한다. 시작할 수 없는 이유는 아래 막대의 요약("커밋 7개 → 4개") 밑에 보인다.
+- **충돌 화면**: `in_progress.interactive`면 제목이 "인터랙티브 rebase 중"이고, 머리에 "할 일 k/n · 동작 SHA · 남은 reword·squash 메시지는 계속하거나 건너뛰면 그대로 적용됩니다"
+  한 줄(`conflict-todo`)이 더 선다. 계속·건너뛰기·중단은 충돌 해결 화면과 같다.
+- **진행 표시**: 실행 중에는 편집기가 "실행 중…"이고 상태 줄이 `Rebasing (k/n)` 진행률을 보인다. 편집기를 닫아도 rebase는 계속된다.
+- UIA로 닿지 않는 몸짓(라벨 끌어 놓기, 우클릭 메뉴, 할 일 줄 끌기, p·r·s·f·d, Alt+↑↓)은 `tests/rebase_shell_tests.cpp`가 그 몸짓의 intent·element 콜백(`drop()`·`drag()`·
+  `key_search()`)·정책(`on_key`)을 직접 불러 확인한다.

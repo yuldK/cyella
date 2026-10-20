@@ -1,6 +1,7 @@
 #include "presentation/ui/cyella_policy.h"
 
 #include "presentation/dialog_intents.h"
+#include "presentation/rebase/rebase_editor_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
@@ -43,6 +44,40 @@ namespace cyella::ui {
             return to_luil_target(text_target::form_field_1);
         if (kind == kind_form_input_2)
             return to_luil_target(text_target::form_field_2);
+        if (kind == kind_rebase_subject_input)
+            return to_luil_target(text_target::rebase_message_subject);
+        if (kind == kind_rebase_body_input)
+            return to_luil_target(text_target::rebase_message_body);
+        return std::nullopt;
+    }
+
+    std::optional<std::vector<luil::input_action>> cyella_policy::rebase_editor_key(const luil::ui_tree* tree, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot)
+    {
+        const luil::ui_element_kind input { snapshot.focused_input.kind };
+        // 본문은 여러 줄 칸이다. Enter는 줄바꿈이고 ↑↓는 윗줄·아랫줄로 간다 (Ctrl+Enter는 그대로 앱의 것이다).
+        if (input == kind_rebase_body_input)
+        {
+            if (event.key == luil::key_code::enter && event.control == false && event.alt == false)
+            {
+                luil::text_edit_request request {};
+                request.target = to_luil_target(text_target::rebase_message_body);
+                request.command = luil::text::text_edit_command::insert;
+                request.text = u8"\n";
+                return std::vector<luil::input_action> { message(edit_text_intent { std::move(request) }) };
+            }
+            if ((event.key == luil::key_code::arrow_up || event.key == luil::key_code::arrow_down) && event.control == false && event.alt == false)
+                return std::vector<luil::input_action> { message(rebase_body_line_intent { .down = event.key == luil::key_code::arrow_down, .extend = event.shift }) };
+            return std::nullopt;
+        }
+        if (snapshot.focused_input != luil::ui_element_id {} || tree == nullptr)
+            return std::nullopt;
+        // 편집기가 떠 있을 때만이다. 목록이 tree에 있는지로 안다 (정책은 상태를 두지 않는다).
+        if (tree->find(luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"rebase-todo" }) == nullptr)
+            return std::nullopt;
+        // Alt+↑↓는 고른 줄을 옮긴다. 목록의 커서가 곧 고른 줄이다. p·r·s·f·d는 Windows가 키가 아니라 문자로만 보내므로 목록의
+        // 글자 탐색 자리(`rebase_editor_ui.cpp`)가 받는다.
+        if (event.alt && event.control == false && (event.key == luil::key_code::arrow_up || event.key == luil::key_code::arrow_down))
+            return std::vector<luil::input_action> { message(rebase_move_intent { .row_key = {}, .delta = event.key == luil::key_code::arrow_up ? -1 : 1 }) };
         return std::nullopt;
     }
 
@@ -76,9 +111,12 @@ namespace cyella::ui {
         return luil::route_reveal(tree, focused);
     }
 
-    std::vector<luil::input_action> cyella_policy::on_key(const luil::ui_tree*, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot)
+    std::vector<luil::input_action> cyella_policy::on_key(const luil::ui_tree* tree, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot)
     {
         const luil::ui_element_kind focused { snapshot.focused_input.kind };
+        // 인터랙티브 rebase 편집기의 키다. 본문 칸의 Enter·↑↓와, 텍스트 칸 밖의 Alt+↑↓(고른 줄 옮기기)다.
+        if (std::optional<std::vector<luil::input_action>> rebase { rebase_editor_key(tree, event, snapshot) }; rebase.has_value())
+            return std::move(*rebase);
         switch (event.key)
         {
         case luil::key_code::enter:

@@ -13,6 +13,7 @@
 #include "presentation/drop_hints.h"
 #include "presentation/form_view.h"
 #include "presentation/graph_geometry.h"
+#include "presentation/rebase/rebase_editor_view.h"
 #include "presentation/settings/settings_view.h"
 #include "presentation/shell_layout.h"
 #include "presentation/start_page_view.h"
@@ -434,5 +435,7 @@ namespace cyella {
         bool drawer_open { false };
         // 환경 설정 대화 상자다. 열려 있을 때만 값이 있다.
         std::optional<settings_view> settings {};
+        // 인터랙티브 rebase 편집기다. 열려 있을 때만 값이 있다.
+        std::optional<rebase_editor_view> rebase_editor {};
     };
 } // namespace cyella

@@ -98,6 +98,8 @@ namespace cyella {
         [[nodiscard]] std::optional<path_inspected> inspection(const std::u8string& path) const;
         // `ssh_connection_test` operation의 분류다. 아직 오지 않았으면 값이 없다.
         [[nodiscard]] std::optional<ssh_connection_classification> ssh_connection_result_of(operation_id id) const;
+        // `load_rebase_plan` operation이 읽은 범위다 (인터랙티브 rebase 편집기). 아직 오지 않았으면 null이다.
+        [[nodiscard]] const rebase_plan* rebase_plan_of(operation_id id) const;
 
         // 상태가 바뀔 때마다 오른다.
         [[nodiscard]] std::uint64_t revision() const noexcept
@@ -153,6 +155,7 @@ namespace cyella {
         std::unordered_map<std::string, operation_id> last_write_ {};
         std::map<std::u8string, path_inspected> inspections_ {};
         std::map<operation_id, ssh_connection_classification> ssh_tests_ {};
+        std::map<operation_id, rebase_plan> rebase_plans_ {};
         operation_id next_id_ { 1 };
         std::uint64_t revision_ { 0 };
     };

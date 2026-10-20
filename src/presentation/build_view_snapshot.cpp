@@ -530,6 +530,8 @@ namespace cyella {
         case operation_kind::count_commits:
         case operation_kind::refresh_remote_tags:
         case operation_kind::inspect_path:
+        // 편집기가 자기 자리에 읽는 중과 실패를 보인다.
+        case operation_kind::load_rebase_plan:
             return false;
         default:
             break;
@@ -811,6 +813,10 @@ namespace cyella {
             return u8"LFS fetch";
         case operation_kind::lfs_track:
             return u8"LFS 추적";
+        case operation_kind::load_rebase_plan:
+            return u8"rebase 범위 읽기";
+        case operation_kind::interactive_rebase:
+            return u8"인터랙티브 rebase";
         default:
             break;
         }

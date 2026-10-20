@@ -224,7 +224,7 @@ namespace cyella {
         git_command_spec spec {};
         spec.arguments = make_git_lfs_pull_args();
         spec.command_class = git_command_class::network;
-        spec.extra_environment = lfs_progress_environment();
+        spec.environment = lfs_progress_environment();
         spec.progress_on_standard_output = true;
         git_command_outcome outcome {};
         if (context.run_required(std::move(spec), outcome, stop) == false)
@@ -240,7 +240,7 @@ namespace cyella {
         git_command_spec spec {};
         spec.arguments = make_git_lfs_fetch_args(request.all);
         spec.command_class = git_command_class::network;
-        spec.extra_environment = lfs_progress_environment();
+        spec.environment = lfs_progress_environment();
         spec.progress_on_standard_output = true;
         git_command_outcome outcome {};
         if (context.run_required(std::move(spec), outcome, stop) == false)

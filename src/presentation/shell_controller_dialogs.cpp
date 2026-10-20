@@ -737,6 +737,8 @@ namespace cyella {
                 copy_text(to_u8(target.sha));
             else if (key == u8"add_worktree")
                 open_add_worktree_dialog(target.sha, 0, {});
+            else if (key == u8"interactive_rebase_here")
+                open_rebase_editor(target.sha, current, short_sha(target.sha), current.empty() ? std::u8string { u8"HEAD" } : to_u8(current));
             else if (const std::optional<reset_mode> mode { reset_mode_of() }; mode.has_value())
                 confirm_reset(*mode, target.sha, short_sha(target.sha));
             return;
@@ -747,6 +749,8 @@ namespace cyella {
                 static_cast<void>(submit(merge_request { .into = current, .from = target.name }));
             else if (key == u8"rebase_current_onto")
                 request_rebase(current, target.name);
+            else if (key == u8"interactive_rebase_current_onto")
+                open_rebase_editor(target.name, current, to_u8(target.name), to_u8(current));
             else if (key == u8"push")
                 open_push_dialog(target.name, false);
             else if (key == u8"set_upstream")
@@ -783,6 +787,8 @@ namespace cyella {
                 static_cast<void>(submit(merge_request { .into = current, .from = target.name }));
             else if (key == u8"rebase_current_onto")
                 request_rebase(current, target.name);
+            else if (key == u8"interactive_rebase_current_onto")
+                open_rebase_editor(target.name, current, to_u8(target.name), to_u8(current));
             else if (key == u8"copy_name")
                 copy_text(to_u8(target.name));
             return;
@@ -886,6 +892,8 @@ namespace cyella {
                 static_cast<void>(submit(merge_request { .into = source.name, .from = destination.name }));
             else if (key == u8"rebase")
                 request_rebase(source.name, destination.name);
+            else if (key == u8"interactive_rebase")
+                open_rebase_editor(destination.name, source.name, to_u8(destination.name), to_u8(source.name));
             else if (const std::optional<reset_mode> mode { reset_mode_of() }; mode.has_value())
             {
                 // 커밋에 놓았으면 끈 브랜치(현재)를 그 커밋으로, 브랜치에 놓았으면 놓은 브랜치(현재)를 끈 브랜치 위치로 옮긴다.

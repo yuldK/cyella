@@ -42,6 +42,9 @@ namespace cyella {
         form_field_0 = 100,
         form_field_1,
         form_field_2,
+        // 인터랙티브 rebase 편집기의 메시지 칸이다. 다른 칸과 겹치지 않게 200부터 쓴다. 본문은 여러 줄이다.
+        rebase_message_subject = 200,
+        rebase_message_body,
     };
 
     // 사이드바 구역이다. 순서가 곧 화면 순서다.
@@ -176,6 +179,7 @@ namespace cyella {
         const auto value { static_cast<std::uint32_t>(target) };
         const bool basic { value >= static_cast<std::uint32_t>(text_target::start_search) && value <= static_cast<std::uint32_t>(text_target::settings_test_host) };
         const bool form { value >= static_cast<std::uint32_t>(text_target::form_field_0) && value <= static_cast<std::uint32_t>(text_target::form_field_2) };
-        return basic || form ? static_cast<text_target>(value) : text_target::none;
+        const bool rebase { value >= static_cast<std::uint32_t>(text_target::rebase_message_subject) && value <= static_cast<std::uint32_t>(text_target::rebase_message_body) };
+        return basic || form || rebase ? static_cast<text_target>(value) : text_target::none;
     }
 } // namespace cyella

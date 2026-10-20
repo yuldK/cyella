@@ -10,6 +10,7 @@
 #include "presentation/extension_intents.h"
 #include "presentation/frame_feedback.h"
 #include "presentation/graph_index.h"
+#include "presentation/rebase/rebase_editor_controller.h"
 #include "presentation/settings/settings_controller.h"
 #include "presentation/snapshot_dialogs.h"
 #include "presentation/ui_intents.h"
@@ -107,6 +108,12 @@ namespace cyella {
         {
             return settings_;
         }
+
+        // 인터랙티브 rebase 편집기다.
+        [[nodiscard]] const rebase_editor_controller& rebase_editor() const noexcept
+        {
+            return rebase_;
+        }
         // 메뉴가 복사하라고 한 글이다 (SHA·이름·경로). 한 번 꺼내면 비워진다. 클립보드는 UI thread의 일이라 driver가
         // 이 글을 가져가 넘긴다.
         [[nodiscard]] std::optional<std::u8string> take_clipboard_text();
@@ -171,6 +178,10 @@ namespace cyella {
         void open_confirm(dialog_state dialog);
         void request_detached_checkout(const std::string& revision, std::u8string label);
         void request_rebase(const std::string& branch, const std::string& onto);
+        // 인터랙티브 rebase 편집기를 연다 (presentation/rebase/shell_controller_rebase.cpp). branch가 비면 HEAD다.
+        void open_rebase_editor(const std::string& onto, const std::string& branch, std::u8string onto_label, std::u8string branch_label);
+        // 편집기를 여는 화면 메시지(커밋 상세 판의 단추)면 처리하고 true다.
+        bool handle_rebase_entry(const luil::app_message& message);
 
         void handle_form_button(const std::u8string& key);
         void handle_form_check(std::size_t index);
@@ -216,6 +227,7 @@ namespace cyella {
         std::map<operation_id, std::u8string> pending_inspections_ {};
         std::map<operation_id, std::u8string> pending_setup_ {};
         settings_controller settings_;
+        rebase_editor_controller rebase_;
         // 판 폭을 설정에 쓸 시각이다. 폭을 끄는 동안 뒤로 밀리고, 값이 없으면 쓸 것이 없다.
         std::optional<std::chrono::steady_clock::time_point> pane_widths_flush_at_ {};
 

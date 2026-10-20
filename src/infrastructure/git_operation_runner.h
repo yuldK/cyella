@@ -32,6 +32,11 @@ namespace cyella {
         // 환경 설정의 SSH 도구가 쓰는 실행 파일이다. 비어 있으면 그 도구가 "찾지 못했다"로 실패한다.
         std::u8string ssh_executable {};
         std::u8string ssh_keygen_executable {};
+        // 인터랙티브 rebase의 편집기 도우미(`cyella-rebase-editor.exe`)의 절대 경로다. 비어 있으면 `interactive_rebase`가
+        // 시작하지 않고 실패한다 (ADR-005).
+        std::u8string rebase_editor_helper {};
+        // 편집기 도우미에게 넘길 준비 파일을 둘 폴더다. 비우면 시스템 임시 폴더다 (test가 지정한다).
+        std::u8string rebase_state_root {};
     };
 
     // `git_operation_executor`의 git CLI 구현이다. 한 instance를 모든 worker가 함께 쓴다.

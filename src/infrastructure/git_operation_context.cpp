@@ -231,7 +231,7 @@ namespace cyella {
         if (const temporary_ssh_trust* const trust { ssh_override_of(job_.operation) }; trust != nullptr)
             options.ssh_command = trust->command;
         options.standard_input = std::move(spec.standard_input);
-        options.extra_environment = std::move(spec.extra_environment);
+        options.environment = std::move(spec.environment);
         options.raw_standard_output = true;
         if (spec.on_standard_output != nullptr)
             options.maximum_captured_bytes_per_stream = unlimited_process_capture_bytes;

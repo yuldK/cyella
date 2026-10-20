@@ -23,5 +23,10 @@ namespace cyella::ui {
         [[nodiscard]] std::vector<luil::input_action> on_wheel(const luil::ui_tree& tree, const luil::mouse_wheel_event& event, float scroll_delta) override;
         [[nodiscard]] std::vector<luil::input_action> on_focus_moved(const luil::ui_tree& tree, const luil::ui_element_id& focused) override;
         [[nodiscard]] std::vector<luil::input_action> on_key(const luil::ui_tree* tree, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot) override;
+
+    private:
+        // 인터랙티브 rebase 편집기의 키다. 편집기의 키가 아니면 값이 없다.
+        [[nodiscard]] static std::optional<std::vector<luil::input_action>> rebase_editor_key(
+            const luil::ui_tree* tree, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot);
     };
 } // namespace cyella::ui

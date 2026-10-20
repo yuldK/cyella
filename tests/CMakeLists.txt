@@ -133,6 +133,13 @@ cyella_add_source_filter(cyella_test_files "application/repository"
 cyella_add_source_filter(cyella_test_files "application/repository_integration"
     repository_session_integration_tests.cpp)
 
+# 인터랙티브 rebase: 할 일 규칙의 단위 test와, 실제 git·편집기 도우미로 끝까지 돌리는 통합 test다.
+cyella_add_source_filter(cyella_test_files "rebase"
+    interactive_rebase_integration_tests.cpp
+    interactive_rebase_tests.cpp
+    rebase_editor_tests.cpp
+    rebase_shell_tests.cpp)
+
 # 실제 git으로 임시 저장소를 만들어 조립기와 해석기를 이어서 검증한다.
 cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"
     git_integration_tests.cpp
@@ -142,11 +149,12 @@ cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"
 
 add_executable(cyella_tests ${cyella_test_files})
 # test가 도우미를 먼저 빌드하게 하고, 경로는 생성 시점의 target 파일로 받는다.
-add_dependencies(cyella_tests cyella_test_child cyella_askpass)
+add_dependencies(cyella_tests cyella_test_child cyella_askpass cyella_rebase_editor)
 target_compile_definitions(cyella_tests
     PRIVATE
         "CYELLA_TEST_CHILD_PATH=\"$<TARGET_FILE:cyella_test_child>\""
-        "CYELLA_ASKPASS_PATH=\"$<TARGET_FILE:cyella_askpass>\"")
+        "CYELLA_ASKPASS_PATH=\"$<TARGET_FILE:cyella_askpass>\""
+        "CYELLA_REBASE_EDITOR_PATH=\"$<TARGET_FILE:cyella_rebase_editor>\"")
 target_include_directories(cyella_tests
     PRIVATE
         "${CYELLA_SOURCE_DIRECTORY}"

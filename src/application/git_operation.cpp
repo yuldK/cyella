@@ -113,6 +113,10 @@ namespace cyella {
                 return operation_kind::lfs_fetch;
             else if constexpr (std::is_same_v<request_type, lfs_track_request>)
                 return operation_kind::lfs_track;
+            else if constexpr (std::is_same_v<request_type, load_rebase_plan_request>)
+                return operation_kind::load_rebase_plan;
+            else if constexpr (std::is_same_v<request_type, interactive_rebase_request>)
+                return operation_kind::interactive_rebase;
             else
                 return operation_kind::refresh;
         }
@@ -144,6 +148,7 @@ namespace cyella {
         case operation_kind::count_commits:
         case operation_kind::refresh_remote_tags:
         case operation_kind::inspect_path:
+        case operation_kind::load_rebase_plan:
             return operation_lane::read;
         case operation_kind::clone:
         case operation_kind::init:

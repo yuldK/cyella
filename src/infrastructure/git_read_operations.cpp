@@ -3,6 +3,7 @@
 #include "domain/path_syntax.h"
 #include "infrastructure/git_diff_parser.h"
 #include "infrastructure/git_extension_operations.h"
+#include "infrastructure/git_interactive_rebase.h"
 #include "infrastructure/git_log_parser.h"
 #include "infrastructure/git_query_parser.h"
 #include "infrastructure/git_ref_parser.h"
@@ -354,6 +355,8 @@ namespace cyella {
                     return count_commits(context, request);
                 else if constexpr (std::is_same_v<request_type, refresh_remote_tags_request>)
                     return refresh_remote_tags(context, request.remotes);
+                else if constexpr (std::is_same_v<request_type, load_rebase_plan_request>)
+                    return run_load_rebase_plan(context, request);
                 else
                     return operation_outcome::failed(failure_kind::invalid_request, u8"읽기 lane에서 실행할 수 없는 작업입니다.");
             },
