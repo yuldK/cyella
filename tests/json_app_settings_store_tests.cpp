@@ -120,6 +120,8 @@ TEST_CASE("default settings round trip and write every known key", "[json_app_se
     CHECK(document.at("git_executable") == "");
     CHECK(document.at("external_diff_tools").is_array());
     CHECK(document.at("appearance").at("theme") == "system");
+    // Gravatar는 메일 해시를 밖으로 보내므로 기본이 꺼짐이다.
+    CHECK(document.at("appearance").at("gravatar") == false);
     CHECK_FALSE(document.contains("window"));
     CHECK(parse_app_settings_json(bytes).settings == app_settings {});
 }
@@ -613,6 +615,20 @@ TEST_CASE("the commit files view is written under ui once the tree is chosen", "
 
     const app_settings_load_result wrong { parse_app_settings_json(u8R"({"ui":{"commit_files_view":"grid"}})") };
     CHECK_FALSE(wrong.settings.ui.commit_files_tree);
+    CHECK(wrong.diagnostics.size() == 1);
+}
+
+TEST_CASE("the gravatar switch round trips and a wrong value stays off", "[json_app_settings]")
+{
+    app_settings settings {};
+    settings.appearance.gravatar = true;
+    const app_settings_load_result loaded { parse_app_settings_json(serialize_app_settings_json(settings, u8"")) };
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings.appearance.gravatar);
+
+    const app_settings_load_result wrong { parse_app_settings_json(u8R"({"appearance":{"theme":"dark","gravatar":"yes"}})") };
+    CHECK_FALSE(wrong.settings.appearance.gravatar);
+    CHECK(wrong.settings.appearance.theme == theme_preference::dark);
     CHECK(wrong.diagnostics.size() == 1);
 }
 

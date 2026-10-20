@@ -5,6 +5,7 @@
 #include "domain/ref.h"
 #include "presentation/ui_state.h"
 
+#include "luil/ui/image_element.h"
 #include "luil/ui/ui_interaction.h"
 
 #include <cstdint>
@@ -251,6 +252,15 @@ namespace cyella {
     struct copy_commit_sha_intent
     {
         std::string sha {};
+    };
+
+    // worker가 작성자 사진을 받아 왔다 (Gravatar, `appearance.gravatar`가 켜졌을 때만 묻는다). `email`은 다듬은 메일이다.
+    // 사진이 없으면 `image`가 비어 있고, `failed`면 받지 못한 것이라 잠시 뒤 다시 묻는다.
+    struct avatar_loaded_intent
+    {
+        std::string email {};
+        luil::ui_image image {};
+        bool failed { false };
     };
 
     struct toggle_amend_intent

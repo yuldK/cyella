@@ -253,6 +253,14 @@ namespace cyella {
                 return;
             }
 
+            if (const auto gravatar { source->find("gravatar") }; gravatar != source->end() && gravatar->is_null() == false)
+            {
+                if (gravatar->is_boolean())
+                    result.settings.appearance.gravatar = gravatar->get<bool>();
+                else
+                    warn(result, u8"앱 설정의 appearance.gravatar는 true나 false여야 합니다. 끈 것으로 봅니다.");
+            }
+
             const auto theme { source->find("theme") };
             if (theme == source->end() || theme->is_null())
                 return;
@@ -505,6 +513,7 @@ namespace cyella {
         {
             json appearance { existing_object(root, "appearance") };
             appearance["theme"] = as_string(theme_preference_name(settings.appearance.theme));
+            appearance["gravatar"] = settings.appearance.gravatar;
             root["appearance"] = std::move(appearance);
         }
 

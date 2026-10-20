@@ -1,15 +1,18 @@
-// 커밋 상세 판의 규칙이다: 변경 파일 트리, 제목·본문 줄 나누기, snapshot과 luil tree.
+// 커밋 상세 판의 규칙이다: 변경 파일 트리, 제목·본문 줄 나누기, 작성자 사진 받기, snapshot과 luil tree.
+#include "infrastructure/avatar_fetcher.h"
 #include "presentation/file_tree.h"
 #include "presentation/text_wrap.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/element_kinds.h"
 
+#include "git_test_support.h"
 #include "view_snapshot_support.h"
 
 #include "luil/ui/ui_tree.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <filesystem>
 #include <set>
 #include <string>
 #include <vector>
@@ -190,6 +193,83 @@ TEST_CASE("commit detail tree shows wrapped text, label columns, folder rows and
     CHECK(find(ui::kind_file_row, u8"file-f:src/presentation/file_tree.cpp") != nullptr);
     const luil::ui_element* const tree_button { built.tree->find(luil::ui_element_id { ui::kind_button, u8"detail-files-tree" }) };
     CHECK(tree_button != nullptr);
+}
+
+namespace {
+    // 보낸 주소를 적고 준비한 답을 차례로 돌려준다.
+    class avatar_transport final : public hosting_transport
+    {
+    public:
+        hosting_http_response execute(const hosting_http_request& request, const secret_text&, const process_cancellation_token&) override
+        {
+            urls.push_back(request.url);
+            hosting_http_response response {};
+            if (answers.empty())
+            {
+                response.transport_error = "offline";
+                return response;
+            }
+            response = answers.front();
+            answers.erase(answers.begin());
+            return response;
+        }
+
+        std::vector<std::string> urls {};
+        std::vector<hosting_http_response> answers {};
+    };
+
+    hosting_http_response answer(const int status, std::string body = {})
+    {
+        hosting_http_response response {};
+        response.status_code = status;
+        response.body = std::move(body);
+        return response;
+    }
+
+    avatar_fetch_options avatar_options(const std::filesystem::path& cache)
+    {
+        avatar_fetch_options options {};
+        options.cache_directory = cache;
+        // 해시 자체는 플랫폼(CNG)이 한다. 여기서는 다듬은 메일이 그대로 가는지만 본다.
+        options.sha256_hex = [](const std::string_view text) { return "hash-" + std::string { text }; };
+        return options;
+    }
+} // namespace
+
+TEST_CASE("gravatar addresses use the trimmed lowercase email and ask for 404 when there is no picture", "[presentation][avatar]")
+{
+    CHECK(normalize_avatar_email("  Lusain@Example.COM\t") == "lusain@example.com");
+    CHECK(gravatar_url("abc", 80) == "https://gravatar.com/avatar/abc?s=80&d=404");
+}
+
+TEST_CASE("avatar fetcher keeps pictures and missing answers on disk and asks once", "[presentation][avatar]")
+{
+    const cyella::test::temp_directory directory {};
+    avatar_transport transport {};
+    const avatar_fetcher fetcher { transport, avatar_options(directory.path()) };
+    const process_cancellation_source cancellation {};
+
+    transport.answers = { answer(200, "PNGDATA") };
+    const avatar_fetch_result first { fetcher.fetch(" Ann@Example.com ", cancellation.token()) };
+    CHECK(first.bytes == "PNGDATA");
+    CHECK_FALSE(first.missing);
+    REQUIRE(transport.urls.size() == 1);
+    CHECK(transport.urls.front() == "https://gravatar.com/avatar/hash-ann@example.com?s=80&d=404");
+    // 두 번째는 디스크에서 읽고 묻지 않는다.
+    CHECK(fetcher.fetch("ann@example.com", cancellation.token()).bytes == "PNGDATA");
+    CHECK(transport.urls.size() == 1);
+
+    transport.answers = { answer(404) };
+    CHECK(fetcher.fetch("nobody@example.com", cancellation.token()).missing);
+    CHECK(fetcher.fetch("nobody@example.com", cancellation.token()).missing);
+    CHECK(transport.urls.size() == 2);
+
+    // 받지 못했고 보관한 것도 없으면 실패다 (다음에 다시 묻는다). 메일이 아니면 묻지 않는다.
+    const avatar_fetch_result offline { fetcher.fetch("new@example.com", cancellation.token()) };
+    CHECK(offline.failed);
+    CHECK(offline.bytes.empty());
+    CHECK(fetcher.fetch("not an email", cancellation.token()).missing);
+    CHECK(transport.urls.size() == 3);
 }
 
 TEST_CASE("the rebase button counts the current branch commits and words a commit off the branch differently", "[presentation][ui][rebase]")

@@ -304,7 +304,7 @@ namespace cyella::ui {
         }
 
         // 커밋 메시지 카드다: 제목 머리 · 본문 · 작성 정보 바닥이 한 테두리 안에 선다.
-        //  - 커밋 메시지는 제목과 본문으로 나뉜 한 글이라 한 카드에 둔다. 바닥줄은 "누가 언제 썼나"다: 왼쪽에 작성자(첫 글자·이름, 올리면 메일),
+        //  - 커밋 메시지는 제목과 본문으로 나뉜 한 글이라 한 카드에 둔다. 바닥줄은 "누가 언제 썼나"다: 왼쪽에 작성자(사진·이름, 올리면 메일),
         //    오른쪽 끝에 시각.
         //  - `width`는 카드 바깥 폭이다 (논리 픽셀). 줄 나누기 짐작은 테두리와 칸 여백을 뺀 폭으로 한다.
         std::unique_ptr<luil::ui_element> build_message_card(const commit_detail_view& commit, const float width, float& height)
@@ -346,7 +346,7 @@ namespace cyella::ui {
                 if (author_width + when_width + relative_width + 18.0f > text_width)
                     relative_width = 0.0f;
                 author_width = std::max(std::min(author_width, text_width - when_width - relative_width - 18.0f), 40.0f);
-                foot->add(std::make_unique<author_element>(u8"detail-author", commit.author_name, commit.author_email), author_width);
+                foot->add(std::make_unique<author_element>(u8"detail-author", commit.author_name, commit.author_email, commit.author_avatar), author_width);
                 foot->add_flexible_gap();
                 auto when { make_text(u8"detail-date", commit.date_absolute, text_style { .size = 11.0f, .align = 2 }) };
                 if (relative_width <= 0.0f && commit.date.empty() == false)

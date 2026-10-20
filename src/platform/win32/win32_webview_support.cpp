@@ -44,7 +44,7 @@ namespace cyella::win32 {
         }
     }
 
-    std::u8string webview_user_data_directory() noexcept
+    std::u8string local_data_directory(const std::wstring_view name) noexcept
     {
         try
         {
@@ -55,7 +55,7 @@ namespace cyella::win32 {
                 CoTaskMemFree(known_folder);
                 return {};
             }
-            const std::filesystem::path path { std::filesystem::path { known_folder } / L"cyella" / L"webview" };
+            const std::filesystem::path path { std::filesystem::path { known_folder } / L"cyella" / name };
             CoTaskMemFree(known_folder);
             return path.u8string();
         }
@@ -63,6 +63,11 @@ namespace cyella::win32 {
         {
             return {};
         }
+    }
+
+    std::u8string webview_user_data_directory() noexcept
+    {
+        return local_data_directory(L"webview");
     }
 
     bool system_prefers_light_theme() noexcept

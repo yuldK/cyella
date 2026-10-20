@@ -50,6 +50,9 @@ namespace cyella {
     struct appearance_settings
     {
         theme_preference theme { theme_preference::system };
+        // 커밋 작성자 사진을 Gravatar에서 받는다. 켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 가므로 기본은 꺼짐이고,
+        // 꺼져 있거나 사진이 없으면 이름 첫 글자 동그라미다.
+        bool gravatar { false };
 
         [[nodiscard]] bool operator==(const appearance_settings&) const noexcept = default;
     };

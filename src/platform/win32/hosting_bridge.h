@@ -59,6 +59,12 @@ namespace cyella::win32 {
             return service_ != nullptr;
         }
 
+        // 세운 전송이다 (작성자 사진 받기가 같이 쓴다). 세우지 못했으면 null이다. 수명은 이 bridge가 쥔다.
+        [[nodiscard]] hosting_transport* transport() const noexcept
+        {
+            return transport_.get();
+        }
+
     private:
         void run(const hosting_job& job, const process_cancellation_token& cancellation) const;
         void post_failure(const hosting_job& job, hosting_error_kind kind, std::string message = {}) const;

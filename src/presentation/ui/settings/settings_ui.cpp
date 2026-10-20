@@ -11,6 +11,7 @@
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
+#include "luil/ui/check_element.h"
 #include "luil/ui/choice_group_element.h"
 #include "luil/ui/dialog_elements.h"
 #include "luil/ui/modal_host_element.h"
@@ -74,6 +75,16 @@ namespace cyella::ui {
             toggle_row->add(std::make_unique<luil::choice_group_element>(std::move(theme)), { .length = 260.0f, .cross_length = toggle_height });
             page.add(std::move(toggle_row), input_height);
             page.add(help_line(u8"settings-theme-help", u8"'시스템'을 고르면 Windows의 앱 모드를 따릅니다."), line_height);
+            page.gap(small_gap);
+            // 작성자 사진은 밖으로 메일 해시를 보내므로 사용자가 켜야만 쓴다.
+            luil::check_config gravatar {
+                .owner = u8"settings-gravatar",
+                .label = u8"커밋 작성자 사진을 Gravatar에서 가져오기",
+                .checked = view.gravatar,
+                .toggle = action_of(message(set_gravatar_intent { view.gravatar == false })),
+            };
+            page.add(std::make_unique<luil::check_element>(std::move(gravatar)), luil::check_row_height);
+            page.add(help_line(u8"settings-gravatar-help", u8"켜면 작성자 메일의 해시가 gravatar.com으로 갑니다. 끄거나 사진이 없으면 이름 첫 글자를 보입니다."), line_height);
             page.gap(large_gap);
 
             const git_settings_view& git { view.git };

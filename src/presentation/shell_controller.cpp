@@ -5,6 +5,7 @@
 #include "presentation/build_view_snapshot.h"
 #include "presentation/graph_geometry.h"
 
+#include "infrastructure/avatar_fetcher.h"
 #include "infrastructure/ssh_tools.h"
 
 #include <algorithm>
@@ -20,6 +21,8 @@ namespace cyella {
         constexpr float assumed_graph_viewport { 800.0f };
         // 판 폭 끌기가 멈춘 뒤 설정에 쓰기까지의 간격이다.
         constexpr std::chrono::milliseconds pane_widths_save_delay { 500 };
+        // 작성자 사진을 받지 못했을 때 다시 묻기까지의 시간이다.
+        constexpr std::chrono::minutes avatar_retry_delay { 5 };
 
         std::string to_text(const std::u8string_view text)
         {
@@ -874,6 +877,16 @@ namespace cyella {
             copy_text(to_u8(intent->sha));
             return true;
         }
+        if (const auto* const intent { message.get<avatar_loaded_intent>() }; intent != nullptr)
+        {
+            avatar_entry& entry { avatars_[intent->email] };
+            entry.image = intent->image;
+            entry.pending = false;
+            entry.retry_at.reset();
+            if (intent->failed)
+                entry.retry_at = std::chrono::steady_clock::now() + avatar_retry_delay;
+            return true;
+        }
         if (message.get<toggle_amend_intent>() != nullptr)
         {
             tab_ui_state* const tab { selected_tab_state() };
@@ -1114,6 +1127,27 @@ namespace cyella {
         return exists;
     }
 
+    void shell_controller::attach_avatar(commit_detail_view& commit)
+    {
+        if (settings().appearance.gravatar == false || dependencies_.request_avatar == nullptr || commit.author_email.empty())
+            return;
+        const std::string email { normalize_avatar_email(to_text(commit.author_email)) };
+        if (email.empty())
+            return;
+        const auto found { avatars_.find(email) };
+        if (found != avatars_.end())
+        {
+            commit.author_avatar = found->second.image;
+            const bool retry { found->second.retry_at.has_value() && std::chrono::steady_clock::now() >= *found->second.retry_at };
+            if (found->second.pending || retry == false)
+                return;
+        }
+        avatar_entry& entry { avatars_[email] };
+        entry.pending = true;
+        entry.retry_at.reset();
+        dependencies_.request_avatar(email);
+    }
+
     view_snapshot shell_controller::make_view(const float width, const float height, const float scale)
     {
         last_scale_ = scale;
@@ -1142,6 +1176,8 @@ namespace cyella {
             inputs.history_index = [this](const repository_session& session) { return history_index(session); };
         }
         view_snapshot view { build_view_snapshot(inputs) };
+        if (view.repository.has_value() && view.repository->commit.has_value())
+            attach_avatar(*view.repository->commit);
         view.settings = settings_.make_view(ui_.composition);
         view.rebase_editor = rebase_.make_view(ui_.composition);
         last_mode_ = view.mode;

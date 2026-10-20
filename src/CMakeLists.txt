@@ -204,6 +204,8 @@ cyella_add_source_filter(cyella_lib_files "application/hosting"
     application/hosting_transport.h)
 
 cyella_add_source_filter(cyella_lib_files "infrastructure/hosting"
+    infrastructure/avatar_fetcher.cpp
+    infrastructure/avatar_fetcher.h
     infrastructure/git_credential_source.cpp
     infrastructure/git_credential_source.h
     infrastructure/hosting_api.cpp
@@ -531,6 +533,8 @@ cyella_add_source_filter(cyella_lib_files "platform/authentication"
     platform/win32/rebase_editor_path.h
     platform/win32/win32_askpass_server.cpp
     platform/win32/win32_askpass_server.h
+    platform/win32/win32_sha256.cpp
+    platform/win32/win32_sha256.h
     platform/win32/win32_ssh_environment.cpp
     platform/win32/win32_ssh_environment.h)
 

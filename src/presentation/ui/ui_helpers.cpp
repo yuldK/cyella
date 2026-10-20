@@ -284,7 +284,7 @@ namespace cyella::ui {
         constexpr float author_font_size { 12.0f };
     } // namespace
 
-    author_element::author_element(std::u8string owner, std::u8string name, std::u8string email)
+    author_element::author_element(std::u8string owner, std::u8string name, std::u8string email, luil::ui_image avatar)
         : ui_element { luil::ui_element_id { kind_label, std::move(owner) } }
         , name_ { std::move(name) }
         , email_ { std::move(email) }
@@ -303,6 +303,14 @@ namespace cyella::ui {
         set_tab_stop(false);
         if (email_.empty() == false)
             set_tooltip(email_);
+        if (avatar.valid())
+        {
+            luil::image_config config { .image = std::move(avatar), .fit = luil::image_fit::cover };
+            auto photo { std::make_unique<luil::image_element>(luil::ui_element_id { kind_image, id().owner + u8"-photo" }, std::move(config)) };
+            photo->set_hit_opaque(false);
+            photo_ = photo.get();
+            add_child(std::move(photo));
+        }
     }
 
     float author_element::width_for(const std::u8string_view name) noexcept
@@ -313,6 +321,10 @@ namespace cyella::ui {
     void author_element::arrange(const luil::arrange_context& context)
     {
         set_bounds(context.slot);
+        if (photo_ == nullptr)
+            return;
+        const float size { author_photo_size * context.scale };
+        photo_->arrange(context.for_child({ context.slot.x, context.slot.y + (context.slot.height - size) / 2.0f, size, size }));
     }
 
     luil::access_info author_element::accessibility() const
@@ -320,7 +332,7 @@ namespace cyella::ui {
         return { .role = luil::access_role::static_text, .name = email_.empty() ? name_ : name_ + u8" <" + email_ + u8">" };
     }
 
-    void author_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
+    void author_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
     {
         const luil::rect_f box { bounds() };
         const float scale { context.scale };
@@ -328,16 +340,27 @@ namespace cyella::ui {
         const float x { box.x };
         const float y { box.y + (box.height - size) / 2.0f };
         const SkRect circle { SkRect::MakeXYWH(x, y, size, size) };
-        // 강조색을 옅게 깐 동그라미에 본문색 글자다. 강조색 글자는 옅은 강조 바탕 위에서 대비가 모자랐다.
-        SkPaint fill { luil::solid_paint(luil::with_alpha(context.palette.accent, 0.35f)) };
-        fill.setAntiAlias(true);
-        context.canvas.drawOval(circle, fill);
-        if (initial_.empty() == false)
+        if (photo_ != nullptr)
         {
-            const SkFont font { ui_font(context, 11.0f, true) };
-            const float width { luil::measure_text(initial_, font) };
-            static_cast<void>(luil::draw_text_within(
-                context.canvas, initial_, x + (size - width) / 2.0f, y + luil::centered_text_baseline(font, size), size, font, luil::solid_paint(context.palette.primary_foreground)));
+            // 사진은 동그라미로 자른다.
+            context.canvas.save();
+            context.canvas.clipRRect(SkRRect::MakeOval(circle), true);
+            draw_children(context, interaction);
+            context.canvas.restore();
+        }
+        else
+        {
+            // 강조색을 옅게 깐 동그라미에 본문색 글자다. 강조색 글자는 옅은 강조 바탕 위에서 대비가 모자랐다.
+            SkPaint fill { luil::solid_paint(luil::with_alpha(context.palette.accent, 0.35f)) };
+            fill.setAntiAlias(true);
+            context.canvas.drawOval(circle, fill);
+            if (initial_.empty() == false)
+            {
+                const SkFont font { ui_font(context, 11.0f, true) };
+                const float width { luil::measure_text(initial_, font) };
+                static_cast<void>(luil::draw_text_within(
+                    context.canvas, initial_, x + (size - width) / 2.0f, y + luil::centered_text_baseline(font, size), size, font, luil::solid_paint(context.palette.primary_foreground)));
+            }
         }
         const float text_x { x + size + author_gap * scale };
         if (box.x + box.width - text_x <= 0.0f)

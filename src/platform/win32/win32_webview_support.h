@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
 namespace cyella::win32 {
     // diff 웹뷰를 세우는 데 필요한 OS 사실들이다. 웹뷰 자체(생성·합성)는 luil이 하고, 여기는 "세울 수 있는가"와 "어디에
@@ -21,6 +22,8 @@ namespace cyella::win32 {
 
     // 웹뷰의 프로필(쿠키·캐시) 폴더다. `%LOCALAPPDATA%\cyella\webview`. 폴더는 WebView2가 만든다. 위치를 모르면 비어 있다.
     [[nodiscard]] std::u8string webview_user_data_directory() noexcept;
+    // `%LOCALAPPDATA%\cyella\<name>`이다 (지워도 되는 보관 자료: 웹뷰 프로필, 작성자 사진). 폴더는 쓰는 쪽이 만든다. 위치를 모르면 비어 있다.
+    [[nodiscard]] std::u8string local_data_directory(std::wstring_view name) noexcept;
 
     // OS의 "앱 모드"가 밝은가 (`AppsUseLightTheme`). 읽지 못하면 밝은 쪽으로 본다 (luil의 기본과 같다).
     [[nodiscard]] bool system_prefers_light_theme() noexcept;

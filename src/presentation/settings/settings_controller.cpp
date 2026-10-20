@@ -339,8 +339,8 @@ namespace cyella {
         // 나머지는 화면이 열려 있을 때만 뜻이 있다. 닫힌 뒤에 늦게 온 메시지는 삼킨다.
         const auto settings_message = [&message]() {
             return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr
-                || message.get<apply_git_path_intent>() != nullptr || message.get<reset_git_path_intent>() != nullptr || message.get<add_tool_intent>() != nullptr
-                || message.get<edit_tool_intent>() != nullptr || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr
+                || message.get<set_gravatar_intent>() != nullptr || message.get<apply_git_path_intent>() != nullptr || message.get<reset_git_path_intent>() != nullptr
+                || message.get<add_tool_intent>() != nullptr || message.get<edit_tool_intent>() != nullptr || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr
                 || message.get<cancel_tool_edit_intent>() != nullptr || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr
                 || message.get<refresh_ssh_intent>() != nullptr || message.get<create_ssh_key_intent>() != nullptr || message.get<copy_public_key_intent>() != nullptr
                 || message.get<test_ssh_connection_intent>() != nullptr || message.get<set_diff_layout_default_intent>() != nullptr || message.get<set_diff_context_lines_intent>() != nullptr;
@@ -372,6 +372,11 @@ namespace cyella {
         {
             const theme_preference theme { theme_intent->theme };
             update_settings([theme](app_settings& settings) { settings.appearance.theme = theme; });
+        }
+        else if (const auto* const gravatar_intent { message.get<set_gravatar_intent>() }; gravatar_intent != nullptr)
+        {
+            const bool on { gravatar_intent->on };
+            update_settings([on](app_settings& settings) { settings.appearance.gravatar = on; });
         }
         else if (const auto* const layout_intent { message.get<set_diff_layout_default_intent>() }; layout_intent != nullptr)
         {

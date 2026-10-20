@@ -66,9 +66,13 @@ cyella_driver::make_frame
   - 머리 칸은 제목(굵게, 옅은 바탕), 몸 칸은 본문(흐린 글, 없으면 빠진다), 바닥 칸은 작성 정보(옅은 바탕)다.
   - 제목과 본문은 카드 폭에서 줄을 바꾼다(`wrapped_text_element`). 공백에서만 나누고(어절 보존) 한 줄보다 긴 단어만 글자 단위로 자른다
     (`presentation/text_wrap.*`). 측정 단계가 없어 배치 높이는 글자 종류로 넉넉히 짐작하고, 그릴 때 실제 글꼴로 다시 나눈다.
-  - 바닥 칸 왼쪽은 작성자(`detail-author`, `author_element`): 이름 첫 글자 동그라미와 굵은 이름이다. 메일은 올리면 툴팁으로 보이고 보조 기술에는
+  - 바닥 칸 왼쪽은 작성자(`detail-author`, `author_element`): 사진 동그라미와 굵은 이름이다. 메일은 올리면 툴팁으로 보이고 보조 기술에는
     "이름 <메일>"로 읽힌다. 오른쪽 끝은 시각(`detail-date` 이 컴퓨터 시간대의 절대 시각, `detail-date-relative` 상대 시각)이다.
     폭이 모자라면 상대 시각부터 빠진다(절대 시각의 툴팁에 남는다).
+- **작성자 사진**: 환경 설정 "화면"의 "커밋 작성자 사진을 Gravatar에서 가져오기"(`appearance.gravatar`)가 켜졌을 때만 받는다. **기본은 꺼짐**이다
+  (켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 간다). 꺼져 있거나 사진이 없으면(404) 이름 첫 글자 동그라미다.
+  - controller가 상세를 지을 때 아직 묻지 않은 메일이면 `request_avatar`를 부르고, driver의 worker가 `avatar_fetcher`로 받아
+    `%LOCALAPPDATA%\cyella\avatars`에 둔다(사진 7일, 없음 1일). 결과는 `avatar_loaded_intent`로 돌아오고, 받지 못했으면 5분 뒤 다시 묻는다.
 - **라벨·값 표**: 흐린 64px 라벨 칸(SHA·부모·서명·서명자·키·CI) 옆에 값을 둔다. 부모는 누르면 그 커밋을 고르는 링크(`detail-parent-N`)다.
 - **[이후 커밋 N개 편집…]**(`detail-interactive-rebase`): 판 폭 전체 단추다. 커밋 우클릭 메뉴의 "여기서부터 인터랙티브 rebase…"와 같은 일이고
   툴팁이 인터랙티브 rebase임을 알린다. N은 `rev-list --count 커밋..HEAD`(`commit_detail_view::commits_above`)다. 다른 갈래의 커밋(main 끝 등)이면

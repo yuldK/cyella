@@ -39,6 +39,12 @@ namespace cyella {
         theme_preference theme { theme_preference::system };
     };
 
+    // 커밋 작성자 사진을 Gravatar에서 받을지다. 바로 저장한다.
+    struct set_gravatar_intent
+    {
+        bool on { false };
+    };
+
     // 입력한 git 경로를 설정에 저장한다. 비어 있으면 자동 탐색으로 돌아간다.
     struct apply_git_path_intent
     {};

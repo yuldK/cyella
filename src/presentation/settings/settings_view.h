@@ -164,6 +164,8 @@ namespace cyella {
         std::u8string message {};
 
         theme_preference theme { theme_preference::system };
+        // 커밋 작성자 사진을 Gravatar에서 받는다 (`appearance.gravatar`).
+        bool gravatar { false };
         diff_settings diff {};
         git_settings_view git {};
         std::vector<tool_row_view> tools {};

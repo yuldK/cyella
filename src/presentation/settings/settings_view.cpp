@@ -501,6 +501,7 @@ namespace cyella {
         view.unsaved = inputs.unsaved;
         view.message = state.message;
         view.theme = inputs.settings->appearance.theme;
+        view.gravatar = inputs.settings->appearance.gravatar;
         view.diff = inputs.settings->diff;
         view.git = make_git_view(inputs);
         view.tools = make_tool_rows(*inputs.settings);

@@ -24,6 +24,7 @@
 #include "presentation/start_page_view.h"
 #include "presentation/ui_state.h"
 
+#include "luil/ui/image_element.h"
 #include "luil/ui/text_input_state.h"
 #include "luil/ui/virtual_list_element.h"
 
@@ -298,6 +299,8 @@ namespace cyella {
         // 상세 패널은 이름과 메일을 따로 그린다 (`author`는 둘을 이은 한 줄이다).
         std::u8string author_name {};
         std::u8string author_email {};
+        // 작성자 사진이다 (Gravatar를 켰고 받아 왔을 때만). 비어 있으면 이름 첫 글자 동그라미다.
+        luil::ui_image author_avatar {};
         // `date`는 상대 시각("3일 전"), `date_absolute`는 이 컴퓨터 시간대의 "2026-10-20 14:03"이다.
         std::u8string date {};
         std::u8string date_absolute {};

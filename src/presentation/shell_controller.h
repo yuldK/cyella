@@ -82,6 +82,9 @@ namespace cyella {
             // 비어 있으면(test) 신원을 읽지 않고 프로필 적용도 하지 않는다.
             std::function<void(const std::string& repository_id, const std::u8string& path)> request_identity {};
             std::function<void(const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email)> apply_identity {};
+            // 작성자 사진(Gravatar)을 worker에서 받는다. 인자는 다듬은 메일이고 결과는 `avatar_loaded_intent`로 돌아온다.
+            // 환경 설정 `appearance.gravatar`가 켜졌을 때만 부른다. 비어 있으면(test) 늘 이름 첫 글자다.
+            std::function<void(const std::string& email)> request_avatar {};
         };
 
         explicit shell_controller(dependencies dependencies);
@@ -363,6 +366,19 @@ namespace cyella {
             std::chrono::steady_clock::time_point read_at {};
         };
         std::map<std::string, identity_entry> identities_ {};
+
+        // ---- 커밋 작성자 사진(Gravatar). 다듬은 메일이 열쇠이고 앱을 켜 두는 동안만 둔다 (디스크 보관은 worker 쪽 몫이다).
+        struct avatar_entry
+        {
+            luil::ui_image image {};
+            // 답이 오기 전이다. 같은 메일을 거듭 묻지 않는다.
+            bool pending { true };
+            // 받지 못했으면 이 시각 뒤에 다시 묻는다.
+            std::optional<std::chrono::steady_clock::time_point> retry_at {};
+        };
+        std::map<std::string, avatar_entry> avatars_ {};
+        // 상세 패널의 작성자 사진을 채운다. 설정이 켜졌고 아직 묻지 않은 메일이면 worker에 청한다.
+        void attach_avatar(commit_detail_view& commit);
         // 프로필을 이미 제안한 저장소, 커밋 전 경고를 이미 보인 저장소다 (앱을 켜 두는 동안만).
         std::set<std::string> profile_proposed_ {};
         std::set<std::string> commit_warned_ {};

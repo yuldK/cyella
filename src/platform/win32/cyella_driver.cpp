@@ -11,6 +11,7 @@
 #include "platform/win32/win32_process_runner.h"
 #include "platform/win32/win32_repository_watcher.h"
 #include "platform/win32/win32_settings_file_system.h"
+#include "platform/win32/win32_sha256.h"
 #include "platform/win32/win32_ssh_environment.h"
 #include "platform/win32/win32_url_opener.h"
 #include "platform/win32/win32_webview_support.h"
@@ -26,10 +27,13 @@
 #include "presentation/ui/diff_webview_theme.h"
 #include "presentation/ui_intents.h"
 
+#include "luil/ui/image_decode.h"
+
 #include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 #include <variant>
@@ -147,6 +151,15 @@ namespace cyella::win32 {
                 std::u8string hosting_error {};
                 if (hosting_.start(*process_runner_, scheduler, &registry_, std::move(hosting_options), hosting_error) == false)
                     hosting_start_error_ = std::move(hosting_error);
+            }
+            // 커밋 작성자 사진(Gravatar)은 같은 전송으로 받는다. 설정에서 켰을 때만 controller가 청한다.
+            if (hosting_transport* const transport { hosting_.transport() }; transport != nullptr)
+            {
+                avatar_fetch_options avatar_options {};
+                avatar_options.cache_directory = std::filesystem::path { local_data_directory(L"avatars") };
+                avatar_options.sha256_hex = [](const std::string_view text) { return sha256_hex(text); };
+                avatars_ = std::make_unique<avatar_fetcher>(*transport, std::move(avatar_options));
+                dependencies.request_avatar = [this](const std::string& email) { request_avatar(email); };
             }
             workspace_ = std::make_unique<git_workspace>(
                 *executor_, [scheduler](operation_request request) { return scheduler->submit(std::move(request)); },
@@ -271,6 +284,35 @@ namespace cyella::win32 {
             };
             const git_identity_read read { gateway->read(path, source->token()) };
             relay->post(luil::app_message { identity_loaded_intent { .repository_id = repository_id, .identity = read.identity, .ok = read.ok, .error = read.error } });
+        };
+        static_cast<void>(scheduler_->submit(std::move(request)));
+    }
+
+    void cyella_driver::request_avatar(const std::string& email)
+    {
+        if (scheduler_ == nullptr || avatars_ == nullptr)
+            return;
+        auto source { std::make_shared<process_cancellation_source>() };
+        registry_.add(*source);
+        operation_request request {};
+        // 한 줄(lane)에서 차례로 받는다. 커밋을 빠르게 훑어도 요청이 한꺼번에 몰리지 않는다.
+        request.repository_key = "avatar";
+        request.job = [fetcher = avatars_.get(), source, relay = &relay_, email](const operation_context& context) {
+            const process_cancellation_registration link {
+                context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {}
+            };
+            const avatar_fetch_result fetched { fetcher->fetch(email, source->token()) };
+            avatar_loaded_intent loaded { .email = email, .image = {}, .failed = fetched.failed };
+            if (fetched.bytes.empty() == false)
+            {
+                // 사진은 20 논리 픽셀 동그라미에 앉는다. 큰 파일이 와도 상한으로 줄여 푼다.
+                luil::image_decode_options options {};
+                options.max_width = 128;
+                options.max_height = 128;
+                luil::image_decode_error error {};
+                loaded.image = luil::decode_image_bytes(std::span { reinterpret_cast<const std::uint8_t*>(fetched.bytes.data()), fetched.bytes.size() }, options, error);
+            }
+            relay->post(luil::app_message { std::move(loaded) });
         };
         static_cast<void>(scheduler_->submit(std::move(request)));
     }
@@ -476,7 +518,7 @@ namespace cyella::win32 {
                          || drained.get<identity_loaded_intent>() != nullptr || drained.get<identity_applied_intent>() != nullptr)
                 && controller_ != nullptr)
                 static_cast<void>(controller_->handle(drained));
-            else if (drained.get<hosting_result_intent>() != nullptr && controller_ != nullptr)
+            else if ((drained.get<hosting_result_intent>() != nullptr || drained.get<avatar_loaded_intent>() != nullptr) && controller_ != nullptr)
                 static_cast<void>(controller_->handle(drained));
         });
         // 끝난 operation 뒤에 보류해 둔 새로 고침을 낸다. 한 묶음을 다 반영한 뒤라야 쓰기가 아직 줄 서 있는지 정확히 안다.

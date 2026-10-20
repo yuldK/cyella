@@ -8,6 +8,7 @@
 #include "luil/ui/button_element.h"
 #include "luil/ui/dialog_elements.h"
 #include "luil/ui/draw_primitives.h"
+#include "luil/ui/image_element.h"
 #include "luil/ui/label_element.h"
 #include "luil/ui/panel_element.h"
 #include "luil/ui/ui_element.h"
@@ -116,24 +117,26 @@ namespace cyella::ui {
         float line_height_ { 18.0f };
     };
 
-    // 작성자 한 사람이다: 이름 첫 글자 동그라미와 굵은 이름 (커밋 메시지 카드의 아랫줄).
+    // 작성자 한 사람이다: 사진 동그라미와 굵은 이름 (커밋 메시지 카드의 아랫줄).
+    //  - 사진이 없으면(Gravatar를 껐거나 사진이 없는 사람) 이름 첫 글자 동그라미다.
     //  - 메일은 화면에 늘어놓지 않고 올리면 툴팁으로 보인다. 보조 기술에는 이름과 메일을 함께 읽힌다.
     class author_element final : public luil::ui_element
     {
     public:
-        author_element(std::u8string owner, std::u8string name, std::u8string email);
+        author_element(std::u8string owner, std::u8string name, std::u8string email, luil::ui_image avatar);
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
         [[nodiscard]] luil::access_info accessibility() const override;
 
-        // 동그라미·간격·이름이 차지할 폭이다 (논리 픽셀, 이름은 글자로 짐작한다). 담는 쪽이 줄의 남은 자리를 나눌 때 쓴다.
+        // 사진·간격·이름이 차지할 폭이다 (논리 픽셀, 이름은 글자로 짐작한다). 담는 쪽이 줄의 남은 자리를 나눌 때 쓴다.
         [[nodiscard]] static float width_for(std::u8string_view name) noexcept;
 
     private:
         std::u8string name_ {};
         std::u8string email_ {};
         std::u8string initial_ {};
+        luil::ui_element* photo_ { nullptr };
     };
 
     // 칸 여럿을 위에서 아래로 한 테두리 안에 담는 카드다 (커밋 메시지: 제목 · 본문 · 작성 정보).
