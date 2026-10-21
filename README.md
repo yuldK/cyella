@@ -1,12 +1,20 @@
-<p align="center">
-  <img src="assets/cyella-symbol.png" alt="cyella" width="128">
-</p>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/cyella-full-horizontal-sea.svg">
+    <img src="assets/cyella-full-horizontal.svg" alt="Cyella" width="560">
+  </picture>
+</h1>
 
-# cyella
+<p align="center">Windows용 Git 클라이언트</p>
 
 cyella는 Windows용 Git 클라이언트다. 여러 저장소를 탭으로 열고, 커밋 그래프를 보며 브랜치·태그·rebase를
 끌어 놓기와 우클릭 메뉴로 다룬다. C++20과 [luil](https://github.com/yuldK/luil)(Skia·Win32)로 화면을 그리고,
 Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/graph-light.png">
+  <img src="docs/images/graph-dark.png" alt="커밋 그래프와 병합 커밋 상세">
+</picture>
 
 ## 기능
 
@@ -25,6 +33,20 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
   단축키를 바꿀 수 있다.
 - **저장소별 사용자 프로필**: 작성자 이름·메일·서명 키를 프로필로 두고 규칙에 맞는 저장소에 제안한다.
 - **화면 설정**: 밝은·어두운·시스템 테마, UI·코드 글꼴, 창 폭에 따라 바뀌는 배치.
+
+## 화면
+
+**변경 중심 배치**: 스테이징 전·후 파일 목록과 diff를 나란히 보고 hunk 단위로 stage·unstage한 뒤 커밋한다.
+
+![변경 중심 배치에서 staged 파일의 diff와 커밋 메시지](docs/images/review-dark.png)
+
+**커밋 diff**: 그래프에서 고른 커밋의 파일을 WebView2 뷰어로 연다.
+
+![병합 커밋의 파일 diff](docs/images/diff-dark.png)
+
+**명령 팔레트**: 명령·저장소·브랜치를 이름이나 초성으로 찾아 실행한다.
+
+![명령 팔레트](docs/images/palette-dark.png)
 
 ## 개인 정보와 자격 증명
 
