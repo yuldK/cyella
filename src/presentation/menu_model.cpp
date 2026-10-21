@@ -350,8 +350,41 @@ namespace cyella {
         case menu_target_kind::lfs_section:
         case menu_target_kind::lfs_file:
             return build_extension_menu(target, context);
+        case menu_target_kind::tab:
+            // 탭 메뉴는 저장소 상태가 아니라 탭 목록으로 정한다 (`build_tab_menu`).
+            break;
         }
         return {};
+    }
+
+    menu_model build_tab_menu(const repository_tabs& tabs, const repository_tab_id id)
+    {
+        const std::optional<std::size_t> index { tabs.index_of(id) };
+        if (index.has_value() == false)
+            return {};
+        const std::vector<repository_tab>& list { tabs.tabs() };
+        const repository_tab& tab { list[*index] };
+        const bool repository { tab.kind == repository_tab_kind::repository };
+        menu_model model {};
+        model.title = repository ? tab.display_name : std::u8string { u8"시작" };
+        // 시작 탭 하나만 남았으면 닫아도 같은 시작 탭이 다시 서므로 닫기를 끈다.
+        const bool only_start { list.size() == 1 && repository == false };
+        add_group(model.entries,
+            {
+                make_entry(u8"close", u8"탭 닫기", icons::icon_close, only_start == false),
+                make_entry(u8"close_others", u8"다른 탭 닫기", icons::icon_close_all, list.size() > 1),
+                make_entry(u8"close_right", u8"오른쪽 탭 닫기", icons::icon_close_all, *index + 1 < list.size()),
+            });
+        if (repository)
+        {
+            add_group(model.entries, { make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy) });
+            add_group(model.entries,
+                {
+                    make_entry(u8"reveal", u8"탐색기에서 열기", icons::icon_folder_opened),
+                    make_entry(u8"open_vscode", u8"VS Code에서 열기", icons::icon_vscode),
+                });
+        }
+        return model;
     }
 
     bool can_drop_on(const drop_party& source, const drop_party& destination) noexcept

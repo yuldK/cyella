@@ -743,6 +743,24 @@ TEST_CASE("the start page heading draws the title calligraphy when its images ar
     CHECK(find_element(plain, ui::kind_image, u8"start-title") == nullptr);
 }
 
+TEST_CASE("a right click on a tab asks for that tab's menu", "[presentation][ui][tabs][menu]")
+{
+    tree_fixture fixture {};
+    const cyella::ui::built_tree built { fixture.build() };
+    const luil::ui_element* const tab { find_element(built, luil::ui_element_kind::tab, u8"tab-" + cyella::ui::number_text(fixture.tab)) };
+    REQUIRE(tab != nullptr);
+    const luil::ui_action* const right { tab->action(luil::ui_trigger::right_click) };
+    REQUIRE(right != nullptr);
+    const std::vector<luil::input_action> actions { (*right)(luil::ui_action_context { .x = 12.0f, .y = 34.0f }) };
+    REQUIRE(actions.size() == 1);
+    const auto* const intent { std::get<luil::app_message>(actions[0]).get<open_context_menu_intent>() };
+    REQUIRE(intent != nullptr);
+    CHECK(intent->target.kind == menu_target_kind::tab);
+    CHECK(intent->target.tab == fixture.tab);
+    CHECK(intent->x == 12.0f);
+    CHECK(intent->y == 34.0f);
+}
+
 TEST_CASE("the app symbol and title SVG assets read as vector images", "[presentation][ui][assets]")
 {
     // 앱은 이 SVG를 실행 파일 resource로 실어 그대로 읽는다. luil의 SVG 모듈이 같은 파일을 읽는지 본다.

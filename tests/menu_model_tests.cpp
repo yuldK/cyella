@@ -410,3 +410,41 @@ TEST_CASE("branch drag keys round trip", "[presentation][drop]")
     CHECK(menu_key_argument(u8"push:origin", u8"push:") == "origin");
     CHECK_FALSE(menu_key_argument(u8"push:", u8"push:").has_value());
 }
+
+TEST_CASE("the tab menu closes tabs in groups and opens repository folders elsewhere", "[menu][tabs]")
+{
+    const auto keys = [](const menu_model& model) {
+        std::vector<std::u8string> list {};
+        for (const menu_entry& entry : model.entries)
+            list.push_back(entry.key);
+        return list;
+    };
+    const auto enabled = [](const menu_model& model, const std::u8string_view key) {
+        const auto found { std::ranges::find(model.entries, key, &menu_entry::key) };
+        REQUIRE(found != model.entries.end());
+        return found->enabled;
+    };
+
+    repository_tabs tabs {};
+    const repository_tab_id start { tabs.selected().id };
+    // 시작 탭 하나뿐이면 닫을 것이 없다.
+    const menu_model only { build_tab_menu(tabs, start) };
+    CHECK(only.title == u8"시작");
+    CHECK(keys(only) == std::vector<std::u8string> { u8"close", u8"close_others", u8"close_right" });
+    CHECK_FALSE(enabled(only, u8"close"));
+    CHECK_FALSE(enabled(only, u8"close_others"));
+    CHECK_FALSE(enabled(only, u8"close_right"));
+
+    const repository_tab_id first { tabs.open_repository(u8"C:\\work\\first").id };
+    const repository_tab_id second { tabs.open_repository(u8"C:\\work\\second").id };
+    const menu_model middle { build_tab_menu(tabs, first) };
+    CHECK(middle.title == u8"first");
+    CHECK(keys(middle) == std::vector<std::u8string> { u8"close", u8"close_others", u8"close_right", u8"copy_path", u8"reveal", u8"open_vscode" });
+    CHECK(enabled(middle, u8"close"));
+    CHECK(enabled(middle, u8"close_others"));
+    CHECK(enabled(middle, u8"close_right"));
+    // 맨 오른쪽 탭은 오른쪽에 닫을 탭이 없다.
+    CHECK_FALSE(enabled(build_tab_menu(tabs, second), u8"close_right"));
+    // 사라진 탭은 빈 메뉴다.
+    CHECK(build_tab_menu(tabs, 999).entries.empty());
+}

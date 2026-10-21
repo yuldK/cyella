@@ -58,7 +58,8 @@ namespace cyella {
     // `is_ancestor`·`count_commits` 답을 쓴다.
     [[nodiscard]] menu_context build_menu_context(const repository_session& session, const menu_target& target, const graph_index* index);
 
-    [[nodiscard]] std::optional<menu_view> build_menu_view(const ui_state& ui, const repository_session* session, const graph_index* index, float scale);
+    [[nodiscard]] std::optional<menu_view> build_menu_view(
+        const ui_state& ui, const repository_tabs& tabs, const repository_session* session, const graph_index* index, float scale);
 
     // 열린 선택 상자의 목록이다. 열려 있지 않거나, 브랜치 목록인데 저장소가 없으면 빈 값이다.
     [[nodiscard]] std::optional<selector_view> build_selector_view(

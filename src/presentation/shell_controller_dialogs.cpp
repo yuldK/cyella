@@ -765,6 +765,14 @@ namespace cyella {
             return;
         const menu_state state { *ui_.menu };
         ui_.menu.reset();
+        if (state.target.kind == menu_target_kind::tab)
+        {
+            const menu_model tab_model { build_tab_menu(tabs_, state.target.tab) };
+            const auto chosen { std::find_if(tab_model.entries.begin(), tab_model.entries.end(), [&key](const menu_entry& entry) { return entry.key == key && entry.enabled; }) };
+            if (chosen != tab_model.entries.end())
+                run_tab_menu_action(state.target, key);
+            return;
+        }
         repository_session* const session { selected_session() };
         if (session == nullptr)
             return;
@@ -774,6 +782,34 @@ namespace cyella {
         if (found == model.entries.end())
             return;
         run_menu_action(state.target, key, context);
+    }
+
+    void shell_controller::run_tab_menu_action(const menu_target& target, const std::u8string& key)
+    {
+        const std::optional<std::size_t> index { tabs_.index_of(target.tab) };
+        if (index.has_value() == false)
+            return;
+        const std::vector<repository_tab>& list { tabs_.tabs() };
+        const std::u8string path { list[*index].path };
+        if (key == u8"close" || key == u8"close_others" || key == u8"close_right")
+        {
+            // 닫는 동안 목록이 바뀌므로 닫을 id를 먼저 모은다. 하나씩 닫는 길은 "×"와 같다.
+            std::vector<repository_tab_id> closing {};
+            for (std::size_t position { 0 }; position < list.size(); ++position)
+            {
+                const bool picked { key == u8"close" ? position == *index : (key == u8"close_others" ? position != *index : position > *index) };
+                if (picked)
+                    closing.push_back(list[position].id);
+            }
+            for (const repository_tab_id id : closing)
+                close_tab(id);
+        }
+        else if (key == u8"copy_path")
+            copy_text(path);
+        else if (key == u8"reveal")
+            open_folder_in_app(0, path);
+        else if (key == u8"open_vscode")
+            open_folder_in_app(1, path);
     }
 
     void shell_controller::run_menu_action(const menu_target& target, const std::u8string& key, const menu_context& context)
@@ -958,6 +994,9 @@ namespace cyella {
                 open_lfs_track_dialog(lfs_pattern_for_path(target.name));
             else if (key == u8"lfs_pull")
                 static_cast<void>(submit(lfs_pull_request {}));
+            return;
+        case menu_target_kind::tab:
+            run_tab_menu_action(target, key);
             return;
         case menu_target_kind::commit_file:
             if (key == u8"open_diff")

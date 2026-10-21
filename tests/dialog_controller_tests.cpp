@@ -1477,3 +1477,34 @@ TEST_CASE("palette commands open the repository folder in Explorer or VS Code", 
     test.send(run_command_intent { "repo.reveal" });
     CHECK(test.opened_folders.size() == 2);
 }
+
+TEST_CASE("right-clicking a tab opens its menu even on the start page and runs the picked action", "[presentation][tabs][menu]")
+{
+    harness test {};
+    test.load();
+    test.controller.open_repository(u8"C:\\work\\other");
+    test.send(new_tab_intent {});
+    REQUIRE(test.controller.tabs().tabs().size() == 3);
+    const repository_tab_id first { test.controller.tabs().tabs()[0].id };
+
+    // 시작 탭이 선택된 채로도 저장소 탭의 메뉴가 선다.
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::tab, .tab = first }, 40.0f, 30.0f });
+    view_snapshot view { test.view() };
+    REQUIRE(view.menu.has_value());
+    CHECK(view.menu->title == u8"repo");
+
+    test.send(menu_select_intent { u8"copy_path" });
+    CHECK(test.controller.take_clipboard_text() == std::optional<std::u8string> { u8"C:\\work\\repo" });
+
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::tab, .tab = first }, 40.0f, 30.0f });
+    test.send(menu_select_intent { u8"open_vscode" });
+    REQUIRE(test.opened_folders.size() == 1);
+    CHECK(test.opened_folders[0].first.executable == u8"Code.exe");
+    CHECK(test.opened_folders[0].second == u8"C:\\work\\repo");
+
+    // 오른쪽 탭을 닫으면 첫 탭만 남는다.
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::tab, .tab = first }, 40.0f, 30.0f });
+    test.send(menu_select_intent { u8"close_right" });
+    REQUIRE(test.controller.tabs().tabs().size() == 1);
+    CHECK(test.controller.tabs().tabs()[0].id == first);
+}

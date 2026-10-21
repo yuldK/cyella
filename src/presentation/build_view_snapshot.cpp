@@ -1118,7 +1118,7 @@ namespace cyella {
             view.form = build_form_view(source, ui, tab, session != nullptr ? &session->snapshot() : nullptr);
             if (view.form.has_value())
                 view.form->scroll = ui.form.scroll;
-            view.menu = build_menu_view(ui, session, index.get(), view.scale);
+            view.menu = build_menu_view(ui, tabs, session, index.get(), view.scale);
             view.selector = build_selector_view(ui, tabs, settings, inputs.exists, session, view.scale);
         }
 

@@ -99,7 +99,11 @@ namespace cyella {
 
     void shell_controller::open_repository_in_app(const std::size_t index)
     {
-        const std::u8string folder { selected_repository_path() };
+        open_folder_in_app(index, selected_repository_path());
+    }
+
+    void shell_controller::open_folder_in_app(const std::size_t index, const std::u8string& folder)
+    {
         if (folder.empty())
             return;
         const std::vector<external_file_app> apps { repository_open_apps(settings().external_file_apps) };

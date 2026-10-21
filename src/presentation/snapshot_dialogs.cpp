@@ -199,7 +199,8 @@ namespace cyella {
         return context;
     }
 
-    std::optional<menu_view> build_menu_view(const ui_state& ui, const repository_session* session, const graph_index* index, const float scale)
+    std::optional<menu_view> build_menu_view(
+        const ui_state& ui, const repository_tabs& tabs, const repository_session* session, const graph_index* index, const float scale)
     {
         if (ui.menu.has_value() == false)
             return std::nullopt;
@@ -207,10 +208,12 @@ namespace cyella {
         menu_view view {};
         view.x = state.x / scale;
         view.y = state.y / scale;
-        if (session == nullptr)
-            return std::nullopt;
-        const menu_context context { build_menu_context(*session, state.target, index) };
-        menu_model model { build_context_menu(state.target, context) };
+        menu_model model {};
+        // 탭 메뉴는 저장소 상태 없이 탭 목록으로 정한다. 시작 탭에서도 열린다.
+        if (state.target.kind == menu_target_kind::tab)
+            model = build_tab_menu(tabs, state.target.tab);
+        else if (session != nullptr)
+            model = build_context_menu(state.target, build_menu_context(*session, state.target, index));
         if (model.entries.empty())
             return std::nullopt;
         view.title = std::move(model.title);

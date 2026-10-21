@@ -199,11 +199,15 @@ namespace cyella {
         void select_from_selector(const std::u8string& key);
         // 지금 탭의 저장소 폴더를 `repository_open_apps`의 `index`번째 앱으로 연다. 저장소 탭이 아니면 아무 일도 하지 않는다.
         void open_repository_in_app(std::size_t index);
+        // 폴더를 `repository_open_apps`의 `index`번째 앱으로 연다. 탭 메뉴는 고르지 않은 탭의 폴더도 연다.
+        void open_folder_in_app(std::size_t index, const std::u8string& folder);
 
         void open_context_menu(menu_target target, float x, float y);
         void request_drop_facts();
         void handle_menu_select(const std::u8string& key);
         void run_menu_action(const menu_target& target, const std::u8string& key, const menu_context& context);
+        // 탭 우클릭 메뉴의 항목을 실행한다 (닫기 묶음, 경로 복사, 다른 앱으로 열기).
+        void run_tab_menu_action(const menu_target& target, const std::u8string& key);
         void handle_drop(const drop_intent& intent);
         void handle_activate_commit(const std::string& sha);
         void open_menu_for_selection();
