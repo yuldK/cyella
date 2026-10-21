@@ -1,5 +1,7 @@
 #include "domain/external_diff_tool.h"
 
+#include "domain/text_catalog.h"
+
 #include <cstddef>
 #include <utility>
 
@@ -76,10 +78,17 @@ namespace cyella {
         };
     }
 
+    std::u8string external_file_app_label(const external_file_app& app)
+    {
+        if (app.name == u8"Windows 탐색기")
+            return tr(u8"external_diff.explorer_app");
+        return app.name;
+    }
+
     std::vector<external_file_app> repository_open_apps(const std::vector<external_file_app>& file_apps)
     {
         std::vector<external_file_app> apps {
-            { u8"Windows 탐색기", u8"explorer.exe", u8"{repository}" },
+            { tr(u8"external_diff.explorer_app"), u8"explorer.exe", u8"{repository}" },
             { u8"Visual Studio Code", u8"Code.exe", u8"{repository}" },
         };
         for (const external_file_app& app : file_apps)

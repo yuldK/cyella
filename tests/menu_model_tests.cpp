@@ -1,7 +1,6 @@
 // 우클릭 메뉴와 끌어 놓기 메뉴의 항목 규칙, 끄는 동안의 문구, 읽어 둔 이력의 조상 판정을 검증한다 (UI 없이).
 #include "presentation/drop_hints.h"
 #include "presentation/graph_index.h"
-#include "presentation/korean_josa.h"
 #include "presentation/menu_model.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -101,19 +100,6 @@ TEST_CASE("the history index answers ancestry and commit counts for loaded commi
     CHECK_FALSE(index.count(sha_of(1), sha_of(9)).has_value());
     // 항목 키(앞 15자)로도 찾는다.
     CHECK(index.find(sha_of(9).substr(0, 15)) == index.find(sha_of(9)));
-}
-
-TEST_CASE("josa follows the final syllable", "[presentation][drop]")
-{
-    CHECK(with_eul_reul(u8"main") == u8"main을");
-    CHECK(with_eul_reul(u8"feature") == u8"feature를");
-    CHECK(with_eul_reul(u8"graph") == u8"graph를");
-    CHECK(with_eul_reul(u8"브랜치") == u8"브랜치를");
-    CHECK(with_eul_reul(u8"한글") == u8"한글을");
-    CHECK(with_euro_ro(u8"main") == u8"main으로");
-    CHECK(with_euro_ro(u8"feature/x1") == u8"feature/x1으로");
-    CHECK(with_euro_ro(u8"abc1234") == u8"abc1234로");
-    CHECK(with_eun_neun(u8"main") == u8"main은");
 }
 
 TEST_CASE("which branches can be dropped on which", "[presentation][drop]")

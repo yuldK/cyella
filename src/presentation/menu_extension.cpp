@@ -1,5 +1,7 @@
 #include "presentation/menu_extension.h"
 
+#include "domain/text_catalog.h"
+
 #include "luil/generated/codicons.h"
 
 #include <algorithm>
@@ -49,11 +51,11 @@ namespace cyella {
             const bool initialized { info != nullptr && info->state != submodule_state::uninitialized };
             add_group(model.entries,
                 {
-                    make_entry(u8"open", initialized ? u8"새 탭에서 열기" : u8"새 탭에서 열기 (먼저 초기화하세요)", icons::icon_repo, initialized),
-                    make_entry(u8"update", info != nullptr && info->state == submodule_state::uninitialized ? u8"초기화하고 업데이트 (init)" : u8"업데이트 (기록된 커밋으로)", icons::icon_sync,
-                        info != nullptr),
+                    make_entry(u8"open", initialized ? tr(u8"menu.ext.open_in_new_tab") : tr(u8"menu.ext.open_in_new_tab_uninitialized"), icons::icon_repo, initialized),
+                    make_entry(u8"update", info != nullptr && info->state == submodule_state::uninitialized ? tr(u8"menu.ext.submodule_init_update") : tr(u8"menu.ext.submodule_update"),
+                        icons::icon_sync, info != nullptr),
                 });
-            add_group(model.entries, { make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy) });
+            add_group(model.entries, { make_entry(u8"copy_path", tr(u8"menu.copy_path"), icons::icon_copy) });
             return model;
         }
 
@@ -64,8 +66,8 @@ namespace cyella {
             const bool any { context.submodules.empty() == false };
             add_group(model.entries,
                 {
-                    make_entry(u8"update_all", u8"모두 업데이트 (init, recursive)", icons::icon_sync, any),
-                    make_entry(u8"sync_all", u8"url 동기화 (.gitmodules → 설정)", icons::icon_refresh, any),
+                    make_entry(u8"update_all", tr(u8"menu.ext.submodules_update_all"), icons::icon_sync, any),
+                    make_entry(u8"sync_all", tr(u8"menu.ext.submodules_sync_urls"), icons::icon_refresh, any),
                 });
             return model;
         }
@@ -78,19 +80,19 @@ namespace cyella {
             const bool is_current { info != nullptr && info->is_current };
             const bool is_main { info != nullptr && info->is_main };
             const bool missing { info != nullptr && info->prunable };
-            std::u8string open_label { u8"새 탭에서 열기" };
+            std::u8string open_label { tr(u8"menu.ext.open_in_new_tab") };
             if (is_current)
-                open_label = u8"새 탭에서 열기 (지금 보고 있는 worktree)";
+                open_label = tr(u8"menu.ext.open_in_new_tab_current_worktree");
             else if (missing)
-                open_label = u8"새 탭에서 열기 (폴더가 사라졌습니다)";
-            std::u8string remove_label { u8"제거…" };
+                open_label = tr(u8"menu.ext.open_in_new_tab_missing_folder");
+            std::u8string remove_label { tr(u8"menu.ext.worktree_remove") };
             if (is_main)
-                remove_label = u8"제거 (주 작업 트리는 지울 수 없습니다)";
+                remove_label = tr(u8"menu.ext.worktree_remove_main");
             else if (is_current)
-                remove_label = u8"제거 (지금 보고 있는 worktree는 이 탭에서 지울 수 없습니다)";
+                remove_label = tr(u8"menu.ext.worktree_remove_current");
             add_group(model.entries, { make_entry(u8"open", std::move(open_label), icons::icon_worktree, info != nullptr && is_current == false && missing == false) });
             add_group(model.entries, { make_entry(u8"remove", std::move(remove_label), icons::icon_trash, info != nullptr && is_main == false && is_current == false, true) });
-            add_group(model.entries, { make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy) });
+            add_group(model.entries, { make_entry(u8"copy_path", tr(u8"menu.copy_path"), icons::icon_copy) });
             return model;
         }
 
@@ -101,8 +103,8 @@ namespace cyella {
             const bool prunable { std::ranges::any_of(context.worktrees, [](const worktree_info& info) { return info.prunable; }) };
             add_group(model.entries,
                 {
-                    make_entry(u8"add", u8"worktree 추가…", icons::icon_add),
-                    make_entry(u8"prune", prunable ? u8"사라진 worktree 정리 (prune)" : u8"사라진 worktree 정리 (정리할 것이 없습니다)", icons::icon_trash, prunable),
+                    make_entry(u8"add", tr(u8"menu.ext.worktree_add"), icons::icon_add),
+                    make_entry(u8"prune", prunable ? tr(u8"menu.ext.worktree_prune") : tr(u8"menu.ext.worktree_prune_nothing"), icons::icon_trash, prunable),
                 });
             return model;
         }
@@ -112,14 +114,14 @@ namespace cyella {
             menu_model model {};
             model.title = u8"GIT LFS";
             const bool usable { context.lfs.available };
-            const std::u8string note { usable ? std::u8string {} : u8" (git-lfs를 찾을 수 없습니다)" };
+            const std::u8string note { usable ? std::u8string {} : tr(u8"menu.ext.lfs_unavailable_suffix") };
             add_group(model.entries,
                 {
-                    make_entry(u8"pull", u8"LFS pull (받고 작업 트리에 채움)" + note, icons::icon_cloud_download, usable),
-                    make_entry(u8"fetch", u8"LFS fetch (객체만 받음)" + note, icons::icon_git_fetch, usable),
-                    make_entry(u8"fetch_all", u8"LFS fetch --all (모든 ref의 객체)" + note, icons::icon_git_fetch, usable),
+                    make_entry(u8"pull", tr(u8"menu.ext.lfs_pull_all") + note, icons::icon_cloud_download, usable),
+                    make_entry(u8"fetch", tr(u8"menu.ext.lfs_fetch") + note, icons::icon_git_fetch, usable),
+                    make_entry(u8"fetch_all", tr(u8"menu.ext.lfs_fetch_all") + note, icons::icon_git_fetch, usable),
                 });
-            add_group(model.entries, { make_entry(u8"track", u8"추적 패턴 추가…" + note, icons::icon_package, usable) });
+            add_group(model.entries, { make_entry(u8"track", tr(u8"menu.ext.lfs_add_track_pattern") + note, icons::icon_package, usable) });
             return model;
         }
 
@@ -127,8 +129,8 @@ namespace cyella {
         {
             menu_model model {};
             model.title = to_u8(target.name);
-            add_group(model.entries, { make_entry(u8"pull", u8"LFS 객체 가져오기 (pull)", icons::icon_cloud_download, context.lfs.available) });
-            add_group(model.entries, { make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy) });
+            add_group(model.entries, { make_entry(u8"pull", tr(u8"menu.lfs_pull"), icons::icon_cloud_download, context.lfs.available) });
+            add_group(model.entries, { make_entry(u8"copy_path", tr(u8"menu.copy_path"), icons::icon_copy) });
             return model;
         }
     } // namespace

@@ -1,5 +1,7 @@
 #include "presentation/commands/command_registry.h"
 
+#include "domain/text_catalog.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -18,53 +20,53 @@ namespace cyella {
             using group = command_group;
             std::vector<command_definition> list {};
             // ---- 작업 보기
-            list.push_back(make("view.changes", u8"변경 사항 보기", u8"changes working files stage commit workspace", group::view, { u8"Ctrl+1" }));
-            list.push_back(make("view.history", u8"커밋 이력 보기", u8"history graph log commits workspace", group::view, { u8"Ctrl+2" }));
+            list.push_back(make("view.changes", tr(u8"command.view.changes"), u8"changes working files stage commit workspace", group::view, { u8"Ctrl+1" }));
+            list.push_back(make("view.history", tr(u8"command.view.history"), u8"history graph log commits workspace", group::view, { u8"Ctrl+2" }));
             // ---- 앱
-            list.push_back(make("palette.open", u8"명령 팔레트 열기", u8"command palette search run", group::app, { u8"Ctrl+Shift+P", u8"Ctrl+P" }));
-            list.push_back(make("app.settings", u8"환경 설정 열기", u8"settings preferences options", group::app, { u8"Ctrl+," }));
-            list.push_back(make("app.settings.general", u8"환경 설정: 일반 (테마·git 경로)", u8"settings general theme git path appearance", group::app));
-            list.push_back(make("app.settings.diff", u8"환경 설정: diff 보기·외부 도구", u8"settings diff tool external layout context", group::app));
-            list.push_back(make("app.settings.ssh", u8"환경 설정: SSH 키·agent", u8"settings ssh key agent keygen", group::app));
-            list.push_back(make("app.settings.profiles", u8"환경 설정: 사용자 프로필", u8"settings profile identity user name email author", group::app));
-            list.push_back(make("app.settings.hosting", u8"환경 설정: 호스팅 (GitHub·GitLab)", u8"settings hosting github gitlab server host token sign out logout", group::app));
-            list.push_back(make("app.settings.shortcuts", u8"환경 설정: 단축키", u8"settings shortcut keybinding keys hotkey", group::app));
-            list.push_back(make("app.theme", u8"테마 바꾸기 (시스템·밝게·어둡게)", u8"theme dark light color mode", group::app));
-            list.push_back(make("app.log", u8"작업 로그 보기·숨기기", u8"log operations output command history", group::app));
+            list.push_back(make("palette.open", tr(u8"command.palette.open"), u8"command palette search run", group::app, { u8"Ctrl+Shift+P", u8"Ctrl+P" }));
+            list.push_back(make("app.settings", tr(u8"command.app.settings"), u8"settings preferences options", group::app, { u8"Ctrl+," }));
+            list.push_back(make("app.settings.general", tr(u8"command.app.settings.general"), u8"settings general theme git path appearance", group::app));
+            list.push_back(make("app.settings.diff", tr(u8"command.app.settings.diff"), u8"settings diff tool external layout context", group::app));
+            list.push_back(make("app.settings.ssh", tr(u8"command.app.settings.ssh"), u8"settings ssh key agent keygen", group::app));
+            list.push_back(make("app.settings.profiles", tr(u8"command.app.settings.profiles"), u8"settings profile identity user name email author", group::app));
+            list.push_back(make("app.settings.hosting", tr(u8"command.app.settings.hosting"), u8"settings hosting github gitlab server host token sign out logout", group::app));
+            list.push_back(make("app.settings.shortcuts", tr(u8"command.app.settings.shortcuts"), u8"settings shortcut keybinding keys hotkey", group::app));
+            list.push_back(make("app.theme", tr(u8"command.app.theme"), u8"theme dark light color mode", group::app));
+            list.push_back(make("app.log", tr(u8"command.app.log"), u8"log operations output command history", group::app));
             // ---- 탭
-            list.push_back(make("tab.new", u8"새 탭 (시작 페이지)", u8"new tab start page", group::tab, { u8"Ctrl+T" }));
-            list.push_back(make("tab.close", u8"현재 탭 닫기", u8"close tab", group::tab, { u8"Ctrl+W" }));
-            list.push_back(make("tab.next", u8"다음 탭", u8"next tab switch", group::tab, { u8"Ctrl+Tab" }));
-            list.push_back(make("tab.previous", u8"이전 탭", u8"previous tab switch back", group::tab, { u8"Ctrl+Shift+Tab" }));
+            list.push_back(make("tab.new", tr(u8"command.tab.new"), u8"new tab start page", group::tab, { u8"Ctrl+T" }));
+            list.push_back(make("tab.close", tr(u8"command.tab.close"), u8"close tab", group::tab, { u8"Ctrl+W" }));
+            list.push_back(make("tab.next", tr(u8"command.tab.next"), u8"next tab switch", group::tab, { u8"Ctrl+Tab" }));
+            list.push_back(make("tab.previous", tr(u8"command.tab.previous"), u8"previous tab switch back", group::tab, { u8"Ctrl+Shift+Tab" }));
             // ---- 저장소
-            list.push_back(make("repo.open", u8"저장소 열기…", u8"open repository recent switch tab", group::repository, { u8"Ctrl+O" }));
-            list.push_back(make("repo.open_folder", u8"폴더에서 저장소 열기…", u8"open folder browse directory", group::repository));
-            list.push_back(make("repo.clone", u8"저장소 복제 (Clone)…", u8"clone download remote url", group::repository));
-            list.push_back(make("repo.init", u8"폴더에 새 저장소 만들기 (Init)…", u8"init create new repository", group::repository));
-            list.push_back(make("repo.refresh", u8"저장소 새로 고침", u8"refresh reload status", group::repository, { u8"F5" }));
-            list.push_back(make("repo.reveal", u8"탐색기에서 저장소 폴더 열기", u8"open folder explorer reveal show files", group::repository));
-            list.push_back(make("repo.open_vscode", u8"VS Code에서 저장소 열기", u8"open vscode visual studio code editor", group::repository));
+            list.push_back(make("repo.open", tr(u8"command.repo.open"), u8"open repository recent switch tab", group::repository, { u8"Ctrl+O" }));
+            list.push_back(make("repo.open_folder", tr(u8"command.repo.open_folder"), u8"open folder browse directory", group::repository));
+            list.push_back(make("repo.clone", tr(u8"command.repo.clone"), u8"clone download remote url", group::repository));
+            list.push_back(make("repo.init", tr(u8"command.repo.init"), u8"init create new repository", group::repository));
+            list.push_back(make("repo.refresh", tr(u8"command.repo.refresh"), u8"refresh reload status", group::repository, { u8"F5" }));
+            list.push_back(make("repo.reveal", tr(u8"command.repo.reveal"), u8"open folder explorer reveal show files", group::repository));
+            list.push_back(make("repo.open_vscode", tr(u8"command.repo.open_vscode"), u8"open vscode visual studio code editor", group::repository));
             // ---- git 작업
-            list.push_back(make("git.fetch", u8"원격에서 가져오기 (Fetch)", u8"fetch remote download update", group::git));
-            list.push_back(make("git.pull", u8"원격 변경 받아 합치기 (Pull)", u8"pull merge remote update", group::git));
-            list.push_back(make("git.push", u8"원격으로 올리기 (Push)", u8"push upload remote publish", group::git));
-            list.push_back(make("git.branch.new", u8"새 브랜치 만들기…", u8"branch create new", group::git));
-            list.push_back(make("git.branch.checkout", u8"브랜치로 이동…", u8"branch checkout switch go", group::git));
-            list.push_back(make("git.tag.new", u8"태그 만들기… (현재 커밋)", u8"tag create new release", group::git));
-            list.push_back(make("git.stash", u8"변경을 임시 보관 (Stash)", u8"stash save shelve", group::git));
-            list.push_back(make("git.stash.pop", u8"임시 보관한 변경 꺼내기 (Pop)", u8"stash pop apply restore", group::git));
-            list.push_back(make("git.commit", u8"커밋하기", u8"commit save record", group::git, { u8"Ctrl+Enter" }, command_scope::commit_input));
-            list.push_back(make("git.amend", u8"직전 커밋 고쳐 쓰기 (Amend) 켜기·끄기", u8"amend commit fix last", group::git));
+            list.push_back(make("git.fetch", tr(u8"command.git.fetch"), u8"fetch remote download update", group::git));
+            list.push_back(make("git.pull", tr(u8"command.git.pull"), u8"pull merge remote update", group::git));
+            list.push_back(make("git.push", tr(u8"command.git.push"), u8"push upload remote publish", group::git));
+            list.push_back(make("git.branch.new", tr(u8"command.git.branch.new"), u8"branch create new", group::git));
+            list.push_back(make("git.branch.checkout", tr(u8"command.git.branch.checkout"), u8"branch checkout switch go", group::git));
+            list.push_back(make("git.tag.new", tr(u8"command.git.tag.new"), u8"tag create new release", group::git));
+            list.push_back(make("git.stash", tr(u8"command.git.stash"), u8"stash save shelve", group::git));
+            list.push_back(make("git.stash.pop", tr(u8"command.git.stash.pop"), u8"stash pop apply restore", group::git));
+            list.push_back(make("git.commit", tr(u8"command.git.commit"), u8"commit save record", group::git, { u8"Ctrl+Enter" }, command_scope::commit_input));
+            list.push_back(make("git.amend", tr(u8"command.git.amend"), u8"amend commit fix last", group::git));
             // ---- 화면
-            list.push_back(make("view.drawer", u8"상세 패널 열기·닫기", u8"detail panel drawer sidebar", group::view));
-            list.push_back(make("view.menu", u8"고른 항목의 메뉴 열기", u8"context menu right click actions", group::view, { u8"Shift+F10" }));
-            list.push_back(make("view.close", u8"열린 패널·알림 닫기", u8"close dismiss escape overlay", group::view, { u8"Escape" }, command_scope::global, false));
+            list.push_back(make("view.drawer", tr(u8"command.view.drawer"), u8"detail panel drawer sidebar", group::view));
+            list.push_back(make("view.menu", tr(u8"command.view.menu"), u8"context menu right click actions", group::view, { u8"Shift+F10" }));
+            list.push_back(make("view.close", tr(u8"command.view.close"), u8"close dismiss escape overlay", group::view, { u8"Escape" }, command_scope::global, false));
             // ---- GitHub·GitLab
-            list.push_back(make("hosting.sign_in", u8"GitHub·GitLab에 로그인…", u8"login sign in github gitlab credential token", group::hosting));
-            list.push_back(make("hosting.refresh", u8"PR·MR 목록 새로 고침", u8"pull request merge request list refresh github gitlab", group::hosting));
-            list.push_back(make("hosting.pull_request.new", u8"현재 브랜치로 PR·MR 만들기…", u8"pull request merge request create new github gitlab", group::hosting));
+            list.push_back(make("hosting.sign_in", tr(u8"command.hosting.sign_in"), u8"login sign in github gitlab credential token", group::hosting));
+            list.push_back(make("hosting.refresh", tr(u8"command.hosting.refresh"), u8"pull request merge request list refresh github gitlab", group::hosting));
+            list.push_back(make("hosting.pull_request.new", tr(u8"command.hosting.pull_request.new"), u8"pull request merge request create new github gitlab", group::hosting));
             // ---- 프로필
-            list.push_back(make("profile.apply", u8"이 저장소에 프로필 적용…", u8"profile apply identity author user name email", group::profile));
+            list.push_back(make("profile.apply", tr(u8"command.profile.apply"), u8"profile apply identity author user name email", group::profile));
             return list;
         }
 
@@ -101,7 +103,29 @@ namespace cyella {
         return nullptr;
     }
 
-    std::u8string_view command_group_title(const command_group group) noexcept
+    std::u8string command_group_title(const command_group group)
+    {
+        switch (group)
+        {
+        case command_group::app:
+            return tr(u8"command_group.app");
+        case command_group::tab:
+            return tr(u8"command_group.tab");
+        case command_group::repository:
+            return tr(u8"command_group.repository");
+        case command_group::git:
+            return tr(u8"command_group.git");
+        case command_group::view:
+            return tr(u8"command_group.view");
+        case command_group::profile:
+            return tr(u8"command_group.profile");
+        case command_group::hosting:
+            return u8"GitHub·GitLab";
+        }
+        return {};
+    }
+
+    std::u8string_view command_group_owner(const command_group group) noexcept
     {
         switch (group)
         {
@@ -215,13 +239,13 @@ namespace cyella {
         const command_definition* const definition { find_command(command) };
         if (definition == nullptr)
         {
-            check.error = u8"알 수 없는 명령입니다.";
+            check.error = tr(u8"command.unknown_command");
             return check;
         }
         chord_list_parse parsed { parse_key_chord_list(text) };
         if (parsed.failed.empty() == false)
         {
-            check.error = u8"'" + parsed.failed + u8"'은(는) 읽을 수 없는 키입니다. 예: Ctrl+Shift+K (여러 개는 ' / '로 이어 씁니다)";
+            check.error = tr(u8"command.unreadable_key", { { u8"key", parsed.failed } });
             return check;
         }
         for (const key_chord& chord : parsed.chords)
@@ -234,7 +258,7 @@ namespace cyella {
             if (const std::optional<std::string> other { find_shortcut_conflict(settings, command, chord) }; other.has_value())
             {
                 const command_definition* const owner { find_command(*other) };
-                check.error = format_key_chord(chord) + u8"은(는) 이미 '" + (owner != nullptr ? owner->title : std::u8string(other->begin(), other->end())) + u8"'에 쓰입니다.";
+                check.error = tr(u8"command.shortcut_in_use", { { u8"key", format_key_chord(chord) }, { u8"command", owner != nullptr ? owner->title : std::u8string(other->begin(), other->end()) } });
                 return check;
             }
         }

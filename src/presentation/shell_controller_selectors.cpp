@@ -1,4 +1,5 @@
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 #include "presentation/selector_intents.h"
 #include "presentation/selector_model.h"
 #include "presentation/shell_controller.h"
@@ -73,7 +74,7 @@ namespace cyella {
             if (repository_exists(*path))
                 open_repository(*path);
             else
-                show_notice(u8"'" + *path + u8"' 경로를 찾을 수 없습니다. 시작 페이지에서 위치를 찾거나 목록에서 지울 수 있습니다.", true);
+                show_notice(tr(u8"selector.recent_missing", { { u8"path", *path } }), true);
             return;
         }
         if (const std::optional<std::u8string> app { key_argument(key, selector_repository_app_key_prefix) }; app.has_value())

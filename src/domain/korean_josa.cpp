@@ -1,4 +1,4 @@
-#include "presentation/korean_josa.h"
+#include "domain/korean_josa.h"
 
 #include <cstdint>
 
@@ -51,20 +51,5 @@ namespace cyella {
         if (is_hangul_syllable(last))
             return (last - 0xAC00) % 28 == 8;
         return last == U'l' || last == U'L';
-    }
-
-    std::u8string with_eul_reul(const std::u8string_view name)
-    {
-        return std::u8string { name } + (ends_with_batchim(name) ? u8"을" : u8"를");
-    }
-
-    std::u8string with_eun_neun(const std::u8string_view name)
-    {
-        return std::u8string { name } + (ends_with_batchim(name) ? u8"은" : u8"는");
-    }
-
-    std::u8string with_euro_ro(const std::u8string_view name)
-    {
-        return std::u8string { name } + (ends_with_batchim(name) && ends_with_rieul(name) == false ? u8"으로" : u8"로");
     }
 } // namespace cyella

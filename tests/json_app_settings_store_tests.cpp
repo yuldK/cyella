@@ -632,6 +632,22 @@ TEST_CASE("the gravatar switch round trips and a wrong value stays off", "[json_
     CHECK(wrong.diagnostics.size() == 1);
 }
 
+TEST_CASE("the language choice round trips and a wrong value follows the system", "[json_app_settings]")
+{
+    app_settings settings {};
+    CHECK(settings.language == language_preference::system);
+    settings.language = language_preference::english;
+    const std::u8string bytes { serialize_app_settings_json(settings, u8"") };
+    CHECK(json::parse(text_of(bytes)).at("language") == "en");
+    const app_settings_load_result loaded { parse_app_settings_json(bytes) };
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings.language == language_preference::english);
+
+    const app_settings_load_result wrong { parse_app_settings_json(u8R"({"language":"fr"})") };
+    CHECK(wrong.settings.language == language_preference::system);
+    CHECK(wrong.diagnostics.size() == 1);
+}
+
 TEST_CASE("a dragged pane width is written with two decimals", "[json_app_settings]")
 {
     app_settings settings {};

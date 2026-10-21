@@ -82,5 +82,5 @@ namespace cyella {
     [[nodiscard]] std::string_view git_failure_kind_name(git_failure_kind kind) noexcept;
 
     // 사용자에게 보일 한 줄 설명이다.
-    [[nodiscard]] std::u8string_view git_failure_message(git_failure_kind kind) noexcept;
+    [[nodiscard]] std::u8string git_failure_message(git_failure_kind kind);
 } // namespace cyella

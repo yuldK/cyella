@@ -2,6 +2,7 @@
 
 #include "domain/external_diff_tool.h"
 #include "domain/hosting_remote.h"
+#include "domain/text_catalog.h"
 #include "domain/user_profile.h"
 
 #include <chrono>
@@ -150,6 +151,8 @@ namespace cyella {
         // 명령 팔레트에서 쓴 명령의 id다. 가장 최근 것이 앞이고 순위 매기기에 쓴다.
         std::vector<std::string> command_history {};
         std::vector<external_file_app> external_file_apps { default_external_file_apps() };
+        // 화면 문구의 언어다 (`system`·`ko`·`en`). 바꾸면 다시 시작할 때 적용한다 (ADR-008).
+        language_preference language { language_preference::system };
 
         [[nodiscard]] bool operator==(const app_settings&) const noexcept = default;
     };

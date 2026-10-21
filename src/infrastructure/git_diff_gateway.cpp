@@ -1,5 +1,6 @@
 #include "infrastructure/git_diff_gateway.h"
 
+#include "domain/text_catalog.h"
 #include "infrastructure/git_execution_policy.h"
 #include "infrastructure/git_lfs_parser.h"
 
@@ -101,7 +102,7 @@ namespace cyella {
             directory = temp_.create_operation_directory();
             if (directory.empty())
             {
-                result.error = "임시 폴더를 만들지 못했습니다.";
+                result.error = tr_narrow(u8"git.diff.temp_folder_failed");
                 return result;
             }
         }
@@ -135,7 +136,7 @@ namespace cyella {
                 target = directory / folder / std::filesystem::path { to_u8(name) };
                 if (error)
                 {
-                    outcome.error = "임시 폴더를 만들지 못했습니다.";
+                    outcome.error = tr_narrow(u8"git.diff.temp_folder_failed");
                     return outcome;
                 }
             }
@@ -143,7 +144,7 @@ namespace cyella {
             if (spec.kind == diff_side_kind::none)
             {
                 if (write_files && write_empty_file(target) == false)
-                    outcome.error = "임시 파일을 쓰지 못했습니다.";
+                    outcome.error = tr_narrow(u8"git.diff.temp_file_failed");
                 outcome.side.file = target.u8string();
                 return outcome;
             }
@@ -156,7 +157,7 @@ namespace cyella {
                 const std::uintmax_t size { std::filesystem::file_size(source, error) };
                 if (error)
                 {
-                    outcome.error = "작업 트리 파일을 읽지 못했습니다: " + spec.path;
+                    outcome.error = tr_narrow(u8"git.diff.worktree_file_unreadable", { { u8"path", spec.path } });
                     return outcome;
                 }
                 outcome.side.size = size;
@@ -165,7 +166,7 @@ namespace cyella {
                     std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, error);
                     if (error)
                     {
-                        outcome.error = "작업 트리 파일을 복사하지 못했습니다: " + spec.path;
+                        outcome.error = tr_narrow(u8"git.diff.worktree_file_copy_failed", { { u8"path", spec.path } });
                         return outcome;
                     }
                     outcome.side.file = target.u8string();
@@ -189,7 +190,7 @@ namespace cyella {
                         const std::uintmax_t size { relative.empty() || storage.empty() ? 0 : std::filesystem::file_size(source, error) };
                         if (relative.empty() || storage.empty() || error)
                         {
-                            outcome.error = "LFS 객체가 로컬에 없습니다: " + spec.path;
+                            outcome.error = tr_narrow(u8"git.diff.lfs_object_missing", { { u8"path", spec.path } });
                             return outcome;
                         }
                         outcome.side.size = size;
@@ -198,7 +199,7 @@ namespace cyella {
                             std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, error);
                             if (error)
                             {
-                                outcome.error = "LFS 객체를 복사하지 못했습니다: " + spec.path;
+                                outcome.error = tr_narrow(u8"git.diff.lfs_object_copy_failed", { { u8"path", spec.path } });
                                 return outcome;
                             }
                             outcome.side.file = target.u8string();
@@ -211,7 +212,7 @@ namespace cyella {
                 std::ofstream file { target, std::ios::binary | std::ios::trunc };
                 if (file.is_open() == false)
                 {
-                    outcome.error = "임시 파일을 쓰지 못했습니다.";
+                    outcome.error = tr_narrow(u8"git.diff.temp_file_failed");
                     return outcome;
                 }
                 stdout_sink sink { &file };
@@ -219,7 +220,7 @@ namespace cyella {
                 file.close();
                 if (run.succeeded() == false)
                 {
-                    outcome.error = "git cat-file 실패: " + object;
+                    outcome.error = tr_narrow(u8"git.diff.cat_file_failed", { { u8"object", object } });
                     return outcome;
                 }
                 outcome.side.size = sink.bytes();
@@ -231,7 +232,7 @@ namespace cyella {
             const process_result run { runner_.run(make_request(git_executable_, plan.repository_path, { u8"cat-file", u8"-s", to_u8(object) }), &sink, cancellation) };
             if (run.succeeded() == false)
             {
-                outcome.error = "git cat-file 실패: " + object;
+                outcome.error = tr_narrow(u8"git.diff.cat_file_failed", { { u8"object", object } });
                 return outcome;
             }
             std::uint64_t size { 0 };

@@ -2,6 +2,7 @@
 
 #include "application/process_runner.h"
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/git_progress_parser.h"
 #include "infrastructure/git_query_parser.h"
 #include "infrastructure/git_signing_failure.h"
@@ -296,7 +297,7 @@ namespace cyella {
                     detail.push_back(u8'\n');
                 detail.append(entry.message);
             }
-            return operation_outcome::failed(failure_kind::other, u8"git을 실행하지 못했습니다.", std::move(detail));
+            return operation_outcome::failed(failure_kind::other, tr(u8"git.run_failed"), std::move(detail));
         }
         case process_completion::exited:
             break;

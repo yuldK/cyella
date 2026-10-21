@@ -1,5 +1,6 @@
 #include "presentation/sidebar_extension.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/start_page_view.h"
 
 #include <algorithm>
@@ -10,11 +11,6 @@ namespace cyella {
         std::u8string to_u8(const std::string_view text)
         {
             return std::u8string { text.begin(), text.end() };
-        }
-
-        std::u8string number(const std::uint64_t value)
-        {
-            return to_u8(std::to_string(value));
         }
 
         std::u8string short_sha(const std::string_view sha)
@@ -52,9 +48,9 @@ namespace cyella {
             if (info.url.empty() == false)
                 tooltip += u8"\n" + to_u8(info.url);
             if (info.recorded_sha.empty() == false)
-                tooltip += u8"\n기록된 커밋 " + short_sha(info.recorded_sha);
+                tooltip += u8"\n" + tr(u8"sidebar.submodule.recorded_commit", { { u8"sha", short_sha(info.recorded_sha) } });
             if (info.checked_out_sha.empty() == false)
-                tooltip += u8"\n체크아웃한 커밋 " + short_sha(info.checked_out_sha);
+                tooltip += u8"\n" + tr(u8"sidebar.submodule.checked_out_commit", { { u8"sha", short_sha(info.checked_out_sha) } });
             return tooltip;
         }
 
@@ -62,13 +58,13 @@ namespace cyella {
         {
             std::u8string tooltip { to_u8(info.path) };
             if (info.branch.empty() == false)
-                tooltip += u8"\n브랜치 " + to_u8(info.branch);
+                tooltip += u8"\n" + tr(u8"sidebar.worktree.branch", { { u8"branch", info.branch } });
             else if (info.detached)
                 tooltip += u8"\ndetached HEAD " + short_sha(info.head_sha);
             if (info.locked)
-                tooltip += u8"\n잠김" + (info.lock_reason.empty() ? std::u8string {} : u8": " + to_u8(info.lock_reason));
+                tooltip += u8"\n" + (info.lock_reason.empty() ? tr(u8"sidebar.worktree.locked") : tr(u8"sidebar.worktree.locked_reason", { { u8"reason", info.lock_reason } }));
             if (info.prunable)
-                tooltip += u8"\n폴더가 사라져 정리(prune)할 수 있습니다";
+                tooltip += u8"\n" + tr(u8"sidebar.worktree.prunable_tooltip");
             return tooltip;
         }
     } // namespace
@@ -78,15 +74,15 @@ namespace cyella {
         switch (state)
         {
         case submodule_state::initialized:
-            return u8"초기화됨";
+            return tr(u8"sidebar.submodule.state_initialized");
         case submodule_state::uninitialized:
-            return u8"미초기화";
+            return tr(u8"sidebar.submodule.state_uninitialized");
         case submodule_state::modified:
-            return u8"수정됨";
+            return tr(u8"sidebar.submodule.state_modified");
         case submodule_state::out_of_date:
-            return u8"구버전";
+            return tr(u8"sidebar.submodule.state_out_of_date");
         case submodule_state::conflict:
-            return u8"충돌";
+            return tr(u8"sidebar.submodule.state_conflict");
         }
         return {};
     }
@@ -175,13 +171,13 @@ namespace cyella {
                     row.detail = u8"detached " + short_sha(info.head_sha);
                 std::u8string badge {};
                 if (info.is_main)
-                    join(badge, u8"주");
+                    join(badge, tr(u8"sidebar.worktree.main"));
                 if (info.is_current)
-                    join(badge, u8"현재");
+                    join(badge, tr(u8"sidebar.worktree.current"));
                 if (info.locked)
-                    join(badge, u8"잠김");
+                    join(badge, tr(u8"sidebar.worktree.locked"));
                 if (info.prunable)
-                    join(badge, u8"정리 가능");
+                    join(badge, tr(u8"sidebar.worktree.prunable"));
                 row.badge = std::move(badge);
                 row.tone = info.prunable ? badge_tone::danger : info.locked ? badge_tone::warning : badge_tone::accent;
                 row.dimmed = info.prunable;
@@ -207,17 +203,17 @@ namespace cyella {
                 {
                     status.label = to_u8(snapshot.lfs.version);
                     const std::size_t missing { snapshot.lfs.missing_count() };
-                    status.detail = missing == 0 ? u8"모두 받음" : number(missing) + u8"개 포인터";
-                    status.badge = snapshot.lfs.installed ? std::u8string {} : u8"설정 필요";
+                    status.detail = missing == 0 ? tr(u8"sidebar.lfs.all_downloaded") : tr(u8"sidebar.lfs.pointer_count", { { u8"count", missing } });
+                    status.badge = snapshot.lfs.installed ? std::u8string {} : tr(u8"sidebar.lfs.setup_needed");
                     status.tone = badge_tone::warning;
-                    status.tooltip = status.label + u8" · " + (snapshot.lfs.installed ? u8"이 저장소에 설정됨" : u8"이 저장소에 `git lfs install`이 없어 pull이 설정부터 합니다");
+                    status.tooltip = status.label + u8" · " + (snapshot.lfs.installed ? tr(u8"sidebar.lfs.installed_tooltip") : tr(u8"sidebar.lfs.not_installed_tooltip"));
                 }
                 else
                 {
-                    status.label = u8"git-lfs를 찾을 수 없음";
-                    status.badge = u8"없음";
+                    status.label = tr(u8"sidebar.lfs.not_found");
+                    status.badge = tr(u8"sidebar.lfs.missing");
                     status.tone = badge_tone::danger;
-                    status.tooltip = u8"이 저장소는 LFS를 쓰지만 git-lfs를 실행할 수 없습니다. 설치한 뒤 다시 읽으세요.";
+                    status.tooltip = tr(u8"sidebar.lfs.unavailable_tooltip");
                 }
                 result.rows.push_back(std::move(status));
             }
@@ -237,12 +233,12 @@ namespace cyella {
                 row.path = file.path;
                 row.label = to_u8(file.path);
                 row.detail = to_u8(format_byte_size(file.size));
-                row.badge = file.checked_out ? u8"받음" : u8"포인터";
+                row.badge = file.checked_out ? tr(u8"sidebar.lfs.file_downloaded") : tr(u8"sidebar.lfs.file_pointer");
                 row.tone = file.checked_out ? badge_tone::accent : badge_tone::warning;
                 row.tooltip = row.label + u8" · " + row.detail
-                    + (file.checked_out       ? u8" · 실제 내용이 작업 트리에 있습니다"
-                            : file.downloaded ? u8" · 객체는 받았고 작업 트리는 포인터입니다"
-                                              : u8" · 포인터만 있습니다. LFS pull로 받으세요");
+                    + (file.checked_out       ? tr(u8"sidebar.lfs.file_checked_out_suffix")
+                            : file.downloaded ? tr(u8"sidebar.lfs.file_object_only_suffix")
+                                              : tr(u8"sidebar.lfs.file_pointer_only_suffix"));
                 result.rows.push_back(std::move(row));
             }
             if (count > listed && collapsed(sidebar_section::lfs) == false)
@@ -251,7 +247,7 @@ namespace cyella {
                 rest.key = u8"lfs:more";
                 rest.section = sidebar_section::lfs;
                 rest.item = sidebar_item_kind::lfs;
-                rest.label = u8"외 " + number(count - listed) + u8"개";
+                rest.label = tr(u8"sidebar.lfs.more_files", { { u8"count", count - listed } });
                 rest.dimmed = true;
                 result.rows.push_back(std::move(rest));
             }

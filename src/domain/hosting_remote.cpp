@@ -1,5 +1,7 @@
 #include "domain/hosting_remote.h"
 
+#include "domain/text_catalog.h"
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -190,7 +192,7 @@ namespace cyella {
         return std::nullopt;
     }
 
-    std::string_view hosting_provider_display_name(const hosting_provider provider) noexcept
+    std::string hosting_provider_display_name(const hosting_provider provider)
     {
         switch (provider)
         {
@@ -199,9 +201,9 @@ namespace cyella {
         case hosting_provider::gitlab:
             return "GitLab";
         case hosting_provider::unknown:
-            return "알 수 없는 호스트";
+            break;
         }
-        return "알 수 없는 호스트";
+        return tr_narrow(u8"hosting_remote.unknown_host");
     }
 
     std::string_view hosting_change_request_abbreviation(const hosting_provider provider) noexcept
@@ -383,13 +385,13 @@ namespace cyella {
     {
         const std::string host { normalize_hosting_host(setting.host) };
         if (host.empty())
-            return std::string { "호스트 이름이 비었습니다." };
+            return tr_narrow(u8"hosting_remote.host_empty");
         if (std::ranges::any_of(host, [](const char value) { return std::isalnum(static_cast<unsigned char>(value)) == 0 && value != '.' && value != '-' && value != '_' && value != ':'; }))
-            return std::string { "호스트에는 영문자, 숫자, '.', '-', '_'와 포트(':8123')만 쓸 수 있습니다." };
+            return tr_narrow(u8"hosting_remote.host_invalid_characters");
         if (const std::size_t colon { host.find(':') }; colon != std::string::npos)
         {
             if (host.find(':', colon + 1) != std::string::npos || colon == 0 || parse_port(std::string_view { host }.substr(colon + 1)).has_value() == false)
-                return std::string { "호스트의 포트는 1~65535 숫자여야 합니다." };
+                return tr_narrow(u8"hosting_remote.host_invalid_port");
         }
         const std::string_view api { trim(setting.api_base) };
         if (api.empty())
@@ -397,10 +399,10 @@ namespace cyella {
         const std::string_view scheme { scheme_of_url(api) };
         const std::string scheme_lower { lower(scheme) };
         if (scheme_lower != "http" && scheme_lower != "https")
-            return std::string { "API 주소는 http:// 또는 https://로 시작해야 합니다." };
+            return tr_narrow(u8"hosting_remote.api_scheme_invalid");
         const std::string_view rest { api.substr(scheme.size() + 3) };
         if (rest.empty() || rest.front() == '/' || std::ranges::any_of(api, [](const char value) { return std::isspace(static_cast<unsigned char>(value)) != 0; }))
-            return std::string { "API 주소를 읽을 수 없습니다." };
+            return tr_narrow(u8"hosting_remote.api_unreadable");
         return std::nullopt;
     }
 } // namespace cyella

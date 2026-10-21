@@ -1,5 +1,7 @@
 #include "application/external_diff_opener.h"
 
+#include "domain/text_catalog.h"
+
 #include <filesystem>
 #include <system_error>
 
@@ -46,7 +48,7 @@ namespace cyella {
             values.repository = request.folder;
             auto arguments { expand_external_diff_arguments(app.arguments, values) };
             if (arguments.has_value() == false)
-                return { external_open_status::invalid_template, app.name, "인자 템플릿의 따옴표가 닫히지 않았습니다." };
+                return { external_open_status::invalid_template, app.name, tr_narrow(u8"external_diff.template_unclosed_quote") };
             const tool_launch_result launched { launcher_.launch({ app.executable, std::move(*arguments), request.folder }) };
             if (launched.launched == false)
                 return { external_open_status::launch_failed, app.name, launched.error };
@@ -66,7 +68,7 @@ namespace cyella {
                 const std::filesystem::path file { std::filesystem::path { plan.repository_path } / std::filesystem::path { to_u8(specs.right.path) } };
                 std::error_code error {};
                 if (std::filesystem::exists(file, error) == false)
-                    return { external_open_status::extraction_failed, app.name, "작업 경로를 찾을 수 없습니다. 저장소 상태를 새로 읽어 주세요." };
+                    return { external_open_status::extraction_failed, app.name, tr_narrow(u8"external_diff.worktree_path_missing") };
                 values.file = file.u8string();
             }
             else if (needs_file)
@@ -76,17 +78,17 @@ namespace cyella {
                     return { external_open_status::extraction_failed, app.name, sides.error };
                 const extracted_side& side { sides.right.present ? sides.right : sides.left };
                 if (side.present == false || side.file.empty())
-                    return { external_open_status::extraction_failed, app.name, "열 수 있는 파일 버전이 없습니다." };
+                    return { external_open_status::extraction_failed, app.name, tr_narrow(u8"external_diff.no_file_version") };
                 values.file = side.file;
                 // 이력·index의 사본을 편집해도 저장소에는 반영되지 않는다. 원본과 혼동하지 않게 읽기 전용으로 둔다.
                 std::error_code error {};
                 std::filesystem::permissions(std::filesystem::path { values.file }, std::filesystem::perms::owner_read, std::filesystem::perm_options::replace, error);
             }
             if (request.cancellation.cancelled())
-                return { external_open_status::launch_failed, app.name, "취소되었습니다." };
+                return { external_open_status::launch_failed, app.name, tr_narrow(u8"diff_action.cancelled") };
             auto arguments { expand_external_diff_arguments(app.arguments, values) };
             if (arguments.has_value() == false)
-                return { external_open_status::invalid_template, app.name, "인자 템플릿의 따옴표가 닫히지 않았습니다." };
+                return { external_open_status::invalid_template, app.name, tr_narrow(u8"external_diff.template_unclosed_quote") };
             const tool_launch_result launched { launcher_.launch({ app.executable, std::move(*arguments), plan.repository_path }) };
             if (launched.launched == false)
                 return { external_open_status::launch_failed, app.name, launched.error };
@@ -105,7 +107,7 @@ namespace cyella {
             values.path = path;
             std::optional<std::vector<std::u8string>> arguments { expand_external_diff_arguments(tool->arguments, values) };
             if (arguments.has_value() == false)
-                return { external_open_status::invalid_template, tool->executable, "인자 템플릿의 따옴표가 닫히지 않았습니다." };
+                return { external_open_status::invalid_template, tool->executable, tr_narrow(u8"external_diff.template_unclosed_quote") };
 
             const tool_launch_result launched { launcher_.launch({ tool->executable, std::move(*arguments), plan.repository_path }) };
             if (launched.launched == false)
@@ -122,6 +124,6 @@ namespace cyella {
             return { external_open_status::launched_difftool, request.git_executable, {} };
         }
 
-        return { external_open_status::no_tool, {}, "이 확장자에 지정된 외부 도구가 없고 git의 diff.tool도 설정돼 있지 않습니다." };
+        return { external_open_status::no_tool, {}, tr_narrow(u8"external_diff.no_tool_configured") };
     }
 } // namespace cyella

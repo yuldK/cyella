@@ -1,4 +1,5 @@
 // 환경 설정 "단축키" 쪽의 메시지 처리다. settings_controller의 멤버 함수를 파일 하나로 나눠 둔다.
+#include "domain/text_catalog.h"
 #include "presentation/commands/command_registry.h"
 #include "presentation/settings/settings_controller.h"
 #include "presentation/settings/shortcuts_intents.h"
@@ -52,7 +53,8 @@ namespace cyella {
             const std::vector<key_chord> chords { check.chords };
             update_settings([&command, &chords](app_settings& settings) { set_command_shortcuts(settings, command, chords); });
             const command_definition* const definition { find_command(command) };
-            state.message = u8"'" + (definition != nullptr ? definition->title : std::u8string {}) + u8"' 단축키를 " + (chords.empty() ? std::u8string { u8"없앴습니다." } : u8"바꿨습니다.");
+            const std::u8string title { definition != nullptr ? definition->title : std::u8string {} };
+            state.message = chords.empty() ? tr(u8"shortcuts.removed", { { u8"command", title } }) : tr(u8"shortcuts.changed", { { u8"command", title } });
             state.shortcut_edit.reset();
         }
         else if (message.get<cancel_shortcut_edit_intent>() != nullptr)
@@ -64,13 +66,13 @@ namespace cyella {
             if (state.shortcut_edit.has_value() && state.shortcut_edit->command == command)
                 state.shortcut_edit.reset();
             const command_definition* const definition { find_command(command) };
-            state.message = u8"'" + (definition != nullptr ? definition->title : std::u8string {}) + u8"' 단축키를 기본값으로 되돌렸습니다.";
+            state.message = tr(u8"shortcuts.reset", { { u8"command", definition != nullptr ? definition->title : std::u8string {} } });
         }
         else if (message.get<reset_all_shortcuts_intent>() != nullptr)
         {
             update_settings([](app_settings& settings) { reset_all_shortcuts(settings); });
             state.shortcut_edit.reset();
-            state.message = u8"모든 단축키를 기본값으로 되돌렸습니다.";
+            state.message = tr(u8"shortcuts.reset_all");
         }
     }
 } // namespace cyella

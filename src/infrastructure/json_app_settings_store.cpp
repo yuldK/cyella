@@ -2,6 +2,7 @@
 
 #include "domain/path_syntax.h"
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/json_command_settings.h"
 
 #include <nlohmann/json.hpp>
@@ -116,7 +117,7 @@ namespace cyella {
                 return std::nullopt;
             if (source->is_object() == false)
             {
-                warn(result, u8"앱 설정의 window는 object여야 합니다. 창 배치를 무시합니다.");
+                warn(result, tr(u8"app_settings.window_not_object"));
                 return std::nullopt;
             }
 
@@ -132,13 +133,13 @@ namespace cyella {
                 const auto value { source->find(coordinate_fields[index]) };
                 if (value == source->end() || value->is_number_integer() == false)
                 {
-                    warn(result, u8"앱 설정 window의 좌표와 크기는 정수여야 합니다. 창 배치를 무시합니다.");
+                    warn(result, tr(u8"app_settings.window_not_integer"));
                     return std::nullopt;
                 }
                 const std::int64_t number { value->get<std::int64_t>() };
                 if (number < std::numeric_limits<std::int32_t>::min() || number > std::numeric_limits<std::int32_t>::max())
                 {
-                    warn(result, u8"앱 설정 window의 좌표와 크기가 표현 범위를 벗어났습니다. 창 배치를 무시합니다.");
+                    warn(result, tr(u8"app_settings.window_out_of_range"));
                     return std::nullopt;
                 }
                 coordinates[index] = static_cast<std::int32_t>(number);
@@ -151,7 +152,7 @@ namespace cyella {
             placement.height = coordinates[3];
             if (placement.valid() == false)
             {
-                warn(result, u8"앱 설정 window의 크기는 양수여야 합니다. 창 배치를 무시합니다.");
+                warn(result, tr(u8"app_settings.window_not_positive"));
                 return std::nullopt;
             }
 
@@ -167,7 +168,7 @@ namespace cyella {
                 return;
             if (version->is_number_integer() == false)
             {
-                warn(result, u8"앱 설정의 schema_version은 정수여야 합니다. 현재 버전으로 읽습니다.");
+                warn(result, tr(u8"app_settings.schema_version_not_integer"));
                 return;
             }
 
@@ -177,7 +178,7 @@ namespace cyella {
                 // 더 새 앱이 쓴 파일이다. 아는 필드만 읽고, 저장해도 버전 번호를 낮추지 않는다.
                 // 낮추면 새 앱이 이 파일을 옛 형식으로 오해해 되돌려 이전하려 들 수 있다.
                 result.settings.schema_version = static_cast<std::int32_t>(std::min<std::int64_t>(number, std::numeric_limits<std::int32_t>::max()));
-                warn(result, u8"앱 설정 파일이 더 새로운 버전(schema_version)으로 쓰였습니다. 아는 항목만 읽고 나머지는 그대로 보존합니다.");
+                warn(result, tr(u8"app_settings.newer_schema_version"));
             }
             // 1 미만은 버전이 없던 시절의 값이라 현재 버전으로 본다.
         }
@@ -189,7 +190,7 @@ namespace cyella {
                 return;
             if (value->is_string() == false)
             {
-                warn(result, u8"앱 설정의 git_executable은 문자열이어야 합니다. 자동 탐색을 사용합니다.");
+                warn(result, tr(u8"app_settings.git_executable_not_string"));
                 return;
             }
 
@@ -197,7 +198,7 @@ namespace cyella {
             // 빈 값은 "지정하지 않음"이며 자동 탐색으로 간다.
             if (executable.empty() == false && is_absolute_windows_path(executable) == false)
             {
-                warn(result, u8"앱 설정의 git_executable은 절대 경로여야 합니다. 자동 탐색을 사용합니다.");
+                warn(result, tr(u8"app_settings.git_executable_not_absolute"));
                 return;
             }
             result.settings.git_executable = std::move(executable);
@@ -210,7 +211,7 @@ namespace cyella {
                 return;
             if (source->is_array() == false)
             {
-                warn(result, u8"앱 설정의 external_diff_tools가 배열이 아니라 무시했습니다.");
+                warn(result, tr(u8"app_settings.external_diff_tools_not_array"));
                 return;
             }
 
@@ -239,7 +240,7 @@ namespace cyella {
             }
 
             if (dropped > 0)
-                warn(result, u8"앱 설정의 외부 diff 도구 중 확장자나 실행 파일이 없는 항목을 무시했습니다.");
+                warn(result, tr(u8"app_settings.external_diff_tool_incomplete"));
         }
 
         void parse_external_file_apps(const json& root, app_settings_load_result& result)
@@ -249,7 +250,7 @@ namespace cyella {
                 return;
             if (source->is_array() == false)
             {
-                warn(result, u8"앱 설정의 external_file_apps가 배열이 아니라 기본 앱을 사용합니다.");
+                warn(result, tr(u8"app_settings.external_file_apps_not_array"));
                 return;
             }
             result.settings.external_file_apps.clear();
@@ -257,13 +258,13 @@ namespace cyella {
             {
                 if (entry.is_object() == false)
                 {
-                    warn(result, u8"파일을 열 앱의 항목이 object가 아니라 무시했습니다.");
+                    warn(result, tr(u8"app_settings.file_app_not_object"));
                     continue;
                 }
                 external_file_app app { read_string(entry, "name"), read_string(entry, "executable"), read_string(entry, "arguments") };
                 if (is_blank(app.name) || is_blank(app.executable))
                 {
-                    warn(result, u8"파일을 열 앱의 이름이나 실행 파일이 비어 있어 무시했습니다.");
+                    warn(result, tr(u8"app_settings.file_app_incomplete"));
                     continue;
                 }
                 result.settings.external_file_apps.push_back(std::move(app));
@@ -277,7 +278,7 @@ namespace cyella {
                 return;
             if (source->is_object() == false)
             {
-                warn(result, u8"앱 설정의 appearance는 object여야 합니다. 기본값을 사용합니다.");
+                warn(result, tr(u8"app_settings.appearance_not_object"));
                 return;
             }
 
@@ -286,7 +287,7 @@ namespace cyella {
                 if (gravatar->is_boolean())
                     result.settings.appearance.gravatar = gravatar->get<bool>();
                 else
-                    warn(result, u8"앱 설정의 appearance.gravatar는 true나 false여야 합니다. 끈 것으로 봅니다.");
+                    warn(result, tr(u8"app_settings.gravatar_not_bool"));
             }
 
             for (const char* const key : { "ui_font", "code_font" })
@@ -297,7 +298,7 @@ namespace cyella {
                 if (field->is_string())
                     (std::string_view { key } == "ui_font" ? result.settings.appearance.ui_font : result.settings.appearance.code_font) = as_u8string(field->get_ref<const std::string&>());
                 else
-                    warn(result, u8"앱 설정의 글꼴 이름은 문자열이어야 합니다. 기본 글꼴을 사용합니다.");
+                    warn(result, tr(u8"app_settings.font_not_string"));
             }
 
             const auto theme { source->find("theme") };
@@ -309,10 +310,27 @@ namespace cyella {
                 parsed = parse_theme_preference(as_u8string(theme->get_ref<const std::string&>()));
             if (parsed.has_value() == false)
             {
-                warn(result, u8"앱 설정의 테마는 system·light·dark 중 하나여야 합니다. 기본값을 사용합니다.");
+                warn(result, tr(u8"app_settings.theme_invalid"));
                 return;
             }
             result.settings.appearance.theme = *parsed;
+        }
+
+        void parse_language(const json& root, app_settings_load_result& result)
+        {
+            const auto language { root.find("language") };
+            if (language == root.end() || language->is_null())
+                return;
+
+            std::optional<language_preference> parsed {};
+            if (language->is_string())
+                parsed = parse_language_preference(as_u8string(language->get_ref<const std::string&>()));
+            if (parsed.has_value() == false)
+            {
+                warn(result, tr(u8"app_settings.language_invalid"));
+                return;
+            }
+            result.settings.language = *parsed;
         }
 
         void parse_recent_repositories(const json& root, app_settings_load_result& result)
@@ -322,7 +340,7 @@ namespace cyella {
                 return;
             if (recent->is_array() == false)
             {
-                warn(result, u8"앱 설정의 최근 저장소 목록이 배열이 아니라 무시했습니다.");
+                warn(result, tr(u8"app_settings.recent_repositories_not_array"));
                 return;
             }
 
@@ -356,7 +374,7 @@ namespace cyella {
             constexpr double maximum_pane_width { 8192.0 };
             if (found->is_number() == false || found->get<double>() <= 0.0 || found->get<double>() > maximum_pane_width)
             {
-                warn(result, u8"앱 설정의 ui.pane_widths 값은 양수여야 합니다. 기본 폭을 사용합니다.");
+                warn(result, tr(u8"app_settings.pane_width_not_positive"));
                 return std::nullopt;
             }
             return static_cast<float>(found->get<double>());
@@ -369,7 +387,7 @@ namespace cyella {
                 return;
             if (source->is_object() == false)
             {
-                warn(result, u8"앱 설정의 ui는 object여야 합니다. 기본값을 사용합니다.");
+                warn(result, tr(u8"app_settings.ui_not_object"));
                 return;
             }
             if (const auto view { source->find("commit_files_view") }; view != source->end() && view->is_null() == false)
@@ -377,28 +395,28 @@ namespace cyella {
                 if (view->is_string() && view->get<std::string>() == "tree")
                     result.settings.ui.commit_files_tree = true;
                 else if (view->is_string() == false || view->get<std::string>() != "list")
-                    warn(result, u8"앱 설정의 ui.commit_files_view는 \"list\"나 \"tree\"여야 합니다. 목록으로 봅니다.");
+                    warn(result, tr(u8"app_settings.commit_files_view_invalid"));
             }
             if (const auto view { source->find("working_files_view") }; view != source->end() && view->is_null() == false)
             {
                 if (view->is_string() && view->get<std::string>() == "tree")
                     result.settings.ui.working_files_tree = true;
                 else if (view->is_string() == false || view->get<std::string>() != "list")
-                    warn(result, u8"앱 설정의 ui.working_files_view는 list나 tree여야 합니다. 목록으로 봅니다.");
+                    warn(result, tr(u8"app_settings.working_files_view_invalid"));
             }
             if (const auto layout { source->find("repository_layout") }; layout != source->end() && layout->is_null() == false)
             {
                 if (layout->is_string() && layout->get<std::string>() == "review")
                     result.settings.ui.graph_layout = false;
                 else if (layout->is_string() == false || layout->get<std::string>() != "graph")
-                    warn(result, u8"앱 설정의 ui.repository_layout은 graph나 review여야 합니다. 그래프 중심으로 봅니다.");
+                    warn(result, tr(u8"app_settings.repository_layout_invalid"));
             }
             const auto panes { source->find("pane_widths") };
             if (panes == source->end() || panes->is_null())
                 return;
             if (panes->is_object() == false)
             {
-                warn(result, u8"앱 설정의 ui.pane_widths는 object여야 합니다. 기본 폭을 사용합니다.");
+                warn(result, tr(u8"app_settings.pane_widths_not_object"));
                 return;
             }
             result.settings.ui.pane_widths.sidebar = parse_pane_width(*panes, "sidebar", result);
@@ -413,7 +431,7 @@ namespace cyella {
                 return;
             if (source->is_object() == false)
             {
-                warn(result, u8"앱 설정의 diff는 object여야 합니다. 기본값을 사용합니다.");
+                warn(result, tr(u8"app_settings.diff_not_object"));
                 return;
             }
             if (const auto layout { source->find("layout") }; layout != source->end() && layout->is_null() == false)
@@ -424,14 +442,14 @@ namespace cyella {
                 if (parsed.has_value())
                     result.settings.diff.layout = *parsed;
                 else
-                    warn(result, u8"앱 설정의 diff.layout은 inline 또는 split이어야 합니다. 기본값을 사용합니다.");
+                    warn(result, tr(u8"app_settings.diff_layout_invalid"));
             }
             if (const auto context { source->find("context_lines") }; context != source->end() && context->is_null() == false)
             {
                 if (context->is_number_unsigned() && context->get<std::uint64_t>() <= maximum_diff_context_lines)
                     result.settings.diff.context_lines = static_cast<std::uint32_t>(context->get<std::uint64_t>());
                 else
-                    warn(result, u8"앱 설정의 diff.context_lines는 0 이상 25 이하의 정수여야 합니다. 기본값을 사용합니다.");
+                    warn(result, tr(u8"app_settings.diff_context_lines_invalid"));
             }
         }
 
@@ -443,7 +461,7 @@ namespace cyella {
                 return;
             if (source->is_object() == false)
             {
-                warn(result, u8"앱 설정의 hosting은 object여야 합니다. 무시합니다.");
+                warn(result, tr(u8"app_settings.hosting_not_object"));
                 return;
             }
             const auto hosts { source->find("hosts") };
@@ -451,7 +469,7 @@ namespace cyella {
                 return;
             if (hosts->is_array() == false)
             {
-                warn(result, u8"앱 설정의 hosting.hosts가 배열이 아니라 무시했습니다.");
+                warn(result, tr(u8"app_settings.hosting_hosts_not_array"));
                 return;
             }
             bool skipped { false };
@@ -490,7 +508,7 @@ namespace cyella {
                 result.settings.hosting.hosts.push_back(std::move(setting));
             }
             if (skipped)
-                warn(result, u8"앱 설정의 hosting.hosts 중 읽을 수 없거나 겹치는 항목을 무시했습니다.");
+                warn(result, tr(u8"app_settings.hosting_hosts_invalid"));
         }
 
         void parse_open_tabs(const json& root, app_settings_load_result& result)
@@ -499,7 +517,7 @@ namespace cyella {
             if (tabs != root.end() && tabs->is_null() == false)
             {
                 if (tabs->is_array() == false)
-                    warn(result, u8"앱 설정의 open_tabs가 배열이 아니라 무시했습니다.");
+                    warn(result, tr(u8"app_settings.open_tabs_not_array"));
                 else
                     for (const json& value : *tabs)
                         if (value.is_string() && value.get_ref<const std::string&>().empty() == false)
@@ -565,6 +583,7 @@ namespace cyella {
         for (const external_file_app& app : settings.external_file_apps)
             file_apps.push_back({ { "name", as_string(app.name) }, { "executable", as_string(app.executable) }, { "arguments", as_string(app.arguments) } });
         root["external_file_apps"] = std::move(file_apps);
+        root["language"] = as_string(language_preference_name(settings.language));
 
         // 객체 안의 알 수 없는 키도 살아남도록 기존 object 위에 덮어쓴다.
         {
@@ -666,7 +685,7 @@ namespace cyella {
         if (root.is_discarded() || root.is_object() == false)
         {
             result.corrupt = true;
-            warn(result, u8"앱 설정 파일이 JSON object가 아니라 기본값을 사용합니다.");
+            warn(result, tr(u8"app_settings.root_not_object"));
             return result;
         }
 
@@ -686,6 +705,7 @@ namespace cyella {
         parse_diff(root, result);
         parse_hosting(root, result);
         parse_command_settings(root, result);
+        parse_language(root, result);
         return result;
     }
 
@@ -708,8 +728,7 @@ namespace cyella {
             {
                 app_settings_load_result result {};
                 result.read_failed = true;
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning,
-                    u8"앱 설정 파일을 읽지 못해 기본값을 사용합니다. 파일을 덮어쓰지 않도록 이번 실행 동안은 설정을 저장하지 않습니다.", source.native_error));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning, tr(u8"app_settings.read_failed"), source.native_error));
                 return result;
             }
             // 빈 파일은 깨진 것이 아니라 아직 아무것도 쓰지 않은 것이다. 백업할 내용이 없다.
@@ -746,14 +765,11 @@ namespace cyella {
             result.diagnostics.clear();
             if (backup_path.has_value())
             {
-                std::u8string message { u8"앱 설정 파일이 깨져 기본값으로 시작합니다. 깨진 파일은 " };
-                message.append(*backup_path);
-                message.append(u8"로 옮겨 두었습니다.");
+                std::u8string message { tr(u8"app_settings.corrupt_backed_up", { { u8"path", *backup_path } }) };
                 result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_invalid, diagnostic_severity::warning, std::move(message)));
             }
             else
-                result.diagnostics.push_back(make_diagnostic(
-                    diagnostic_code::app_settings_backup_failed, diagnostic_severity::warning, u8"앱 설정 파일이 깨져 기본값으로 시작합니다. 깨진 파일을 백업하지 못했습니다.", backup_error));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_backup_failed, diagnostic_severity::warning, tr(u8"app_settings.corrupt_backup_failed"), backup_error));
             return result;
         }
         catch (...)
@@ -763,8 +779,7 @@ namespace cyella {
             result.read_failed = true;
             try
             {
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning,
-                    u8"앱 설정 파일을 읽는 중 예기치 않은 오류가 발생했습니다. 파일을 덮어쓰지 않도록 이번 실행 동안은 설정을 저장하지 않습니다."));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_read_failed, diagnostic_severity::warning, tr(u8"app_settings.read_unexpected_error")));
             }
             catch (...)
             {}
@@ -782,8 +797,7 @@ namespace cyella {
             app_settings_save_result result {};
             if (commit.succeeded() == false)
             {
-                result.diagnostics.push_back(make_diagnostic(
-                    diagnostic_code::app_settings_write_failed, diagnostic_severity::warning, u8"앱 설정을 저장하지 못했습니다. 이번 실행 동안은 메모리의 설정을 계속 씁니다.", commit.native_error));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_write_failed, diagnostic_severity::warning, tr(u8"app_settings.write_failed"), commit.native_error));
                 return result;
             }
 
@@ -796,7 +810,7 @@ namespace cyella {
             app_settings_save_result result {};
             try
             {
-                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_write_failed, diagnostic_severity::warning, u8"앱 설정을 저장하는 중 예기치 않은 오류가 발생했습니다."));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_write_failed, diagnostic_severity::warning, tr(u8"app_settings.write_unexpected_error")));
             }
             catch (...)
             {}

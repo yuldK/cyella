@@ -1,6 +1,7 @@
 #include "presentation/settings/signing_page_view.h"
 
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 
 #include <algorithm>
 #include <array>
@@ -23,12 +24,6 @@ namespace cyella {
 
         std::u8string to_u8(const std::string_view text)
         {
-            return std::u8string { text.begin(), text.end() };
-        }
-
-        std::u8string number_text(const std::size_t value)
-        {
-            const std::string text { std::to_string(value) };
             return std::u8string { text.begin(), text.end() };
         }
 
@@ -101,7 +96,7 @@ namespace cyella {
             view.can_apply = dirty && view.error.empty();
             view.can_clear = view.stored.empty() == false;
             if (view.error.empty() && text.empty() == false && is_absolute_windows_path(text) && probe != nullptr && probe->probe(text) != path_kind::file)
-                view.warning = u8"그 경로에 파일이 없습니다 (적용은 됩니다).";
+                view.warning = tr(u8"signing_page.path_missing_warning");
         }
 
         void fill_keys(signing_page_view& view, const signing_page_view_inputs& inputs, const signing_info_snapshot& info)
@@ -117,7 +112,7 @@ namespace cyella {
             {
                 if (inputs.ssh == nullptr)
                 {
-                    view.keys_message = u8"키 목록을 읽는 중…";
+                    view.keys_message = tr(u8"signing_page.loading_keys");
                     return;
                 }
                 for (const ssh_key_entry& key : inputs.ssh->keys)
@@ -135,18 +130,18 @@ namespace cyella {
                     view.keys.push_back(std::move(row));
                 }
                 if (view.keys.empty())
-                    view.keys_message = u8"~/.ssh에 키 쌍(개인 키와 .pub)이 없습니다. SSH 화면에서 새로 만들 수 있습니다.";
+                    view.keys_message = tr(u8"signing_page.no_ssh_key_pairs");
                 return;
             }
 
             if (info.gpg_pending)
             {
-                view.keys_message = u8"gpg 키 목록을 읽는 중…";
+                view.keys_message = tr(u8"signing_page.loading_gpg_keys");
                 return;
             }
             if (info.gpg_keys_read == false)
             {
-                view.keys_message = info.gpg_problem.empty() ? u8"gpg 키 목록을 읽지 못했습니다." : info.gpg_problem;
+                view.keys_message = info.gpg_problem.empty() ? tr(u8"signing_page.gpg_keys_unreadable") : info.gpg_problem;
                 return;
             }
             for (const gpg_secret_key& key : info.gpg_keys)
@@ -157,17 +152,17 @@ namespace cyella {
                 row.value = to_u8(key.fingerprint.empty() ? key.key_id : key.fingerprint);
                 row.usable = key.can_sign && key.expired == false && key.revoked == false && key.disabled == false;
                 if (key.revoked)
-                    row.detail += u8" · 폐기됨";
+                    row.detail += tr(u8"signing_page.key_revoked_suffix");
                 else if (key.expired)
-                    row.detail += u8" · 만료됨";
+                    row.detail += tr(u8"signing_page.key_expired_suffix");
                 else if (key.can_sign == false)
-                    row.detail += u8" · 서명 불가";
+                    row.detail += tr(u8"signing_page.key_cannot_sign_suffix");
                 const std::string stored { scope.at(signing_key_id::user_signingkey).value };
                 row.selected = stored.empty() == false && (stored == key.fingerprint || stored == key.key_id || (stored.size() >= 8 && key.fingerprint.ends_with(stored)));
                 view.keys.push_back(std::move(row));
             }
             if (view.keys.empty())
-                view.keys_message = u8"gpg 비밀 키가 없습니다. gpg --quick-gen-key 등으로 키를 만든 뒤 [새로고침]을 누르세요.";
+                view.keys_message = tr(u8"signing_page.no_gpg_keys");
         }
     } // namespace
 
@@ -178,10 +173,10 @@ namespace cyella {
         if (is_boolean_key(key))
         {
             if (entry.valueless)
-                return u8"켜짐";
+                return tr(u8"signing_page.value_on");
             bool value { false };
             if (parse_config_bool(entry.value, value))
-                return value ? u8"켜짐" : u8"꺼짐";
+                return value ? tr(u8"signing_page.value_on") : tr(u8"signing_page.value_off");
         }
         return to_u8(entry.value);
     }
@@ -194,19 +189,19 @@ namespace cyella {
         {
         case signing_key_id::commit_gpgsign:
         case signing_key_id::tag_gpgsign:
-            return u8"꺼짐 (기본)";
+            return tr(u8"signing_page.default_off");
         case signing_key_id::gpg_format:
-            return u8"openpgp (기본)";
+            return tr(u8"signing_page.default_openpgp");
         case signing_key_id::user_signingkey:
-            return u8"(없음)";
+            return tr(u8"signing_page.value_none");
         case signing_key_id::gpg_program:
-            return u8"gpg (기본)";
+            return tr(u8"signing_page.default_gpg_program");
         case signing_key_id::gpg_ssh_program:
-            return u8"ssh-keygen (기본)";
+            return tr(u8"signing_page.default_ssh_program");
         case signing_key_id::gpg_ssh_allowed_signers:
             break;
         }
-        return u8"(없음)";
+        return tr(u8"signing_page.value_none");
     }
 
     std::u8string check_signing_path(const std::u8string_view text, const bool allow_home_prefix)
@@ -215,10 +210,10 @@ namespace cyella {
         if (value.empty())
             return {};
         if (std::ranges::any_of(value, [](const char8_t character) { return character < 0x20; }))
-            return u8"한 줄이어야 합니다.";
+            return tr(u8"signing_page.path_single_line");
         if (is_absolute_windows_path(value) || (allow_home_prefix && value.starts_with(u8"~/")))
             return {};
-        return allow_home_prefix ? u8"절대 경로(또는 ~/로 시작)여야 합니다." : u8"절대 경로여야 합니다 (예: C:/Program Files/Git/usr/bin/gpg.exe).";
+        return allow_home_prefix ? tr(u8"signing_page.path_absolute_or_home") : tr(u8"signing_page.path_absolute");
     }
 
     signing_page_view build_signing_page_view(const signing_page_view_inputs& inputs)
@@ -235,7 +230,7 @@ namespace cyella {
         view.message_error = state.message_error;
         view.confirming = state.pending.has_value();
         if (state.pending.has_value())
-            view.confirm_text = u8"전역 git 설정을 바꿉니다: " + state.pending->summary + u8". 이 PC의 모든 저장소에 적용됩니다.";
+            view.confirm_text = tr(u8"signing_page.confirm_global", { { u8"summary", state.pending->summary } });
 
         if (state.info.has_value() == false)
             return view;
@@ -275,23 +270,23 @@ namespace cyella {
             inputs.probe);
 
         if (info.gpg_pending)
-            view.gpg_status = u8"gpg 키 목록을 읽는 중…";
+            view.gpg_status = tr(u8"signing_page.loading_gpg_keys");
         else if (info.gpg_keys_read)
-            view.gpg_status = info.gpg_executable + u8" · 비밀 키 " + number_text(info.gpg_keys.size()) + u8"개";
+            view.gpg_status = tr(u8"signing_page.gpg_status", { { u8"executable", info.gpg_executable }, { u8"count", info.gpg_keys.size() } });
         else
-            view.gpg_status = info.gpg_problem.empty() ? u8"gpg 키 목록을 읽지 못했습니다." : info.gpg_problem;
+            view.gpg_status = info.gpg_problem.empty() ? tr(u8"signing_page.gpg_keys_unreadable") : info.gpg_problem;
         view.gpg_ok = info.gpg_keys_read;
 
         const signing_entry& allowed { info.config.effective.at(signing_key_id::gpg_ssh_allowed_signers) };
         if (allowed.is_set() == false || allowed.value.empty())
-            view.allowed_signers_status = u8"설정 없음 — ssh 서명을 확인하려면 allowed signers 파일이 필요합니다. 없으면 서명 상태가 \"확인할 수 없음\"으로 보입니다.";
+            view.allowed_signers_status = tr(u8"signing_page.allowed_signers_unset");
         else if (info.allowed_signers_exists)
         {
-            view.allowed_signers_status = u8"파일이 있습니다: " + info.allowed_signers_path;
+            view.allowed_signers_status = tr(u8"signing_page.allowed_signers_found", { { u8"path", info.allowed_signers_path } });
             view.allowed_signers_ok = true;
         }
         else
-            view.allowed_signers_status = u8"파일이 없습니다: " + (info.allowed_signers_path.empty() ? to_u8(allowed.value) : info.allowed_signers_path);
+            view.allowed_signers_status = tr(u8"signing_page.allowed_signers_missing", { { u8"path", info.allowed_signers_path.empty() ? to_u8(allowed.value) : info.allowed_signers_path } });
         return view;
     }
 } // namespace cyella

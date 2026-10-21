@@ -1,4 +1,5 @@
 #include "domain/hosting_remote.h"
+#include "domain/text_catalog.h"
 #include "presentation/settings/settings_controller.h"
 #include "presentation/settings/settings_view.h"
 
@@ -48,7 +49,7 @@ namespace cyella {
         if (const std::optional<std::string> problem { validate_hosting_host_setting(setting) }; problem.has_value())
             return to_u8(*problem);
         if (std::ranges::any_of(existing, [&setting](const hosting_host_setting& other) { return normalize_hosting_host(other.host) == setting.host; }))
-            return u8"이미 표에 있는 호스트입니다.";
+            return tr(u8"settings_view.hosting.host_exists");
         return {};
     }
 
@@ -93,7 +94,7 @@ namespace cyella {
             set_text(state.hosting_host, {});
             set_text(state.hosting_api_base, {});
             state.hosting_error.clear();
-            state.message = u8"호스트 " + to_u8(setting.host) + u8"을(를) 표에 더했습니다. 이 호스트의 원격이 있는 저장소를 다시 열면 연동이 켜집니다.";
+            state.message = tr(u8"settings_view.hosting.host_added", { { u8"host", setting.host } });
             return true;
         }
         const std::string host { normalize_hosting_host(remove->host) };
@@ -101,7 +102,7 @@ namespace cyella {
         // 표에서 지운 호스트의 메모리 토큰도 잊는다 (도우미의 저장본은 그대로다).
         if (dependencies_.hosting_sign_out != nullptr)
             dependencies_.hosting_sign_out(host);
-        state.message = u8"호스트 " + to_u8(host) + u8"을(를) 표에서 지웠습니다.";
+        state.message = tr(u8"settings_view.hosting.host_removed", { { u8"host", host } });
         return true;
     }
 } // namespace cyella

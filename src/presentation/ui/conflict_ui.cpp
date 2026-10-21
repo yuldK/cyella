@@ -1,4 +1,5 @@
 #include "application/app_messages.h"
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
@@ -39,14 +40,14 @@ namespace cyella::ui {
                 set_hit_opaque(false);
                 set_tooltip(to_u8(file_.path));
                 const std::u8string tag { to_u8(file_.path) };
-                add_button(u8"conflict-ours:" + tag, rebasing ? u8"기준(ours)" : u8"현재(ours)", luil::text_button_visual::normal,
+                add_button(u8"conflict-ours:" + tag, rebasing ? tr(u8"conflict.ours_rebase") : tr(u8"conflict.ours"), luil::text_button_visual::normal,
                     message(submit_operation_intent { repository_id, resolve_file_request { .path = file_.path, .side = conflict_side::ours } }), busy, 96.0f,
-                    rebasing ? u8"리베이스의 기준 쪽 내용으로 이 파일을 정하고 해결로 표시합니다" : u8"이 파일을 현재 쪽(ours)의 내용으로 정하고 해결로 표시합니다");
-                add_button(u8"conflict-theirs:" + tag, rebasing ? u8"적용 커밋(theirs)" : u8"들어오는(theirs)", luil::text_button_visual::normal,
+                    rebasing ? tr(u8"conflict.ours_rebase_tooltip") : tr(u8"conflict.ours_tooltip"));
+                add_button(u8"conflict-theirs:" + tag, rebasing ? tr(u8"conflict.theirs_rebase") : tr(u8"conflict.theirs"), luil::text_button_visual::normal,
                     message(submit_operation_intent { repository_id, resolve_file_request { .path = file_.path, .side = conflict_side::theirs } }), busy, 132.0f,
-                    rebasing ? u8"지금 다시 적용하는 내 커밋의 내용으로 이 파일을 정하고 해결로 표시합니다" : u8"이 파일을 들어오는 쪽(theirs)의 내용으로 정하고 해결로 표시합니다");
-                add_button(u8"conflict-resolved:" + tag, u8"해결 표시", luil::text_button_visual::accent,
-                    message(submit_operation_intent { repository_id, mark_resolved_request { .paths = { file_.path } } }), busy, 84.0f, u8"직접 고친 파일을 해결로 표시(git add)합니다");
+                    rebasing ? tr(u8"conflict.theirs_rebase_tooltip") : tr(u8"conflict.theirs_tooltip"));
+                add_button(u8"conflict-resolved:" + tag, tr(u8"conflict.mark_resolved"), luil::text_button_visual::accent,
+                    message(submit_operation_intent { repository_id, mark_resolved_request { .paths = { file_.path } } }), busy, 84.0f, tr(u8"conflict.mark_resolved_tooltip"));
             }
 
             void arrange(const luil::arrange_context& context) override
@@ -68,7 +69,7 @@ namespace cyella::ui {
 
             [[nodiscard]] luil::access_info accessibility() const override
             {
-                return { .role = luil::access_role::static_text, .name = u8"충돌 파일 " + to_u8(file_.path) };
+                return { .role = luil::access_role::static_text, .name = tr(u8"conflict.file_name", { { u8"path", file_.path } }) };
             }
 
             void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override
@@ -137,10 +138,10 @@ namespace cyella::ui {
         };
         add_header(u8"conflict-title", conflict.title, text_style { .size = 14.0f, .bold = true }, 22.0f);
         add_header(u8"conflict-progress", conflict.progress, text_style { .size = 12.0f }, 18.0f);
-        add_header(u8"conflict-detail", conflict.detail.empty() ? u8"파일을 수정하고 해결로 표시한 뒤 계속하세요." : conflict.detail, text_style { .size = 11.0f, .color = dim_color }, 16.0f);
+        add_header(u8"conflict-detail", conflict.detail.empty() ? tr(u8"conflict.default_detail") : conflict.detail, text_style { .size = 11.0f, .color = dim_color }, 16.0f);
         const bool rebasing { conflict.kind == repository_operation_state::rebase };
         if (rebasing)
-            add_header(u8"conflict-sides-help", u8"기준(ours)은 리베이스 기준 쪽, 적용 커밋(theirs)은 지금 다시 적용하는 내 커밋입니다.", text_style { .size = 11.0f, .color = dim_color }, 16.0f);
+            add_header(u8"conflict-sides-help", tr(u8"conflict.rebase_sides_help"), text_style { .size = 11.0f, .color = dim_color }, 16.0f);
         // 인터랙티브 rebase는 멈춘 할 일을 한 줄 더 보인다.
         const bool has_note { conflict.todo_note.empty() == false };
         if (has_note)
@@ -151,7 +152,7 @@ namespace cyella::ui {
         {
             auto empty { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-empty" }, luil::stack_config { .padding = luil::edge_insets::all(16.0f) }) };
             empty->add_flexible_gap();
-            empty->add(make_text(u8"conflict-resolved-note", u8"충돌을 모두 풀었습니다. 계속을 눌러 이어 가세요.", text_style { .size = 12.0f, .color = dim_color, .align = 1 }), 22.0f);
+            empty->add(make_text(u8"conflict-resolved-note", tr(u8"conflict.all_resolved_note"), text_style { .size = 12.0f, .color = dim_color, .align = 1 }), 22.0f);
             empty->add_flexible_gap();
             column->add_flexible(std::move(empty));
         }
@@ -174,29 +175,31 @@ namespace cyella::ui {
             config.scroll_to = [](const float offset) { return message(scroll_intent { .target = scroll_target::diff, .value = offset, .absolute = true }); };
             config.edges = luil::scroll_edges { .shadows = true };
             auto list { std::make_unique<luil::virtual_list_element>(std::move(config)) };
-            list->set_access_name(u8"충돌 파일 " + number_text(conflict.files.size()) + u8"개");
+            list->set_access_name(tr(u8"conflict.file_list_name", { { u8"count", conflict.files.size() } }));
             sources.diff = list.get();
             column->add_flexible(std::move(list));
         }
 
         const luil::stack_config footer_config { .direction = luil::stack_direction::row, .spacing = 8.0f, .padding = luil::edge_insets { 16.0f, 8.0f, 16.0f, 8.0f } };
         auto footer { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-footer" }, footer_config) };
-        std::u8string status { conflict.files.empty() ? std::u8string { u8"충돌 없음" } : u8"충돌 " + number_text(conflict.files.size()) + u8"개 남음" };
+        std::u8string status { conflict.files.empty() ? tr(u8"conflict.status_none") : tr(u8"conflict.status_remaining", { { u8"count", conflict.files.size() } }) };
         if (conflict.message.empty() == false)
             status = conflict.message;
         text_style status_style { .size = 11.0f, .color = conflict.message.empty() ? dim_color : [](const luil::ui_color_palette& palette) { return palette.warning_accent; } };
         footer->add_flexible(make_text(u8"conflict-status", status, std::move(status_style)));
         footer->add(
-            make_text_button(u8"conflict-abort", u8"중단", luil::text_button_visual::danger, message(conflict_action_intent { conflict_action::abort_sequence }), conflict.busy == false), 76.0f);
+            make_text_button(u8"conflict-abort", tr(u8"conflict.abort"), luil::text_button_visual::danger, message(conflict_action_intent { conflict_action::abort_sequence }), conflict.busy == false),
+            76.0f);
         if (conflict.can_skip)
         {
-            auto skip = make_text_button(u8"conflict-skip", u8"건너뛰기", luil::text_button_visual::normal, message(conflict_action_intent { conflict_action::skip_sequence }), conflict.busy == false);
-            skip->set_tooltip(u8"현재 적용 중인 커밋을 제외하고 다음 커밋으로 진행합니다.");
+            auto skip = make_text_button(
+                u8"conflict-skip", tr(u8"conflict.skip"), luil::text_button_visual::normal, message(conflict_action_intent { conflict_action::skip_sequence }), conflict.busy == false);
+            skip->set_tooltip(tr(u8"conflict.skip_tooltip"));
             footer->add(std::move(skip), 96.0f);
         }
         auto next = make_text_button(
-            u8"conflict-continue", u8"계속", luil::text_button_visual::accent, message(conflict_action_intent { conflict_action::continue_sequence }), conflict.can_continue, 0, true);
-        next->set_tooltip(conflict.can_continue ? u8"해결한 결과로 작업을 이어갑니다." : u8"충돌을 모두 해결로 표시한 뒤 계속할 수 있습니다.");
+            u8"conflict-continue", tr(u8"conflict.continue"), luil::text_button_visual::accent, message(conflict_action_intent { conflict_action::continue_sequence }), conflict.can_continue, 0, true);
+        next->set_tooltip(conflict.can_continue ? tr(u8"conflict.continue_tooltip") : tr(u8"conflict.continue_disabled_tooltip"));
         footer->add(std::move(next), 96.0f);
         auto footer_column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-footer-content" }, luil::stack_config {}) };
         const float help_height { conflict.files.empty() ? 0.0f : 24.0f };
@@ -204,7 +207,7 @@ namespace cyella::ui {
         {
             const luil::stack_config help_config { .padding = luil::edge_insets { 16.0f, 4.0f, 16.0f, 4.0f } };
             auto help { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-continue-help-row" }, help_config) };
-            help->add(make_text(u8"conflict-continue-help", u8"모든 파일을 해결로 표시하면 계속할 수 있습니다.", text_style { .size = 11.0f, .color = dim_color }), 16.0f);
+            help->add(make_text(u8"conflict-continue-help", tr(u8"conflict.continue_help"), text_style { .size = 11.0f, .color = dim_color }), 16.0f);
             footer_column->add(std::move(help), help_height);
         }
         footer_column->add(std::move(footer), conflict_footer_height);

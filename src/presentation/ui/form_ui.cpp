@@ -1,3 +1,4 @@
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ref_chip_element.h"
@@ -109,7 +110,7 @@ namespace cyella::ui {
         if (dismissible)
         {
             caption.close = action_of(message(form_button_intent { form.dismiss_key }));
-            caption.close_tooltip = u8"닫기";
+            caption.close_tooltip = tr(u8"form.close");
         }
         const float caption_height { luil::dialog_caption_element::height_for(caption) };
         column->add(std::make_unique<luil::dialog_caption_element>(std::move(caption)), caption_height);

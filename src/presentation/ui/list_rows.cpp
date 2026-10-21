@@ -1,5 +1,6 @@
 #include "presentation/ui/list_rows.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/drop_hints.h"
 #include "presentation/ui/element_kinds.h"
@@ -169,9 +170,9 @@ namespace cyella::ui {
         if (row_.header)
             return { .role = luil::access_role::static_text, .name = row_.label + u8" " + number_text(row_.count) };
         const luil::access_role role { action(luil::ui_trigger::double_click) != nullptr ? luil::access_role::button : luil::access_role::static_text };
-        std::u8string name { row_.label + (row_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {}) };
+        std::u8string name { row_.label + (row_.local_only ? tr(u8"list.not_on_remote_suffix") : std::u8string {}) };
         if (row_.worktree_path.empty() == false)
-            name += u8" (다른 worktree에서 사용 중)";
+            name += tr(u8"list.in_other_worktree_suffix");
         // PR 행은 브랜치 흐름(`feature → main`)이 화면 읽기에도 닿도록 이름에 넣는다.
         if (row_.item == sidebar_item_kind::pull_request && row_.detail.empty() == false && row_.path.empty() == false)
             name += u8" (" + row_.detail + u8")";
@@ -311,7 +312,7 @@ namespace cyella::ui {
     {
         std::u8string name { row_.name };
         if (row_.submodule)
-            name += u8" (서브모듈)";
+            name += tr(u8"list.submodule_suffix");
         if (row_.lfs)
             name += u8" (LFS)";
         return { .role = action(luil::ui_trigger::left_click) != nullptr ? luil::access_role::button : luil::access_role::static_text, .name = std::move(name) };
@@ -369,7 +370,7 @@ namespace cyella::ui {
             folder_x += width + 6.0f * scale;
         };
         if (row_.submodule)
-            draw_tag(u8"서브모듈", palette.accent);
+            draw_tag(tr(u8"list.submodule_tag"), palette.accent);
         if (row_.lfs)
             draw_tag(u8"LFS", status_color(palette, 'M'));
         if (row_.folder.empty() == false && right - folder_x > 0.0f)
@@ -403,7 +404,7 @@ namespace cyella::ui {
 
     luil::access_info folder_row_element::accessibility() const
     {
-        return { .role = luil::access_role::button, .name = row_.label + u8" 폴더 (파일 " + number_text(row_.file_count) + u8"개)", .expanded = row_.expanded };
+        return { .role = luil::access_role::button, .name = tr(u8"list.folder_access_name", { { u8"name", row_.label }, { u8"count", row_.file_count } }), .expanded = row_.expanded };
     }
 
     void folder_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const
@@ -636,7 +637,7 @@ namespace cyella::ui {
 
     luil::access_info start_row_element::accessibility() const
     {
-        return { .role = luil::access_role::button, .name = item_.display_name + (item_.exists ? std::u8string {} : std::u8string { u8" (경로를 찾을 수 없음)" }) };
+        return { .role = luil::access_role::button, .name = item_.display_name + (item_.exists ? std::u8string {} : tr(u8"list.path_missing_suffix")) };
     }
 
     void start_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
@@ -662,7 +663,7 @@ namespace cyella::ui {
         const float title_baseline { text_top + luil::centered_text_baseline(small, start_title_height * scale) };
         if (item_.exists == false)
         {
-            const std::u8string warning { u8"경로를 찾을 수 없음" };
+            const std::u8string warning { tr(u8"list.path_missing") };
             const float width { luil::measure_text(warning, small) };
             static_cast<void>(luil::draw_text_within(context.canvas, warning, right - width, title_baseline, width, small, luil::solid_paint(palette.warning_accent)));
             right -= width + 12.0f * scale;
@@ -679,7 +680,7 @@ namespace cyella::ui {
             context.canvas, item_.display_name, x, text_top + luil::centered_text_baseline(name_font, start_title_height * scale), std::max(right - x, 0.0f), name_font, luil::solid_paint(primary));
         if (open_)
         {
-            const std::u8string badge { u8"열림" };
+            const std::u8string badge { tr(u8"list.open_badge") };
             const float width { luil::measure_text(badge, small) + 10.0f * scale };
             const float height { 16.0f * scale };
             const luil::rect_f pill { x + drawn + 8.0f * scale, text_top + (start_title_height * scale - height) / 2.0f, width, height };

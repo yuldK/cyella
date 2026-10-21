@@ -1,5 +1,7 @@
 #include "domain/signing_config.h"
 
+#include "domain/text_catalog.h"
+
 namespace cyella {
     namespace {
         char ascii_lowercase(const char value) noexcept
@@ -51,24 +53,24 @@ namespace cyella {
         return "gpg.ssh.allowedsignersfile";
     }
 
-    std::u8string_view config_origin_label(const config_origin origin) noexcept
+    std::u8string config_origin_label(const config_origin origin)
     {
         switch (origin)
         {
         case config_origin::unset:
-            return u8"설정 없음";
+            return tr(u8"signing_config.origin.unset");
         case config_origin::system:
-            return u8"시스템";
+            return tr(u8"signing_config.origin.system");
         case config_origin::global:
-            return u8"전역";
+            return tr(u8"signing_config.origin.global");
         case config_origin::local:
-            return u8"이 저장소";
+            return tr(u8"signing_config.origin.local");
         case config_origin::worktree:
             return u8"worktree";
         case config_origin::command:
-            return u8"명령줄";
+            return tr(u8"signing_config.origin.command");
         }
-        return u8"설정 없음";
+        return tr(u8"signing_config.origin.unset");
     }
 
     std::string_view signing_format_name(const signing_format format) noexcept

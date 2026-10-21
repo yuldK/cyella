@@ -1,5 +1,6 @@
 #include "presentation/ui/cyella_caption.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/ui/app_symbol.h"
 
 #include "luil/generated/codicons.h"
@@ -17,9 +18,9 @@ namespace cyella::ui {
         }
         else
             caption.application_icon = luil::codicons::icon_source_control;
-        caption.minimize_tooltip = u8"최소화";
-        caption.maximize_tooltip = u8"최대화 또는 이전 크기로 복원";
-        caption.close_tooltip = u8"닫기";
+        caption.minimize_tooltip = tr(u8"caption.minimize");
+        caption.maximize_tooltip = tr(u8"caption.maximize_restore");
+        caption.close_tooltip = tr(u8"caption.close");
         return caption;
     }
 

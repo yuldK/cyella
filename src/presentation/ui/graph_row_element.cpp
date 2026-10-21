@@ -1,5 +1,6 @@
 #include "presentation/ui/graph_row_element.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/drop_hints.h"
 #include "presentation/signing_view.h"
@@ -217,7 +218,7 @@ namespace cyella::ui {
         , columns_ { columns }
     {
         // 행 자리의 누름은 이 element가 직접 받는다 (아래). 라벨 칩은 자기 자리를 따로 누른다.
-        access_name_ = data_.wip ? u8"WIP 변경 " + number_text(data_.wip_count) + u8"개" : data_.subject;
+        access_name_ = data_.wip ? tr(u8"graph.wip_access_name", { { u8"count", data_.wip_count } }) : data_.subject;
         if (data_.labels.empty() == false)
         {
             std::u8string names {};
@@ -422,8 +423,8 @@ namespace cyella::ui {
             const SkFont small { ui_font(context, 11.0f) };
             const float count_x { x + padding + drawn + padding };
             if (summary - (count_x - x) > 0.0f)
-                static_cast<void>(luil::draw_text_within(context.canvas, u8"변경 " + number_text(data_.wip_count) + u8"개", count_x, box.y + luil::centered_text_baseline(small, box.height),
-                    x + summary - padding - count_x, small, luil::solid_paint(context.palette.warning_accent)));
+                static_cast<void>(luil::draw_text_within(context.canvas, tr(u8"graph.wip_change_count", { { u8"count", data_.wip_count } }), count_x,
+                    box.y + luil::centered_text_baseline(small, box.height), x + summary - padding - count_x, small, luil::solid_paint(context.palette.warning_accent)));
         }
         else if (summary > padding * 2.0f)
         {
@@ -500,20 +501,21 @@ namespace cyella::ui {
                 static_cast<void>(luil::draw_text_within(context.canvas, title, x + padding, baseline, width - padding * 2.0f, font, dim));
             x += width;
         };
-        column(u8"브랜치/태그", columns_.refs * scale);
+        column(tr(u8"graph.column_refs"), columns_.refs * scale);
         const float graph_width { columns_.graph * scale };
-        if (graph_width >= luil::measure_text(u8"그래프", font) + padding * 2.0f)
-            column(u8"그래프", graph_width);
+        const std::u8string graph_title { tr(u8"graph.column_graph") };
+        if (graph_width >= luil::measure_text(graph_title, font) + padding * 2.0f)
+            column(graph_title, graph_width);
         else
         {
             luil::draw_centered_glyph(context.canvas, codicons::icon_git_commit, { x, box.y, graph_width, box.height }, icon_font(context, 13.0f), dim);
             x += graph_width;
         }
-        column(u8"커밋 메시지", summary);
+        column(tr(u8"graph.column_message"), summary);
         if (columns_.compact == false)
         {
-            column(u8"작성자", columns_.author * scale);
-            column(u8"날짜", columns_.date * scale);
+            column(tr(u8"graph.column_author"), columns_.author * scale);
+            column(tr(u8"graph.column_date"), columns_.date * scale);
         }
     }
 

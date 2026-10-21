@@ -1,5 +1,7 @@
 #include "application/app_settings_service.h"
 
+#include "domain/text_catalog.h"
+
 #include <utility>
 
 namespace cyella {
@@ -37,7 +39,7 @@ namespace cyella {
             diagnostic skipped {};
             skipped.code = diagnostic_code::app_settings_write_failed;
             skipped.severity = diagnostic_severity::warning;
-            skipped.message = u8"앱 설정 파일을 읽지 못했으므로 기존 파일을 덮어쓰지 않도록 저장하지 않았습니다. 이번 실행 동안은 메모리의 설정만 씁니다.";
+            skipped.message = tr(u8"app.settings_save_skipped_read_only");
             skipped.native_error = read_error_;
             std::vector<diagnostic> diagnostics {};
             diagnostics.push_back(std::move(skipped));

@@ -1,6 +1,7 @@
 #include "presentation/settings/settings_controller.h"
 
 #include "domain/ssh_connection.h"
+#include "domain/text_catalog.h"
 #include "presentation/settings/profiles_page.h"
 #include "presentation/settings/shortcuts_page.h"
 
@@ -190,7 +191,7 @@ namespace cyella {
         if (check_git_path(path, dependencies_.probe).empty() == false)
             return;
         update_settings([&path](app_settings& settings) { settings.git_executable = path; });
-        state_->message = path.empty() ? u8"자동 탐색으로 돌아갑니다. 다음 실행부터 적용됩니다." : u8"git 경로를 저장했습니다. 다음 실행부터 적용됩니다.";
+        state_->message = path.empty() ? tr(u8"settings_view.git.path_reset_to_auto") : tr(u8"settings_view.git.path_saved");
     }
 
     void settings_controller::start_tool_edit(const std::optional<std::size_t> index, const bool file_app)
@@ -250,7 +251,7 @@ namespace cyella {
                     settings.external_file_apps.push_back(app);
             });
             state_->tool_edit.reset();
-            state_->message = u8"파일을 열 앱을 저장했습니다.";
+            state_->message = tr(u8"settings_view.file_app.saved");
             return;
         }
         if (check_tool_draft(edit.extensions.text, edit.executable.text, edit.arguments.text, dependencies_.probe).ok == false)
@@ -264,7 +265,7 @@ namespace cyella {
                 settings.external_diff_tools.push_back(tool);
         });
         state_->tool_edit.reset();
-        state_->message = u8"외부 diff 도구를 저장했습니다.";
+        state_->message = tr(u8"settings_view.tool.saved");
     }
 
     void settings_controller::remove_tool(const std::size_t index, const bool file_app)
@@ -275,7 +276,7 @@ namespace cyella {
                 return;
             update_settings([index](app_settings& settings) { settings.external_file_apps.erase(settings.external_file_apps.begin() + static_cast<std::ptrdiff_t>(index)); });
             state_->tool_edit.reset();
-            state_->message = u8"파일을 열 앱을 지웠습니다.";
+            state_->message = tr(u8"settings_view.file_app.removed");
             return;
         }
         if (state_.has_value() == false || index >= dependencies_.settings().external_diff_tools.size())
@@ -283,7 +284,7 @@ namespace cyella {
         update_settings([index](app_settings& settings) { settings.external_diff_tools.erase(settings.external_diff_tools.begin() + static_cast<std::ptrdiff_t>(index)); });
         // 고치던 줄이 지워졌거나 번호가 밀렸다. 어느 쪽이든 편집을 접는다.
         state_->tool_edit.reset();
-        state_->message = u8"외부 diff 도구를 지웠습니다.";
+        state_->message = tr(u8"settings_view.tool.removed");
     }
 
     void settings_controller::create_ssh_key()
@@ -333,7 +334,7 @@ namespace cyella {
             {
                 if (dependencies_.copy_text != nullptr)
                     dependencies_.copy_text(to_text(key.public_key_line));
-                state_->message = u8"공개 키를 클립보드에 복사했습니다: " + name + u8".pub";
+                state_->message = tr(u8"settings_view.ssh.public_key_copied", { { u8"name", name } });
                 return;
             }
     }
@@ -390,12 +391,12 @@ namespace cyella {
             if (message.get<apply_font_settings_intent>() != nullptr || message.get<select_font_intent>() != nullptr || message.get<open_font_list_intent>() != nullptr
                 || message.get<close_font_list_intent>() != nullptr || message.get<font_list_scroll_intent>() != nullptr)
                 return true;
-            return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr
-                || message.get<set_gravatar_intent>() != nullptr || message.get<apply_git_path_intent>() != nullptr || message.get<reset_git_path_intent>() != nullptr
-                || message.get<add_tool_intent>() != nullptr || message.get<edit_tool_intent>() != nullptr || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr
-                || message.get<cancel_tool_edit_intent>() != nullptr || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr
-                || message.get<refresh_ssh_intent>() != nullptr || message.get<create_ssh_key_intent>() != nullptr || message.get<copy_public_key_intent>() != nullptr
-                || message.get<test_ssh_connection_intent>() != nullptr || message.get<set_diff_layout_default_intent>() != nullptr || message.get<set_diff_context_lines_intent>() != nullptr;
+            return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr || message.get<set_gravatar_intent>() != nullptr || message.get<apply_git_path_intent>() != nullptr
+                || message.get<reset_git_path_intent>() != nullptr || message.get<add_tool_intent>() != nullptr || message.get<edit_tool_intent>() != nullptr
+                || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr || message.get<cancel_tool_edit_intent>() != nullptr
+                || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr || message.get<refresh_ssh_intent>() != nullptr
+                || message.get<create_ssh_key_intent>() != nullptr || message.get<copy_public_key_intent>() != nullptr || message.get<test_ssh_connection_intent>() != nullptr
+                || message.get<set_diff_layout_default_intent>() != nullptr || message.get<set_diff_context_lines_intent>() != nullptr;
         };
         if (settings_message() == false)
             return false;
@@ -441,7 +442,7 @@ namespace cyella {
             set_text(selected->code ? state.code_font : state.ui_font, family);
             update_settings([code = selected->code, &family](app_settings& settings) { (code ? settings.appearance.code_font : settings.appearance.ui_font) = family; });
             state.font_list.reset();
-            state.message = u8"글꼴을 적용했습니다.";
+            state.message = tr(u8"settings_view.font.applied");
         }
         else if (message.get<apply_font_settings_intent>() != nullptr)
         {
@@ -454,7 +455,7 @@ namespace cyella {
             set_text(state.ui_font, ui_family);
             set_text(state.code_font, code_family);
             state.font_list.reset();
-            state.message = u8"글꼴을 적용했습니다.";
+            state.message = tr(u8"settings_view.font.applied");
         }
         else if (const auto* const gravatar_intent { message.get<set_gravatar_intent>() }; gravatar_intent != nullptr)
         {

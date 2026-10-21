@@ -1,5 +1,7 @@
 #include "presentation/commands/key_chord.h"
 
+#include "domain/text_catalog.h"
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -217,16 +219,16 @@ namespace cyella {
     std::u8string check_key_chord(const key_chord& chord)
     {
         if (chord.valid() == false || format_key_chord(chord).empty())
-            return u8"알 수 없는 키입니다.";
+            return tr(u8"key.unknown");
         const bool modified { chord.control || chord.alt };
         if (modified == false && is_function_key(chord.key) == false && chord.key != luil::key_code::escape)
-            return u8"Ctrl이나 Alt와 함께 눌러야 합니다 (수정키 없이 쓸 수 있는 것은 F1~F12와 Esc뿐입니다).";
+            return tr(u8"key.needs_modifier");
         if (chord.control && chord.alt == false && chord.shift == false)
             if (chord.key == luil::key_code::key_a || chord.key == luil::key_code::key_c || chord.key == luil::key_code::key_v || chord.key == luil::key_code::key_x
                 || chord.key == luil::key_code::key_y || chord.key == luil::key_code::key_z)
-                return u8"텍스트 칸의 편집 키라 쓸 수 없습니다.";
+                return tr(u8"key.reserved_text_editing");
         if (chord.alt && chord.control == false && chord.shift == false && chord.key == luil::key_code::f4)
-            return u8"Alt+F4는 창을 닫는 키라 쓸 수 없습니다.";
+            return tr(u8"key.reserved_alt_f4");
         return {};
     }
 

@@ -1,5 +1,6 @@
 #include "presentation/ui/segmented_control.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
 
@@ -134,8 +135,8 @@ namespace cyella::ui {
 
     std::unique_ptr<luil::ui_element> make_file_view_control(std::u8string owner, const bool tree, luil::choice_message_factory select)
     {
-        return std::make_unique<segmented_control_element>(std::move(owner), u8"파일 보기",
-            std::vector<segment_option> { { u8"list", u8"경로 목록", codicons::icon_list_flat }, { u8"tree", u8"폴더 트리", codicons::icon_list_tree } }, tree ? u8"tree" : u8"list", std::move(select),
-            true);
+        return std::make_unique<segmented_control_element>(std::move(owner), tr(u8"segmented.file_view"),
+            std::vector<segment_option> { { u8"list", tr(u8"segmented.file_view_list"), codicons::icon_list_flat }, { u8"tree", tr(u8"segmented.file_view_tree"), codicons::icon_list_tree } },
+            tree ? u8"tree" : u8"list", std::move(select), true);
     }
 } // namespace cyella::ui

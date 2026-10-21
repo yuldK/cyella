@@ -1,6 +1,7 @@
 #include "presentation/ui/diff_webview.h"
 
 #include "application/diff_view_protocol.h"
+#include "domain/text_catalog.h"
 #include "presentation/diff_view_intents.h"
 #include "presentation/selector_intents.h"
 #include "presentation/ui/diff_special_card.h"
@@ -50,8 +51,8 @@ namespace cyella::ui {
             luil::choice_group_config config {};
             config.owner = u8"diff-layout";
             config.style = luil::choice_style::toggle;
-            config.name = u8"diff 보기";
-            config.items = { { u8"inline", u8"Inline" }, { u8"split", u8"좌우 분할" } };
+            config.name = tr(u8"diff.layout_name");
+            config.items = { { u8"inline", u8"Inline" }, { u8"split", tr(u8"diff.layout_split") } };
             config.selected = surface.layout == diff_layout::split ? u8"split" : u8"inline";
             config.select = [](const std::u8string& value) { return message(set_diff_layout_intent { value == u8"split" ? diff_layout::split : diff_layout::inline_view }); };
             return make_segmented_control(std::move(config));
@@ -62,8 +63,8 @@ namespace cyella::ui {
             luil::choice_group_config config {};
             config.owner = u8"diff-image-mode";
             config.style = luil::choice_style::toggle;
-            config.name = u8"이미지 비교 방식";
-            config.items = { { u8"side_by_side", u8"좌우" }, { u8"onion_skin", u8"겹치기" }, { u8"swipe", u8"밀기" } };
+            config.name = tr(u8"diff.image_mode_name");
+            config.items = { { u8"side_by_side", tr(u8"diff.image_mode_side_by_side") }, { u8"onion_skin", tr(u8"diff.image_mode_onion_skin") }, { u8"swipe", tr(u8"diff.image_mode_swipe") } };
             switch (surface.image_mode)
             {
             case image_compare_mode::side_by_side:
@@ -93,19 +94,20 @@ namespace cyella::ui {
             luil::stack_config row_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 4.0f, 0.0f, 10.0f, 0.0f } };
             row_config.cross_alignment = luil::stack_alignment::center;
             auto header { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-header" }, row_config) };
-            header->add(make_icon_button(u8"diff-close", codicons::icon_arrow_left, working ? u8"변경 파일로 돌아가기" : u8"커밋 이력으로 돌아가기", message(close_diff_intent {})), 30.0f);
+            header->add(make_icon_button(u8"diff-close", codicons::icon_arrow_left, working ? tr(u8"diff.back_to_changes") : tr(u8"diff.back_to_history"), message(close_diff_intent {})), 30.0f);
             header->add_flexible(make_text(u8"diff-title", diff.title, text_style { .size = 13.0f, .bold = true }));
-            const auto file_button = [&](const std::u8string& owner, const char32_t glyph, const std::u8string& label, const std::optional<diff_file_request>& request) {
-                const std::u8string tooltip { request.has_value() ? label + u8": " + to_u8(request->path) : label + u8" 없음" };
+            const auto file_button = [&](const std::u8string& owner, const char32_t glyph, const std::u8string& tooltip, const std::optional<diff_file_request>& request) {
                 header->add(make_icon_button(owner, glyph, tooltip, request.has_value() ? message(select_file_intent { *request }) : luil::input_action {}, request.has_value()), 28.0f);
             };
-            file_button(u8"diff-previous-file", codicons::icon_chevron_up, u8"이전 파일", diff.previous_file);
-            file_button(u8"diff-next-file", codicons::icon_chevron_down, u8"다음 파일", diff.next_file);
+            file_button(u8"diff-previous-file", codicons::icon_chevron_up,
+                diff.previous_file.has_value() ? tr(u8"diff.previous_file", { { u8"path", diff.previous_file->path } }) : tr(u8"diff.no_previous_file"), diff.previous_file);
+            file_button(u8"diff-next-file", codicons::icon_chevron_down, diff.next_file.has_value() ? tr(u8"diff.next_file", { { u8"path", diff.next_file->path } }) : tr(u8"diff.no_next_file"),
+                diff.next_file);
             std::unique_ptr<luil::ui_element> open {};
             if (compact)
-                open = make_icon_button(u8"diff-open-app", codicons::icon_link_external, u8"다른 앱으로 열기", {}, diff.loading == false);
+                open = make_icon_button(u8"diff-open-app", codicons::icon_link_external, tr(u8"diff.open_in_app"), {}, diff.loading == false);
             else
-                open = make_text_button(u8"diff-open-app", u8"다른 앱으로 열기", luil::text_button_visual::normal, {}, diff.loading == false, codicons::icon_link_external);
+                open = make_text_button(u8"diff-open-app", tr(u8"diff.open_in_app"), luil::text_button_visual::normal, {}, diff.loading == false, codicons::icon_link_external);
             const auto open_menu = [anchor = open.get()](const luil::ui_action_context&) -> std::vector<luil::input_action> {
                 const luil::rect_f box { anchor->bounds() };
                 return { message(open_selector_intent { selector_kind::file_app, box.x, box.y + box.height, box.width }) };
@@ -132,8 +134,8 @@ namespace cyella::ui {
                 path->add_flexible(std::move(subtitle));
                 if (diff.surface.truncated)
                 {
-                    auto note { make_text(u8"diff-truncated-note", u8"일부", text_style { .size = 11.0f, .color = dim_color }) };
-                    note->set_tooltip(u8"큰 diff의 앞부분만 표시합니다.");
+                    auto note { make_text(u8"diff-truncated-note", tr(u8"diff.truncated_short"), text_style { .size = 11.0f, .color = dim_color }) };
+                    note->set_tooltip(tr(u8"diff.truncated_tooltip"));
                     path->add(std::move(note), 28.0f);
                 }
                 column->add(std::move(path), 32.0f);
@@ -153,12 +155,13 @@ namespace cyella::ui {
             }
 
             if (diff.use_webview == false && diff.special.has_value() == false)
-                metadata->add(make_text(u8"diff-fallback-note", width < 640.0f ? u8"텍스트 보기" : u8"WebView2 없이 텍스트로 보는 중", text_style { .size = 11.0f, .color = dim_color, .align = 2 }),
+                metadata->add(
+                    make_text(u8"diff-fallback-note", width < 640.0f ? tr(u8"diff.fallback_short") : tr(u8"diff.fallback_note"), text_style { .size = 11.0f, .color = dim_color, .align = 2 }),
                     width < 640.0f ? 80.0f : fallback_note_width);
             else
             {
                 if (compact == false && diff.surface.truncated)
-                    metadata->add(make_text(u8"diff-truncated-note", u8"큰 diff의 앞부분만 보임", text_style { .size = 11.0f, .color = dim_color, .align = 2 }), truncated_note_width);
+                    metadata->add(make_text(u8"diff-truncated-note", tr(u8"diff.truncated_note"), text_style { .size = 11.0f, .color = dim_color, .align = 2 }), truncated_note_width);
                 if (diff.surface.content == diff_content::text)
                     metadata->add(layout_toggle(diff.surface), { .length = layout_toggle_width, .cross_length = luil::choice_toggle_height });
                 else if (diff.surface.content == diff_content::image)
@@ -173,8 +176,8 @@ namespace cyella::ui {
         {
             luil::webview_config config {};
             config.webview = std::u8string { diff_webview_id };
-            config.name = u8"diff 뷰어";
-            config.placeholder = diff.loading ? u8"diff를 읽는 중…" : u8"diff 뷰어를 여는 중…";
+            config.name = tr(u8"diff.viewer_name");
+            config.placeholder = diff.loading ? tr(u8"diff.loading") : tr(u8"diff.viewer_opening");
             return std::make_unique<luil::webview_element>(luil::ui_element_id { luil::ui_element_kind::webview, std::u8string { diff_webview_id } }, std::move(config));
         }
 
@@ -182,10 +185,9 @@ namespace cyella::ui {
         std::unique_ptr<luil::ui_element> build_text_body(const diff_panel_view& diff, feedback_sources& sources)
         {
             if (diff.loading)
-                return centered_note(u8"diff-loading", u8"diff를 읽는 중…");
+                return centered_note(u8"diff-loading", tr(u8"diff.loading"));
             if (diff.lines.empty())
-                return centered_note(
-                    u8"diff-empty", diff.binary ? std::u8string { u8"바이너리 파일입니다. 이미지·바이너리 비교에는 WebView2 Runtime이 필요합니다." } : std::u8string { u8"보일 변경이 없습니다." });
+                return centered_note(u8"diff-empty", diff.binary ? tr(u8"diff.binary_needs_webview") : tr(u8"diff.no_changes"));
             auto lines { std::make_shared<std::vector<diff_line_view>>(diff.lines) };
             luil::virtual_list_config config {};
             config.edges.shadows = true;

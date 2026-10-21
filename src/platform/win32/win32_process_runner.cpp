@@ -1,5 +1,6 @@
 #include "platform/win32/win32_process_runner.h"
 
+#include "domain/text_catalog.h"
 #include "infrastructure/command_line_builder.h"
 #include "infrastructure/process_output_pipeline.h"
 #include "infrastructure/secret_masking.h"
@@ -595,7 +596,7 @@ namespace cyella::win32 {
             result.native_error = ERROR_NOT_ENOUGH_MEMORY;
             try
             {
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, u8"프로세스 실행 중 예기치 않은 오류가 발생했습니다.", result.native_error));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, tr(u8"process.unexpected_failure"), result.native_error));
             }
             catch (...)
             {
@@ -608,7 +609,7 @@ namespace cyella::win32 {
         {
             result.completion = process_completion::internal_error;
             result.native_error = ERROR_NOT_ENOUGH_MEMORY;
-            result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_pipe_failed, u8"입출력 스레드를 만들지 못해 자식 프로세스를 종료했습니다.", result.native_error));
+            result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_pipe_failed, tr(u8"process.io_thread_failed"), result.native_error));
             finish_result(result, started);
             return result;
         }
@@ -628,7 +629,7 @@ namespace cyella::win32 {
             if (token.cancelled())
             {
                 result.completion = process_completion::cancelled;
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_cancelled, u8"실행을 시작하기 전에 취소가 요청되었습니다."));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_cancelled, tr(u8"process.cancelled_before_start")));
                 return result;
             }
 
@@ -644,7 +645,7 @@ namespace cyella::win32 {
             {
                 result.completion = process_completion::start_failed;
                 result.native_error = ERROR_NO_UNICODE_TRANSLATION;
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, u8"실행 요청의 UTF-8 값을 Windows 문자열로 변환하지 못했습니다.", result.native_error));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, tr(u8"process.request_conversion_failed"), result.native_error));
                 return result;
             }
 
@@ -653,7 +654,7 @@ namespace cyella::win32 {
             {
                 result.completion = process_completion::start_failed;
                 result.native_error = environment.native_error;
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, u8"환경 변수 override를 Windows 문자열로 변환하지 못했습니다.", result.native_error));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, tr(u8"process.environment_conversion_failed"), result.native_error));
                 return result;
             }
 
@@ -677,7 +678,7 @@ namespace cyella::win32 {
             {
                 result.completion = process_completion::start_failed;
                 result.native_error = last_error_or(ERROR_INVALID_HANDLE);
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_pipe_failed, u8"자식 프로세스의 표준 handle을 준비하지 못했습니다.", result.native_error));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_pipe_failed, tr(u8"process.standard_handles_failed"), result.native_error));
                 return result;
             }
 
@@ -695,7 +696,7 @@ namespace cyella::win32 {
             {
                 result.completion = process_completion::start_failed;
                 result.native_error = last_error_or(ERROR_INVALID_PARAMETER);
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, u8"상속 handle 목록을 준비하지 못했습니다.", result.native_error));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, tr(u8"process.inherited_handles_failed"), result.native_error));
                 return result;
             }
             startup.lpAttributeList = attributes.get();
@@ -718,7 +719,7 @@ namespace cyella::win32 {
             {
                 result.completion = process_completion::start_failed;
                 result.native_error = last_error_or(ERROR_INVALID_HANDLE);
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, u8"취소 대기 event를 만들지 못했습니다.", result.native_error));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, tr(u8"process.cancel_event_failed"), result.native_error));
                 return result;
             }
 
@@ -740,7 +741,7 @@ namespace cyella::win32 {
             {
                 result.completion = process_completion::start_failed;
                 result.native_error = last_error_or(ERROR_FILE_NOT_FOUND);
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, u8"자식 프로세스를 시작하지 못했습니다.", result.native_error));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, tr(u8"process.start_failed"), result.native_error));
                 finish_result(result, started);
                 return result;
             }
@@ -757,10 +758,7 @@ namespace cyella::win32 {
                     job.reset();
             }
             if (job_assigned == false)
-            {
-                result.diagnostics.push_back(make_process_diagnostic(
-                    diagnostic_code::operation_failed, u8"job object를 사용할 수 없어 취소와 timeout에서 자식 프로세스만 종료합니다.", std::nullopt, diagnostic_severity::warning));
-            }
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, tr(u8"process.job_object_unavailable"), std::nullopt, diagnostic_severity::warning));
 
             SetLastError(ERROR_SUCCESS);
             if (ResumeThread(thread_handle.get()) == static_cast<DWORD>(-1))
@@ -769,7 +767,7 @@ namespace cyella::win32 {
                 terminate_execution(job.get(), process_handle.get());
                 result.completion = process_completion::start_failed;
                 result.native_error = resume_error;
-                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, u8"정지 상태로 시작한 자식 프로세스를 재개하지 못했습니다.", result.native_error));
+                result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_start_failed, tr(u8"process.resume_failed"), result.native_error));
                 finish_result(result, started);
                 return result;
             }
@@ -863,40 +861,34 @@ namespace cyella::win32 {
                 result.output_truncated = output_pipeline.truncated() || error_pipeline.truncated() || raw_output.truncated || raw_error.truncated;
                 result.record_count = collector.count();
                 if (result.output_truncated)
-                {
-                    result.diagnostics.push_back(
-                        make_process_diagnostic(diagnostic_code::process_output_truncated, u8"출력이 스트림별 캡처 상한을 넘어 이후 내용을 버렸습니다.", std::nullopt, diagnostic_severity::warning));
-                }
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_output_truncated, tr(u8"process.output_truncated"), std::nullopt, diagnostic_severity::warning));
                 if (collector.sink_failed())
-                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, u8"출력 sink가 예외를 던져 일부 레코드를 전달하지 못했습니다."));
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, tr(u8"process.output_sink_threw")));
                 if (drained_promptly == false)
-                {
-                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed,
-                        u8"자식 프로세스가 끝난 뒤에도 출력 pipe를 상속한 프로세스가 남아 유예 후 트리를 종료하고 수집을 마감했습니다.", std::nullopt, diagnostic_severity::warning));
-                }
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, tr(u8"process.inherited_pipe_lingered"), std::nullopt, diagnostic_severity::warning));
                 if (input_error.load(std::memory_order_relaxed) != ERROR_SUCCESS)
                 {
-                    result.diagnostics.push_back(make_process_diagnostic(
-                        diagnostic_code::process_pipe_failed, u8"자식 프로세스의 표준 입력에 쓰지 못했습니다.", input_error.load(std::memory_order_relaxed), diagnostic_severity::warning));
+                    result.diagnostics.push_back(
+                        make_process_diagnostic(diagnostic_code::process_pipe_failed, tr(u8"process.stdin_write_failed"), input_error.load(std::memory_order_relaxed), diagnostic_severity::warning));
                 }
                 if (read_failed.load(std::memory_order_relaxed))
                 {
                     result.output_truncated = true;
-                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_pipe_failed, u8"출력 수집 스레드가 오류로 일부 출력을 버렸습니다."));
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_pipe_failed, tr(u8"process.output_thread_failed")));
                 }
 
                 if (wait_result == WAIT_TIMEOUT)
                 {
                     // 강제 종료한 자식의 종료 코드는 의미가 없으므로 채우지 않는다.
                     result.completion = process_completion::timed_out;
-                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_timed_out, u8"제한 시간을 초과해 자식 프로세스를 종료했습니다."));
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_timed_out, tr(u8"process.timed_out")));
                     finish_result(result, started);
                     return result;
                 }
                 if (wait_result == WAIT_OBJECT_0 + 1)
                 {
                     result.completion = process_completion::cancelled;
-                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_cancelled, u8"취소 요청으로 자식 프로세스를 종료했습니다."));
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_cancelled, tr(u8"process.cancelled")));
                     finish_result(result, started);
                     return result;
                 }
@@ -904,7 +896,7 @@ namespace cyella::win32 {
                 {
                     result.completion = process_completion::internal_error;
                     result.native_error = wait_error;
-                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, u8"자식 프로세스의 종료를 기다리지 못해 강제로 종료했습니다.", result.native_error));
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, tr(u8"process.wait_failed"), result.native_error));
                     finish_result(result, started);
                     return result;
                 }
@@ -915,7 +907,7 @@ namespace cyella::win32 {
                 {
                     result.completion = process_completion::internal_error;
                     result.native_error = last_error_or(ERROR_INVALID_HANDLE);
-                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, u8"자식 프로세스의 종료 코드를 읽지 못했습니다.", result.native_error));
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, tr(u8"process.exit_code_unreadable"), result.native_error));
                     finish_result(result, started);
                     return result;
                 }
@@ -934,7 +926,7 @@ namespace cyella::win32 {
                 result.native_error = ERROR_NOT_ENOUGH_MEMORY;
                 try
                 {
-                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, u8"실행 감시 중 예외가 발생해 자식 프로세스를 종료했습니다.", result.native_error));
+                    result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::operation_failed, tr(u8"process.monitor_exception"), result.native_error));
                 }
                 catch (...)
                 {

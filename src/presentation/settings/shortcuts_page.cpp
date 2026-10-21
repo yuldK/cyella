@@ -17,7 +17,7 @@ namespace cyella {
             auto group { std::ranges::find(view.groups, title_of_group, &shortcut_group_view::title) };
             if (group == view.groups.end())
             {
-                view.groups.push_back(shortcut_group_view { .title = title_of_group, .rows = {} });
+                view.groups.push_back(shortcut_group_view { .title = title_of_group, .owner = std::u8string { command_group_owner(command.group) }, .rows = {} });
                 group = std::prev(view.groups.end());
             }
             shortcut_row_view row {};

@@ -1,3 +1,4 @@
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/form_hosting.h"
 #include "presentation/shell_controller.h"
@@ -106,7 +107,7 @@ namespace cyella {
         const std::optional<create_pull_request_defaults> defaults { hosting_.create_defaults(repository_id) };
         if (defaults.has_value() == false)
         {
-            show_notice(u8"이 저장소에는 GitHub·GitLab으로 연동할 원격이 없습니다.", true);
+            show_notice(tr(u8"shell.pull_request.no_hosting_remote"), true);
             return;
         }
         if (defaults->blocked_reason.empty() == false)
@@ -118,10 +119,10 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::create_pull_request;
         dialog.serial = ++ui_.dialog_serial;
-        dialog.title = view.abbreviation + u8" 만들기";
+        dialog.title = tr(u8"shell.pull_request.title", { { u8"kind", view.abbreviation } });
         dialog.subject = defaults->source_branch;
-        dialog.lines.push_back(
-            to_u8(defaults->source_branch) + u8" → " + (defaults->target_branch.empty() ? std::u8string { u8"대상 브랜치" } : to_u8(defaults->target_branch)) + u8" · " + view.provider_name);
+        dialog.lines.push_back(to_u8(defaults->source_branch) + u8" → " + (defaults->target_branch.empty() ? tr(u8"shell.pull_request.target_branch_placeholder") : to_u8(defaults->target_branch))
+            + u8" · " + view.provider_name);
         if (defaults->push_remote.empty() == false)
             dialog.choices.push_back(defaults->push_remote);
         dialog.flag_c = defaults->needs_push && defaults->push_remote.empty() == false;

@@ -270,5 +270,5 @@ namespace cyella {
     [[nodiscard]] std::string_view failure_kind_name(failure_kind kind) noexcept;
     [[nodiscard]] std::string_view input_kind_name(input_kind kind) noexcept;
     // 실패 배너의 기본 문구다. 실행기가 더 구체적인 문구를 만들 수 없을 때 쓴다.
-    [[nodiscard]] std::u8string_view failure_kind_message(failure_kind kind) noexcept;
+    [[nodiscard]] std::u8string failure_kind_message(failure_kind kind);
 } // namespace cyella

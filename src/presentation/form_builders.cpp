@@ -1,6 +1,7 @@
 #include "presentation/form_builders.h"
 
 #include "domain/ref_name.h"
+#include "domain/text_catalog.h"
 #include "presentation/signing_view.h"
 #include "presentation/ui_state.h"
 
@@ -32,35 +33,35 @@ namespace cyella {
             switch (problem)
             {
             case ref_name_problem::empty:
-                return u8"이름을 입력하세요.";
+                return tr(u8"form.ref_name.empty");
             case ref_name_problem::leading_dash:
-                return u8"'-'로 시작할 수 없습니다.";
+                return tr(u8"form.ref_name.leading_dash");
             case ref_name_problem::leading_slash:
             case ref_name_problem::trailing_slash:
             case ref_name_problem::consecutive_slashes:
-                return u8"처음이나 끝에 '/'를 두거나 '/'를 이어 쓸 수 없습니다.";
+                return tr(u8"form.ref_name.slash");
             case ref_name_problem::component_starts_with_dot:
-                return u8"'.'로 시작하는 구성 요소를 둘 수 없습니다.";
+                return tr(u8"form.ref_name.component_dot");
             case ref_name_problem::component_ends_with_lock:
-                return u8"'.lock'으로 끝나는 구성 요소를 둘 수 없습니다.";
+                return tr(u8"form.ref_name.component_lock");
             case ref_name_problem::trailing_dot:
-                return u8"'.'로 끝낼 수 없습니다.";
+                return tr(u8"form.ref_name.trailing_dot");
             case ref_name_problem::contains_double_dot:
-                return u8"'..'을 쓸 수 없습니다.";
+                return tr(u8"form.ref_name.double_dot");
             case ref_name_problem::contains_at_brace:
-                return u8"'@{'를 쓸 수 없습니다.";
+                return tr(u8"form.ref_name.at_brace");
             case ref_name_problem::is_single_at:
-                return u8"'@' 하나만으로는 이름을 지을 수 없습니다.";
+                return tr(u8"form.ref_name.single_at");
             case ref_name_problem::is_head:
-                return u8"'HEAD'는 쓸 수 없는 이름입니다.";
+                return tr(u8"form.ref_name.head");
             case ref_name_problem::forbidden_character:
-                return u8"공백과 ~ ^ : ? * [ 문자를 쓸 수 없습니다.";
+                return tr(u8"form.ref_name.forbidden_character");
             case ref_name_problem::control_character:
-                return u8"제어 문자를 쓸 수 없습니다.";
+                return tr(u8"form.ref_name.control_character");
             case ref_name_problem::backslash:
-                return u8"'\\'를 쓸 수 없습니다.";
+                return tr(u8"form.ref_name.backslash");
             }
-            return u8"쓸 수 없는 이름입니다.";
+            return tr(u8"form.ref_name.invalid");
         }
 
         const luil::text::text_edit_state& field_state(const form_inputs& inputs, const std::size_t index)
@@ -118,7 +119,7 @@ namespace cyella {
         if (const std::optional<ref_name_problem> problem { find_ref_name_problem(name) }; problem.has_value())
             return problem_text(*problem);
         if (find_local(snapshot, std::string { name }) != nullptr)
-            return u8"'" + to_u8(name) + u8"' 브랜치가 이미 있습니다.";
+            return tr(u8"form.branch_exists", { { u8"name", name } });
         return std::nullopt;
     }
 
@@ -128,7 +129,7 @@ namespace cyella {
             return problem_text(*problem);
         for (const ref& value : snapshot.refs)
             if (value.kind == ref_kind::tag && value.name == name)
-                return u8"'" + to_u8(name) + u8"' 태그가 이미 있습니다.";
+                return tr(u8"form.tag_exists", { { u8"name", name } });
         return std::nullopt;
     }
 
@@ -162,18 +163,18 @@ namespace cyella {
         const std::string name { field_text(*context.inputs, 0) };
         form_view form {};
         form.id = u8"branch-dialog";
-        form.title = u8"새 브랜치";
-        form.notes.push_back({ .text = u8"만들 위치: " + dialog.subject_label });
-        form.fields.push_back(make_field(context, 0, u8"브랜치 이름", u8"feature/my-work", false, true));
-        form.checks.push_back({ .label = u8"만든 뒤 체크아웃", .checked = dialog.flag_a });
+        form.title = tr(u8"form.create_branch.title");
+        form.notes.push_back({ .text = tr(u8"form.create_branch.at_note", { { u8"target", dialog.subject_label } }) });
+        form.fields.push_back(make_field(context, 0, tr(u8"form.create_branch.name_label"), u8"feature/my-work", false, true));
+        form.checks.push_back({ .label = tr(u8"form.create_branch.checkout"), .checked = dialog.flag_a });
         if (name.empty() == false)
             if (const auto error { branch_name_error(name, snapshot) }; error.has_value())
                 form.error = *error;
         const std::string at { dialog.subject.substr(0, 12) };
-        const std::string shown_name { name.empty() ? std::string { "<이름>" } : name };
+        const std::string shown_name { name.empty() ? tr_narrow(u8"form.preview_name") : name };
         form.preview = to_u8((dialog.flag_a ? "git switch -c " : "git branch ") + shown_name + (at.empty() ? std::string {} : " " + at));
-        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(make_button(u8"submit", u8"만들기", form_tone::accent, create_branch_ready(dialog, *context.inputs, snapshot), true));
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(make_button(u8"submit", tr(u8"form.create"), form_tone::accent, create_branch_ready(dialog, *context.inputs, snapshot), true));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -190,15 +191,15 @@ namespace cyella {
         const std::string name { field_text(*context.inputs, 0) };
         form_view form {};
         form.id = u8"rename-dialog";
-        form.title = u8"브랜치 이름 바꾸기";
-        form.notes.push_back({ .text = u8"현재 이름: " + to_u8(dialog.subject) });
-        form.fields.push_back(make_field(context, 0, u8"새 이름", u8"", false, true));
+        form.title = tr(u8"form.rename_branch.title");
+        form.notes.push_back({ .text = tr(u8"form.rename_branch.current_note", { { u8"name", dialog.subject } }) });
+        form.fields.push_back(make_field(context, 0, tr(u8"form.rename_branch.new_name_label"), u8"", false, true));
         if (name.empty() == false && name != dialog.subject)
             if (const auto error { branch_name_error(name, snapshot) }; error.has_value())
                 form.error = *error;
-        form.preview = u8"git branch -m " + to_u8(dialog.subject) + u8" " + (name.empty() ? std::u8string { u8"<새 이름>" } : to_u8(name));
-        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(make_button(u8"submit", u8"이름 바꾸기", form_tone::accent, rename_branch_ready(dialog, *context.inputs, snapshot), true));
+        form.preview = u8"git branch -m " + to_u8(dialog.subject) + u8" " + (name.empty() ? tr(u8"form.rename_branch.preview_new_name") : to_u8(name));
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(make_button(u8"submit", tr(u8"form.rename_branch.submit"), form_tone::accent, rename_branch_ready(dialog, *context.inputs, snapshot), true));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -219,34 +220,34 @@ namespace cyella {
         const bool annotated { dialog.choice == 1 };
         form_view form {};
         form.id = u8"tag-dialog";
-        form.title = u8"태그 만들기";
-        form.notes.push_back({ .text = u8"대상 커밋: " + dialog.subject_label });
-        form.fields.push_back(make_field(context, 0, u8"태그 이름", u8"v1.0.0", false, true));
-        form.choices_label = u8"종류";
-        form.choices.push_back({ .label = u8"lightweight (이름만)" });
-        form.choices.push_back({ .label = u8"annotated (메시지·작성자·날짜를 남김)" });
+        form.title = tr(u8"form.create_tag.title");
+        form.notes.push_back({ .text = tr(u8"form.create_tag.target_note", { { u8"target", dialog.subject_label } }) });
+        form.fields.push_back(make_field(context, 0, tr(u8"form.create_tag.name_label"), u8"v1.0.0", false, true));
+        form.choices_label = tr(u8"form.create_tag.kind_label");
+        form.choices.push_back({ .label = tr(u8"form.create_tag.lightweight") });
+        form.choices.push_back({ .label = tr(u8"form.create_tag.annotated") });
         form.chosen = dialog.choice;
         // 서명 토글이다. 기본값은 설정 `tag.gpgsign`이다.
-        form.checks.push_back({ .label = u8"서명 (tag -s)", .checked = dialog.flag_b });
+        form.checks.push_back({ .label = tr(u8"form.create_tag.sign"), .checked = dialog.flag_b });
         if (dialog.flag_b)
             if (const std::u8string hint { signing_setup_hint(snapshot.signing, true) }; hint.empty() == false)
                 form.warnings.push_back({ .text = hint, .warning = true });
         if (annotated)
-            form.fields.push_back(make_field(context, 1, u8"태그 메시지", u8"이 태그가 무엇인지 한 줄로 적습니다"));
+            form.fields.push_back(make_field(context, 1, tr(u8"form.create_tag.message_label"), tr(u8"form.create_tag.message_placeholder")));
         if (name.empty() == false)
             if (const auto error { tag_name_error(name, snapshot) }; error.has_value())
                 form.error = *error;
         if (annotated && name.empty() == false && field_text(*context.inputs, 1).empty() && form.error.empty())
-            form.error = u8"annotated 태그에는 메시지가 필요합니다.";
+            form.error = tr(u8"form.create_tag.message_required");
         const std::string at { dialog.subject.empty() ? std::string {} : dialog.subject.substr(0, 12) };
-        const std::string shown_name { name.empty() ? std::string { "<이름>" } : name };
+        const std::string shown_name { name.empty() ? tr_narrow(u8"form.preview_name") : name };
         std::string preview { "git tag " };
         preview += annotated ? (dialog.flag_b ? "-s " : "-a ") + shown_name + " -m \"…\"" : shown_name;
         if (at.empty() == false)
             preview += " " + at;
         form.preview = to_u8(preview);
-        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(make_button(u8"submit", u8"태그 만들기", form_tone::accent, create_tag_ready(dialog, *context.inputs, snapshot), true));
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(make_button(u8"submit", tr(u8"form.create_tag.submit"), form_tone::accent, create_tag_ready(dialog, *context.inputs, snapshot), true));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -279,8 +280,9 @@ namespace cyella {
         form.id = u8"push-dialog";
         form.title = u8"Push";
         const ref* const branch { find_local(snapshot, dialog.subject) };
-        form.notes.push_back({ .text = u8"보낼 브랜치: " + to_u8(dialog.subject) + (branch != nullptr && branch->ahead > 0 ? u8"  (↑" + number(branch->ahead) + u8")" : std::u8string {}) });
-        form.choices_label = u8"원격";
+        form.notes.push_back(
+            { .text = tr(u8"form.push.branch_note", { { u8"branch", dialog.subject } }) + (branch != nullptr && branch->ahead > 0 ? u8"  (↑" + number(branch->ahead) + u8")" : std::u8string {}) });
+        form.choices_label = tr(u8"form.remote_label");
         for (const std::string& remote : dialog.choices)
         {
             std::u8string label { to_u8(remote) };
@@ -296,15 +298,20 @@ namespace cyella {
         }
         form.chosen = dialog.choice;
         if (dialog.choices.empty())
-            form.error = u8"원격이 없습니다. 먼저 원격을 추가하세요.";
-        form.fields.push_back(make_field(context, 0, u8"원격 브랜치 이름", to_u8(dialog.subject), false, true));
-        form.checks.push_back({ .label = u8"upstream으로 설정 (--set-upstream)", .checked = dialog.flag_a });
-        form.checks.push_back({ .label = u8"annotated 태그도 함께 push (--follow-tags)", .checked = dialog.flag_b });
-        form.checks.push_back({ .label = u8"강제 push (--force-with-lease)", .checked = dialog.flag_c });
+            form.error = tr(u8"form.no_remote");
+        form.fields.push_back(make_field(context, 0, tr(u8"form.remote_branch_label"), to_u8(dialog.subject), false, true));
+        form.checks.push_back({ .label = tr(u8"form.push.set_upstream"), .checked = dialog.flag_a });
+        form.checks.push_back({ .label = tr(u8"form.push.follow_tags"), .checked = dialog.flag_b });
+        form.checks.push_back({ .label = tr(u8"form.push.force"), .checked = dialog.flag_c });
         if (dialog.flag_c)
-            form.warnings.push_back({ .text = u8"원격 이력을 덮어쓸 수 있습니다. 마지막으로 fetch한 뒤 원격이 바뀌지 않았을 때만 성공합니다.", .warning = true });
+            form.warnings.push_back({ .text = tr(u8"form.push.force_warning"), .warning = true });
         if (branch != nullptr && branch->behind > 0 && dialog.flag_c == false)
-            form.warnings.push_back({ .text = u8"원격에 내게 없는 커밋이 " + number(branch->behind) + u8"개 있습니다. push가 거절될 수 있습니다.", .warning = true });
+        {
+            std::u8string text { tr(u8"form.push.behind_warning", { { u8"count", branch->behind } }) };
+            if (branch->behind == 1)
+                text = tr(u8"form.push.behind_warning_one", { { u8"count", branch->behind } });
+            form.warnings.push_back({ .text = std::move(text), .warning = true });
+        }
         const push_execute_request request { make_push_request(dialog, *context.inputs) };
         std::string preview { "git push" };
         if (request.set_upstream)
@@ -313,11 +320,11 @@ namespace cyella {
             preview += " --follow-tags";
         if (request.force_with_lease)
             preview += " --force-with-lease";
-        preview += " " + (request.remote.empty() ? std::string { "<원격>" } : request.remote) + " " + request.branch + ":" + request.remote_branch;
+        preview += " " + (request.remote.empty() ? tr_narrow(u8"form.preview_remote") : request.remote) + " " + request.branch + ":" + request.remote_branch;
         form.preview = to_u8(preview);
-        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(
-            make_button(u8"submit", dialog.flag_c ? u8"강제 Push" : u8"Push", dialog.flag_c ? form_tone::danger : form_tone::accent, push_ready(dialog, *context.inputs, snapshot), true));
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(make_button(u8"submit", dialog.flag_c ? tr(u8"form.push.force_submit") : std::u8string { u8"Push" }, dialog.flag_c ? form_tone::danger : form_tone::accent,
+            push_ready(dialog, *context.inputs, snapshot), true));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -338,7 +345,7 @@ namespace cyella {
     std::optional<std::u8string> set_upstream_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot)
     {
         if (dialog.choices.empty())
-            return u8"원격이 없습니다. 먼저 원격을 추가하세요.";
+            return tr(u8"form.no_remote");
         const set_upstream_request request { make_set_upstream_request(dialog, inputs) };
         if (const std::optional<ref_name_problem> problem { find_ref_name_problem(request.remote_branch) }; problem.has_value())
             return problem_text(*problem);
@@ -346,7 +353,7 @@ namespace cyella {
         for (const ref& value : snapshot.refs)
             if (value.kind == ref_kind::remote && value.name == tracking)
                 return std::nullopt;
-        return u8"'" + to_u8(tracking) + u8"' 원격 브랜치를 아직 가져오지 못했습니다. 먼저 Fetch 하거나 Push로 만드세요.";
+        return tr(u8"form.set_upstream.not_fetched", { { u8"tracking", tracking } });
     }
 
     bool set_upstream_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot)
@@ -359,19 +366,19 @@ namespace cyella {
         const repository_snapshot& snapshot { *context.snapshot };
         form_view form {};
         form.id = u8"set-upstream-dialog";
-        form.title = u8"upstream 설정";
-        form.notes.push_back({ .text = u8"브랜치: " + to_u8(dialog.subject) });
-        form.choices_label = u8"원격";
+        form.title = tr(u8"form.set_upstream.title");
+        form.notes.push_back({ .text = tr(u8"form.set_upstream.branch_note", { { u8"branch", dialog.subject } }) });
+        form.choices_label = tr(u8"form.remote_label");
         for (const std::string& remote : dialog.choices)
             form.choices.push_back({ .label = to_u8(remote) });
         form.chosen = dialog.choice;
-        form.fields.push_back(make_field(context, 0, u8"원격 브랜치 이름", to_u8(dialog.subject), false, true));
+        form.fields.push_back(make_field(context, 0, tr(u8"form.remote_branch_label"), to_u8(dialog.subject), false, true));
         if (const auto error { set_upstream_error(dialog, *context.inputs, snapshot) }; error.has_value())
             form.error = *error;
         const set_upstream_request request { make_set_upstream_request(dialog, *context.inputs) };
-        form.preview = to_u8("git branch --set-upstream-to=" + (request.remote.empty() ? std::string { "<원격>" } : request.remote) + "/" + request.remote_branch + " " + request.branch);
-        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(make_button(u8"submit", u8"upstream 설정", form_tone::accent, set_upstream_ready(dialog, *context.inputs, snapshot), true));
+        form.preview = to_u8("git branch --set-upstream-to=" + (request.remote.empty() ? tr_narrow(u8"form.preview_remote") : request.remote) + "/" + request.remote_branch + " " + request.branch);
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(make_button(u8"submit", tr(u8"form.set_upstream.submit"), form_tone::accent, set_upstream_ready(dialog, *context.inputs, snapshot), true));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -388,10 +395,10 @@ namespace cyella {
         if (dialog.check_label.empty() == false)
             form.checks.push_back({ .label = dialog.check_label, .checked = dialog.flag_a });
         if (dialog.check_label.empty() == false && dialog.flag_a && dialog.check_warning)
-            form.warnings.push_back({ .text = u8"원격에서 지운 태그는 다른 사람의 저장소에도 영향을 줍니다.", .warning = true });
-        form.buttons.push_back(make_button(u8"cancel", u8"취소", form_tone::normal, true, dialog.danger));
-        form.buttons.push_back(make_button(
-            u8"submit", dialog.confirm_label.empty() ? std::u8string { u8"확인" } : dialog.confirm_label, dialog.danger ? form_tone::danger : form_tone::accent, true, dialog.danger == false));
+            form.warnings.push_back({ .text = tr(u8"form.confirm_dialog.remote_tag_warning"), .warning = true });
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel"), form_tone::normal, true, dialog.danger));
+        form.buttons.push_back(
+            make_button(u8"submit", dialog.confirm_label.empty() ? tr(u8"form.confirm") : dialog.confirm_label, dialog.danger ? form_tone::danger : form_tone::accent, true, dialog.danger == false));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -403,31 +410,31 @@ namespace cyella {
         const input_request& request { *status.needs_input };
         form_view form {};
         form.id = u8"dirty-dialog";
-        form.title = u8"작업 트리에 변경이 있습니다";
+        form.title = tr(u8"form.dirty.title");
         if (state.confirming_discard)
         {
-            form.title = u8"변경을 버리고 이동할까요?";
-            form.notes.push_back({ .text = u8"'" + to_u8(request.target) + u8"'(으)로 옮기면서 아래 파일의 변경을 버립니다. 되돌릴 수 없습니다." });
+            form.title = tr(u8"form.dirty.discard_title");
+            form.notes.push_back({ .text = tr(u8"form.dirty.discard_note", { { u8"target", request.target } }) });
             for (std::size_t index { 0 }; index < std::min(request.files.size(), listed_file_limit); ++index)
                 form.notes.push_back({ .text = to_u8(request.files[index]), .code = true });
             if (request.files.size() > listed_file_limit)
-                form.notes.push_back({ .text = u8"외 " + number(request.files.size() - listed_file_limit) + u8"개" });
+                form.notes.push_back({ .text = tr(u8"form.more_files", { { u8"count", request.files.size() - listed_file_limit } }) });
             if (request.untracked_files)
-                form.warnings.push_back({ .text = u8"추적하지 않는 파일은 이 방법으로 지워지지 않아 이동이 다시 막힐 수 있습니다.", .warning = true });
-            form.buttons.push_back(make_button(u8"back", u8"뒤로"));
-            form.buttons.push_back(make_button(u8"submit", u8"변경을 버리고 이동", form_tone::danger));
+                form.warnings.push_back({ .text = tr(u8"form.dirty.discard_untracked_warning"), .warning = true });
+            form.buttons.push_back(make_button(u8"back", tr(u8"form.dirty.back")));
+            form.buttons.push_back(make_button(u8"submit", tr(u8"form.dirty.discard_submit"), form_tone::danger));
             form.dismiss_key = u8"cancel";
             return form;
         }
-        form.notes.push_back({ .text = u8"'" + to_u8(request.target) + u8"'(으)로 옮기려면 아래 파일의 변경이 덮어써집니다." });
+        form.notes.push_back({ .text = tr(u8"form.dirty.overwrite_note", { { u8"target", request.target } }) });
         for (std::size_t index { 0 }; index < std::min(request.files.size(), listed_file_limit); ++index)
             form.notes.push_back({ .text = to_u8(request.files[index]), .code = true });
         if (request.files.size() > listed_file_limit)
-            form.notes.push_back({ .text = u8"외 " + number(request.files.size() - listed_file_limit) + u8"개" });
-        form.choices_label = u8"어떻게 할까요?";
-        form.choices.push_back({ .label = u8"stash 후 이동하고 다시 꺼내기" });
-        form.choices.push_back({ .label = u8"변경을 가지고 이동 (--merge)" });
-        form.choices.push_back({ .label = u8"변경 버리고 이동 (--discard-changes)" });
+            form.notes.push_back({ .text = tr(u8"form.more_files", { { u8"count", request.files.size() - listed_file_limit } }) });
+        form.choices_label = tr(u8"form.dirty.choices_label");
+        form.choices.push_back({ .label = tr(u8"form.dirty.choice_stash") });
+        form.choices.push_back({ .label = tr(u8"form.dirty.choice_merge") });
+        form.choices.push_back({ .label = tr(u8"form.dirty.choice_discard") });
         form.chosen = std::min<std::size_t>(context.inputs->choice, 2);
         switch (form.chosen)
         {
@@ -439,13 +446,14 @@ namespace cyella {
             break;
         default:
             form.preview = u8"git switch --discard-changes " + to_u8(request.target);
-            form.warnings.push_back({ .text = u8"변경이 영구히 사라집니다. 다음 단계에서 한 번 더 확인합니다.", .warning = true });
+            form.warnings.push_back({ .text = tr(u8"form.dirty.discard_warning"), .warning = true });
             break;
         }
         if (request.untracked_files)
-            form.warnings.push_back({ .text = u8"추적하지 않는 파일도 덮어써집니다. \"변경 버리고 이동\"으로는 풀리지 않으니 stash를 고르세요.", .warning = true });
-        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(make_button(u8"submit", form.chosen == 2 ? u8"변경 버리고 이동…" : u8"이동", form.chosen == 2 ? form_tone::danger : form_tone::accent, true, true));
+            form.warnings.push_back({ .text = tr(u8"form.dirty.untracked_warning"), .warning = true });
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(
+            make_button(u8"submit", form.chosen == 2 ? tr(u8"form.dirty.discard_next") : tr(u8"form.dirty.switch"), form.chosen == 2 ? form_tone::danger : form_tone::accent, true, true));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -460,68 +468,71 @@ namespace cyella {
         form.id = u8"auth-dialog";
         form.dismiss_key = u8"cancel";
         const auto answer_buttons = [&form](std::u8string label) {
-            form.buttons.push_back(make_button(u8"cancel", u8"취소"));
+            form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
             form.buttons.push_back(make_button(u8"answer", std::move(label), form_tone::accent, true, true));
         };
         const auto secret_field = [&](std::u8string label) {
             form.fields.push_back(make_field(context, 0, std::move(label), u8"", true, true));
             form.can_reveal = true;
-            form.checks.push_back({ .label = u8"입력 보이기", .checked = context.inputs->reveal });
+            form.checks.push_back({ .label = tr(u8"form.auth.reveal"), .checked = context.inputs->reveal });
         };
         switch (prompt.kind)
         {
         case credential_prompt_kind::ssh_key_passphrase:
-            form.title = u8"SSH 키 passphrase";
+            form.title = tr(u8"form.auth.ssh_passphrase_title");
             if (prompt.key_path.empty() == false)
-                form.notes.push_back({ .text = u8"키: " + prompt.key_path, .code = true });
+                form.notes.push_back({ .text = tr(u8"form.auth.key_note", { { u8"path", prompt.key_path } }), .code = true });
             secret_field(u8"passphrase");
-            form.notes.push_back({ .text = u8"cyella는 passphrase를 저장하지 않습니다. 틀리면 ssh가 최대 3번 다시 묻습니다." });
-            answer_buttons(u8"확인");
+            form.notes.push_back({ .text = tr(u8"form.auth.passphrase_note") });
+            answer_buttons(tr(u8"form.confirm"));
             break;
         case credential_prompt_kind::ssh_new_key_passphrase:
-            form.title = u8"새 SSH 키 passphrase";
-            secret_field(u8"passphrase (비워 두면 없음)");
-            answer_buttons(u8"확인");
+            form.title = tr(u8"form.auth.new_passphrase_title");
+            secret_field(tr(u8"form.auth.new_passphrase_label"));
+            answer_buttons(tr(u8"form.confirm"));
             break;
         case credential_prompt_kind::ssh_new_key_passphrase_confirm:
-            form.title = u8"passphrase 확인";
-            secret_field(u8"같은 passphrase를 한 번 더");
-            answer_buttons(u8"확인");
+            form.title = tr(u8"form.auth.confirm_passphrase_title");
+            secret_field(tr(u8"form.auth.confirm_passphrase_label"));
+            answer_buttons(tr(u8"form.confirm"));
             break;
         case credential_prompt_kind::ssh_host_key_confirm:
-            form.title = u8"처음 보는 호스트 키";
-            form.notes.push_back({ .text = u8"호스트: " + prompt.host + (prompt.address.empty() ? std::u8string {} : u8" (" + prompt.address + u8")") });
-            form.notes.push_back({ .text = u8"키 종류: " + (prompt.key_type.empty() ? std::u8string { u8"알 수 없음" } : prompt.key_type) });
-            form.notes.push_back({ .text = u8"지문: " + prompt.fingerprint, .code = true });
-            form.warnings.push_back({ .text = u8"서버가 공개한 공식 지문과 같은지 확인하세요. 같지 않으면 거절하세요.", .warning = true });
-            form.preview = u8"연결: known_hosts에 기록하고 이어서 · 이번만 연결: 이 작업에서만 믿음";
-            form.buttons.push_back(make_button(u8"no", u8"거절", form_tone::normal, true, true));
-            form.buttons.push_back(make_button(u8"once", u8"이번만 연결"));
-            form.buttons.push_back(make_button(u8"yes", u8"연결", form_tone::accent));
+            form.title = tr(u8"form.auth.host_key_title");
+            if (prompt.address.empty())
+                form.notes.push_back({ .text = tr(u8"form.auth.host_note", { { u8"host", prompt.host } }) });
+            else
+                form.notes.push_back({ .text = tr(u8"form.auth.host_note_with_address", { { u8"host", prompt.host }, { u8"address", prompt.address } }) });
+            form.notes.push_back({ .text = tr(u8"form.auth.key_type_note", { { u8"type", prompt.key_type.empty() ? tr(u8"form.auth.key_type_unknown") : prompt.key_type } }) });
+            form.notes.push_back({ .text = tr(u8"form.auth.fingerprint_note", { { u8"fingerprint", prompt.fingerprint } }), .code = true });
+            form.warnings.push_back({ .text = tr(u8"form.auth.fingerprint_warning"), .warning = true });
+            form.preview = tr(u8"form.auth.host_key_preview");
+            form.buttons.push_back(make_button(u8"no", tr(u8"form.auth.reject"), form_tone::normal, true, true));
+            form.buttons.push_back(make_button(u8"once", tr(u8"form.auth.connect_once")));
+            form.buttons.push_back(make_button(u8"yes", tr(u8"form.auth.connect"), form_tone::accent));
             break;
         case credential_prompt_kind::ssh_password:
-            form.title = u8"SSH 비밀번호";
+            form.title = tr(u8"form.auth.ssh_password_title");
             form.notes.push_back({ .text = (prompt.user_name.empty() ? std::u8string {} : prompt.user_name + u8"@") + prompt.host });
-            secret_field(u8"비밀번호");
-            answer_buttons(u8"확인");
+            secret_field(tr(u8"form.auth.password_label"));
+            answer_buttons(tr(u8"form.confirm"));
             break;
         case credential_prompt_kind::https_username:
-            form.title = u8"HTTPS 사용자 이름";
+            form.title = tr(u8"form.auth.https_username_title");
             if (prompt.url.empty() == false)
                 form.notes.push_back({ .text = prompt.url, .code = true });
-            form.fields.push_back(make_field(context, 0, u8"사용자 이름", u8"", false, true));
-            form.notes.push_back({ .text = u8"Git Credential Manager가 없어 cyella가 묻습니다. 자격 증명은 저장하지 않습니다." });
-            answer_buttons(u8"다음");
+            form.fields.push_back(make_field(context, 0, tr(u8"form.auth.username_label"), u8"", false, true));
+            form.notes.push_back({ .text = tr(u8"form.auth.username_note") });
+            answer_buttons(tr(u8"form.auth.next"));
             break;
         case credential_prompt_kind::https_password:
-            form.title = u8"HTTPS 비밀번호 또는 토큰";
+            form.title = tr(u8"form.auth.https_password_title");
             if (prompt.user_name.empty() == false || prompt.url.empty() == false)
                 form.notes.push_back({ .text = (prompt.user_name.empty() ? std::u8string {} : prompt.user_name + u8" · ") + prompt.url, .code = true });
-            secret_field(u8"비밀번호 / 토큰");
-            answer_buttons(u8"확인");
+            secret_field(tr(u8"form.auth.password_or_token_label"));
+            answer_buttons(tr(u8"form.confirm"));
             break;
         case credential_prompt_kind::unknown:
-            form.title = u8"인증 정보가 필요합니다";
+            form.title = tr(u8"form.auth.unknown_title");
             {
                 // git이 문구 끝에 붙인 공백·줄바꿈은 보이지 않는다.
                 std::u8string raw { prompt.raw_text };
@@ -531,10 +542,10 @@ namespace cyella {
                 form.notes.push_back({ .text = std::move(raw), .code = true });
             }
             if (request.secret)
-                secret_field(u8"응답");
+                secret_field(tr(u8"form.auth.response_label"));
             else
-                form.fields.push_back(make_field(context, 0, u8"응답", u8"", false, true));
-            answer_buttons(u8"확인");
+                form.fields.push_back(make_field(context, 0, tr(u8"form.auth.response_label"), u8"", false, true));
+            answer_buttons(tr(u8"form.confirm"));
             break;
         }
         return form;

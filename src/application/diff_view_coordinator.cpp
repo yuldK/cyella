@@ -1,5 +1,7 @@
 #include "application/diff_view_coordinator.h"
 
+#include "domain/text_catalog.h"
+
 #include <utility>
 #include <variant>
 
@@ -126,7 +128,7 @@ namespace cyella {
                 if (finished.state != operation_state::cancelled)
                 {
                     const std::u8string& reason { finished.failure.has_value() && finished.failure->summary.empty() == false ? finished.failure->summary : finished.summary };
-                    notice(u8"변경을 적용하지 못했습니다" + (reason.empty() ? std::u8string {} : u8": " + reason), true);
+                    notice(reason.empty() ? tr(u8"diff_action.apply_failed") : tr(u8"diff_action.apply_failed_reason", { { u8"reason", reason } }), true);
                 }
                 return;
             }
@@ -191,7 +193,7 @@ namespace cyella {
         if (pending_apply_ == 0)
         {
             controller_.action_failed();
-            notice(u8"변경을 적용하지 못했습니다: 작업을 낼 수 없습니다.", true);
+            notice(tr(u8"diff_action.apply_submit_failed"), true);
         }
     }
 
@@ -205,7 +207,7 @@ namespace cyella {
             diff_sides_ready_intent message {};
             message.ticket = ticket;
             if (gateway == nullptr || source->token().cancelled())
-                message.sides.error = "취소되었습니다.";
+                message.sides.error = tr_narrow(u8"diff_action.cancelled");
             else
                 message.sides = gateway->extract_cancellable(plan, write_files, source->token());
             if (post != nullptr)
@@ -216,7 +218,7 @@ namespace cyella {
             // 줄에 세우지 못했다(종료 중). 두 쪽을 꺼내지 못한 것으로 알려 바이너리 카드로 물러서게 한다.
             diff_sides_ready_intent failed {};
             failed.ticket = effect.ticket;
-            failed.sides.error = "작업을 줄에 세우지 못했습니다.";
+            failed.sides.error = tr_narrow(u8"diff_action.schedule_failed");
             controller_.sides_prepared(failed.ticket, failed.sides);
         }
     }
@@ -225,7 +227,7 @@ namespace cyella {
     {
         if (shown_target_.has_value() == false || controller_.content() == diff_content::empty)
         {
-            notice(u8"파일을 읽은 뒤 다시 시도해 주세요.", true);
+            notice(tr(u8"diff_action.retry_after_load"), true);
             return;
         }
         run_open_external({ controller_.make_plan() }, std::move(app));
@@ -256,14 +258,14 @@ namespace cyella {
             const process_cancellation_registration link { link_shutdown(context, source) };
             external_open_done_intent message {};
             if (opener == nullptr || source->token().cancelled())
-                message.result = { external_open_status::launch_failed, {}, "취소되었습니다." };
+                message.result = { external_open_status::launch_failed, {}, tr_narrow(u8"diff_action.cancelled") };
             else
                 message.result = opener->open(open);
             if (post != nullptr)
                 post(std::move(message));
         };
         if (ports_.schedule == nullptr || ports_.schedule(std::move(request)) == false)
-            notice(u8"외부 도구를 열지 못했습니다: 작업을 줄에 세우지 못했습니다.", true);
+            notice(tr(u8"external_diff.open_schedule_failed"), true);
     }
 
     diff_notice describe_external_open(const external_open_result& result)
@@ -272,18 +274,23 @@ namespace cyella {
         switch (result.status)
         {
         case external_open_status::launched_tool:
-            return { u8"외부 도구를 열었습니다: " + result.tool, false };
+            return { tr(u8"external_diff.launched_tool", { { u8"tool", result.tool } }), false };
         case external_open_status::launched_difftool:
-            return { u8"git difftool로 열었습니다.", false };
+            return { tr(u8"external_diff.launched_difftool"), false };
         case external_open_status::no_tool:
-            return { u8"이 파일을 열 외부 도구가 없습니다. 환경 설정의 'diff 도구'에서 확장자별 도구를 지정하거나 git의 diff.tool을 설정하세요.", true };
+            return { tr(u8"external_diff.no_tool"), true };
         case external_open_status::extraction_failed:
-            return { u8"diff의 두 쪽 파일을 꺼내지 못했습니다" + (detail.empty() ? std::u8string {} : u8": " + detail), true };
+            return { detail.empty() ? tr(u8"external_diff.extraction_failed") : tr(u8"external_diff.extraction_failed_detail", { { u8"detail", detail } }), true };
         case external_open_status::invalid_template:
-            return { u8"외부 도구의 인자 템플릿이 올바르지 않습니다. 환경 설정의 'diff 도구'를 확인하세요" + (detail.empty() ? std::u8string {} : u8": " + detail), true };
-        case external_open_status::launch_failed:
-            return { u8"외부 도구를 실행하지 못했습니다" + (result.tool.empty() ? std::u8string {} : u8": " + result.tool) + (detail.empty() ? std::u8string {} : u8" (" + detail + u8")"), true };
+            return { detail.empty() ? tr(u8"external_diff.invalid_template") : tr(u8"external_diff.invalid_template_detail", { { u8"detail", detail } }), true };
+        case external_open_status::launch_failed: {
+            if (result.tool.empty())
+                return { detail.empty() ? tr(u8"external_diff.launch_failed") : tr(u8"external_diff.launch_failed_detail", { { u8"detail", detail } }), true };
+            if (detail.empty())
+                return { tr(u8"external_diff.launch_failed_tool", { { u8"tool", result.tool } }), true };
+            return { tr(u8"external_diff.launch_failed_tool_detail", { { u8"tool", result.tool }, { u8"detail", detail } }), true };
         }
-        return { u8"외부 도구를 열지 못했습니다.", true };
+        }
+        return { tr(u8"external_diff.open_failed"), true };
     }
 } // namespace cyella

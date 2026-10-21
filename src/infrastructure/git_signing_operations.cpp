@@ -1,5 +1,6 @@
 #include "infrastructure/git_signing_operations.h"
 
+#include "domain/text_catalog.h"
 #include "infrastructure/git_signing_commands.h"
 #include "infrastructure/git_signing_parser.h"
 
@@ -82,7 +83,7 @@ namespace cyella {
                 add_unverifiable(unverifiable, request.shas);
                 context.emit(std::move(unverifiable));
                 const std::string_view what { error.what() };
-                return operation_outcome::failed(failure_kind::invalid_request, u8"서명을 확인할 커밋 이름이 올바르지 않습니다.", std::u8string { what.begin(), what.end() });
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"signing.invalid_commit_name"), std::u8string { what.begin(), what.end() });
             }
             spec.command_class = git_command_class::local_query;
             git_command_outcome outcome {};

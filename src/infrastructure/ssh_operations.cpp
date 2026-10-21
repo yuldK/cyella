@@ -1,3 +1,4 @@
+#include "domain/text_catalog.h"
 #include "infrastructure/git_operation_context.h"
 #include "infrastructure/ssh_tools.h"
 
@@ -60,7 +61,7 @@ namespace cyella {
             case process_completion::cancelled:
                 return operation_outcome::cancelled();
             case process_completion::timed_out:
-                return operation_outcome::failed(failure_kind::timed_out, std::u8string { tool } + u8"이 시간 안에 끝나지 않았습니다.");
+                return operation_outcome::failed(failure_kind::timed_out, tr(u8"ssh.tool_timed_out", { { u8"tool", tool } }));
             case process_completion::start_failed:
             case process_completion::invalid_request:
             case process_completion::internal_error:
@@ -73,7 +74,7 @@ namespace cyella {
                     detail.push_back(u8'\n');
                 detail.append(entry.message);
             }
-            return operation_outcome::failed(failure_kind::other, std::u8string { tool } + u8"을 실행하지 못했습니다.", std::move(detail));
+            return operation_outcome::failed(failure_kind::other, tr(u8"ssh.tool_run_failed", { { u8"tool", tool } }), std::move(detail));
         }
 
         std::u8string keygen_error_message(const ssh_keygen_request_error error)
@@ -81,17 +82,17 @@ namespace cyella {
             switch (error)
             {
             case ssh_keygen_request_error::askpass_missing:
-                return u8"인증 도우미(cyella-askpass.exe)를 찾지 못해 passphrase를 물을 수 없습니다.";
+                return tr(u8"ssh.askpass_missing");
             case ssh_keygen_request_error::invalid_key_path:
-                return u8"키 파일 경로가 올바르지 않습니다. 절대 경로여야 합니다.";
+                return tr(u8"ssh.invalid_key_path");
             case ssh_keygen_request_error::invalid_comment:
-                return u8"주석에 제어 문자를 쓸 수 없습니다.";
+                return tr(u8"ssh.invalid_comment");
             case ssh_keygen_request_error::key_exists:
-                return u8"같은 이름의 키 파일이 이미 있습니다. 다른 이름을 고르세요.";
+                return tr(u8"ssh.key_exists");
             case ssh_keygen_request_error::none:
                 break;
             }
-            return u8"키를 만들 수 없습니다.";
+            return tr(u8"ssh.keygen_request_failed");
         }
     } // namespace
 
@@ -99,7 +100,7 @@ namespace cyella {
     {
         const git_operation_runner_options& options { context.owner().options() };
         if (options.ssh_keygen_executable.empty())
-            return operation_outcome::failed(failure_kind::invalid_request, u8"ssh-keygen을 찾지 못했습니다. OpenSSH 클라이언트나 Git for Windows를 설치하세요.");
+            return operation_outcome::failed(failure_kind::invalid_request, tr(u8"ssh.keygen_not_found"));
 
         ssh_keygen_options keygen {};
         keygen.ssh_keygen_executable = options.ssh_keygen_executable;
@@ -130,21 +131,21 @@ namespace cyella {
             std::error_code ignored {};
             std::filesystem::remove(keygen.key_path, ignored);
             std::filesystem::remove(public_path, ignored);
-            return operation_outcome::failed(failure_kind::auth_cancelled, u8"passphrase 입력을 취소해 키를 만들지 않았습니다.");
+            return operation_outcome::failed(failure_kind::auth_cancelled, tr(u8"ssh.keygen_cancelled"));
         }
         if (result.exit_code.has_value() && *result.exit_code == 0)
-            return operation_outcome::succeeded(u8"키를 만들었습니다: " + keygen.key_path.u8string());
+            return operation_outcome::succeeded(tr(u8"ssh.key_created", { { u8"path", keygen.key_path.u8string() } }));
         std::u8string detail { sink.standard_error };
         if (detail.empty())
             detail = sink.standard_output;
-        return operation_outcome::failed(failure_kind::other, u8"ssh-keygen이 키를 만들지 못했습니다.", std::move(detail));
+        return operation_outcome::failed(failure_kind::other, tr(u8"ssh.keygen_failed"), std::move(detail));
     }
 
     operation_outcome run_ssh_connection_test(git_operation_context& context, const ssh_connection_test_request& request)
     {
         const git_operation_runner_options& options { context.owner().options() };
         if (options.ssh_executable.empty())
-            return operation_outcome::failed(failure_kind::invalid_request, u8"ssh를 찾지 못했습니다. OpenSSH 클라이언트나 Git for Windows를 설치하세요.");
+            return operation_outcome::failed(failure_kind::invalid_request, tr(u8"ssh.not_found"));
 
         ssh_connection_test_options test {};
         test.ssh_executable = options.ssh_executable;
@@ -157,7 +158,7 @@ namespace cyella {
         test.askpass = session_of(context);
         std::optional<process_request> built { make_ssh_connection_test_request(test) };
         if (built.has_value() == false)
-            return operation_outcome::failed(failure_kind::invalid_request, u8"호스트나 계정 이름이 올바르지 않거나 인증 도우미가 없어 시험할 수 없습니다.");
+            return operation_outcome::failed(failure_kind::invalid_request, tr(u8"ssh.test_invalid_request"));
         // passphrase나 호스트 키 확인을 사람이 답하는 시간까지 넉넉히 잡되, 끝나지 않는 연결은 끊는다.
         built->timeout = std::chrono::minutes { 2 };
 
@@ -169,7 +170,7 @@ namespace cyella {
         const ssh_connection_classification classification { classify_ssh_connection_test(result.exit_code.value_or(-1), sink.standard_output, sink.standard_error) };
         // 대화 상자를 닫아 호스트 키를 확인하지 않은 것은 시험을 못 한 것이다.
         if (context.job().prompt_cancelled != nullptr && context.job().prompt_cancelled->load())
-            return operation_outcome::failed(failure_kind::auth_cancelled, u8"확인 대화 상자를 닫아 시험을 중단했습니다.");
+            return operation_outcome::failed(failure_kind::auth_cancelled, tr(u8"ssh.test_cancelled"));
         context.emit(ssh_connection_tested { classification });
         return operation_outcome::succeeded(describe_ssh_connection(classification));
     }

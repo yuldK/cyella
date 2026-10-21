@@ -52,7 +52,9 @@ namespace cyella {
 
     [[nodiscard]] const std::vector<command_definition>& command_definitions();
     [[nodiscard]] const command_definition* find_command(std::string_view id);
-    [[nodiscard]] std::u8string_view command_group_title(command_group group) noexcept;
+    [[nodiscard]] std::u8string command_group_title(command_group group);
+    // 묶음 머리글의 자동화 이름(owner)에 쓰는 고정 이름이다. 화면 언어와 상관없이 처음의 한국어 제목 그대로다.
+    [[nodiscard]] std::u8string_view command_group_owner(command_group group) noexcept;
 
     // ---- 지금 할 수 있는 명령인가 (팔레트가 못 하는 것은 목록에서 뺀다)
     struct command_availability

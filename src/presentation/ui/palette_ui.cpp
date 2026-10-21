@@ -1,5 +1,6 @@
 #include "presentation/ui/palette_ui.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/palette/palette_intents.h"
 #include "presentation/ui/command_elements.h"
 #include "presentation/ui/element_kinds.h"
@@ -82,7 +83,7 @@ namespace cyella::ui {
         filter_config.placeholder = view.placeholder;
         filter_config.leading_glyph = codicons::icon_search;
         auto filter { std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_palette_filter_input, u8"palette-filter" }, view.filter, std::move(filter_config)) };
-        filter->set_access_name(view.title + u8" 검색");
+        filter->set_access_name(tr(u8"palette.filter_access_name", { { u8"title", view.title } }));
         column->add(std::move(filter), input_height);
 
         luil::virtual_list_config list_config {};
@@ -126,11 +127,11 @@ namespace cyella::ui {
         list_config.activate = pick;
         list_config.move = [](const std::u8string& key) { return message(palette_cursor_intent { key }); };
         auto list { std::make_unique<luil::virtual_list_element>(std::move(list_config)) };
-        list->set_access_name(view.title + u8" 목록");
+        list->set_access_name(tr(u8"palette.list_access_name", { { u8"title", view.title } }));
         sources.palette = list.get();
         column->add(std::move(list), viewport);
 
-        const std::u8string help { view.matched == 0 ? u8"일치하는 항목이 없습니다 · 다른 검색어를 입력하세요" : u8"↑↓로 고르고 Enter로 실행합니다 · Esc로 닫습니다" };
+        const std::u8string help { view.matched == 0 ? tr(u8"palette.help_no_match") : tr(u8"palette.help") };
         column->add(make_text(u8"palette-help", help, text_style { .size = 11.0f, .color = dim }), help_height);
 
         // 거르는 칸의 Enter가 읽을 표식이다. 커서 항목이 없으면 낼 것이 없다.

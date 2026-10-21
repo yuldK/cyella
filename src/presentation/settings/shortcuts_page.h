@@ -27,6 +27,8 @@ namespace cyella {
     struct shortcut_group_view
     {
         std::u8string title {};
+        // 자동화 이름에 쓰는 고정 이름이다 (`command_group_owner`).
+        std::u8string owner {};
         std::vector<shortcut_row_view> rows {};
     };
 

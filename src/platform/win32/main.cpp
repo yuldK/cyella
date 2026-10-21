@@ -3,6 +3,7 @@
 #include "platform/win32/resources/resource_ids.h"
 #include "platform/win32/utf8.h"
 #include "platform/win32/win32_app_settings_path.h"
+#include "platform/win32/win32_locale.h"
 #include "presentation/ui/app_symbol.h"
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/cyella_policy.h"
@@ -20,6 +21,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
     // 명령줄이다. 위치 인자 하나는 시작할 때 여는 저장소이고, `--settings=<경로>`는 설정 파일을 바꾼다
@@ -83,6 +85,11 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
     // COM STA는 TSF(텍스트 입력)·파일 dialog·접근성이 요구한다.
     const luil::win32::com_sta_scope com {};
 
+    // 화면 문구의 언어를 다른 무엇보다 먼저 정한다. 캡션·driver가 만드는 문구와 작업 thread가 모두 이 카탈로그를 읽는다.
+    cyella::win32::cyella_driver_options options { command_line_options() };
+    const cyella::language_preference language { cyella::win32::read_language_preference(options.settings_path) };
+    cyella::win32::install_ui_language(cyella::resolve_ui_language(language, cyella::win32::system_ui_language()));
+
     // 기본 UI 글꼴 우선순위다. 설치되어 있지 않으면 luil이 내장 기본으로 물러선다.
     luil::set_ui_typeface_families({ u8"Malgun Gothic" });
     // 캡션 값(`cyella_caption`)을 만들기 전에 앱 심볼과 타이틀 그림을 정한다.
@@ -105,7 +112,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
 
     // driver·policy·delegate는 창이 도는 동안 살아 있어야 한다. delegate는 driver의 relay를 host에
     // 묶고, policy는 텍스트 입력·휠·단축키를 앱 메시지로 옮긴다.
-    cyella::win32::cyella_driver driver { command_line_options() };
+    cyella::win32::cyella_driver driver { std::move(options) };
     cyella::ui::cyella_policy policy {};
     cyella::win32::cyella_delegate delegate { &driver.relay(), &driver };
     luil::win32::window_environment environment {};

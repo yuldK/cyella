@@ -1,5 +1,6 @@
 #include "presentation/hosting_sidebar.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/hosting_intents.h"
 #include "presentation/start_page_view.h"
 
@@ -99,11 +100,11 @@ namespace cyella {
         switch (view.support)
         {
         case hosting_support::no_remote:
-            add(info_row(u8"pr:info", u8"원격이 없습니다", u8"GitHub·GitLab 연동은 원격 저장소가 있어야 합니다. 원격을 추가한 뒤 다시 보세요."));
+            add(info_row(u8"pr:info", tr(u8"hosting.no_remote"), tr(u8"hosting.no_remote_tooltip")));
             finish();
             return;
         case hosting_support::unsupported:
-            add(info_row(u8"pr:info", u8"GitHub·GitLab 원격이 아닙니다", u8"이 원격의 호스트를 알아보지 못했습니다. 자체 호스팅 서버라면 환경 설정의 '호스팅'에서 호스트를 추가하세요."));
+            add(info_row(u8"pr:info", tr(u8"hosting.unsupported_remote"), tr(u8"hosting.unsupported_remote_tooltip")));
             finish();
             return;
         case hosting_support::supported:
@@ -112,9 +113,9 @@ namespace cyella {
 
         if (view.signed_in == false)
         {
-            const std::u8string where { view.provider_name + u8" (" + to_u8(view.host_key) + u8")" };
-            std::u8string tooltip = where + u8"에 로그인합니다. Git Credential Manager 같은 자격 증명 도우미에서 토큰을 받으며 cyella는 저장하지 않습니다.";
-            add(action_row(u8"pr:login", hosting_row_login, view.signing_in ? u8"로그인 중…" : u8"로그인…", view.provider_name + u8" · " + to_u8(view.host_key), {}, std::move(tooltip)));
+            std::u8string tooltip { tr(u8"hosting.sign_in_tooltip", { { u8"provider", view.provider_name }, { u8"host", view.host_key } }) };
+            add(action_row(
+                u8"pr:login", hosting_row_login, view.signing_in ? tr(u8"hosting.signing_in") : tr(u8"hosting.sign_in"), view.provider_name + u8" · " + to_u8(view.host_key), {}, std::move(tooltip)));
             if (view.error_text.empty() == false)
                 add(info_row(u8"pr:error", view.error_text, view.error_text, badge_tone::danger));
             finish();
@@ -139,11 +140,11 @@ namespace cyella {
             row.detail = branches;
             std::u8string badge {};
             if (info.draft && info.state == pull_request_state::open)
-                join(badge, u8"초안");
+                join(badge, tr(u8"hosting.state_draft"));
             else if (info.state == pull_request_state::merged)
-                join(badge, u8"병합됨");
+                join(badge, tr(u8"hosting.state_merged"));
             else if (info.state == pull_request_state::closed)
-                join(badge, u8"닫힘");
+                join(badge, tr(u8"hosting.state_closed"));
             row.tone = info.state == pull_request_state::open ? badge_tone::none : (info.state == pull_request_state::merged ? badge_tone::accent : badge_tone::warning);
             const auto ci { std::ranges::find_if(view.list_ci, [&info](const auto& entry) { return entry.first == info.number; }) };
             if (ci != view.list_ci.end() && ci->second != ci_state::none)
@@ -164,21 +165,21 @@ namespace cyella {
             return;
         }
         if (view.loading)
-            add(info_row(u8"pr:loading", u8"불러오는 중…", u8"서버에서 목록을 읽고 있습니다."));
+            add(info_row(u8"pr:loading", tr(u8"hosting.loading"), tr(u8"hosting.loading_tooltip")));
         else if (view.error_text.empty() == false)
             add(info_row(u8"pr:error", view.error_text, view.error_text, badge_tone::danger));
         else if (view.loaded && view.pulls->empty())
-            add(info_row(u8"pr:empty", view.include_closed ? u8"항목이 없습니다" : u8"열린 " + abbreviation + u8"이 없습니다", {}));
+            add(info_row(u8"pr:empty", view.include_closed ? tr(u8"hosting.list_empty") : tr(u8"hosting.no_open", { { u8"kind", abbreviation } }), {}));
         else if (view.loaded == false)
-            add(info_row(u8"pr:unloaded", u8"목록을 아직 읽지 않았습니다", u8"'새로 고침'을 누르면 읽습니다."));
+            add(info_row(u8"pr:unloaded", tr(u8"hosting.list_not_loaded"), tr(u8"hosting.list_not_loaded_tooltip")));
         if (view.has_more && view.loading == false)
-            add(action_row(u8"pr:more", hosting_row_more, u8"더 보기…", {}, {}, u8"다음 쪽을 읽습니다."));
-        add(action_row(u8"pr:closed", hosting_row_toggle_closed, u8"닫힌·병합된 " + abbreviation + u8" 포함", {}, view.include_closed ? u8"켬" : u8"끔",
-            u8"눌러서 닫힌 것과 병합된 " + abbreviation + u8"까지 볼지 바꿉니다."));
-        add(action_row(u8"pr:refresh", hosting_row_refresh, u8"새로 고침", view.user.empty() ? std::u8string {} : view.user, {},
-            view.rate_limit_text.empty() ? u8"서버에서 목록을 다시 읽습니다." : u8"서버에서 목록을 다시 읽습니다.\n" + view.rate_limit_text));
-        add(action_row(u8"pr:create", hosting_row_create, u8"현재 브랜치로 " + abbreviation + u8" 만들기…", {}, {},
-            view.can_create ? u8"현재 브랜치에서 " + abbreviation + u8"을 만드는 대화 상자를 엽니다." : view.create_blocked_reason, view.can_create == false));
+            add(action_row(u8"pr:more", hosting_row_more, tr(u8"hosting.more"), {}, {}, tr(u8"hosting.more_tooltip")));
+        add(action_row(u8"pr:closed", hosting_row_toggle_closed, tr(u8"hosting.include_closed", { { u8"kind", abbreviation } }), {},
+            view.include_closed ? tr(u8"hosting.toggle_on") : tr(u8"hosting.toggle_off"), tr(u8"hosting.include_closed_tooltip", { { u8"kind", abbreviation } })));
+        add(action_row(u8"pr:refresh", hosting_row_refresh, tr(u8"hosting.refresh"), view.user.empty() ? std::u8string {} : view.user, {},
+            view.rate_limit_text.empty() ? tr(u8"hosting.refresh_tooltip") : tr(u8"hosting.refresh_tooltip") + u8"\n" + view.rate_limit_text));
+        add(action_row(u8"pr:create", hosting_row_create, tr(u8"hosting.create_from_current", { { u8"kind", abbreviation } }), {}, {},
+            view.can_create ? tr(u8"hosting.create_from_current_tooltip", { { u8"kind", abbreviation } }) : view.create_blocked_reason, view.can_create == false));
         finish();
     }
 } // namespace cyella

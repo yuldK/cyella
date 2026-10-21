@@ -2,6 +2,7 @@
 
 #include "application/app_messages.h"
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/rebase/rebase_editor_model.h"
@@ -128,7 +129,7 @@ namespace cyella {
             inputs.open = true;
             inputs.name = repository_display_name(session->path());
             const git_identity* const identity { selected_identity() };
-            inputs.identity_text = identity != nullptr ? describe_identity_with_source(*identity) : u8"읽는 중…";
+            inputs.identity_text = identity != nullptr ? describe_identity_with_source(*identity) : tr(u8"shell.identity.reading");
             inputs.applied_profile = applied_profile_name();
             return inputs;
         };
@@ -529,9 +530,7 @@ namespace cyella {
                 const auto found { std::ranges::find_if(session->snapshot().refs, [&intent](const ref& value) { return value.kind == ref_kind::local && value.name == intent.name; }) };
                 if (found != session->snapshot().refs.end() && found->worktree_path.empty() == false)
                 {
-                    show_notice(u8"'" + std::u8string { intent.name.begin(), intent.name.end() } + u8"' 브랜치는 다른 worktree("
-                            + std::u8string { found->worktree_path.begin(), found->worktree_path.end() } + u8")에서 체크아웃되어 있어 옮길 수 없습니다. 사이드바 WORKTREES에서 그 worktree를 여세요.",
-                        true);
+                    show_notice(tr(u8"shell.checkout.branch_in_other_worktree", { { u8"branch", intent.name }, { u8"path", found->worktree_path } }), true);
                     return;
                 }
                 static_cast<void>(submit(checkout_branch_request { intent.name }));
@@ -781,7 +780,7 @@ namespace cyella {
             if (repository_exists(intent->path))
                 open_repository(intent->path);
             else
-                show_notice(u8"'" + intent->path + u8"' 경로를 찾을 수 없습니다. 항목의 위치 찾기로 옮긴 폴더를 고르거나 목록에서 지울 수 있습니다.", true);
+                show_notice(tr(u8"shell.recent.missing", { { u8"path", intent->path } }), true);
             return true;
         }
         if (const auto* const intent { message.get<pin_recent_intent>() }; intent != nullptr)
@@ -1069,10 +1068,10 @@ namespace cyella {
                 open_repository(inspected->root.empty() ? path : inspected->root);
                 break;
             case path_inspection_kind::directory:
-                show_notice(u8"'" + path + u8"'은(는) Git 저장소가 아닙니다. 시작 페이지의 Init으로 여기에 저장소를 만들 수 있습니다.", true);
+                show_notice(tr(u8"shell.open.not_repository", { { u8"path", path } }), true);
                 break;
             case path_inspection_kind::missing:
-                show_notice(u8"'" + path + u8"' 경로가 없습니다.", true);
+                show_notice(tr(u8"shell.open.path_missing", { { u8"path", path } }), true);
                 break;
             }
         }
@@ -1103,16 +1102,16 @@ namespace cyella {
                 exists_cache_.erase(request.origin);
                 exists_cache_.erase(root);
                 if (relocated)
-                    show_notice(u8"'" + root + u8"'(으)로 위치를 바꿨습니다.", false);
+                    show_notice(tr(u8"shell.locate.relocated", { { u8"path", root } }), false);
                 else
-                    show_notice(u8"최근 목록에서 '" + request.origin + u8"' 항목을 찾지 못했습니다.", true);
+                    show_notice(tr(u8"shell.locate.entry_not_found", { { u8"path", request.origin } }), true);
                 break;
             }
             case path_inspection_kind::directory:
-                show_notice(u8"'" + request.chosen + u8"'은(는) Git 저장소가 아니라서 위치를 바꾸지 않았습니다.", true);
+                show_notice(tr(u8"shell.locate.not_repository", { { u8"path", request.chosen } }), true);
                 break;
             case path_inspection_kind::missing:
-                show_notice(u8"'" + request.chosen + u8"' 경로가 없습니다.", true);
+                show_notice(tr(u8"shell.open.path_missing", { { u8"path", request.chosen } }), true);
                 break;
             }
         }
@@ -1291,21 +1290,21 @@ namespace cyella {
             status.identity_visible = true;
             if (const git_identity* const identity { selected_identity() }; identity != nullptr)
             {
-                status.identity_text = u8"작성자: " + describe_identity_with_source(*identity);
+                status.identity_text = tr(u8"shell.identity.status", { { u8"identity", describe_identity_with_source(*identity) } });
                 status.identity_warning = identity->complete() == false;
-                status.identity_tooltip = u8"이 저장소가 커밋에 쓰는 작성자와 그 값이 든 설정 파일이다. 눌러서 프로필을 적용한다.";
+                status.identity_tooltip = tr(u8"shell.identity.status_tooltip");
             }
             else if (const auto entry { identities_.find(selected_repository_id()) }; entry != identities_.end() && entry->second.requested && entry->second.error.empty() == false)
             {
                 // 읽지 못했다 (git이 오래되어 --show-scope를 모르거나 일시적인 실패). 15초 뒤 다시 읽는다.
-                status.identity_text = u8"작성자: 읽지 못함 · " + entry->second.error;
+                status.identity_text = tr(u8"shell.identity.status_read_failed", { { u8"error", entry->second.error } });
                 status.identity_warning = true;
-                status.identity_tooltip = u8"저장소의 user.name·user.email을 읽지 못했다. 잠시 뒤 다시 읽는다.";
+                status.identity_tooltip = tr(u8"shell.identity.read_failed_tooltip");
             }
             else
             {
-                status.identity_text = u8"작성자: 읽는 중…";
-                status.identity_tooltip = u8"저장소의 user.name·user.email을 읽고 있다.";
+                status.identity_text = tr(u8"shell.identity.status_reading");
+                status.identity_tooltip = tr(u8"shell.identity.reading_tooltip");
             }
         }
         // 상세 서랍은 medium·narrow에서 커밋을 고르면 열린다. 고른 것이 없으면 닫는다.

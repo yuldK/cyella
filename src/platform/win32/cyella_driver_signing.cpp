@@ -1,5 +1,6 @@
 #include "platform/win32/cyella_driver.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/settings/signing_intents.h"
 
 #include <filesystem>
@@ -64,7 +65,7 @@ namespace cyella::win32 {
         sources.probe = probe_.get();
         if (scheduler_ == nullptr)
         {
-            relay_.post(luil::app_message { signing_write_done_intent { .ok = false, .global = global, .error = u8"git을 찾지 못해 설정을 바꿀 수 없습니다." } });
+            relay_.post(luil::app_message { signing_write_done_intent { .ok = false, .global = global, .error = tr(u8"signing_config.git_missing") } });
             return;
         }
         auto source { std::make_shared<process_cancellation_source>() };

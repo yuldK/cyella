@@ -2,6 +2,7 @@
 
 #include "application/app_messages.h"
 #include "application/watch_messages.h"
+#include "domain/text_catalog.h"
 #include "platform/win32/cyella_driver.h"
 #include "platform/win32/utf8.h"
 #include "presentation/settings/settings_intents.h"
@@ -19,6 +20,13 @@
 
 namespace cyella::win32 {
     namespace {
+        // 대화 상자 문구를 Windows 문자열로 바꾼다. 바꾸지 못하면 빈 문자열이다.
+        [[nodiscard]] std::wstring wide_text(const std::u8string& text)
+        {
+            auto converted { utf8_to_utf16(text) };
+            return converted.value.has_value() ? std::move(*converted.value) : std::wstring {};
+        }
+
         // 고른 항목의 파일 시스템 경로를 UTF-8로 꺼낸다. 실패하면 빈 값이다.
         [[nodiscard]] std::optional<std::u8string> selected_path(IFileOpenDialog& dialog)
         {
@@ -67,7 +75,9 @@ namespace cyella::win32 {
             FILEOPENDIALOGOPTIONS options { 0 };
             if (SUCCEEDED(dialog->GetOptions(&options)))
                 static_cast<void>(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST));
-            const COMDLG_FILTERSPEC filters[] { { L"실행 파일 (*.exe;*.cmd;*.bat)", L"*.exe;*.cmd;*.bat" }, { L"모든 파일", L"*.*" } };
+            const std::wstring executable_files { wide_text(tr(u8"app.dialog.executable_files_filter")) };
+            const std::wstring all_files { wide_text(tr(u8"app.dialog.all_files_filter")) };
+            const COMDLG_FILTERSPEC filters[] { { executable_files.c_str(), L"*.exe;*.cmd;*.bat" }, { all_files.c_str(), L"*.*" } };
             static_cast<void>(dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters));
             static_cast<void>(dialog->SetTitle(title));
             if (SUCCEEDED(dialog->Show(GetActiveWindow())))
@@ -96,33 +106,35 @@ namespace cyella::win32 {
         if (command_id == ui_command_id::choose_git_executable || command_id == ui_command_id::choose_tool_executable)
         {
             const bool for_git { command_id == ui_command_id::choose_git_executable };
-            if (std::optional<std::u8string> path { choose_executable(for_git ? L"git 실행 파일 선택" : L"외부 diff 도구 실행 파일 선택") }; path.has_value())
+            const std::wstring title { wide_text(for_git ? tr(u8"app.dialog.choose_git_executable") : tr(u8"app.dialog.choose_diff_tool_executable")) };
+            if (std::optional<std::u8string> path { choose_executable(title.c_str()) }; path.has_value())
                 host.post_app_message(luil::app_message { settings_file_chosen_intent { for_git ? file_purpose::git_executable : file_purpose::tool_executable, std::move(*path) } });
             return;
         }
 
         folder_purpose purpose { folder_purpose::open };
-        const wchar_t* title { L"열 저장소 폴더 선택" };
+        std::u8string title {};
         switch (static_cast<ui_command_id>(command.command))
         {
         case ui_command_id::open_folder:
+            title = tr(u8"app.dialog.choose_repository_folder");
             break;
         case ui_command_id::init_folder:
             purpose = folder_purpose::init;
-            title = L"새 저장소를 만들 폴더 선택";
+            title = tr(u8"app.dialog.choose_init_folder");
             break;
         case ui_command_id::clone_target_folder:
             purpose = folder_purpose::clone_target;
-            title = L"Clone 받을 상위 폴더 선택";
+            title = tr(u8"app.dialog.choose_clone_parent_folder");
             break;
         case ui_command_id::locate_folder:
             purpose = folder_purpose::locate;
-            title = L"저장소의 새 위치 선택";
+            title = tr(u8"app.dialog.choose_repository_new_location");
             break;
         default:
             return;
         }
-        if (std::optional<std::u8string> path { choose_folder(title) }; path.has_value())
+        if (std::optional<std::u8string> path { choose_folder(wide_text(title).c_str()) }; path.has_value())
             host.post_app_message(luil::app_message { folder_chosen_intent { purpose, std::move(*path), purpose == folder_purpose::locate ? command.argument : std::u8string {} } });
     }
 

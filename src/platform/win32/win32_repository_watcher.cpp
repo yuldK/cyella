@@ -2,6 +2,7 @@
 
 #include "domain/path_syntax.h"
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 #include "platform/win32/utf8.h"
 #include "platform/win32/win32_file_io.h"
 
@@ -111,7 +112,7 @@ namespace cyella::win32 {
             const std::optional<std::u8string> git_directory { content.has_value() ? resolve_gitdir_pointer(*content, working_tree) : std::nullopt };
             if (git_directory.has_value() == false)
             {
-                diagnostics.push_back(make_diagnostic(diagnostic_severity::warning, u8".git 파일에서 gitdir을 읽지 못해 작업 트리만 감시합니다."));
+                diagnostics.push_back(make_diagnostic(diagnostic_severity::warning, tr(u8"watch.gitdir_unreadable")));
                 return roots;
             }
             roots.push_back({ watched_root_kind::git_directory, *git_directory });
@@ -147,7 +148,7 @@ namespace cyella::win32 {
                 stop_event_.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
                 if (stop_event_.valid() == false)
                 {
-                    diagnostics.push_back(make_diagnostic(diagnostic_severity::error, u8"감시 종료 이벤트를 만들지 못했습니다.", static_cast<std::uint32_t>(GetLastError())));
+                    diagnostics.push_back(make_diagnostic(diagnostic_severity::error, tr(u8"watch.stop_event_failed"), static_cast<std::uint32_t>(GetLastError())));
                     return false;
                 }
 
@@ -168,7 +169,7 @@ namespace cyella::win32 {
                 catch (...)
                 {
                     cancel_all_reads();
-                    diagnostics.push_back(make_diagnostic(diagnostic_severity::error, u8"감시 스레드를 시작하지 못했습니다."));
+                    diagnostics.push_back(make_diagnostic(diagnostic_severity::error, tr(u8"watch.thread_failed")));
                     return false;
                 }
                 return true;
@@ -195,7 +196,7 @@ namespace cyella::win32 {
                 if (prepared.value.has_value() == false)
                 {
                     diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning,
-                        u8"감시할 경로가 올바르지 않습니다: " + spec.path, prepared.native_error));
+                        tr(u8"watch.path_invalid", { { u8"path", spec.path } }), prepared.native_error));
                     return nullptr;
                 }
 
@@ -208,7 +209,7 @@ namespace cyella::win32 {
                 if (root->directory.valid() == false)
                 {
                     diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning,
-                        u8"감시할 폴더를 열지 못했습니다: " + spec.path, static_cast<std::uint32_t>(GetLastError())));
+                        tr(u8"watch.folder_open_failed", { { u8"path", spec.path } }), static_cast<std::uint32_t>(GetLastError())));
                     return nullptr;
                 }
 
@@ -216,7 +217,7 @@ namespace cyella::win32 {
                 if (root->event.valid() == false || root->issue_read() == false)
                 {
                     diagnostics.push_back(make_diagnostic(spec.kind == watched_root_kind::working_tree ? diagnostic_severity::error : diagnostic_severity::warning,
-                        u8"폴더 변경 감시를 시작하지 못했습니다: " + spec.path, static_cast<std::uint32_t>(GetLastError())));
+                        tr(u8"watch.change_watch_failed", { { u8"path", spec.path } }), static_cast<std::uint32_t>(GetLastError())));
                     return nullptr;
                 }
                 return root;
@@ -386,7 +387,7 @@ namespace cyella::win32 {
         {
             if (is_absolute_windows_path(working_tree) == false)
             {
-                result.diagnostics.push_back(make_diagnostic(diagnostic_severity::error, u8"감시할 작업 트리는 절대 경로여야 합니다."));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_severity::error, tr(u8"watch.working_tree_not_absolute")));
                 return result;
             }
 
@@ -403,7 +404,7 @@ namespace cyella::win32 {
             result.watcher.reset();
             try
             {
-                result.diagnostics.push_back(make_diagnostic(diagnostic_severity::error, u8"저장소 감시를 시작하는 중 예기치 않은 오류가 발생했습니다."));
+                result.diagnostics.push_back(make_diagnostic(diagnostic_severity::error, tr(u8"watch.unexpected_failure")));
             }
             catch (...)
             {}

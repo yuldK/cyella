@@ -1,3 +1,4 @@
+#include "domain/text_catalog.h"
 #include "presentation/settings/shortcuts_intents.h"
 #include "presentation/ui/settings/settings_page_parts.h"
 #include "presentation/ui/settings/settings_pages_ui.h"
@@ -18,14 +19,16 @@ namespace cyella::ui {
         void add_edit_form(page_column& page, const shortcut_edit_view& edit)
         {
             page_column form { u8"settings-shortcut-form-column" };
-            form.add(field_label(u8"settings-shortcut-input-label", u8"'" + edit.title + u8"' 단축키: 칸을 누르고 키를 누르거나 직접 쓰세요 (여러 개는 ' / '로 이어 씁니다)"), label_height);
-            form.add(input_of(kind_shortcut_input, u8"settings-shortcut-input", edit.input, u8"예: Ctrl+Shift+K", u8"단축키 입력"), input_height);
-            form.add(help_line(u8"settings-shortcut-default", edit.default_keys.empty() ? u8"기본값: 키 없음" : u8"기본값: " + edit.default_keys), line_height);
+            form.add(field_label(u8"settings-shortcut-input-label", tr(u8"settings.shortcuts.input_label", { { u8"command", edit.title } })), label_height);
+            form.add(input_of(kind_shortcut_input, u8"settings-shortcut-input", edit.input, tr(u8"settings.shortcuts.input_placeholder"), tr(u8"settings.shortcuts.input_name")), input_height);
+            form.add(help_line(u8"settings-shortcut-default",
+                         edit.default_keys.empty() ? tr(u8"settings.shortcuts.default_none") : tr(u8"settings.shortcuts.default_keys", { { u8"keys", edit.default_keys } })),
+                line_height);
             form.add(help_line(u8"settings-shortcut-error", edit.error, error_color()), line_height);
             auto buttons { make_row(u8"settings-shortcut-buttons") };
             buttons->add_flexible_gap();
-            buttons->add(button_of(u8"settings-shortcut-cancel", u8"취소", message(cancel_shortcut_edit_intent {})), { .length = 64.0f, .cross_length = button_height });
-            buttons->add(button_of(u8"settings-shortcut-apply", u8"적용", message(apply_shortcut_intent {}), edit.can_apply, luil::text_button_visual::accent),
+            buttons->add(button_of(u8"settings-shortcut-cancel", tr(u8"settings.common.cancel"), message(cancel_shortcut_edit_intent {})), { .length = 64.0f, .cross_length = button_height });
+            buttons->add(button_of(u8"settings-shortcut-apply", tr(u8"settings.common.apply"), message(apply_shortcut_intent {}), edit.can_apply, luil::text_button_visual::accent),
                 { .length = 64.0f, .cross_length = button_height });
             form.add(std::move(buttons), input_height);
 
@@ -46,13 +49,15 @@ namespace cyella::ui {
             if (stacked == false)
                 line->add_flexible(std::move(title));
             const text_style key_style { .size = 11.0f, .color = row.keys.empty() ? dim : color_selector {}, .code = true };
-            auto keys { make_text(u8"shortcut-keys-" + key, row.keys.empty() ? std::u8string { u8"(키 없음)" } : row.keys, key_style) };
+            auto keys { make_text(u8"shortcut-keys-" + key, row.keys.empty() ? std::u8string { tr(u8"settings.shortcuts.no_keys") } : row.keys, key_style) };
             if (stacked)
                 line->add_flexible(std::move(keys));
             else
                 line->add(std::move(keys), keys_width);
-            line->add(button_of(u8"shortcut-edit-" + key, u8"편집", message(edit_shortcut_intent { row.command }), row.editing == false), { .length = edit_width, .cross_length = button_height });
-            line->add(button_of(u8"shortcut-reset-" + key, u8"기본값", message(reset_shortcut_intent { row.command }), row.customized), { .length = reset_width, .cross_length = button_height });
+            line->add(button_of(u8"shortcut-edit-" + key, tr(u8"settings.common.edit"), message(edit_shortcut_intent { row.command }), row.editing == false),
+                { .length = edit_width, .cross_length = button_height });
+            line->add(button_of(u8"shortcut-reset-" + key, tr(u8"settings.shortcuts.reset"), message(reset_shortcut_intent { row.command }), row.customized),
+                { .length = reset_width, .cross_length = button_height });
             if (stacked == false)
                 return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"shortcut-bar-" + key }, bar_style { .divider_bottom = true }, std::move(line));
             auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"shortcut-stack-" + key }, luil::stack_config {}) };
@@ -67,18 +72,19 @@ namespace cyella::ui {
     {
         page_column page { u8"settings-shortcuts-page" };
         const bool stacked { content_width < 560.0f };
-        page.add(section_title(u8"settings-section-shortcuts", u8"단축키"), section_height);
-        add_help(page, u8"settings-shortcuts-help-1", u8"명령 팔레트와 같은 명령 목록입니다. [편집]에서 단축키를 바꿀 수 있습니다.", content_width);
-        add_help(page, u8"settings-shortcuts-help-2", u8"글자·숫자는 Ctrl 또는 Alt와 함께 사용합니다. F1~F12·Esc는 단독으로 쓸 수 있으며, 중복된 키는 저장할 수 없습니다.", content_width);
+        page.add(section_title(u8"settings-section-shortcuts", tr(u8"settings.pages.shortcuts")), section_height);
+        add_help(page, u8"settings-shortcuts-help-1", tr(u8"settings.shortcuts.help_1"), content_width);
+        add_help(page, u8"settings-shortcuts-help-2", tr(u8"settings.shortcuts.help_2"), content_width);
         page.gap(small_gap);
         auto top { make_row(u8"settings-shortcuts-top") };
         top->add_flexible_gap();
-        top->add(button_of(u8"settings-shortcuts-reset-all", u8"모두 기본값으로", message(reset_all_shortcuts_intent {}), view.any_customized), { .length = 120.0f, .cross_length = button_height });
+        top->add(button_of(u8"settings-shortcuts-reset-all", tr(u8"settings.shortcuts.reset_all"), message(reset_all_shortcuts_intent {}), view.any_customized),
+            { .length = 120.0f, .cross_length = button_height });
         page.add(std::move(top), input_height);
         for (const shortcut_group_view& group : view.groups)
         {
             page.gap(small_gap);
-            page.add(section_title(u8"settings-shortcuts-group-" + std::u8string { group.title }, group.title), section_height);
+            page.add(section_title(u8"settings-shortcuts-group-" + group.owner, group.title), section_height);
             for (const shortcut_row_view& row : group.rows)
             {
                 page.add(build_row(row, stacked), stacked ? 24.0f + row_height + small_gap : row_height);

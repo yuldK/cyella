@@ -1,6 +1,7 @@
 #include "application/diff_view_controller.h"
 
 #include "domain/patch_builder.h"
+#include "domain/text_catalog.h"
 
 #include <utility>
 
@@ -303,14 +304,14 @@ namespace cyella {
     web_message_result diff_view_controller::build_patch_effect(const diff_hunk_command command, const std::size_t hunk, std::optional<std::vector<std::size_t>> lines)
     {
         if (command_allowed(command) == false)
-            return reject("이 보기에서는 허용하지 않는 동작입니다.");
+            return reject(tr_narrow(u8"diff_action.not_allowed_here"));
         if (hunk >= file_.hunks.size())
-            return reject("hunk 번호가 범위 밖입니다.");
+            return reject(tr_narrow(u8"diff_action.hunk_out_of_range"));
 
         const patch_direction direction { direction_of(command) };
         std::optional<std::string> patch { lines.has_value() ? build_line_patch(file_, hunk, *lines, direction) : build_hunk_patch(file_, hunk, direction) };
         if (patch.has_value() == false)
-            return reject("고른 줄로 patch를 만들 수 없습니다.");
+            return reject(tr_narrow(u8"diff_action.patch_from_lines_failed"));
 
         const patch_apply_mode mode { patch_apply_mode_for(direction) };
         apply_patch_effect effect {};
@@ -339,12 +340,12 @@ namespace cyella {
     web_message_result diff_view_controller::handle_lines_action(const lines_action& action)
     {
         if (kind_ != content_kind::text || action.hunk >= file_.hunks.size())
-            return reject("hunk 번호가 범위 밖입니다.");
+            return reject(tr_narrow(u8"diff_action.hunk_out_of_range"));
         std::optional<std::vector<std::size_t>> lines { expand_line_ranges(file_.hunks[action.hunk], action.ranges) };
         if (lines.has_value() == false)
-            return reject("줄 범위가 hunk 밖입니다.");
+            return reject(tr_narrow(u8"diff_action.lines_out_of_hunk"));
         if (lines->empty())
-            return reject("고른 구간에 바뀐 줄이 없습니다.");
+            return reject(tr_narrow(u8"diff_action.no_changed_lines"));
         return build_patch_effect(action.command, action.hunk, std::move(lines));
     }
 
@@ -358,7 +359,7 @@ namespace cyella {
         if (const auto* const ready { std::get_if<ready_action>(&*parsed.action) }; ready != nullptr)
         {
             if (ready->protocol != diff_view_protocol_version)
-                return reject("지원하지 않는 프로토콜 판입니다.");
+                return reject(tr_narrow(u8"diff_action.unsupported_protocol"));
             page_ready_ = true;
             content_dirty_ = true;
             return { true, {}, {} };
@@ -383,7 +384,7 @@ namespace cyella {
         };
         const std::uint64_t seq = std::visit(sequence_of, *parsed.action);
         if (seq != content_seq_)
-            return reject("이미 바뀐 diff에 대한 동작입니다.");
+            return reject(tr_narrow(u8"diff_action.stale_diff"));
 
         if (const auto* const hunk { std::get_if<hunk_action>(&*parsed.action) }; hunk != nullptr)
             return handle_hunk_action(*hunk);
@@ -393,7 +394,7 @@ namespace cyella {
         if (std::holds_alternative<open_external_action>(*parsed.action))
         {
             if (has_actionable_content() == false)
-                return reject("열 파일이 없습니다.");
+                return reject(tr_narrow(u8"diff_action.no_file_to_open"));
             web_message_result result {};
             result.accepted = true;
             result.effects.emplace_back(open_external_effect { make_plan() });
@@ -410,7 +411,7 @@ namespace cyella {
 
         // show_full
         if (truncated() == false)
-            return reject("잘린 diff가 아닙니다.");
+            return reject(tr_narrow(u8"diff_action.not_truncated"));
         full_requested_ = true;
         content_dirty_ = true;
         return { true, {}, {} };

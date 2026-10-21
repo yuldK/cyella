@@ -1,5 +1,6 @@
 #include "infrastructure/git_identity_gateway.h"
 
+#include "domain/text_catalog.h"
 #include "infrastructure/git_command_runner.h"
 #include "infrastructure/git_execution_policy.h"
 
@@ -50,7 +51,7 @@ namespace cyella {
         const git_command_result run { run_git_command(*runner_, request, token) };
         if (run.process.completion != process_completion::exited || run.process.exit_code.has_value() == false)
         {
-            result.error = u8"git config를 실행하지 못했습니다.";
+            result.error = tr(u8"git.identity.config_run_failed");
             return result;
         }
         // 종료 코드 1은 맞는 키가 하나도 없다는 뜻이다 (신원이 아직 설정되지 않은 저장소).
@@ -58,7 +59,7 @@ namespace cyella {
         {
             result.error = first_line_of(run.standard_error_text());
             if (result.error.empty())
-                result.error = u8"git config가 오류로 끝났습니다.";
+                result.error = tr(u8"git.identity.config_failed");
             return result;
         }
         result.identity = parse_git_identity(run.standard_output_text(), options_.hints);
@@ -72,7 +73,7 @@ namespace cyella {
         git_identity_write result {};
         if (user_name.empty() || user_email.empty())
         {
-            result.message = u8"이름과 이메일이 모두 있어야 적용할 수 있습니다.";
+            result.message = tr(u8"git.identity.name_and_email_required");
             return result;
         }
         const std::pair<std::u8string_view, std::u8string_view> entries[] { { u8"user.name", user_name }, { u8"user.email", user_email } };
@@ -85,12 +86,12 @@ namespace cyella {
             {
                 result.message = first_line_of(run.standard_error_text());
                 if (result.message.empty())
-                    result.message = u8"git config --local을 쓰지 못했습니다.";
+                    result.message = tr(u8"git.identity.write_failed");
                 return result;
             }
         }
         result.ok = true;
-        result.message = u8"이 저장소의 user.name·user.email을 설정했습니다.";
+        result.message = tr(u8"git.identity.applied");
         return result;
     }
 } // namespace cyella

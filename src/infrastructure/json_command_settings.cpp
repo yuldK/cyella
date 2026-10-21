@@ -2,6 +2,7 @@
 
 #include "domain/diagnostic.h"
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 #include "domain/user_profile.h"
 
 #include <nlohmann/json.hpp>
@@ -49,7 +50,7 @@ namespace cyella {
                 return nullptr;
             if (found->is_array() == false)
             {
-                warn(result, u8"앱 설정의 " + as_u8string(key) + u8"가 배열이 아니라 무시했습니다.");
+                warn(result, tr(u8"app_settings.key_not_array", { { u8"key", as_u8string(key) } }));
                 return nullptr;
             }
             return &*found;
@@ -82,7 +83,7 @@ namespace cyella {
                 result.settings.profiles.push_back(std::move(profile));
             }
             if (dropped > 0)
-                warn(result, u8"앱 설정의 프로필 중 이름이 없거나 겹치는 항목을 무시했습니다.");
+                warn(result, tr(u8"app_settings.profiles_invalid"));
         }
 
         void parse_profile_rules(const json& root, app_settings_load_result& result)
@@ -107,7 +108,7 @@ namespace cyella {
                 result.settings.profile_rules.push_back(std::move(rule));
             }
             if (dropped > 0)
-                warn(result, u8"앱 설정의 프로필 규칙 중 경로가 없거나 없는 프로필을 가리키는 항목을 무시했습니다.");
+                warn(result, tr(u8"app_settings.profile_rules_invalid"));
         }
 
         void parse_profile_assignments(const json& root, app_settings_load_result& result)
@@ -136,7 +137,7 @@ namespace cyella {
                 return;
             if (found->is_object() == false)
             {
-                warn(result, u8"앱 설정의 shortcuts가 object가 아니라 무시했습니다.");
+                warn(result, tr(u8"app_settings.shortcuts_not_object"));
                 return;
             }
             std::size_t dropped { 0 };
@@ -160,7 +161,7 @@ namespace cyella {
                 result.settings.shortcuts[id] = std::move(list);
             }
             if (dropped > 0)
-                warn(result, u8"앱 설정의 shortcuts 중 문자열 목록이 아닌 항목을 무시했습니다.");
+                warn(result, tr(u8"app_settings.shortcuts_invalid"));
         }
 
         void parse_command_history(const json& root, app_settings_load_result& result)

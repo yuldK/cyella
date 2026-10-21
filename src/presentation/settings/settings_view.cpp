@@ -1,6 +1,7 @@
 #include "presentation/settings/settings_view.h"
 
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 
 #include <algorithm>
 #include <cctype>
@@ -62,15 +63,15 @@ namespace cyella {
             switch (status)
             {
             case ssh_agent_service_status::running:
-                return u8"실행 중";
+                return tr(u8"settings_view.ssh.service_running");
             case ssh_agent_service_status::stopped:
-                return u8"중지됨";
+                return tr(u8"settings_view.ssh.service_stopped");
             case ssh_agent_service_status::disabled:
-                return u8"사용 안 함";
+                return tr(u8"settings_view.ssh.service_disabled");
             case ssh_agent_service_status::not_installed:
-                return u8"설치되지 않음";
+                return tr(u8"settings_view.ssh.service_not_installed");
             }
-            return u8"알 수 없음";
+            return tr(u8"settings_view.ssh.service_unknown");
         }
 
         tone service_tone_of(const ssh_agent_service_status status) noexcept
@@ -93,13 +94,13 @@ namespace cyella {
             switch (status)
             {
             case ssh_agent_service_status::running:
-                return u8"passphrase를 한 번 풀어 둔 키를 agent가 기억해 다시 묻지 않습니다.";
+                return tr(u8"settings_view.ssh.service_help_running");
             case ssh_agent_service_status::stopped:
-                return u8"시작하려면 관리자 권한의 PowerShell에서 Start-Service ssh-agent를 실행하세요.";
+                return tr(u8"settings_view.ssh.service_help_stopped");
             case ssh_agent_service_status::disabled:
-                return u8"시작 유형이 '사용 안 함'입니다. 관리자 권한으로 Set-Service ssh-agent -StartupType Manual 뒤 시작하세요.";
+                return tr(u8"settings_view.ssh.service_help_disabled");
             case ssh_agent_service_status::not_installed:
-                return u8"Windows의 선택적 기능 'OpenSSH 클라이언트'를 설치하면 서비스가 생깁니다.";
+                return tr(u8"settings_view.ssh.service_help_not_installed");
             }
             return {};
         }
@@ -108,7 +109,7 @@ namespace cyella {
         {
             if (info.agent_list_available == false)
             {
-                view.agent_message = u8"ssh-add를 찾지 못해 agent의 키를 조회하지 못했습니다.";
+                view.agent_message = tr(u8"settings_view.ssh.agent_ssh_add_missing");
                 return;
             }
             switch (info.agent.state)
@@ -126,19 +127,19 @@ namespace cyella {
                     view.identities.push_back(std::move(line));
                 }
                 if (info.agent.identities.size() > view.identities.size())
-                    view.identities.push_back(u8"외 " + number_text(info.agent.identities.size() - view.identities.size()) + u8"개");
+                    view.identities.push_back(tr(u8"settings_view.ssh.identities_more", { { u8"count", info.agent.identities.size() - view.identities.size() } }));
                 return;
             }
             case ssh_agent_list_state::no_identities:
-                view.agent_message = u8"agent는 떠 있지만 등록된 키가 없습니다. ssh-add로 키를 더할 수 있습니다.";
+                view.agent_message = tr(u8"settings_view.ssh.agent_no_identities");
                 return;
             case ssh_agent_list_state::agent_unavailable:
-                view.agent_message = u8"agent에 연결하지 못했습니다. ssh-agent 서비스를 시작한 뒤 [새로고침]을 누르세요.";
+                view.agent_message = tr(u8"settings_view.ssh.agent_unavailable");
                 return;
             case ssh_agent_list_state::failed:
                 break;
             }
-            view.agent_message = u8"agent의 키 목록을 읽지 못했습니다.";
+            view.agent_message = tr(u8"settings_view.ssh.agent_list_failed");
         }
 
         tone tone_of(const ssh_connection_result result) noexcept
@@ -174,7 +175,7 @@ namespace cyella {
                 return view;
             case operation_state::needs_input:
                 view.state = task_view::phase::waiting_for_input;
-                view.text = input.waiting_for_prompt ? u8"입력을 기다립니다. 인증 대화 상자에서 passphrase나 호스트 키 확인에 답하세요." : u8"입력이 필요합니다.";
+                view.text = input.waiting_for_prompt ? tr(u8"settings_view.task.waiting_for_prompt") : tr(u8"settings_view.task.needs_input");
                 return view;
             case operation_state::succeeded:
                 view.state = task_view::phase::finished;
@@ -188,14 +189,14 @@ namespace cyella {
                 return view;
             case operation_state::cancelled:
                 view.state = task_view::phase::finished;
-                view.text = u8"취소했습니다.";
+                view.text = tr(u8"settings_view.task.cancelled");
                 return view;
             case operation_state::failed:
                 break;
             }
             view.state = task_view::phase::finished;
             view.result_tone = tone::bad;
-            view.text = input.failure_summary.empty() ? u8"작업이 실패했습니다." : input.failure_summary;
+            view.text = input.failure_summary.empty() ? tr(u8"settings_view.task.failed") : input.failure_summary;
             view.detail = first_line(input.failure_detail);
             return view;
         }
@@ -253,23 +254,22 @@ namespace cyella {
                 const bool on_disk { inputs.probe != nullptr && inputs.ssh_directory.empty() == false && inputs.probe->probe(path) != path_kind::missing };
                 const bool exists { listed || on_disk };
                 if (exists)
-                    view.keygen_error = u8"같은 이름의 키가 이미 있습니다. 다른 이름을 고르세요.";
+                    view.keygen_error = tr(u8"settings_view.ssh.key_name_exists");
                 view.keygen_command = u8"ssh-keygen -t ed25519 -C \"" + comment + u8"\" -f \"" + path + u8"\"";
             }
-            view.keygen = make_task_view(inputs.keygen, u8"ssh-keygen을 실행하는 중…");
+            view.keygen = make_task_view(inputs.keygen, tr(u8"settings_view.ssh.keygen_running"));
             const bool keygen_busy { view.keygen.state == task_view::phase::running || view.keygen.state == task_view::phase::waiting_for_input };
             view.can_create = inputs.ssh_tools_found && inputs.ssh_directory.empty() == false && view.keygen_error.empty() && keygen_busy == false;
 
             const std::optional<ssh_target> target { parse_ssh_target(view.test_host.displayed_text()) };
             if (target.has_value() == false)
-                view.test_error
-                    = trimmed(view.test_host.displayed_text()).empty() ? u8"시험할 호스트를 입력하세요 (예: github.com)." : u8"호스트 형식이 올바르지 않습니다. [계정@]호스트[:포트]로 쓰세요.";
+                view.test_error = trimmed(view.test_host.displayed_text()).empty() ? tr(u8"settings_view.ssh.test_host_required") : tr(u8"settings_view.ssh.test_host_invalid");
             else
             {
                 view.test_command
                     = u8"ssh -T -o StrictHostKeyChecking=ask " + (target->port != 0 ? u8"-p " + number_text(target->port) + u8" " : std::u8string {}) + target->user_name + u8"@" + target->host;
             }
-            view.test = make_task_view(inputs.test, u8"연결을 시험하는 중…");
+            view.test = make_task_view(inputs.test, tr(u8"settings_view.ssh.test_running"));
             const bool test_busy { view.test.state == task_view::phase::running || view.test.state == task_view::phase::waiting_for_input };
             view.can_test = inputs.ssh_tools_found && target.has_value() && test_busy == false;
         }
@@ -287,7 +287,7 @@ namespace cyella {
                 const git_tool_info& tool { *inputs.git_tool };
                 view.executable = tool.executable;
                 view.version = tool.reported_version;
-                view.origin = tool.manually_configured ? u8"직접 지정" : u8"자동 탐색";
+                view.origin = tool.manually_configured ? tr(u8"settings_view.git.origin_manual") : tr(u8"settings_view.git.origin_auto");
                 if (tool.usable() == false)
                     view.problem = std::u8string { git_tool_unavailable_message(tool.availability) };
             }
@@ -396,22 +396,23 @@ namespace cyella {
         if (std::optional<std::vector<std::u8string>> expanded { expand_external_diff_arguments(argument_template, values) }; expanded.has_value())
         {
             check.preview_arguments = std::move(*expanded);
-            check.preview = format_command_preview(program.empty() ? std::u8string_view { u8"<실행 파일>" } : std::u8string_view { program }, check.preview_arguments);
+            const std::u8string placeholder { tr(u8"settings_view.tool.executable_placeholder") };
+            check.preview = format_command_preview(program.empty() ? std::u8string_view { placeholder } : std::u8string_view { program }, check.preview_arguments);
         }
         else
-            check.error = u8"인자 템플릿의 큰따옴표가 닫히지 않았습니다.";
+            check.error = tr(u8"settings_view.tool.unclosed_quote");
 
         if (check.extensions.empty())
-            check.error = u8"확장자를 하나 이상 입력하세요 (예: .png, .psd).";
+            check.error = tr(u8"settings_view.tool.extensions_required");
         else if (program.empty())
-            check.error = u8"실행 파일을 입력하세요.";
+            check.error = tr(u8"settings_view.tool.executable_required");
 
         if (check.error.empty())
         {
             if (is_absolute_windows_path(program) && probe != nullptr && probe->probe(program) != path_kind::file)
-                check.warning = u8"실행 파일을 찾지 못했습니다. 경로를 확인하세요 (저장은 됩니다).";
+                check.warning = tr(u8"settings_view.tool.executable_not_found");
             else if (contains(argument_template, u8"{left}") == false && contains(argument_template, u8"{right}") == false)
-                check.warning = u8"인자에 {left}나 {right}가 없어 도구가 비교할 파일을 받지 못합니다.";
+                check.warning = tr(u8"settings_view.tool.arguments_missing_files");
         }
         check.ok = check.error.empty();
         return check;
@@ -431,15 +432,15 @@ namespace cyella {
             check.preview = format_command_preview(program, check.preview_arguments);
         }
         else
-            check.error = u8"인자 템플릿의 큰따옴표가 닫히지 않았습니다.";
+            check.error = tr(u8"settings_view.tool.unclosed_quote");
         if (trimmed(name).empty())
-            check.error = u8"앱 이름을 입력하세요.";
+            check.error = tr(u8"settings_view.file_app.name_required");
         else if (program.empty())
-            check.error = u8"실행 파일을 입력하세요.";
+            check.error = tr(u8"settings_view.tool.executable_required");
         else if (is_absolute_windows_path(program) && probe != nullptr && probe->probe(program) != path_kind::file)
-            check.warning = u8"실행 파일을 찾지 못했습니다. 경로를 확인하세요 (저장은 됩니다).";
+            check.warning = tr(u8"settings_view.tool.executable_not_found");
         else if (contains(arguments, u8"{file}") == false && contains(arguments, u8"{repository}") == false)
-            check.warning = u8"{file} 또는 {repository} 토큰을 넣으면 선택한 파일이나 저장소를 전달합니다.";
+            check.warning = tr(u8"settings_view.file_app.arguments_missing_target");
         check.ok = check.error.empty();
         return check;
     }
@@ -459,9 +460,9 @@ namespace cyella {
         if (path.empty())
             return {};
         if (is_absolute_windows_path(path) == false)
-            return u8"절대 경로여야 합니다 (예: C:\\Program Files\\Git\\cmd\\git.exe).";
+            return tr(u8"settings_view.git.path_not_absolute");
         if (probe != nullptr && probe->probe(path) != path_kind::file)
-            return u8"그 경로에 파일이 없습니다.";
+            return tr(u8"settings_view.git.path_missing");
         return {};
     }
 
@@ -506,15 +507,15 @@ namespace cyella {
     std::u8string check_key_name(const std::u8string_view name)
     {
         if (name.empty())
-            return u8"파일 이름을 입력하세요 (예: id_ed25519).";
+            return tr(u8"settings_view.ssh.key_name_required");
         if (name.size() > maximum_key_name_length)
-            return u8"파일 이름이 너무 깁니다.";
+            return tr(u8"settings_view.ssh.key_name_too_long");
         if (name.front() == u8'-' || name.front() == u8'.')
-            return u8"파일 이름은 '-'나 '.'로 시작할 수 없습니다.";
+            return tr(u8"settings_view.ssh.key_name_bad_start");
         if (std::ranges::all_of(name, [](const char8_t character) { return is_word_character(character, true); }) == false)
-            return u8"파일 이름에는 영문, 숫자, '.', '_', '-'만 쓸 수 있습니다.";
+            return tr(u8"settings_view.ssh.key_name_bad_characters");
         if (name.ends_with(u8".pub"))
-            return u8"개인 키 이름은 .pub로 끝날 수 없습니다. 공개 키는 .pub가 자동으로 붙습니다.";
+            return tr(u8"settings_view.ssh.key_name_pub_suffix");
         return {};
     }
 
@@ -542,7 +543,7 @@ namespace cyella {
         for (std::size_t index { 0 }; index < inputs.settings->external_file_apps.size(); ++index)
         {
             const external_file_app& app { inputs.settings->external_file_apps[index] };
-            view.file_apps.push_back({ index, app.name, app.executable, app.arguments, true });
+            view.file_apps.push_back({ index, external_file_app_label(app), app.executable, app.arguments, true });
         }
         if (state.tool_edit.has_value())
             view.edit = make_edit_view(inputs, *state.tool_edit);

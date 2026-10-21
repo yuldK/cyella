@@ -1,6 +1,7 @@
 #include "infrastructure/git_operation_context.h"
 
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/git_diff_parser.h"
 #include "infrastructure/git_extension_operations.h"
 #include "infrastructure/git_interactive_rebase.h"
@@ -153,7 +154,7 @@ namespace cyella {
         {
             const std::string git_dir { context.read_git_dir() };
             if (git_dir.empty())
-                return operation_outcome::failed(failure_kind::not_found, u8"git 저장소가 아닙니다.");
+                return operation_outcome::failed(failure_kind::not_found, tr(u8"git.not_a_repository"));
 
             git_command_outcome outcome {};
             std::optional<operation_outcome> stop {};
@@ -283,7 +284,7 @@ namespace cyella {
                 return *stop;
             std::vector<commit_info> commits { parse_git_log(outcome.standard_output, true) };
             if (commits.empty())
-                return operation_outcome::failed(failure_kind::not_found, u8"커밋을 찾을 수 없습니다.");
+                return operation_outcome::failed(failure_kind::not_found, tr(u8"git.commit_not_found"));
 
             commit_detail detail {};
             detail.commit = std::move(commits.front());
@@ -394,7 +395,7 @@ namespace cyella {
                 return *stop;
             const std::optional<std::uint32_t> count { git_text::parse_integer<std::uint32_t>(trim_line(outcome.standard_output)) };
             if (count.has_value() == false)
-                return operation_outcome::failed(failure_kind::other, u8"커밋 수를 읽지 못했습니다.", to_utf8(outcome.standard_output));
+                return operation_outcome::failed(failure_kind::other, tr(u8"git.commit_count_failed"), to_utf8(outcome.standard_output));
             context.emit(commit_count_answered { request.from, request.to, *count });
             return operation_outcome::succeeded();
         }
@@ -425,7 +426,7 @@ namespace cyella {
                 else if constexpr (std::is_same_v<request_type, load_rebase_plan_request>)
                     return run_load_rebase_plan(context, request);
                 else
-                    return operation_outcome::failed(failure_kind::invalid_request, u8"읽기 lane에서 실행할 수 없는 작업입니다.");
+                    return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.read_lane_unsupported"));
             },
             job.operation);
     }
@@ -441,7 +442,7 @@ namespace cyella {
                     path_inspected result {};
                     result.path = request.path;
                     if (is_absolute_windows_path(request.path) == false)
-                        return operation_outcome::failed(failure_kind::invalid_request, u8"절대 경로가 필요합니다.");
+                        return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.absolute_path_required"));
                     if (context.owner().files().probe(request.path) != path_kind::directory)
                     {
                         context.emit(std::move(result));
@@ -464,9 +465,9 @@ namespace cyella {
                 else if constexpr (std::is_same_v<request_type, clone_request>)
                 {
                     if (is_absolute_windows_path(request.target_path) == false)
-                        return operation_outcome::failed(failure_kind::invalid_request, u8"절대 경로가 필요합니다.");
+                        return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.absolute_path_required"));
                     if (context.owner().files().probe(request.target_path) == path_kind::file)
-                        return operation_outcome::failed(failure_kind::refused, u8"같은 이름의 파일이 있습니다.");
+                        return operation_outcome::failed(failure_kind::refused, tr(u8"git.file_exists"));
                     git_clone_options options {};
                     options.url = request.url;
                     options.directory = to_bytes(request.target_path);
@@ -479,12 +480,12 @@ namespace cyella {
                     std::optional<operation_outcome> stop {};
                     if (context.run_required(std::move(spec), outcome, stop) == false)
                         return *stop;
-                    return operation_outcome::succeeded(u8"저장소를 복제했습니다.");
+                    return operation_outcome::succeeded(tr(u8"git.cloned"));
                 }
                 else if constexpr (std::is_same_v<request_type, init_request>)
                 {
                     if (is_absolute_windows_path(request.target_path) == false)
-                        return operation_outcome::failed(failure_kind::invalid_request, u8"절대 경로가 필요합니다.");
+                        return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.absolute_path_required"));
                     git_command_spec spec {};
                     spec.arguments = make_git_init_args(to_bytes(request.target_path), request.initial_branch);
                     spec.command_class = git_command_class::local_write;
@@ -493,7 +494,7 @@ namespace cyella {
                     std::optional<operation_outcome> stop {};
                     if (context.run_required(std::move(spec), outcome, stop) == false)
                         return *stop;
-                    return operation_outcome::succeeded(u8"저장소를 만들었습니다.");
+                    return operation_outcome::succeeded(tr(u8"git.initialized"));
                 }
                 else if constexpr (std::is_same_v<request_type, ssh_keygen_request>)
                 {
@@ -505,7 +506,7 @@ namespace cyella {
                 }
                 else
                 {
-                    return operation_outcome::failed(failure_kind::invalid_request, u8"저장소 준비 작업이 아닙니다.");
+                    return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.not_setup_operation"));
                 }
             },
             job.operation);

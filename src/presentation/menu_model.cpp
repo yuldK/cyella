@@ -1,6 +1,6 @@
 #include "presentation/menu_model.h"
 
-#include "presentation/korean_josa.h"
+#include "domain/text_catalog.h"
 #include "presentation/menu_extension.h"
 
 #include "luil/generated/codicons.h"
@@ -50,15 +50,17 @@ namespace cyella {
         {
             if (count.has_value() == false)
                 return {};
-            return u8" · 커밋 " + to_u8(std::to_string(*count)) + u8"개";
+            if (*count == 1)
+                return tr(u8"menu.commit_count_suffix_one", { { u8"count", *count } });
+            return tr(u8"menu.commit_count_suffix", { { u8"count", *count } });
         }
 
         std::vector<menu_entry> reset_group(const std::u8string& what, const std::u8string& to, const bool enabled)
         {
             std::vector<menu_entry> group {};
-            group.push_back(make_entry(u8"reset_soft", with_eul_reul(what) + u8" " + with_euro_ro(to) + u8" reset (soft)", icons::icon_debug_step_back, enabled));
-            group.push_back(make_entry(u8"reset_mixed", with_eul_reul(what) + u8" " + with_euro_ro(to) + u8" reset (mixed)", icons::icon_debug_step_back, enabled));
-            group.push_back(make_entry(u8"reset_hard", with_eul_reul(what) + u8" " + with_euro_ro(to) + u8" reset (hard · 변경을 버림)", icons::icon_trash, enabled, true));
+            group.push_back(make_entry(u8"reset_soft", tr(u8"menu.reset_soft", { { u8"what", what }, { u8"to", to } }), icons::icon_debug_step_back, enabled));
+            group.push_back(make_entry(u8"reset_mixed", tr(u8"menu.reset_mixed", { { u8"what", what }, { u8"to", to } }), icons::icon_debug_step_back, enabled));
+            group.push_back(make_entry(u8"reset_hard", tr(u8"menu.reset_hard", { { u8"what", what }, { u8"to", to } }), icons::icon_trash, enabled, true));
             return group;
         }
 
@@ -77,23 +79,22 @@ namespace cyella {
             model.title = short_sha(target.sha);
             add_group(entries,
                 {
-                    make_entry(u8"checkout_detached", u8"이 커밋 체크아웃 (detached HEAD)", icons::icon_target, !(is_head && context.detached)),
-                    make_entry(u8"create_branch", u8"여기서 브랜치 만들기…", icons::icon_git_branch_create),
-                    make_entry(u8"create_tag", u8"여기에 태그 만들기…", icons::icon_tag),
-                    make_entry(u8"add_worktree", u8"여기서 worktree 만들기…", icons::icon_worktree),
+                    make_entry(u8"checkout_detached", tr(u8"menu.checkout_commit_detached"), icons::icon_target, !(is_head && context.detached)),
+                    make_entry(u8"create_branch", tr(u8"menu.create_branch_here"), icons::icon_git_branch_create),
+                    make_entry(u8"create_tag", tr(u8"menu.create_tag_here"), icons::icon_tag),
+                    make_entry(u8"add_worktree", tr(u8"menu.add_worktree_here"), icons::icon_worktree),
                 });
             add_group(entries,
                 {
-                    make_entry(u8"cherry_pick", context.commit_is_merge ? u8"Cherry-pick (병합 커밋은 부모를 골라야 합니다)" : u8"Cherry-pick", icons::icon_git_pull_request_go_to_changes,
+                    make_entry(u8"cherry_pick", context.commit_is_merge ? tr(u8"menu.cherry_pick_merge") : std::u8string { u8"Cherry-pick" }, icons::icon_git_pull_request_go_to_changes,
                         context.commit_is_merge == false && is_head == false),
-                    make_entry(u8"revert", context.commit_is_merge ? u8"Revert (병합 커밋은 부모를 골라야 합니다)" : u8"Revert", icons::icon_discard, context.commit_is_merge == false),
+                    make_entry(u8"revert", context.commit_is_merge ? tr(u8"menu.revert_merge") : std::u8string { u8"Revert" }, icons::icon_discard, context.commit_is_merge == false),
                 });
             const std::u8string where { has_current_branch(context) ? to_u8(context.current_branch) : std::u8string { u8"HEAD" } };
             add_group(entries, reset_group(where, short_sha(target.sha), is_head == false));
             // 이 커밋 위에 쌓인 커밋들을 편집한다 (`rebase -i <이 커밋>`).
-            add_group(entries,
-                { make_entry(u8"interactive_rebase_here", u8"여기서부터 인터랙티브 rebase… (이 커밋 위의 커밋)", icons::icon_list_ordered, is_head == false && context.head_sha.empty() == false) });
-            add_group(entries, { make_entry(u8"copy_sha", u8"SHA 복사", icons::icon_copy) });
+            add_group(entries, { make_entry(u8"interactive_rebase_here", tr(u8"menu.interactive_rebase_here"), icons::icon_list_ordered, is_head == false && context.head_sha.empty() == false) });
+            add_group(entries, { make_entry(u8"copy_sha", tr(u8"menu.copy_sha"), icons::icon_copy) });
             model.entries = std::move(entries);
             return model;
         }
@@ -103,11 +104,12 @@ namespace cyella {
             const bool current_is_this { target.kind == menu_target_kind::local_branch && target.name == context.current_branch };
             const bool unavailable { has_current_branch(context) == false || current_is_this };
             const std::u8string name { to_u8(target.name) };
-            const std::u8string current { has_current_branch(context) ? to_u8(context.current_branch) : std::u8string { u8"현재 브랜치" } };
+            const std::u8string current { has_current_branch(context) ? to_u8(context.current_branch) : tr(u8"menu.current_branch") };
             std::vector<menu_entry> group {};
-            group.push_back(make_entry(u8"merge_into_current", with_eul_reul(name) + u8" " + current + u8"에 merge", icons::icon_git_merge, unavailable == false));
-            group.push_back(make_entry(u8"rebase_current_onto", with_eul_reul(current) + u8" " + name + u8" 위로 rebase", icons::icon_repo_forked, unavailable == false));
-            group.push_back(make_entry(u8"interactive_rebase_current_onto", with_eul_reul(current) + u8" " + name + u8" 위로 인터랙티브 rebase…", icons::icon_list_ordered, unavailable == false));
+            group.push_back(make_entry(u8"merge_into_current", tr(u8"menu.merge_into", { { u8"source", name }, { u8"target", current } }), icons::icon_git_merge, unavailable == false));
+            group.push_back(make_entry(u8"rebase_current_onto", tr(u8"menu.rebase_onto", { { u8"branch", current }, { u8"onto", name } }), icons::icon_repo_forked, unavailable == false));
+            group.push_back(
+                make_entry(u8"interactive_rebase_current_onto", tr(u8"menu.interactive_rebase_onto", { { u8"branch", current }, { u8"onto", name } }), icons::icon_list_ordered, unavailable == false));
             return group;
         }
 
@@ -123,25 +125,25 @@ namespace cyella {
             if (elsewhere)
                 add_group(model.entries,
                     {
-                        make_entry(u8"checkout", u8"체크아웃 (다른 worktree에서 사용 중)", icons::icon_check, false),
-                        make_entry(u8"open_worktree", u8"그 worktree 열기", icons::icon_worktree),
+                        make_entry(u8"checkout", tr(u8"menu.checkout_in_other_worktree"), icons::icon_check, false),
+                        make_entry(u8"open_worktree", tr(u8"menu.open_that_worktree"), icons::icon_worktree),
                     });
             else
                 add_group(model.entries,
                     {
-                        make_entry(u8"checkout", is_current ? u8"체크아웃 (현재 브랜치)" : u8"체크아웃", icons::icon_check, is_current == false),
-                        make_entry(u8"add_worktree", u8"새 worktree에 체크아웃…", icons::icon_worktree, is_current == false),
+                        make_entry(u8"checkout", is_current ? tr(u8"menu.checkout_current") : tr(u8"menu.checkout"), icons::icon_check, is_current == false),
+                        make_entry(u8"add_worktree", tr(u8"menu.checkout_in_new_worktree"), icons::icon_worktree, is_current == false),
                     });
             add_group(model.entries, merge_rebase_group(target, context));
             add_group(model.entries,
                 {
                     make_entry(u8"push", u8"Push…", icons::icon_repo_push),
-                    make_entry(u8"set_upstream", u8"upstream 설정…", icons::icon_cloud),
-                    make_entry(u8"unset_upstream", has_upstream ? u8"upstream 해제" : u8"upstream 해제 (upstream이 없습니다)", icons::icon_cloud, has_upstream),
-                    make_entry(u8"rename", u8"이름 바꾸기…", icons::icon_edit),
+                    make_entry(u8"set_upstream", tr(u8"menu.set_upstream"), icons::icon_cloud),
+                    make_entry(u8"unset_upstream", has_upstream ? tr(u8"menu.unset_upstream") : tr(u8"menu.unset_upstream_none"), icons::icon_cloud, has_upstream),
+                    make_entry(u8"rename", tr(u8"menu.rename"), icons::icon_edit),
                 });
-            add_group(model.entries, { make_entry(u8"delete", is_current ? u8"삭제 (현재 브랜치는 삭제할 수 없습니다)" : u8"삭제…", icons::icon_trash, is_current == false, true) });
-            add_group(model.entries, { make_entry(u8"copy_name", u8"이름 복사", icons::icon_copy) });
+            add_group(model.entries, { make_entry(u8"delete", is_current ? tr(u8"menu.delete_current_branch") : tr(u8"menu.delete"), icons::icon_trash, is_current == false, true) });
+            add_group(model.entries, { make_entry(u8"copy_name", tr(u8"menu.copy_name"), icons::icon_copy) });
             return model;
         }
 
@@ -149,9 +151,9 @@ namespace cyella {
         {
             menu_model model {};
             model.title = to_u8(target.name);
-            add_group(model.entries, { make_entry(u8"checkout", u8"체크아웃", icons::icon_check) });
+            add_group(model.entries, { make_entry(u8"checkout", tr(u8"menu.checkout"), icons::icon_check) });
             add_group(model.entries, merge_rebase_group(target, context));
-            add_group(model.entries, { make_entry(u8"copy_name", u8"이름 복사", icons::icon_copy) });
+            add_group(model.entries, { make_entry(u8"copy_name", tr(u8"menu.copy_name"), icons::icon_copy) });
             return model;
         }
 
@@ -165,17 +167,18 @@ namespace cyella {
             for (const std::string& remote : context.remotes)
             {
                 const bool exists { on_remote(remote) };
-                push.push_back(make_entry(u8"push:" + to_u8(remote), exists ? to_u8(remote) + u8"에 이미 있음" : to_u8(remote) + u8"으로 push", icons::icon_repo_push, exists == false));
+                push.push_back(make_entry(u8"push:" + to_u8(remote),
+                    exists ? tr(u8"menu.tag_already_on_remote", { { u8"remote", remote } }) : tr(u8"menu.push_tag_to_remote", { { u8"remote", remote } }), icons::icon_repo_push, exists == false));
             }
             add_group(model.entries, std::move(push));
-            add_group(model.entries, { make_entry(u8"checkout_detached", u8"이 태그 체크아웃 (detached HEAD)", icons::icon_target) });
+            add_group(model.entries, { make_entry(u8"checkout_detached", tr(u8"menu.checkout_tag_detached"), icons::icon_target) });
             std::vector<menu_entry> removal {};
-            removal.push_back(make_entry(u8"delete_local", u8"로컬 태그 삭제…", icons::icon_trash, true, true));
+            removal.push_back(make_entry(u8"delete_local", tr(u8"menu.delete_local_tag"), icons::icon_trash, true, true));
             if (tag != nullptr)
                 for (const std::string& remote : tag->remotes)
-                    removal.push_back(make_entry(u8"delete_remote:" + to_u8(remote), to_u8(remote) + u8"에서도 삭제…", icons::icon_trash, true, true));
+                    removal.push_back(make_entry(u8"delete_remote:" + to_u8(remote), tr(u8"menu.delete_tag_from_remote", { { u8"remote", remote } }), icons::icon_trash, true, true));
             add_group(model.entries, std::move(removal));
-            add_group(model.entries, { make_entry(u8"copy_name", u8"이름 복사", icons::icon_copy) });
+            add_group(model.entries, { make_entry(u8"copy_name", tr(u8"menu.copy_name"), icons::icon_copy) });
             return model;
         }
 
@@ -185,10 +188,10 @@ namespace cyella {
             model.title = to_u8(target.name);
             add_group(model.entries,
                 {
-                    make_entry(u8"apply", u8"Apply (stash를 남겨 둠)", icons::icon_check),
-                    make_entry(u8"pop", u8"Pop (적용하고 삭제)", icons::icon_git_stash_pop),
+                    make_entry(u8"apply", tr(u8"menu.stash_apply"), icons::icon_check),
+                    make_entry(u8"pop", tr(u8"menu.stash_pop"), icons::icon_git_stash_pop),
                 });
-            add_group(model.entries, { make_entry(u8"drop", u8"삭제…", icons::icon_trash, true, true) });
+            add_group(model.entries, { make_entry(u8"drop", tr(u8"menu.delete"), icons::icon_trash, true, true) });
             return model;
         }
 
@@ -203,11 +206,11 @@ namespace cyella {
                 for (const ref& value : context.refs)
                     if (value.kind == ref_kind::tag && std::find(value.remotes.begin(), value.remotes.end(), remote) == value.remotes.end())
                         ++missing;
-                push.push_back(make_entry(u8"push_all:" + to_u8(remote), u8"모든 태그를 " + to_u8(remote) + u8"으로 push · 원격에 없는 태그 " + to_u8(std::to_string(missing)) + u8"개",
-                    icons::icon_repo_push, context.refs.empty() == false));
+                push.push_back(
+                    make_entry(u8"push_all:" + to_u8(remote), tr(u8"menu.push_all_tags", { { u8"remote", remote }, { u8"count", missing } }), icons::icon_repo_push, context.refs.empty() == false));
             }
             add_group(model.entries, std::move(push));
-            add_group(model.entries, { make_entry(u8"create_tag_head", u8"HEAD에 새 태그 만들기…", icons::icon_tag, context.head_sha.empty() == false) });
+            add_group(model.entries, { make_entry(u8"create_tag_head", tr(u8"menu.create_tag_at_head"), icons::icon_tag, context.head_sha.empty() == false) });
             return model;
         }
 
@@ -217,7 +220,7 @@ namespace cyella {
             model.title = to_u8(target.name);
             if (target.conflicted)
             {
-                add_group(model.entries, { make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy) });
+                add_group(model.entries, { make_entry(u8"copy_path", tr(u8"menu.copy_path"), icons::icon_copy) });
                 return model;
             }
             if (target.side == change_side::staged)
@@ -227,20 +230,21 @@ namespace cyella {
                 add_group(model.entries, { make_entry(u8"stage", u8"Stage", icons::icon_add) });
                 add_group(model.entries,
                     {
-                        make_entry(u8"discard", target.untracked ? u8"휴지통으로 보내기…" : u8"변경 버리기…", target.untracked ? icons::icon_trash : icons::icon_discard, true, true),
-                        make_entry(u8"ignore", u8"무시 목록(.gitignore)에 추가", icons::icon_circle_slash),
+                        make_entry(
+                            u8"discard", target.untracked ? tr(u8"menu.move_to_recycle_bin") : tr(u8"menu.discard_changes"), target.untracked ? icons::icon_trash : icons::icon_discard, true, true),
+                        make_entry(u8"ignore", tr(u8"menu.add_to_gitignore"), icons::icon_circle_slash),
                     });
             }
             add_group(model.entries,
                 {
-                    make_entry(u8"open_external_diff", u8"외부 diff 도구로 열기", icons::icon_diff, target.untracked == false),
-                    make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy),
+                    make_entry(u8"open_external_diff", tr(u8"menu.open_external_diff"), icons::icon_diff, target.untracked == false),
+                    make_entry(u8"copy_path", tr(u8"menu.copy_path"), icons::icon_copy),
                 });
             // Git LFS: 추적 중인 파일은 객체를 받고, 아닌 파일은 확장자로 추적을 시작한다.
             if (target.lfs)
-                add_group(model.entries, { make_entry(u8"lfs_pull", u8"LFS 객체 가져오기 (pull)", icons::icon_cloud_download) });
+                add_group(model.entries, { make_entry(u8"lfs_pull", tr(u8"menu.lfs_pull"), icons::icon_cloud_download) });
             else if (const std::string pattern { lfs_pattern_for_path(target.name) }; pattern.empty() == false && target.conflicted == false)
-                add_group(model.entries, { make_entry(u8"lfs_track", to_u8(pattern) + u8"을(를) LFS로 추적…", icons::icon_package) });
+                add_group(model.entries, { make_entry(u8"lfs_track", tr(u8"menu.lfs_track", { { u8"pattern", pattern } }), icons::icon_package) });
             return model;
         }
 
@@ -249,13 +253,13 @@ namespace cyella {
         {
             menu_model model {};
             model.title = to_u8(target.name);
-            add_group(model.entries, { make_entry(u8"open_diff", u8"변경 내용 보기", icons::icon_diff) });
+            add_group(model.entries, { make_entry(u8"open_diff", tr(u8"menu.view_changes"), icons::icon_diff) });
             add_group(model.entries,
                 {
-                    make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy),
-                    make_entry(u8"copy_name", u8"파일 이름 복사", icons::icon_copy),
+                    make_entry(u8"copy_path", tr(u8"menu.copy_path"), icons::icon_copy),
+                    make_entry(u8"copy_name", tr(u8"menu.copy_file_name"), icons::icon_copy),
                     // `git show abc1234:src/a.cpp`에 그대로 쓰는 꼴이다.
-                    make_entry(u8"copy_revision_path", short_sha(target.sha) + u8":" + to_u8(target.name) + u8" 복사", icons::icon_copy),
+                    make_entry(u8"copy_revision_path", tr(u8"menu.copy_revision_path", { { u8"revision", short_sha(target.sha) + u8":" + to_u8(target.name) } }), icons::icon_copy),
                 });
             return model;
         }
@@ -278,7 +282,7 @@ namespace cyella {
 
             if (destination.is_commit)
             {
-                add_group(model.entries, { make_entry(u8"create_branch_here", u8"이 커밋에서 브랜치 만들기…", icons::icon_git_branch_create) });
+                add_group(model.entries, { make_entry(u8"create_branch_here", tr(u8"menu.create_branch_from_commit"), icons::icon_git_branch_create) });
                 if (source_is_current && destination.sha != context.head_sha)
                     add_group(model.entries, reset_group(a, b, true));
                 return model;
@@ -290,29 +294,31 @@ namespace cyella {
                 // 원격 브랜치는 직접 바꾸지 않는다. 로컬 끈 쪽을 바꾸는 merge와 rebase만 있다.
                 std::vector<menu_entry> group {};
                 const bool contained { facts.destination_is_ancestor.value_or(false) };
+                group.push_back(make_entry(u8"merge_remote_into_source",
+                    tr(u8"menu.merge_into", { { u8"source", b }, { u8"target", a } }) + (contained ? tr(u8"menu.already_included") : count_suffix(facts.only_in_destination)), icons::icon_git_merge,
+                    contained == false));
                 group.push_back(
-                    make_entry(u8"merge_remote_into_source", with_eul_reul(b) + u8" " + a + u8"에 merge" + (contained ? std::u8string { u8" · 이미 포함" } : count_suffix(facts.only_in_destination)),
-                        icons::icon_git_merge, contained == false));
-                group.push_back(make_entry(u8"rebase", with_eul_reul(a) + u8" " + b + u8" 위로 rebase" + (contained ? std::u8string { u8" · 이미 위에 있음" } : count_suffix(facts.only_in_source)),
-                    icons::icon_repo_forked, contained == false && source.kind == ref_kind::local));
+                    make_entry(u8"rebase", tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (contained ? tr(u8"menu.already_on_top") : count_suffix(facts.only_in_source)),
+                        icons::icon_repo_forked, contained == false && source.kind == ref_kind::local));
                 add_group(model.entries, std::move(group));
                 return model;
             }
 
             std::vector<menu_entry> group {};
             if (same_tip == false && facts.destination_is_ancestor.value_or(true))
-                group.push_back(make_entry(u8"fast_forward", with_eul_reul(b) + u8" " + with_euro_ro(a) + u8" fast-forward" + count_suffix(facts.only_in_source), icons::icon_arrow_up,
+                group.push_back(make_entry(u8"fast_forward", tr(u8"menu.fast_forward", { { u8"branch", b }, { u8"to", a } }) + count_suffix(facts.only_in_source), icons::icon_arrow_up,
                     facts.destination_is_ancestor.has_value()));
             const bool contained { same_tip || facts.source_is_ancestor.value_or(false) };
-            group.push_back(make_entry(u8"merge", with_eul_reul(a) + u8" " + b + u8"에 merge" + (contained ? std::u8string { u8" · 이미 포함" } : count_suffix(facts.only_in_source)),
+            group.push_back(make_entry(u8"merge", tr(u8"menu.merge_into", { { u8"source", a }, { u8"target", b } }) + (contained ? tr(u8"menu.already_included") : count_suffix(facts.only_in_source)),
                 icons::icon_git_merge, contained == false));
             if (source.kind == ref_kind::local)
             {
                 const bool on_top { same_tip || facts.destination_is_ancestor.value_or(false) };
-                group.push_back(make_entry(u8"rebase", with_eul_reul(a) + u8" " + b + u8" 위로 rebase" + (on_top ? std::u8string { u8" · 이미 위에 있음" } : count_suffix(facts.only_in_source)),
+                group.push_back(make_entry(u8"rebase", tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (on_top ? tr(u8"menu.already_on_top") : count_suffix(facts.only_in_source)),
                     icons::icon_repo_forked, on_top == false));
-                group.push_back(make_entry(u8"interactive_rebase", with_eul_reul(a) + u8" " + b + u8" 위로 인터랙티브 rebase…" + (on_top ? std::u8string {} : count_suffix(facts.only_in_source)),
-                    icons::icon_list_ordered, same_tip == false));
+                group.push_back(
+                    make_entry(u8"interactive_rebase", tr(u8"menu.interactive_rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (on_top ? std::u8string {} : count_suffix(facts.only_in_source)),
+                        icons::icon_list_ordered, same_tip == false));
             }
             add_group(model.entries, std::move(group));
             if (destination_is_current && same_tip == false)
@@ -366,22 +372,22 @@ namespace cyella {
         const repository_tab& tab { list[*index] };
         const bool repository { tab.kind == repository_tab_kind::repository };
         menu_model model {};
-        model.title = repository ? tab.display_name : std::u8string { u8"시작" };
+        model.title = repository ? tab.display_name : tr(u8"menu.start_tab");
         // 시작 탭 하나만 남았으면 닫아도 같은 시작 탭이 다시 서므로 닫기를 끈다.
         const bool only_start { list.size() == 1 && repository == false };
         add_group(model.entries,
             {
-                make_entry(u8"close", u8"탭 닫기", icons::icon_close, only_start == false),
-                make_entry(u8"close_others", u8"다른 탭 닫기", icons::icon_close_all, list.size() > 1),
-                make_entry(u8"close_right", u8"오른쪽 탭 닫기", icons::icon_close_all, *index + 1 < list.size()),
+                make_entry(u8"close", tr(u8"menu.close_tab"), icons::icon_close, only_start == false),
+                make_entry(u8"close_others", tr(u8"menu.close_other_tabs"), icons::icon_close_all, list.size() > 1),
+                make_entry(u8"close_right", tr(u8"menu.close_tabs_right"), icons::icon_close_all, *index + 1 < list.size()),
             });
         if (repository)
         {
-            add_group(model.entries, { make_entry(u8"copy_path", u8"경로 복사", icons::icon_copy) });
+            add_group(model.entries, { make_entry(u8"copy_path", tr(u8"menu.copy_path"), icons::icon_copy) });
             add_group(model.entries,
                 {
-                    make_entry(u8"reveal", u8"탐색기에서 열기", icons::icon_folder_opened),
-                    make_entry(u8"open_vscode", u8"VS Code에서 열기", icons::icon_vscode),
+                    make_entry(u8"reveal", tr(u8"menu.reveal_in_explorer"), icons::icon_folder_opened),
+                    make_entry(u8"open_vscode", tr(u8"menu.open_in_vscode"), icons::icon_vscode),
                 });
         }
         return model;
@@ -409,20 +415,20 @@ namespace cyella {
         if (destination.is_commit)
         {
             const bool can_reset { source.kind == ref_kind::local && source.name == current_branch && destination.sha != source.sha };
-            return short_sha(destination.sha) + u8" 커밋에서 브랜치 만들기" + (can_reset ? std::u8string { u8" 또는 reset" } : std::u8string {});
+            return can_reset ? tr(u8"menu.drop_hint_branch_or_reset", { { u8"sha", short_sha(destination.sha) } }) : tr(u8"menu.drop_hint_branch", { { u8"sha", short_sha(destination.sha) } });
         }
         const std::u8string b { to_u8(destination.name) };
         if (source.sha == destination.sha)
-            return a + u8" · " + b + u8": 같은 커밋이라 바꿀 것이 없습니다";
+            return tr(u8"menu.drop_hint_same_commit", { { u8"source", a }, { u8"target", b } });
         if (destination.kind == ref_kind::remote)
-            return with_eul_reul(a) + u8" " + b + u8" 위로 rebase" + count_suffix(facts.only_in_source);
+            return tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + count_suffix(facts.only_in_source);
         if (facts.destination_is_ancestor.value_or(false))
-            return with_eul_reul(b) + u8" " + with_euro_ro(a) + u8" fast-forward" + count_suffix(facts.only_in_source);
+            return tr(u8"menu.fast_forward", { { u8"branch", b }, { u8"to", a } }) + count_suffix(facts.only_in_source);
         if (facts.source_is_ancestor.value_or(false))
-            return with_eun_neun(a) + u8" 이미 " + b + u8"에 들어 있음";
+            return tr(u8"menu.drop_hint_already_in", { { u8"source", a }, { u8"target", b } });
         if (source.kind == ref_kind::remote)
-            return with_eul_reul(a) + u8" " + b + u8"에 merge" + count_suffix(facts.only_in_source);
-        return with_eul_reul(a) + u8" " + b + u8" 위로 rebase" + count_suffix(facts.only_in_source);
+            return tr(u8"menu.merge_into", { { u8"source", a }, { u8"target", b } }) + count_suffix(facts.only_in_source);
+        return tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + count_suffix(facts.only_in_source);
     }
 
     std::optional<std::string> menu_key_argument(const std::u8string& key, const std::u8string_view prefix)

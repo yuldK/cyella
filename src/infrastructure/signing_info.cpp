@@ -2,6 +2,7 @@
 
 #include "application/process_request.h"
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/git_execution_policy.h"
 #include "infrastructure/git_signing_commands.h"
 #include "infrastructure/git_signing_parser.h"
@@ -126,7 +127,7 @@ namespace cyella {
             {
                 if (sources.probe != nullptr && sources.probe->probe(configured_text) != path_kind::file)
                 {
-                    info.gpg_problem = u8"gpg.program이 가리키는 파일을 찾지 못했습니다: " + configured_text;
+                    info.gpg_problem = tr(u8"signing.gpg_program_not_found", { { u8"path", configured_text } });
                     return;
                 }
                 info.gpg_executable = configured_text;
@@ -135,7 +136,7 @@ namespace cyella {
                 info.gpg_executable = info.default_gpg;
             if (info.gpg_executable.empty())
             {
-                info.gpg_problem = u8"gpg를 찾지 못했습니다. Git for Windows를 설치했는지, 환경 설정의 gpg.program이 올바른지 확인하세요.";
+                info.gpg_problem = tr(u8"signing.gpg_not_found");
                 return;
             }
 
@@ -151,12 +152,12 @@ namespace cyella {
             const process_result result { sources.runner->run(request, &sink, sources.cancellation) };
             if (result.completion != process_completion::exited || result.exit_code.has_value() == false)
             {
-                info.gpg_problem = u8"gpg를 실행하지 못했습니다. gpg.program 설정을 확인하세요.";
+                info.gpg_problem = tr(u8"signing.gpg_run_failed");
                 return;
             }
             if (*result.exit_code != 0)
             {
-                info.gpg_problem = u8"gpg가 키 목록을 읽지 못했습니다. " + first_line(sink.standard_error);
+                info.gpg_problem = tr(u8"signing.gpg_list_failed", { { u8"reason", first_line(sink.standard_error) } });
                 return;
             }
             info.gpg_keys = parse_gpg_secret_keys(sink.standard_output, sources.now != 0 ? sources.now : seconds_now());
@@ -228,7 +229,7 @@ namespace cyella {
         catch (...)
         {
             info.gpg_pending = false;
-            info.gpg_problem = u8"gpg 키 목록을 읽는 중 예기치 않은 오류가 났습니다.";
+            info.gpg_problem = tr(u8"signing.gpg_list_unexpected_error");
         }
     }
 
@@ -239,12 +240,12 @@ namespace cyella {
         {
             if (sources.runner == nullptr || sources.git_executable.empty())
             {
-                result.error = u8"git을 찾지 못해 설정을 바꿀 수 없습니다.";
+                result.error = tr(u8"signing.git_not_found");
                 return result;
             }
             if (global == false && sources.repository_path.empty())
             {
-                result.error = u8"저장소를 연 탭에서만 이 저장소의 설정을 바꿀 수 있습니다.";
+                result.error = tr(u8"signing.repository_tab_required");
                 return result;
             }
             for (const signing_change& change : changes)
@@ -255,7 +256,7 @@ namespace cyella {
                 if (outcome.exited_with(0) || (change.value.has_value() == false && outcome.exited_with(5)))
                     continue;
                 const std::u8string name { to_utf8(signing_key_name(change.key)) };
-                result.error = name + u8" 설정을 " + (change.value.has_value() ? u8"바꾸지" : u8"지우지") + u8" 못했습니다.";
+                result.error = change.value.has_value() ? tr(u8"signing.config_set_failed", { { u8"name", name } }) : tr(u8"signing.config_unset_failed", { { u8"name", name } });
                 if (const std::u8string reason { first_line(outcome.standard_error) }; reason.empty() == false)
                     result.error += u8" " + reason;
                 return result;
@@ -265,11 +266,11 @@ namespace cyella {
         catch (const std::invalid_argument& error)
         {
             const std::string_view what { error.what() };
-            result.error = u8"설정 값이 올바르지 않습니다: " + to_utf8(what);
+            result.error = tr(u8"signing.invalid_value", { { u8"detail", to_utf8(what) } });
         }
         catch (...)
         {
-            result.error = u8"설정을 바꾸는 중 예기치 않은 오류가 났습니다.";
+            result.error = tr(u8"signing.config_unexpected_error");
         }
         return result;
     }
