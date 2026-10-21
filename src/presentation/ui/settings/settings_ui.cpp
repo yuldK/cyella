@@ -104,6 +104,23 @@ namespace cyella::ui {
             page.gap(small_gap);
             add_help(page, u8"settings-theme-help", tr(u8"settings.general.theme_help"), content_width);
 
+            // 언어 이름은 그 언어로 쓴다 (어느 화면 언어에서든 자기 언어를 찾을 수 있게). 바꾸면 다시 시작할 때 적용한다 (ADR-008).
+            page.add(section_title(u8"settings-section-language", tr(u8"settings.general.language")), section_height);
+            luil::choice_group_config language {};
+            language.owner = u8"settings-language";
+            language.style = luil::choice_style::toggle;
+            language.name = tr(u8"settings.general.language");
+            language.items = {
+                { u8"system", tr(u8"settings.general.language_system") },
+                { u8"ko", tr(u8"settings.general.language_korean") },
+                { u8"en", tr(u8"settings.general.language_english") },
+            };
+            language.selected = std::u8string { language_preference_name(view.language) };
+            language.select = [](const std::u8string& value) { return message(set_language_intent { parse_language_preference(value).value_or(language_preference::system) }); };
+            auto language_row { make_row(u8"settings-language-row") };
+            language_row->add_flexible(make_segmented_control(std::move(language)));
+            page.add(std::move(language_row), input_height);
+            add_help(page, u8"settings-language-help", tr(u8"settings.general.language_help"), content_width);
 
             page.add(section_title(u8"settings-section-fonts", tr(u8"settings.general.fonts")), section_height);
             const bool font_columns { content_width >= 480.0f + font_column_gap };

@@ -391,7 +391,8 @@ namespace cyella {
             if (message.get<apply_font_settings_intent>() != nullptr || message.get<select_font_intent>() != nullptr || message.get<open_font_list_intent>() != nullptr
                 || message.get<close_font_list_intent>() != nullptr || message.get<font_list_scroll_intent>() != nullptr)
                 return true;
-            return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr || message.get<set_gravatar_intent>() != nullptr || message.get<apply_git_path_intent>() != nullptr
+            return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr
+                || message.get<set_language_intent>() != nullptr || message.get<set_gravatar_intent>() != nullptr || message.get<apply_git_path_intent>() != nullptr
                 || message.get<reset_git_path_intent>() != nullptr || message.get<add_tool_intent>() != nullptr || message.get<edit_tool_intent>() != nullptr
                 || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr || message.get<cancel_tool_edit_intent>() != nullptr
                 || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr || message.get<refresh_ssh_intent>() != nullptr
@@ -426,6 +427,11 @@ namespace cyella {
         {
             const theme_preference theme { theme_intent->theme };
             update_settings([theme](app_settings& settings) { settings.appearance.theme = theme; });
+        }
+        else if (const auto* const language_intent { message.get<set_language_intent>() }; language_intent != nullptr)
+        {
+            const language_preference language { language_intent->language };
+            update_settings([language](app_settings& settings) { settings.language = language; });
         }
         else if (const auto* const opened { message.get<open_font_list_intent>() }; opened != nullptr)
         {

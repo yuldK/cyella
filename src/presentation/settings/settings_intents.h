@@ -39,6 +39,12 @@ namespace cyella {
         theme_preference theme { theme_preference::system };
     };
 
+    // 화면 문구의 언어다. 저장만 하고 다시 시작할 때 적용한다 (ADR-008).
+    struct set_language_intent
+    {
+        language_preference language { language_preference::system };
+    };
+
     struct apply_font_settings_intent
     {};
 

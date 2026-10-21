@@ -166,6 +166,7 @@ namespace cyella {
         std::u8string message {};
 
         theme_preference theme { theme_preference::system };
+        language_preference language { language_preference::system };
         luil::text_input_view ui_font {};
         luil::text_input_view code_font {};
         std::optional<font_list_state> font_list {};
