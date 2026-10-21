@@ -18,6 +18,7 @@
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -644,6 +645,12 @@ TEST_CASE("repository layouts share working controls and preserve their intended
             REQUIRE(layout != nullptr);
             CHECK(layout->bounds().x >= 272.0f);
             CHECK(layout->bounds().x + layout->bounds().width <= width);
+            // 배치 전환 컨트롤은 작업 탭 줄의 세로 가운데에 선다.
+            const auto* const navigation { find_element(built, ui::kind_panel, u8"workspace-navigation-bar") };
+            REQUIRE(navigation != nullptr);
+            const float layout_middle { layout->bounds().y + layout->bounds().height / 2.0f };
+            const float navigation_middle { navigation->bounds().y + navigation->bounds().height / 2.0f };
+            CHECK(std::abs(layout_middle - navigation_middle) <= 1.0f);
             const auto* const commit { find_element(built, ui::kind_commit_subject_input, u8"commit-subject") };
             REQUIRE(commit != nullptr);
             CHECK(commit->bounds().width > 100.0f);

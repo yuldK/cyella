@@ -339,7 +339,10 @@ namespace cyella::ui {
             };
             config.selected = repository.detail == detail_mode::working ? u8"workspace-changes" : u8"workspace-history";
             config.select = [](const std::u8string& key) { return message(select_workspace_intent { key == u8"workspace-changes" }); };
-            const luil::stack_config row_config { .direction = luil::stack_direction::row, .padding = luil::edge_insets { 8.0f, 0.0f, 8.0f, 0.0f } };
+            // 탭은 줄 높이를 다 채우고, 그보다 낮은 배치 전환 컨트롤은 줄의 세로 가운데에 선다.
+            const luil::stack_config row_config {
+                .direction = luil::stack_direction::row, .padding = luil::edge_insets { 8.0f, 0.0f, 8.0f, 0.0f }, .cross_alignment = luil::stack_alignment::center
+            };
             auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"workspace-navigation-row" }, row_config) };
             auto navigation { std::make_unique<luil::tab_bar_element>(std::move(config)) };
             navigation->set_access_name(u8"저장소 작업");
