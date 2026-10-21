@@ -226,18 +226,21 @@ namespace cyella::ui {
         }
         context.canvas.restore();
         const float reach { std::min(12.0f * scale, clip.width / 2.0f) };
-        const auto shadow = [&](const bool left) {
+        const auto shadow = [&](const bool left, const float strength) {
             context.canvas.save();
             context.canvas.translate(left ? clip.x : clip.x + clip.width, clip.y);
             context.canvas.rotate(left ? -90.0f : 90.0f);
             const luil::rect_f band { left ? -clip.height : 0.0f, 0.0f, clip.height, reach };
-            luil::draw_downward_shadow(context.canvas, band, context.palette.content_shadow, 0.38f);
+            luil::draw_downward_shadow(context.canvas, band, context.palette.content_shadow, 0.38f * strength);
             context.canvas.restore();
         };
-        if (lane_->scroll_offset() > 0.5f)
-            shadow(true);
-        if (lane_->scroll_offset() + 0.5f < lane_->maximum_scroll())
-            shadow(false);
+        // 흘리는 창의 위·아래 그림자와 같은 곡선이다: 끝에서 멀어진 만큼 서서히 짙어져, 흘리기 시작한 순간 툭 켜지지 않는다.
+        const float left { luil::scroll_edge_strength(lane_->scroll_offset()) };
+        const float right { luil::scroll_edge_strength(lane_->maximum_scroll() - lane_->scroll_offset()) };
+        if (left > 0.0f)
+            shadow(true, left);
+        if (right > 0.0f)
+            shadow(false, right);
     }
 
     void repository_tabs_element::set_tabs_name(std::u8string name)
