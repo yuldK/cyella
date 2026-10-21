@@ -99,9 +99,8 @@ namespace cyella {
     {
         repository_tab tab { make_start_tab() };
         const repository_tab_id id { tab.id };
-        const std::size_t position { selected_ + 1 };
-        tabs_.insert(tabs_.begin() + static_cast<std::ptrdiff_t>(position), std::move(tab));
-        selected_ = position;
+        tabs_.push_back(std::move(tab));
+        selected_ = tabs_.size() - 1;
         return id;
     }
 

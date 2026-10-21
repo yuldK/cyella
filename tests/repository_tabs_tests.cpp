@@ -102,7 +102,7 @@ TEST_CASE("opening an open repository keeps a selected start tab", "[repository_
     static_cast<void>(tabs.open_repository(repo(u8"a")));
 
     // 이미 열린 저장소는 시작 탭을 쓰지 않고 그 탭으로 간다. 시작 탭은 남는다.
-    CHECK(labels(tabs) == label_list { u8"a", u8"b", u8"*", u8"c" });
+    CHECK(labels(tabs) == label_list { u8"a", u8"b", u8"c", u8"*" });
     CHECK(tabs.selected_index() == 0);
 }
 
@@ -115,20 +115,21 @@ TEST_CASE("opening an empty path does nothing", "[repository_tabs]")
     CHECK(labels(tabs) == label_list { u8"a", u8"b", u8"c" });
 }
 
-TEST_CASE("new tab adds a start tab after the selected one", "[repository_tabs]")
+TEST_CASE("new tab adds a start tab at the end next to the add button", "[repository_tabs]")
 {
+    // 가운데 탭(b)이 선택된 채로 눌러도 맨 뒤에 선다.
     repository_tabs tabs { three_tabs() };
 
     const repository_tab_id id { tabs.new_tab() };
 
-    CHECK(labels(tabs) == label_list { u8"a", u8"b", u8"*", u8"c" });
-    CHECK(tabs.selected_index() == 2);
+    CHECK(labels(tabs) == label_list { u8"a", u8"b", u8"c", u8"*" });
+    CHECK(tabs.selected_index() == 3);
     CHECK(tabs.selected().id == id);
 
     // 시작 탭이 선택된 채 "+"를 또 누르면 시작 탭이 하나 더 생긴다.
     static_cast<void>(tabs.new_tab());
-    CHECK(labels(tabs) == label_list { u8"a", u8"b", u8"*", u8"*", u8"c" });
-    CHECK(tabs.selected_index() == 3);
+    CHECK(labels(tabs) == label_list { u8"a", u8"b", u8"c", u8"*", u8"*" });
+    CHECK(tabs.selected_index() == 4);
 }
 
 TEST_CASE("select validates the index", "[repository_tabs]")
@@ -296,8 +297,8 @@ TEST_CASE("session capture skips start tabs and remembers the active repository"
 {
     repository_tabs tabs { three_tabs() };
     static_cast<void>(tabs.new_tab());
-    REQUIRE(tabs.tabs()[2].kind == repository_tab_kind::start);
-    REQUIRE(tabs.select(3));
+    REQUIRE(tabs.tabs()[3].kind == repository_tab_kind::start);
+    REQUIRE(tabs.select(2));
 
     app_settings settings {};
     capture_open_tabs(tabs, settings);
@@ -306,7 +307,7 @@ TEST_CASE("session capture skips start tabs and remembers the active repository"
     CHECK(settings.active_tab == repo(u8"c"));
 
     // 시작 탭이 선택돼 있으면 활성 탭은 비운다.
-    REQUIRE(tabs.select(2));
+    REQUIRE(tabs.select(3));
     capture_open_tabs(tabs, settings);
     CHECK(settings.active_tab.empty());
     CHECK(settings.open_tabs.size() == 3);

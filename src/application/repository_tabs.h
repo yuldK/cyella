@@ -64,7 +64,7 @@ namespace cyella {
         // - 아니면 선택된 탭 바로 오른쪽에 끼우고 선택한다.
         // 빈 경로는 아무것도 하지 않고 선택된 탭을 돌려준다.
         open_repository_result open_repository(std::u8string_view path);
-        // "+" 버튼이다. 선택된 탭 바로 오른쪽에 시작 탭을 끼우고 선택한다.
+        // "+" 버튼이다. 탭 줄 맨 뒤("+" 단추 바로 앞)에 시작 탭을 더하고 선택한다.
         repository_tab_id new_tab();
 
         // 바뀐 것이 있으면 true다. 범위 밖이거나 이미 그 탭이면 false다.
