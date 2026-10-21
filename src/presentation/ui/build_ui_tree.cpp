@@ -660,10 +660,18 @@ namespace cyella::ui {
         root->place(build_tab_row(view, sources), rects.tab_row);
         if (window_caption)
         {
-            root->place(std::make_unique<luil::caption_element>(caption_config), { 0.0f, 0.0f, view.logical_width, caption_height });
+            // 타이틀 그림이 있으면 캡션이 그리는 제목 글자를 비우고 그 자리에 그림을 얹는다. 작업 표시줄·Alt+Tab의 창 제목은
+            // 창 설정(`window_config::caption`)의 글자 그대로다.
+            const bool titled { app_title_available() };
+            luil::caption_config drawn { caption_config };
+            if (titled)
+                drawn.title.clear();
+            root->place(std::make_unique<luil::caption_element>(std::move(drawn)), { 0.0f, 0.0f, view.logical_width, caption_height });
             // 앱 심볼은 캡션의 아이콘 칸 위에 얹는다.
             if (app_symbol().valid())
-                root->place(make_app_symbol(u8"caption-symbol"), caption_icon_rect(caption_config));
+                root->place(make_app_symbol(u8"caption-symbol"), caption_icon_rect(caption_config, titled));
+            if (titled)
+                root->place(make_app_title(u8"caption-title", u8"cyella"), caption_title_rect(caption_config, app_title_aspect()));
         }
         // 끄는 동안의 문구는 대화 상자 아래, 나머지 화면 위에 그린다.
         if (view.repository.has_value() && view.repository->drop_hints != nullptr)

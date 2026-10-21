@@ -23,11 +23,28 @@ namespace cyella::ui {
         return caption;
     }
 
-    shell_rect caption_icon_rect(const luil::caption_config& caption) noexcept
+    namespace {
+        // 타이틀 그림 곁의 심볼은 캡션 높이의 7할이다. 16px 글리프 크기로는 캘리그라피 곁에서 너무 작다.
+        constexpr float titled_symbol_share { 0.7f };
+        // 그림 위아래에 장식의 여백이 있어 캡션 높이의 8할을 주면 글자가 제목 글꼴과 비슷한 키로 선다.
+        constexpr float title_height_share { 0.8f };
+    } // namespace
+
+    shell_rect caption_icon_rect(const luil::caption_config& caption, const bool titled) noexcept
     {
-        const float size { static_cast<float>(caption.metrics.application_icon_size) };
-        const float slot_width { static_cast<float>(caption.metrics.application_icon_slot_width) };
         const float height { static_cast<float>(caption.metrics.height) };
+        const float size { titled ? height * titled_symbol_share : static_cast<float>(caption.metrics.application_icon_size) };
+        const float slot_width { static_cast<float>(caption.metrics.application_icon_slot_width) };
         return { (slot_width - size) * 0.5f, (height - size) * 0.5f, size, size };
+    }
+
+    shell_rect caption_title_rect(const luil::caption_config& caption, const float aspect) noexcept
+    {
+        const float height { static_cast<float>(caption.metrics.height) };
+        const float title_height { height * title_height_share };
+        // 가로 로고처럼 심볼 바로 곁에 붙인다. 아이콘 칸 끝이 아니라 심볼 오른쪽 끝에서 제목 간격만큼 띈다.
+        const shell_rect symbol { caption_icon_rect(caption, true) };
+        const float left { symbol.x + symbol.width + static_cast<float>(caption.metrics.title_icon_gap) };
+        return { left, (height - title_height) * 0.5f, title_height * aspect, title_height };
     }
 } // namespace cyella::ui

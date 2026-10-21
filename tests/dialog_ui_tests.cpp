@@ -4,6 +4,7 @@
 #include "presentation/selector_intents.h"
 #include "presentation/ui/app_symbol.h"
 #include "presentation/ui/build_ui_tree.h"
+#include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
@@ -12,6 +13,7 @@
 #include "view_snapshot_support.h"
 
 #include "luil/ui/image_decode.h"
+#include "luil/ui/ui_platform.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -737,10 +739,24 @@ TEST_CASE("the start page heading draws the title calligraphy when its images ar
     CHECK(title->bounds().height > 0.0f);
     CHECK(title->bounds().width == 2.0f * title->bounds().height);
     CHECK(titled.tree->duplicate_ids().empty());
+    // 창 캡션에서는 그림이 제목 글자를 대신한다. 캡션이 그리는 글자는 비고, 그림은 아이콘 칸 오른쪽에 캡션 높이 안으로 선다.
+    if (luil::current_ui_platform().window_caption)
+    {
+        const luil::ui_element* const caption_title { find_element(titled, ui::kind_image, u8"caption-title") };
+        REQUIRE(caption_title != nullptr);
+        CHECK(caption_title->accessibility().name == u8"cyella");
+        const luil::caption_config caption { ui::cyella_caption() };
+        const luil::ui_element* const caption_symbol { find_element(titled, ui::kind_image, u8"caption-symbol") };
+        if (caption_symbol != nullptr)
+            CHECK(caption_title->bounds().x > caption_symbol->bounds().x + caption_symbol->bounds().width);
+        CHECK(caption_title->bounds().y >= 0.0f);
+        CHECK(caption_title->bounds().y + caption_title->bounds().height <= static_cast<float>(caption.metrics.height));
+    }
 
     ui::set_app_title({}, {});
     const auto plain { ui::build_ui_tree(harness.build(1440.0f)) };
     CHECK(find_element(plain, ui::kind_image, u8"start-title") == nullptr);
+    CHECK(find_element(plain, ui::kind_image, u8"caption-title") == nullptr);
 }
 
 TEST_CASE("a right click on a tab asks for that tab's menu", "[presentation][ui][tabs][menu]")
