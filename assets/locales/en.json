@@ -1555,7 +1555,7 @@
     "tree.layout_review": "Changes",
     "tree.log.close": "Close operation log",
     "tree.log.header": "Operation log · git commands run",
-    "tree.log.title": "Operation log",
+    "tree.log.title": "Log",
     "tree.selector_tooltip": "{caption}: {value} (click to choose)",
     "tree.settings": "Settings",
     "tree.status_queued": "Queued {count}",
