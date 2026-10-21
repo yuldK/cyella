@@ -1,22 +1,13 @@
-"""Generate Cyella's Windows icon (assets/cyella.ico) and app symbol image
-(assets/cyella-symbol.png) from assets/cyella.svg, and the title calligraphy
-images (assets/cyella-title.png, assets/cyella-title-sea.png) from the title SVGs.
+"""Generate Cyella's Windows icon (assets/cyella.ico) from assets/cyella.svg.
 
 Pillow cannot read SVG, so the artwork is rendered once at its native 1024 px by
 headless Microsoft Edge (bundled with Windows 11) with a transparent background,
-then downscaled to each icon size. The app symbol is one PNG that the app
-decodes at startup and draws in the caption, the start page and the settings
-dialog; luil's Skia build has no SVG module, so the UI cannot draw the SVG
-itself. Run from the repository root (Python 3.9 or newer with
-Pillow):
+then downscaled to each icon size. Windows needs the raster icon for the
+executable and the taskbar; inside the app the symbol and title are drawn from
+the SVG files themselves. Run from the repository root (Python 3.9 or newer
+with Pillow):
 
-    py -I .\\scripts\\generate_app_icon.py --svg .\\assets\\cyella.svg --output .\\assets\\cyella.ico --symbol-output .\\assets\\cyella-symbol.png
-
-The title is drawn in two lettering colors, deep blue for light themes and pale
-sea for dark themes. Each SVG is rendered at its own size and scaled to one PNG:
-
-    py -I .\\scripts\\generate_app_icon.py --svg .\\assets\\cyella-title.svg --title-output .\\assets\\cyella-title.png
-    py -I .\\scripts\\generate_app_icon.py --svg .\\assets\\cyella-title-sea.svg --title-output .\\assets\\cyella-title-sea.png
+    py -I .\\scripts\\generate_app_icon.py --svg .\\assets\\cyella.svg --output .\\assets\\cyella.ico
 """
 
 from __future__ import annotations
@@ -27,7 +18,6 @@ import struct
 import subprocess
 import tempfile
 import time
-import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 from PIL import Image
@@ -35,20 +25,11 @@ from PIL import Image
 
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 RENDER_SIZE = 1024
-# The start page draws the symbol at 64 logical px, so 256 px covers up to 400% scaling.
-SYMBOL_SIZE = 256
-# The start page draws the title at 72 logical px high, so 288 px covers up to 400% scaling.
-TITLE_HEIGHT = 288
 DEFAULT_BROWSER = Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
 SCREENSHOT_TIMEOUT_SECONDS = 60
 
 
-def svg_size(svg_path: Path) -> tuple[int, int]:
-    root = ElementTree.parse(svg_path).getroot()
-    return round(float(root.attrib["width"])), round(float(root.attrib["height"]))
-
-
-def render_svg(svg_path: Path, browser_path: Path, work_directory: Path, size: tuple[int, int] = (RENDER_SIZE, RENDER_SIZE)) -> Image.Image:
+def render_svg(svg_path: Path, browser_path: Path, work_directory: Path) -> Image.Image:
     screenshot_path = work_directory / "render.png"
     subprocess.run(
         [
@@ -59,7 +40,7 @@ def render_svg(svg_path: Path, browser_path: Path, work_directory: Path, size: t
             "--no-first-run",
             f"--user-data-dir={work_directory / 'profile'}",
             "--force-device-scale-factor=1",
-            f"--window-size={size[0]},{size[1]}",
+            f"--window-size={RENDER_SIZE},{RENDER_SIZE}",
             "--default-background-color=00000000",
             f"--screenshot={screenshot_path}",
             svg_path.resolve().as_uri(),
@@ -82,7 +63,7 @@ def render_svg(svg_path: Path, browser_path: Path, work_directory: Path, size: t
                 raise RuntimeError("Edge did not produce the screenshot in time.")
             time.sleep(0.2)
 
-    if rendered.size != size:
+    if rendered.size != (RENDER_SIZE, RENDER_SIZE):
         raise RuntimeError(f"Unexpected render size: {rendered.size}")
     # An opaque corner means the browser ignored the transparent background flag.
     if rendered.getpixel((0, 0))[3] != 0:
@@ -114,31 +95,14 @@ def write_ico(images: list[Image.Image], output_path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--svg", type=Path, required=True)
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--symbol-output", type=Path)
-    parser.add_argument("--title-output", type=Path)
+    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--browser", type=Path, default=DEFAULT_BROWSER)
     arguments = parser.parse_args()
-
-    if arguments.title_output is not None:
-        size = svg_size(arguments.svg)
-        with tempfile.TemporaryDirectory(prefix="cyella-title-") as work_directory:
-            source = render_svg(arguments.svg, arguments.browser, Path(work_directory), size)
-        width = round(size[0] * TITLE_HEIGHT / size[1])
-        arguments.title_output.parent.mkdir(parents=True, exist_ok=True)
-        source.resize((width, TITLE_HEIGHT), Image.Resampling.LANCZOS).save(arguments.title_output, format="PNG", optimize=True)
-        return
-    if arguments.output is None:
-        parser.error("--output is required unless --title-output is given")
 
     with tempfile.TemporaryDirectory(prefix="cyella-icon-") as work_directory:
         source = render_svg(arguments.svg, arguments.browser, Path(work_directory))
     images = [source.resize((size, size), Image.Resampling.LANCZOS) for size in ICON_SIZES]
     write_ico(images, arguments.output)
-    if arguments.symbol_output is not None:
-        arguments.symbol_output.parent.mkdir(parents=True, exist_ok=True)
-        symbol = source.resize((SYMBOL_SIZE, SYMBOL_SIZE), Image.Resampling.LANCZOS)
-        symbol.save(arguments.symbol_output, format="PNG", optimize=True)
 
 
 if __name__ == "__main__":

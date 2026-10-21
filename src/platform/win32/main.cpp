@@ -59,8 +59,8 @@ namespace {
         return options;
     }
 
-    // 실행 파일에 실은 PNG(앱 심볼, 타이틀)를 푼다. 없거나 풀지 못하면 빈 그림이라 그 자리는 글리프나 글자로 물러선다.
-    luil::ui_image load_resource_image(const int id)
+    // 실행 파일에 실은 SVG(앱 심볼, 타이틀)를 벡터 그림으로 읽는다. 없거나 읽지 못하면 빈 그림이라 그 자리는 글리프나 글자로 물러선다.
+    luil::ui_image load_resource_svg(const int id)
     {
         const HMODULE module { ::GetModuleHandleW(nullptr) };
         const HRSRC resource { ::FindResourceW(module, MAKEINTRESOURCEW(id), RT_RCDATA) };
@@ -72,7 +72,7 @@ namespace {
         if (data == nullptr || size == 0)
             return {};
         luil::image_decode_error error {};
-        return luil::decode_image_bytes(std::span { static_cast<const std::uint8_t*>(data), static_cast<std::size_t>(size) }, error);
+        return luil::decode_svg_bytes(std::span { static_cast<const std::uint8_t*>(data), static_cast<std::size_t>(size) }, error);
     }
 } // namespace
 
@@ -86,8 +86,8 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
     // 기본 UI 글꼴 우선순위다. 설치되어 있지 않으면 luil이 내장 기본으로 물러선다.
     luil::set_ui_typeface_families({ u8"Malgun Gothic" });
     // 캡션 값(`cyella_caption`)을 만들기 전에 앱 심볼과 타이틀 그림을 정한다.
-    cyella::ui::set_app_symbol(load_resource_image(IDR_CYELLA_SYMBOL));
-    cyella::ui::set_app_title(load_resource_image(IDR_CYELLA_TITLE), load_resource_image(IDR_CYELLA_TITLE_SEA));
+    cyella::ui::set_app_symbol(load_resource_svg(IDR_CYELLA_SYMBOL));
+    cyella::ui::set_app_title(load_resource_svg(IDR_CYELLA_TITLE), load_resource_svg(IDR_CYELLA_TITLE_SEA));
 
     // 창의 겉모습과 정책이다. 길이는 전부 논리 96 DPI 기준 px다.
     luil::win32::window_config config {};

@@ -87,9 +87,11 @@ cyella_find_dependencies(BUILD_TESTS ${CYELLA_BUILD_TESTS})
 #    디렉터리(third_party/catch2)에 add_subdirectory해 cyella의 것과 충돌한다.
 #  - SYSTEM: luil 공개 헤더를 cyella의 /W4·/analyze 밖에 둔다.
 #  - 정적 CRT 설정은 project() 앞의 것을 luil이 그대로 따른다.
+#  - LUIL_ENABLE_SVG: 앱 심볼과 타이틀 캘리그라피를 assets의 SVG 그대로 벡터로 그린다.
 set(LUIL_BUILD_TESTS OFF)
 set(LUIL_BUILD_EXAMPLES OFF)
 set(LUIL_BUILD_TOOLING OFF)
+set(LUIL_ENABLE_SVG ON)
 add_subdirectory(third_party/luil SYSTEM)
 # luil의 고지·resource 함수는 호출 scope의 세 변수를 읽는다. 하위 디렉터리의
 # 일반 변수는 부모로 올라오지 않으므로 여기서 다시 정한다.

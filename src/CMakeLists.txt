@@ -2,11 +2,11 @@ set(cyella_resource_directory "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/resour
 set(cyella_manifest_file "${cyella_resource_directory}/cyella.manifest")
 set(cyella_resource_ids_file "${cyella_resource_directory}/resource_ids.h")
 set(cyella_resource_template "${cyella_resource_directory}/cyella.rc.in")
-# 앱 아이콘·앱 심볼 그림은 assets/cyella.svg에서, 타이틀 그림은 assets/cyella-title*.svg에서 scripts/generate_app_icon.py로 만든다.
+# 앱 아이콘은 assets/cyella.svg에서 scripts/generate_app_icon.py로 만든다. 앱 심볼과 타이틀은 SVG를 그대로 실어 벡터로 그린다.
 set(cyella_app_icon "${PROJECT_SOURCE_DIR}/assets/cyella.ico")
-set(cyella_app_symbol "${PROJECT_SOURCE_DIR}/assets/cyella-symbol.png")
-set(cyella_app_title "${PROJECT_SOURCE_DIR}/assets/cyella-title.png")
-set(cyella_app_title_sea "${PROJECT_SOURCE_DIR}/assets/cyella-title-sea.png")
+set(cyella_app_symbol "${PROJECT_SOURCE_DIR}/assets/cyella.svg")
+set(cyella_app_title "${PROJECT_SOURCE_DIR}/assets/cyella-title.svg")
+set(cyella_app_title_sea "${PROJECT_SOURCE_DIR}/assets/cyella-title-sea.svg")
 
 file(TO_CMAKE_PATH "${cyella_manifest_file}" CYELLA_MANIFEST_PATH)
 file(TO_CMAKE_PATH "${cyella_resource_ids_file}" CYELLA_RESOURCE_IDS_PATH)
@@ -634,7 +634,7 @@ target_link_libraries(cyella_lib
         shell32)
 
 # resource는 두 .rc다: luil 조각(코디콘 폰트·라이선스·고지, ID 101~104)과 cyella
-# 조각(manifest·앱 아이콘(ID 105)·앱 심볼 PNG(ID 106)·타이틀 PNG 두 장(ID 107·108)·VERSIONINFO).
+# 조각(manifest·앱 아이콘(ID 105)·앱 심볼 SVG(ID 106)·타이틀 SVG 두 장(ID 107·108)·VERSIONINFO).
 set(cyella_app_files)
 cyella_add_source_filter(cyella_app_files "app"
     platform/win32/main.cpp)

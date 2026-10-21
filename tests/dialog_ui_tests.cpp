@@ -11,6 +11,8 @@
 
 #include "view_snapshot_support.h"
 
+#include "luil/ui/image_decode.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include "include/core/SkBitmap.h"
@@ -732,4 +734,26 @@ TEST_CASE("the start page heading draws the title calligraphy when its images ar
     ui::set_app_title({}, {});
     const auto plain { ui::build_ui_tree(harness.build(1440.0f)) };
     CHECK(find_element(plain, ui::kind_image, u8"start-title") == nullptr);
+}
+
+TEST_CASE("the app symbol and title SVG assets read as vector images", "[presentation][ui][assets]")
+{
+    // 앱은 이 SVG를 실행 파일 resource로 실어 그대로 읽는다. luil의 SVG 모듈이 같은 파일을 읽는지 본다.
+    const std::string assets { std::string { CYELLA_TEST_DATA_DIRECTORY } + "/../../assets/" };
+    struct expected_size
+    {
+        const char* file;
+        int width;
+        int height;
+    };
+    for (const expected_size& expected : { expected_size { "cyella.svg", 1024, 1024 }, expected_size { "cyella-title.svg", 1990, 980 }, expected_size { "cyella-title-sea.svg", 1990, 980 } })
+    {
+        CAPTURE(expected.file);
+        const std::string path { assets + expected.file };
+        luil::image_decode_error error {};
+        const luil::ui_image image { luil::load_svg_file(std::u8string { path.begin(), path.end() }, error) };
+        REQUIRE(image.valid());
+        CHECK(image.width() == expected.width);
+        CHECK(image.height() == expected.height);
+    }
 }
