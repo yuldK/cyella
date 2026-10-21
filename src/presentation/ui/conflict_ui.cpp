@@ -6,6 +6,7 @@
 #include "presentation/ui/ui_parts.h"
 #include "presentation/ui_intents.h"
 
+#include "luil/ui/font_scale.h"
 #include "luil/ui/stack_element.h"
 #include "luil/ui/virtual_list_element.h"
 
@@ -25,6 +26,7 @@ namespace cyella::ui {
         constexpr float conflict_footer_height { 48.0f };
         constexpr float conflict_button_height { 24.0f };
         constexpr float conflict_button_gap { 6.0f };
+        constexpr float conflict_button_padding { 12.0f };
 
         const color_selector dim_color { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
 
@@ -59,7 +61,10 @@ namespace cyella::ui {
                 const float top { stacked_ ? context.slot.y + 42.0f * scale : context.slot.y + (context.slot.height - height) / 2.0f };
                 for (auto it { children().rbegin() }; it != children().rend(); ++it)
                 {
-                    const float width { widths_[static_cast<std::size_t>(children().rend() - it) - 1] * scale };
+                    // 정해 둔 폭은 바닥이다. 글이 더 길면(영어, 큰 글꼴) 글 폭에 양쪽 여백을 더한 만큼 늘린다.
+                    const std::size_t index { static_cast<std::size_t>(children().rend() - it) - 1 };
+                    const float text_width { context.measure_text()(labels_[index], luil::scaled_font_size(12.0f, scale)) };
+                    const float width { std::max(widths_[index] * scale, text_width + 2.0f * conflict_button_padding * scale) };
                     right -= width;
                     (*it)->arrange(context.for_child({ right, top, width, height }));
                     right -= conflict_button_gap * scale;
@@ -108,6 +113,7 @@ namespace cyella::ui {
         private:
             void add_button(std::u8string owner, std::u8string label, const luil::text_button_visual visual, luil::input_action action, const bool disabled, const float width, std::u8string tooltip)
             {
+                labels_.push_back(label);
                 auto button { make_text_button(std::move(owner), std::move(label), visual, std::move(action), disabled == false) };
                 button->set_tooltip(std::move(tooltip));
                 button->set_tab_stop(true);
@@ -116,6 +122,7 @@ namespace cyella::ui {
             }
 
             conflict_file_view file_ {};
+            std::vector<std::u8string> labels_ {};
             std::vector<float> widths_ {};
             float text_right_ { 0.0f };
             bool stacked_ { false };
