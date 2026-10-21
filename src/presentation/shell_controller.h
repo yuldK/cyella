@@ -85,6 +85,9 @@ namespace cyella {
             // 작성자 사진(Gravatar)을 worker에서 받는다. 인자는 다듬은 메일이고 결과는 `avatar_loaded_intent`로 돌아온다.
             // 환경 설정 `appearance.gravatar`가 켜졌을 때만 부른다. 비어 있으면(test) 늘 이름 첫 글자다.
             std::function<void(const std::string& email)> request_avatar {};
+            // 저장소 폴더를 탐색기·VS Code 같은 앱으로 연다. driver가 diff의 외부 앱 열기와 같은 worker 길을 꽂는다.
+            // 비어 있으면(test) 아무 일도 하지 않는다.
+            std::function<void(const external_file_app& app, const std::u8string& folder)> open_folder_app {};
         };
 
         explicit shell_controller(dependencies dependencies);
@@ -194,6 +197,8 @@ namespace cyella {
         // `dismissed`가 참이면 바깥 누름 등으로 닫힌 것이다 (곧 이어지는 같은 상자의 뗌을 다시 열기로 읽지 않는다).
         void close_selector(bool dismissed);
         void select_from_selector(const std::u8string& key);
+        // 지금 탭의 저장소 폴더를 `repository_open_apps`의 `index`번째 앱으로 연다. 저장소 탭이 아니면 아무 일도 하지 않는다.
+        void open_repository_in_app(std::size_t index);
 
         void open_context_menu(menu_target target, float x, float y);
         void request_drop_facts();

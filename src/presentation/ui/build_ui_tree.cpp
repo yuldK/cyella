@@ -276,7 +276,7 @@ namespace cyella::ui {
             const float width { toolbar.show_labels ? tool_button_width : tool_button_compact_width };
             const float repository_width { toolbar.show_repository_selector ? toolbar_selector_width : 0.0f };
             // 고정 단추의 자리를 먼저 남겨 최소 폭에서도 끝의 상세 단추까지 보이게 한다.
-            const float fixed_width { width * 6.0f + toolbar_separator_width * 2.0f + toolbar_padding * 2.0f + toolbar_spacing * 13.0f + (toolbar.show_detail_toggle ? toolbar_detail_width : 0.0f) };
+            const float fixed_width { width * 7.0f + toolbar_separator_width * 3.0f + toolbar_padding * 2.0f + toolbar_spacing * 15.0f + (toolbar.show_detail_toggle ? toolbar_detail_width : 0.0f) };
             const float branch_width { std::min(toolbar_branch_width, std::max(view.logical_width - repository_width - fixed_width, 0.0f)) };
             auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"toolbar" },
                 luil::stack_config { .direction = luil::stack_direction::row, .spacing = toolbar_spacing, .padding = luil::edge_insets { toolbar_padding, 0.0f, toolbar_padding, 0.0f } });
@@ -306,6 +306,18 @@ namespace cyella::ui {
             tool(u8"branch", codicons::icon_git_branch, u8"브랜치", u8"새 브랜치의 이름과 시작 커밋을 정합니다.", toolbar.branch_enabled, toolbar_action::branch);
             tool(u8"stash", codicons::icon_git_stash, u8"보관", u8"변경을 임시 보관합니다 (Stash, 추적하지 않는 파일 포함).", toolbar.stash_enabled, toolbar_action::stash);
             tool(u8"pop", codicons::icon_git_stash_pop, u8"꺼내기", u8"가장 최근에 보관한 변경을 적용하고 목록에서 지웁니다 (Pop).", toolbar.pop_enabled, toolbar_action::pop);
+            row->add(std::make_unique<separator_element>(u8"toolbar-separator-3"), toolbar_separator_width);
+            // 저장소 폴더를 다른 앱으로 연다. 고를 앱 목록을 단추 밑에 펼치므로 누른 순간의 단추 자리를 함께 보낸다.
+            const bool open_enabled { view.repository.has_value() };
+            auto open = std::make_unique<tool_button_element>(
+                u8"open-repository", codicons::icon_folder_opened, u8"열기", u8"저장소 폴더를 탐색기·VS Code 같은 앱으로 엽니다.", toolbar.show_labels, open_enabled, luil::input_action {}, true);
+            const auto open_list = [anchor = open.get()](const luil::ui_action_context&) -> std::vector<luil::input_action> {
+                const luil::rect_f box { anchor->bounds() };
+                return { message(open_selector_intent { selector_kind::repository_app, box.x, box.y + box.height, box.width }) };
+            };
+            open->set_action(luil::ui_trigger::left_click, open_list);
+            open->set_access_handler([open_list](const luil::access_request&) -> std::optional<std::vector<luil::input_action>> { return open_list({}); });
+            row->add(std::move(open), width);
             if (toolbar.show_detail_toggle && (view.graph_layout || view.repository.has_value() == false || view.repository->detail != detail_mode::working))
                 row->add(make_icon_button(u8"detail-toggle", codicons::icon_layout_sidebar_right, toolbar.drawer_open ? u8"상세 패널 닫기" : u8"상세 패널 열기",
                              message(toggle_drawer_intent { toolbar.drawer_open == false }), true, toolbar.drawer_open, 16.0f),

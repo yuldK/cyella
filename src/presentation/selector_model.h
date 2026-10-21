@@ -20,6 +20,8 @@ namespace cyella {
         repository,
         branch,
         file_app,
+        // 툴바의 "열기" 단추가 펼치는, 저장소 폴더를 열 앱 목록이다.
+        repository_app,
     };
 
     // 한 번에 보이는 항목 수의 상한이다. 넘으면 "입력으로 좁히세요" 줄이 서고 나머지는 거르기로 찾는다.
@@ -29,6 +31,7 @@ namespace cyella {
     inline constexpr std::u8string_view selector_tab_key_prefix { u8"tab:" };
     inline constexpr std::u8string_view selector_recent_key_prefix { u8"recent:" };
     inline constexpr std::u8string_view selector_branch_key_prefix { u8"branch:" };
+    inline constexpr std::u8string_view selector_repository_app_key_prefix { u8"repository-app:" };
     inline constexpr std::u8string_view selector_open_folder_key { u8"open_folder" };
     inline constexpr std::u8string_view selector_more_key { u8"more" };
     inline constexpr std::u8string_view selector_empty_key { u8"none" };

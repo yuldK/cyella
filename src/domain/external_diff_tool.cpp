@@ -76,6 +76,25 @@ namespace cyella {
         };
     }
 
+    std::vector<external_file_app> repository_open_apps(const std::vector<external_file_app>& file_apps)
+    {
+        std::vector<external_file_app> apps {
+            { u8"Windows 탐색기", u8"explorer.exe", u8"{repository}" },
+            { u8"Visual Studio Code", u8"Code.exe", u8"{repository}" },
+        };
+        for (const external_file_app& app : file_apps)
+        {
+            // 경로를 빼고 이름만 본다. 사용자가 `C:\...\Code.exe`처럼 적었어도 같은 앱이다.
+            const std::u8string_view executable { app.executable };
+            const std::size_t slash { executable.find_last_of(u8"\\/") };
+            const std::u8string name { lowered(slash == std::u8string_view::npos ? executable : executable.substr(slash + 1)) };
+            if (name == u8"explorer.exe" || name == u8"explorer" || name == u8"code.exe" || name == u8"code")
+                continue;
+            apps.push_back(app);
+        }
+        return apps;
+    }
+
     std::optional<std::vector<std::u8string>> expand_external_diff_arguments(const std::u8string_view argument_template, const external_diff_values& values)
     {
         std::vector<std::u8string> arguments {};

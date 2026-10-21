@@ -1,6 +1,7 @@
 // 대화 상자·메뉴·라벨 칩·충돌 화면의 luil tree다. snapshot에서 배치까지 지은 tree를 읽어, 눌림·끌기·놓기가 element에 서 있는지와
 // 자리가 겹치지 않는지와 탭의 삽입 방향 강조를 검증한다.
 #include "presentation/dialog_intents.h"
+#include "presentation/selector_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
@@ -94,7 +95,7 @@ TEST_CASE("toolbar controls stay inside the window at every responsive boundary"
             if (view.toolbar.show_repository_selector)
                 check(cyella::ui::kind_selector, u8"repository-selector");
             check(cyella::ui::kind_selector, u8"branch-selector");
-            for (const std::u8string owner : { u8"fetch", u8"pull", u8"push", u8"branch", u8"stash", u8"pop" })
+            for (const std::u8string owner : { u8"fetch", u8"pull", u8"push", u8"branch", u8"stash", u8"pop", u8"open-repository" })
                 check(cyella::ui::kind_tool_button, owner);
             if (view.toolbar.show_detail_toggle)
                 check(cyella::ui::kind_button, u8"detail-toggle");
@@ -670,4 +671,34 @@ TEST_CASE("Git version stays in the application footer while the start page scro
     CHECK(version->bounds().y >= status->bounds().y);
     CHECK(version->bounds().y + version->bounds().height <= view.height);
     CHECK(find_element(built, ui::kind_label, u8"start-git") == nullptr);
+}
+
+TEST_CASE("the open button asks for the app list and the list opens leftward from the button's right edge", "[presentation][ui][selector]")
+{
+    tree_fixture fixture {};
+    const cyella::ui::built_tree closed { fixture.build() };
+    const luil::ui_element* const button { find_element(closed, cyella::ui::kind_tool_button, u8"open-repository") };
+    REQUIRE(button != nullptr);
+    CHECK(button->enabled());
+    const luil::ui_action* const click { button->action(luil::ui_trigger::left_click) };
+    REQUIRE(click != nullptr);
+    const std::vector<luil::input_action> actions { (*click)(luil::ui_action_context {}) };
+    REQUIRE(actions.size() == 1);
+    const auto* const message { std::get_if<luil::app_message>(&actions.front()) };
+    REQUIRE(message != nullptr);
+    const auto* const intent { message->get<open_selector_intent>() };
+    REQUIRE(intent != nullptr);
+    CHECK(intent->kind == selector_kind::repository_app);
+    CHECK(intent->x == button->bounds().x);
+    CHECK(intent->width == button->bounds().width);
+
+    fixture.harness.ui.selector = selector_state { .kind = selector_kind::repository_app, .x = 1360.0f, .y = 90.0f, .width = 72.0f, .filter = {} };
+    const cyella::ui::built_tree open { fixture.build() };
+    REQUIRE(open.popups.size() == 1);
+    const cyella::ui::built_popup& popup { open.popups.front() };
+    CHECK(popup.width >= 280.0f);
+    CHECK(popup.x + popup.width == 1360.0f + 72.0f);
+    REQUIRE(popup.tree != nullptr);
+    CHECK(popup.tree->find(luil::ui_element_id { luil::ui_element_kind::menu_item, u8"repository-app:0" }) != nullptr);
+    CHECK(popup.tree->find(luil::ui_element_id { luil::ui_element_kind::menu_item, u8"repository-app:1" }) != nullptr);
 }

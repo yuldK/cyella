@@ -30,7 +30,21 @@ namespace cyella::ui {
     built_popup build_selector_popup(const selector_view& selector, const float scale)
     {
         luil::menu_config menu {};
-        menu.owner = selector.kind == selector_kind::file_app ? u8"file-app-list" : (selector.kind == selector_kind::repository ? u8"repository-selector-list" : u8"branch-selector-list");
+        switch (selector.kind)
+        {
+        case selector_kind::repository:
+            menu.owner = u8"repository-selector-list";
+            break;
+        case selector_kind::branch:
+            menu.owner = u8"branch-selector-list";
+            break;
+        case selector_kind::file_app:
+            menu.owner = u8"file-app-list";
+            break;
+        case selector_kind::repository_app:
+            menu.owner = u8"repository-app-list";
+            break;
+        }
         float widest { 0.0f };
         for (const menu_entry& entry : selector.entries)
         {
@@ -60,6 +74,9 @@ namespace cyella::ui {
         popup.x = selector.x;
         popup.y = selector.y + 2.0f;
         popup.width = std::clamp(std::max(selector.width, widest + selector_chrome_width), selector_minimum_width, selector_maximum_width);
+        // 툴바 오른쪽 끝의 "열기" 단추는 단추보다 넓은 목록을 단추의 오른쪽 끝에 맞춰 왼쪽으로 펼친다. 창 밖으로 밀려나지 않게 하려는 것이다.
+        if (selector.kind == selector_kind::repository_app)
+            popup.x = std::max(selector.x + selector.width - popup.width, 0.0f);
         const float menu_height { luil::menu_element::height_for(menu) };
         // 둘레 여백 두 번 + 거르는 칸 + 칸과 목록 사이 한 번 + 목록.
         popup.height = 3.0f * selector_padding + selector_field_height + menu_height;

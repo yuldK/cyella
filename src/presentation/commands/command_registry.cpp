@@ -42,6 +42,8 @@ namespace cyella {
             list.push_back(make("repo.clone", u8"저장소 복제 (Clone)…", u8"clone download remote url", group::repository));
             list.push_back(make("repo.init", u8"폴더에 새 저장소 만들기 (Init)…", u8"init create new repository", group::repository));
             list.push_back(make("repo.refresh", u8"저장소 새로 고침", u8"refresh reload status", group::repository, { u8"F5" }));
+            list.push_back(make("repo.reveal", u8"탐색기에서 저장소 폴더 열기", u8"open folder explorer reveal show files", group::repository));
+            list.push_back(make("repo.open_vscode", u8"VS Code에서 저장소 열기", u8"open vscode visual studio code editor", group::repository));
             // ---- git 작업
             list.push_back(make("git.fetch", u8"원격에서 가져오기 (Fetch)", u8"fetch remote download update", group::git));
             list.push_back(make("git.pull", u8"원격 변경 받아 합치기 (Pull)", u8"pull merge remote update", group::git));
@@ -139,7 +141,7 @@ namespace cyella {
             return availability.pop;
         if (id == "git.commit")
             return availability.commit;
-        if (id == "git.amend" || id == "repo.refresh")
+        if (id == "git.amend" || id == "repo.refresh" || id == "repo.reveal" || id == "repo.open_vscode")
             return availability.repository;
         if (id == "view.drawer")
             return availability.repository && availability.drawer;

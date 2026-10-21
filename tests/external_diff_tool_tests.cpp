@@ -169,3 +169,23 @@ TEST_CASE("multi dot extensions win over shorter ones regardless of order", "[ex
     };
     CHECK(select_external_diff_tool(tied, u8"a.dat")->executable == u8"first.exe");
 }
+
+TEST_CASE("repository open apps put Explorer and VS Code first and keep the user's other apps", "[external_diff]")
+{
+    const std::vector<external_file_app> defaults { repository_open_apps(default_external_file_apps()) };
+    REQUIRE(defaults.size() == 2);
+    CHECK(defaults[0] == external_file_app { u8"Windows 탐색기", u8"explorer.exe", u8"{repository}" });
+    CHECK(defaults[1] == external_file_app { u8"Visual Studio Code", u8"Code.exe", u8"{repository}" });
+
+    // 파일을 고르는 인자로 적은 같은 실행 파일은 경로·대소문자가 달라도 앞의 둘이 대신한다.
+    const std::vector<external_file_app> custom {
+        { u8"탐색기", u8"C:\\Windows\\EXPLORER.EXE", u8"/select,{file}" },
+        { u8"코드", u8"C:/Users/me/AppData/Local/Programs/Microsoft VS Code/code.exe", u8"-g {file}" },
+        { u8"Rider", u8"C:\\Tools\\rider64.exe", u8"{file}" },
+    };
+    const std::vector<external_file_app> apps { repository_open_apps(custom) };
+    REQUIRE(apps.size() == 3);
+    CHECK(apps[0].executable == u8"explorer.exe");
+    CHECK(apps[1].executable == u8"Code.exe");
+    CHECK(apps[2] == custom[2]);
+}

@@ -76,6 +76,14 @@ namespace cyella {
                 show_notice(u8"'" + *path + u8"' 경로를 찾을 수 없습니다. 시작 페이지에서 위치를 찾거나 목록에서 지울 수 있습니다.", true);
             return;
         }
+        if (const std::optional<std::u8string> app { key_argument(key, selector_repository_app_key_prefix) }; app.has_value())
+        {
+            std::size_t index { 0 };
+            const std::string digits { to_text(*app) };
+            if (std::from_chars(digits.data(), digits.data() + digits.size(), index).ec == std::errc {})
+                open_repository_in_app(index);
+            return;
+        }
         if (const std::optional<std::u8string> name { key_argument(key, selector_branch_key_prefix) }; name.has_value())
         {
             const repository_session* const session { selected_session() };
@@ -87,6 +95,17 @@ namespace cyella {
             if (summary.is_detached || branch != summary.current_branch)
                 static_cast<void>(submit(checkout_branch_request { branch }));
         }
+    }
+
+    void shell_controller::open_repository_in_app(const std::size_t index)
+    {
+        const std::u8string folder { selected_repository_path() };
+        if (folder.empty())
+            return;
+        const std::vector<external_file_app> apps { repository_open_apps(settings().external_file_apps) };
+        if (index >= apps.size() || dependencies_.open_folder_app == nullptr)
+            return;
+        dependencies_.open_folder_app(apps[index], folder);
     }
 
     bool shell_controller::handle_selector_message(const luil::app_message& message)

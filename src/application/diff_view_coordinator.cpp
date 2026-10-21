@@ -231,12 +231,20 @@ namespace cyella {
         run_open_external({ controller_.make_plan() }, std::move(app));
     }
 
-    void diff_view_coordinator::run_open_external(const open_external_effect& effect, std::optional<external_file_app> app)
+    void diff_view_coordinator::open_folder_app(external_file_app app, std::u8string folder)
+    {
+        if (folder.empty())
+            return;
+        run_open_external({}, std::move(app), std::move(folder));
+    }
+
+    void diff_view_coordinator::run_open_external(const open_external_effect& effect, std::optional<external_file_app> app, std::u8string folder)
     {
         const std::shared_ptr<process_cancellation_source> source { replace_source(external_source_) };
         external_open_request open {};
         open.plan = effect.plan;
         open.file_app = std::move(app);
+        open.folder = std::move(folder);
         open.git_executable = ports_.git_executable;
         if (ports_.tools != nullptr)
             open.tools = ports_.tools();

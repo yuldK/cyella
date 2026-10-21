@@ -18,6 +18,11 @@ namespace cyella {
 
     [[nodiscard]] std::vector<external_file_app> default_external_file_apps();
 
+    // 저장소 폴더를 여는 앱 목록이다. 탐색기와 VS Code가 앞에 서고, 환경 설정에 사용자가 더한 파일 앱이 뒤따른다.
+    // 기본 파일 앱의 인자는 파일 하나를 고르는 꼴(`/select,{file}`)이라 같은 실행 파일은 폴더를 여는 인자로 대신한다.
+    // 사용자 앱은 인자 그대로 쓰고, 여는 쪽이 `{file}`과 `{repository}`를 모두 저장소 폴더로 채운다.
+    [[nodiscard]] std::vector<external_file_app> repository_open_apps(const std::vector<external_file_app>& file_apps);
+
     // 확장자별 외부 diff 도구 한 줄이다 (ADR-002). 확장자는 `.png`처럼 점으로 시작하는
     // 접미사이며 `.tar.gz` 같은 여러 점도 쓸 수 있다. 점이나 `*.`이 없어도 받아들인다.
     struct external_diff_tool

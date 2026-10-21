@@ -110,6 +110,10 @@ namespace cyella::win32 {
         dependencies.submit_hosting_job = [this](hosting_job job) { hosting_.submit(std::move(job)); };
         dependencies.hosting_sign_out = [this](const hosting_sign_out_request& request) { hosting_.sign_out(request); };
         dependencies.open_url = [this](const std::string& url) { open_url(url); };
+        dependencies.open_folder_app = [this](const external_file_app& app, const std::u8string& folder) {
+            if (diff_ != nullptr)
+                diff_->open_folder_app(app, folder);
+        };
         if (options_.ssh_directory.empty() == false)
             ssh_directory_ = std::filesystem::path { options_.ssh_directory };
         else if (const std::optional<std::filesystem::path> ssh_directory { user_ssh_directory() }; ssh_directory.has_value())

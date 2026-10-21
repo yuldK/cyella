@@ -393,3 +393,36 @@ TEST_CASE("failures are reported without launching", "[diff][external]")
         CHECK(opener.open(request).status == external_open_status::launch_failed);
     }
 }
+
+TEST_CASE("a folder opens in an app without extracting any file", "[diff][external][file_app]")
+{
+    fake_gateway gateway {};
+    fake_launcher launcher {};
+    external_diff_opener opener { gateway, launcher };
+    external_open_request request {};
+    request.folder = u8"C:\\work\\한글 저장소";
+
+    SECTION("{repository} and {file} are both the folder and it is the working directory")
+    {
+        request.file_app = external_file_app { u8"Editor", u8"editor.exe", u8"--root {repository} {file}" };
+        const external_open_result result { opener.open(request) };
+        REQUIRE(result.launched());
+        CHECK(result.tool == u8"Editor");
+        REQUIRE(launcher.requests.size() == 1);
+        CHECK(launcher.requests[0].executable == u8"editor.exe");
+        CHECK(launcher.requests[0].arguments == std::vector<std::u8string> { u8"--root", u8"C:\\work\\한글 저장소", u8"C:\\work\\한글 저장소" });
+        CHECK(launcher.requests[0].working_directory == u8"C:\\work\\한글 저장소");
+        CHECK(gateway.extractions.empty());
+    }
+    SECTION("invalid templates and launch failures are reported")
+    {
+        request.file_app = external_file_app { u8"Broken", u8"broken.exe", u8"\"{repository}" };
+        CHECK(opener.open(request).status == external_open_status::invalid_template);
+        CHECK(launcher.requests.empty());
+        request.file_app->arguments = u8"{repository}";
+        launcher.outcome = { false, "not found" };
+        const external_open_result failed { opener.open(request) };
+        CHECK(failed.status == external_open_status::launch_failed);
+        CHECK(failed.detail == "not found");
+    }
+}

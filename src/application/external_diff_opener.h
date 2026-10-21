@@ -18,6 +18,8 @@ namespace cyella {
         // 두 쪽을 꺼내는 동안의 취소다. 도구를 띄운 뒤에는 도구가 스스로 끝난다.
         process_cancellation_token cancellation {};
         std::optional<external_file_app> file_app {};
+        // 비어 있지 않으면 `plan` 대신 이 폴더를 `file_app`으로 연다 (저장소 폴더 열기). `{file}`과 `{repository}`가 이 폴더다.
+        std::u8string folder {};
     };
 
     enum class external_open_status

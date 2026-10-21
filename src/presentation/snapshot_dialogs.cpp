@@ -5,6 +5,8 @@
 #include "presentation/form_extension.h"
 #include "presentation/form_hosting.h"
 
+#include "luil/generated/codicons.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -241,6 +243,26 @@ namespace cyella {
                     if (++matched <= selector_visible_limit)
                         view.entries.push_back({ u8"file-app:" + to_u8(std::to_string(index)), app.name });
                 }
+            }
+            if (matched > selector_visible_limit)
+                view.entries.push_back({ .key = u8"more", .label = u8"이름을 입력해 앱을 찾으세요", .enabled = false });
+            view.entries.push_back({ .key = u8"file-app-settings", .label = u8"앱 추가·편집…", .separator_above = true });
+            return view;
+        }
+        if (state.kind == selector_kind::repository_app)
+        {
+            view.placeholder = u8"저장소를 열 앱 찾기";
+            const std::vector<external_file_app> apps { repository_open_apps(settings.external_file_apps) };
+            std::size_t matched { 0 };
+            for (std::size_t index { 0 }; index < apps.size(); ++index)
+            {
+                if (selector_matches(apps[index].name, query) == false)
+                    continue;
+                if (++matched > selector_visible_limit)
+                    continue;
+                // 앞의 둘은 `repository_open_apps`가 늘 세우는 탐색기와 VS Code다.
+                const char32_t icon { index == 0 ? luil::codicons::icon_folder_opened : (index == 1 ? luil::codicons::icon_vscode : luil::codicons::icon_link_external) };
+                view.entries.push_back({ .key = std::u8string { selector_repository_app_key_prefix } + to_u8(std::to_string(index)), .label = apps[index].name, .icon = icon });
             }
             if (matched > selector_visible_limit)
                 view.entries.push_back({ .key = u8"more", .label = u8"이름을 입력해 앱을 찾으세요", .enabled = false });

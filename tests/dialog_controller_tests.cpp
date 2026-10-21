@@ -4,6 +4,7 @@
 #include "application/git_workspace.h"
 #include "domain/credential_prompt.h"
 #include "infrastructure/git_operation_runner.h"
+#include "presentation/commands/command_intents.h"
 #include "presentation/shell_controller.h"
 
 #include "fake_git_runner.h"
@@ -14,6 +15,7 @@
 #include <chrono>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -37,18 +39,20 @@ namespace {
         explicit harness(std::function<void(const luil::app_message&)> hook = {})
             : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
-            , controller { make_dependencies(workspace, std::move(hook)) }
+            , controller { make_dependencies(workspace, std::move(hook), opened_folders) }
         {
             controller.start({});
             controller.open_repository(u8"C:\\work\\repo");
             repository = controller.selected_repository_id();
         }
 
-        static shell_controller::dependencies make_dependencies(git_workspace& workspace, std::function<void(const luil::app_message&)> hook)
+        static shell_controller::dependencies make_dependencies(
+            git_workspace& workspace, std::function<void(const luil::app_message&)> hook, std::vector<std::pair<external_file_app, std::u8string>>& opened)
         {
             shell_controller::dependencies dependencies {};
             dependencies.workspace = &workspace;
             dependencies.send_backend_intent = std::move(hook);
+            dependencies.open_folder_app = [&opened](const external_file_app& app, const std::u8string& folder) { opened.emplace_back(app, folder); };
             dependencies.clock = [] { return std::chrono::system_clock::time_point { std::chrono::seconds { 1700000000 + 3600 } }; };
             dependencies.temporary_directory = u8"C:\\temp\\cyella-test";
             dependencies.ssh_executable = u8"C:/Git/usr/bin/ssh.exe";
@@ -144,6 +148,8 @@ namespace {
         test::event_queue events {};
         git_operation_runner runner;
         git_workspace workspace;
+        // 저장소 폴더를 연 앱과 폴더다 (driver가 꽂는 worker 길의 자리).
+        std::vector<std::pair<external_file_app, std::u8string>> opened_folders {};
         shell_controller controller;
         std::string repository {};
     };
@@ -1431,4 +1437,43 @@ TEST_CASE("locating to a folder that is not a repository changes nothing and say
     REQUIRE(test.controller.state().notice.has_value());
     CHECK(test.controller.state().notice->warning);
     CHECK(test.controller.state().notice->text.find(u8"Git 저장소가 아니라서") != std::u8string::npos);
+}
+
+TEST_CASE("the open button lists apps for the repository folder and opens the picked one", "[presentation][selector]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::repository_app, 900.0f, 60.0f, 80.0f });
+    const view_snapshot view { test.view() };
+    REQUIRE(view.selector.has_value());
+    CHECK(view.selector->kind == selector_kind::repository_app);
+    CHECK(selector_keys(view) == std::vector<std::u8string> { u8"repository-app:0", u8"repository-app:1", u8"file-app-settings" });
+    CHECK(view.selector->entries[0].label == u8"Windows 탐색기");
+    CHECK(view.selector->entries[1].label == u8"Visual Studio Code");
+
+    test.send(selector_select_intent { u8"repository-app:1" });
+    CHECK_FALSE(test.view().selector.has_value());
+    REQUIRE(test.opened_folders.size() == 1);
+    CHECK(test.opened_folders[0].first.executable == u8"Code.exe");
+    CHECK(test.opened_folders[0].first.arguments == u8"{repository}");
+    CHECK(test.opened_folders[0].second == u8"C:\\work\\repo");
+    // 저장소를 열지 않으므로 git operation도 없다.
+    CHECK(test.operation_count() == 0);
+}
+
+TEST_CASE("palette commands open the repository folder in Explorer or VS Code", "[presentation][palette]")
+{
+    harness test {};
+    test.load();
+    test.send(run_command_intent { "repo.reveal" });
+    test.send(run_command_intent { "repo.open_vscode" });
+    REQUIRE(test.opened_folders.size() == 2);
+    CHECK(test.opened_folders[0].first.executable == u8"explorer.exe");
+    CHECK(test.opened_folders[1].first.executable == u8"Code.exe");
+    CHECK(test.opened_folders[1].second == u8"C:\\work\\repo");
+
+    // 시작 탭에서는 열 저장소가 없다.
+    test.send(new_tab_intent {});
+    test.send(run_command_intent { "repo.reveal" });
+    CHECK(test.opened_folders.size() == 2);
 }

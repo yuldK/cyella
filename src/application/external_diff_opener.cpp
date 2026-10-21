@@ -38,6 +38,21 @@ namespace cyella {
         const diff_side_plan& plan { request.plan };
         const std::u8string path { to_u8(plan.display_path()) };
 
+        if (request.file_app.has_value() && request.folder.empty() == false)
+        {
+            const external_file_app& app { *request.file_app };
+            external_diff_values values {};
+            values.file = request.folder;
+            values.repository = request.folder;
+            auto arguments { expand_external_diff_arguments(app.arguments, values) };
+            if (arguments.has_value() == false)
+                return { external_open_status::invalid_template, app.name, "인자 템플릿의 따옴표가 닫히지 않았습니다." };
+            const tool_launch_result launched { launcher_.launch({ app.executable, std::move(*arguments), request.folder }) };
+            if (launched.launched == false)
+                return { external_open_status::launch_failed, app.name, launched.error };
+            return { external_open_status::launched_tool, app.name, {} };
+        }
+
         if (request.file_app.has_value())
         {
             const external_file_app& app { *request.file_app };

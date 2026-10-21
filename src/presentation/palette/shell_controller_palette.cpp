@@ -173,6 +173,11 @@ namespace cyella {
             send(luil::app_message { open_clone_dialog_intent {} });
         else if (id == "repo.refresh")
             send(luil::app_message { refresh_intent {} });
+        // `repository_open_apps`의 앞 둘은 늘 탐색기와 VS Code다.
+        else if (id == "repo.reveal")
+            open_repository_in_app(0);
+        else if (id == "repo.open_vscode")
+            open_repository_in_app(1);
         else if (id == "view.changes" || id == "view.history")
             send(luil::app_message { select_workspace_intent { id == "view.changes" } });
         else if (id == "git.fetch")
