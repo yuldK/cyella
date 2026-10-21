@@ -439,7 +439,8 @@ namespace cyella::ui {
         set_hit_opaque(false);
         if (button.has_value())
         {
-            auto element { make_text_button(std::move(button->owner), std::move(button->tooltip), luil::text_button_visual::accent, std::move(button->action), button->enabled, button->glyph) };
+            button_width_ = std::max(96.0f, text_button_width(button->tooltip, true));
+            auto element { make_text_button(std::move(button->owner), std::move(button->tooltip), luil::text_button_visual::normal, std::move(button->action), button->enabled, button->glyph) };
             element->set_tab_stop(false);
             button_ = element.get();
             add_child(std::move(element));
@@ -451,7 +452,7 @@ namespace cyella::ui {
         set_bounds(context.slot);
         if (button_ != nullptr)
         {
-            const float width { 96.0f * context.scale };
+            const float width { std::min(button_width_ * context.scale, std::max(context.slot.width - 144.0f * context.scale, 0.0f)) };
             const float height { 20.0f * context.scale };
             button_->arrange(context.for_child({ context.slot.x + context.slot.width - width - 6.0f * context.scale, context.slot.y + (context.slot.height - height) / 2.0f, width, height }));
         }
@@ -469,8 +470,9 @@ namespace cyella::ui {
         context.canvas.drawRect(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), luil::solid_paint(luil::with_alpha(context.palette.primary_foreground, 0.035f)));
         float x { box.x + row_padding * scale };
         const SkFont font { ui_font(context, 12.0f, true) };
+        const float title_width { std::max(box.width - (button_ != nullptr ? button_->bounds().width : 0.0f) - 48.0f * scale, 0.0f) };
         const float drawn
-            = luil::draw_text_within(context.canvas, title_, x, box.y + luil::centered_text_baseline(font, box.height), box.width * 0.6f, font, luil::solid_paint(context.palette.primary_foreground));
+            = luil::draw_text_within(context.canvas, title_, x, box.y + luil::centered_text_baseline(font, box.height), title_width, font, luil::solid_paint(context.palette.primary_foreground));
         x += drawn + 8.0f * scale;
         const SkFont small { ui_font(context, 10.5f) };
         const std::u8string count { number_text(count_) };
@@ -642,8 +644,8 @@ namespace cyella::ui {
         const luil::rect_f box { bounds() };
         const float scale { context.scale };
         const luil::ui_color_palette& palette { context.palette };
-        fill_rounded(context.canvas, box, start_corner_radius * scale, palette.surface_background);
         luil::draw_hover_fill(context, box, id(), interaction, true, start_corner_radius);
+        context.canvas.drawLine(box.x, box.y + box.height - scale, box.x + box.width, box.y + box.height - scale, luil::solid_paint(palette.divider));
         const luil::ui_color primary { item_.exists ? palette.primary_foreground : palette.disabled_foreground };
         const luil::ui_color accent { item_.exists ? palette.accent : palette.warning_accent };
         const float icon_box_size { start_icon_size * scale };
@@ -688,8 +690,9 @@ namespace cyella::ui {
                     context.canvas, badge, pill.x + 5.0f * scale, pill.y + luil::centered_text_baseline(small, height), width, small, luil::solid_paint(palette.primary_foreground)));
             }
         }
-        static_cast<void>(luil::draw_text_within(context.canvas, item_.path, x, text_top + start_title_height * scale + luil::centered_text_baseline(small, start_path_height * scale),
-            std::max(path_right - x, 0.0f), small, luil::solid_paint(palette.secondary_foreground)));
+        const SkFont path_font { code_font(context, 10.5f) };
+        static_cast<void>(luil::draw_text_within(context.canvas, item_.path, x, text_top + start_title_height * scale + luil::centered_text_baseline(path_font, start_path_height * scale),
+            std::max(path_right - x, 0.0f), path_font, luil::solid_paint(palette.secondary_foreground)));
         draw_children(context, interaction);
     }
 
@@ -725,7 +728,8 @@ namespace cyella::ui {
         const float radius { start_corner_radius * scale };
         fill_rounded(context.canvas, box, radius, palette.surface_background);
         luil::draw_hover_fill(context, box, id(), interaction, enabled(), start_corner_radius);
-        SkPaint border { luil::solid_paint(palette.divider) };
+        const bool hovered { interaction.hovered == id() && enabled() };
+        SkPaint border { luil::solid_paint(hovered ? luil::with_alpha(palette.accent, 0.65f) : palette.divider) };
         border.setStyle(SkPaint::kStroke_Style);
         border.setStrokeWidth(scale);
         border.setAntiAlias(true);

@@ -214,6 +214,8 @@ namespace cyella {
         ui_.form.reveal = false;
         ui_.form.choice = 0;
         ui_.form.checks = {};
+        ui_.form.scroll = 0.0f;
+        feedback_.form_maximum.reset();
     }
 
     void shell_controller::sync_form_inputs()
@@ -352,6 +354,16 @@ namespace cyella {
         if (message.get<form_enter_intent>() != nullptr)
         {
             handle_form_enter();
+            return true;
+        }
+        if (const auto* const intent { message.get<form_scroll_intent>() }; intent != nullptr)
+        {
+            if (ui_.form.identity.empty())
+                return true;
+            const float offset { intent->absolute ? intent->value : ui_.form.scroll + intent->value };
+            ui_.form.scroll = std::max(0.0f, offset);
+            if (feedback_.form_maximum.has_value())
+                ui_.form.scroll = std::min(ui_.form.scroll, *feedback_.form_maximum);
             return true;
         }
         if (const auto* const intent { message.get<open_confirm_intent>() }; intent != nullptr)

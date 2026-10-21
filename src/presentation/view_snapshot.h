@@ -85,6 +85,9 @@ namespace cyella {
         bool push_enabled { false };
         // upstream이 없어 push 대화 상자에서 원격을 골라야 한다.
         bool push_needs_dialog { false };
+        std::u8string fetch_hint {};
+        std::u8string pull_hint {};
+        std::u8string push_hint {};
         bool branch_enabled { false };
         bool stash_enabled { false };
         bool pop_enabled { false };
@@ -331,6 +334,7 @@ namespace cyella {
 
     struct working_area_view
     {
+        float scroll { 0.0f };
         bool files_tree { false };
         std::set<std::string> collapsed_folders {};
         std::u8string branch {};
@@ -397,6 +401,10 @@ namespace cyella {
         diff_file_request request {};
         std::u8string title {};
         std::u8string subtitle {};
+        std::optional<diff_file_request> previous_file {};
+        std::optional<diff_file_request> next_file {};
+        std::size_t file_position { 0 };
+        std::size_t file_count { 0 };
         std::vector<diff_line_view> lines {};
         bool loading { false };
         bool binary { false };
@@ -465,6 +473,8 @@ namespace cyella {
         std::int64_t now { 0 };
         layout_mode mode { layout_mode::wide };
         theme_preference theme { theme_preference::system };
+        bool graph_layout { true };
+        std::u8string git_version {};
         std::vector<tab_view> tabs {};
         repository_tab_id selected_tab { 0 };
         float tab_scroll { 0.0f };

@@ -223,11 +223,11 @@ namespace cyella::ui {
         luil::ui_element* content_ { nullptr };
     };
 
-    // 툴바 단추다. 아이콘 아래에 작은 글자를 두고, 좁은 창에서는 아이콘만 그린다.
+    // 툴바·좁은 사이드바 단추다. 툴바는 가로, 레일은 아이콘 아래에 글자를 둔다.
     class tool_button_element final : public luil::ui_element
     {
     public:
-        tool_button_element(std::u8string owner, char32_t glyph, std::u8string label, std::u8string tooltip, bool show_label, bool enabled, luil::input_action action);
+        tool_button_element(std::u8string owner, char32_t glyph, std::u8string label, std::u8string tooltip, bool show_label, bool enabled, luil::input_action action, bool horizontal = false);
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
@@ -237,6 +237,7 @@ namespace cyella::ui {
         char32_t glyph_ { 0 };
         std::u8string label_ {};
         bool show_label_ { true };
+        bool horizontal_ { false };
     };
 
     // 진행 중 작업의 도는 아이콘이다. 시간만의 함수라 `next_update`로 다시 그리기를 예고한다.

@@ -118,10 +118,19 @@ namespace cyella::ui {
             float thumb_width_ { 0.0f };
         };
 
-        void collect_tabs(const luil::ui_element& element, std::vector<const luil::ui_element*>& tabs)
+        void collect_tabs(luil::ui_element& element, std::vector<const luil::ui_element*>& tabs)
         {
             if (element.id().kind == luil::ui_element_kind::tab)
+            {
                 tabs.push_back(&element);
+                const std::u8string name { element.accessibility().name + u8" 탭 닫기" };
+                for (const auto& child : element.children())
+                    if (child->id().kind == luil::ui_element_kind::tab_close)
+                    {
+                        child->set_access_name(name);
+                        child->set_tooltip(name);
+                    }
+            }
             for (const auto& child : element.children())
                 collect_tabs(*child, tabs);
         }
@@ -216,6 +225,19 @@ namespace cyella::ui {
             context.canvas.drawRect(SkRect::MakeXYWH(edge - 1.5f * scale, box.y + 2.0f * scale, 3.0f * scale, box.height - 4.0f * scale), line);
         }
         context.canvas.restore();
+        const float reach { std::min(12.0f * scale, clip.width / 2.0f) };
+        const auto shadow = [&](const bool left) {
+            context.canvas.save();
+            context.canvas.translate(left ? clip.x : clip.x + clip.width, clip.y);
+            context.canvas.rotate(left ? -90.0f : 90.0f);
+            const luil::rect_f band { left ? -clip.height : 0.0f, 0.0f, clip.height, reach };
+            luil::draw_downward_shadow(context.canvas, band, context.palette.content_shadow, 0.38f);
+            context.canvas.restore();
+        };
+        if (lane_->scroll_offset() > 0.5f)
+            shadow(true);
+        if (lane_->scroll_offset() + 0.5f < lane_->maximum_scroll())
+            shadow(false);
     }
 
     void repository_tabs_element::set_tabs_name(std::u8string name)

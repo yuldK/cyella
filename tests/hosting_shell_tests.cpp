@@ -11,6 +11,8 @@
 #include "presentation/hosting_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/shell_controller.h"
+#include "presentation/ui/build_ui_tree.h"
+#include "presentation/ui/element_kinds.h"
 
 #include "fake_git_runner.h"
 #include "view_snapshot_support.h"
@@ -269,6 +271,58 @@ TEST_CASE("sign-in, list, open and CI flow through the sidebar and the detail pa
     built = test.view();
     CHECK(built.repository->detail == detail_mode::commit);
     CHECK(built.repository->hosting->detail.has_value() == false);
+}
+
+TEST_CASE("opening a pull request leaves the diff and reveals the detail drawer", "[hosting][shell][ui]")
+{
+    for (const float width : { 480.0f, 900.0f, 1440.0f })
+    {
+        CAPTURE(width);
+        harness test {};
+        test.sign_in_and_load({ make_pull(12, "Review changes") });
+        test.send(select_file_intent { { .path = "README.md" } });
+        REQUIRE(test.controller.make_view(width, 700.0f, 1.0f).repository->diff.has_value());
+        test.activate("12");
+        const view_snapshot view { test.controller.make_view(width, 700.0f, 1.0f) };
+        CHECK_FALSE(view.repository->diff.has_value());
+        CHECK(view.drawer_open == (width < wide_layout_minimum_width));
+        test.send(hosting_detail_action_intent { hosting_detail_action::close });
+        CHECK_FALSE(test.controller.make_view(width, 700.0f, 1.0f).drawer_open);
+    }
+}
+
+TEST_CASE("pull request details wrap and scroll without hiding actions or description lines", "[hosting][shell][ui]")
+{
+    harness test {};
+    pull_request_info pull { make_pull(12, "A long pull request title explaining the complete change in repository navigation and review behavior") };
+    pull.source_branch = "feature/a-very-long-review-branch-name-with-more-context";
+    for (int line { 0 }; line < 25; ++line)
+        pull.body += "Description line " + std::to_string(line) + " contains the review context and expected behavior.\n";
+    test.sign_in_and_load({ pull });
+    for (const float width : { 480.0f, 900.0f, 1440.0f })
+    {
+        CAPTURE(width);
+        static_cast<void>(test.controller.make_view(width, 400.0f, 1.0f));
+        test.activate("12");
+        const ui::built_tree built { ui::build_ui_tree(test.controller.make_view(width, 400.0f, 1.0f)) };
+        REQUIRE(built.feedback.detail_maximum.has_value());
+        CHECK(*built.feedback.detail_maximum > 0.0f);
+        const luil::ui_element* const body { built.tree->find({ ui::kind_label, u8"pr-body" }) };
+        REQUIRE(body != nullptr);
+        CHECK(body->accessibility().name.find(u8"Description line 24") != std::u8string::npos);
+        const luil::ui_element* const bar { built.tree->find({ ui::kind_panel, u8"pr-actions-bar" }) };
+        REQUIRE(bar != nullptr);
+        for (const std::u8string owner : { u8"pr-checkout", u8"pr-open-browser", u8"pr-refresh-ci" })
+        {
+            const luil::ui_element* const button { built.tree->find({ ui::kind_text_button, owner }) };
+            REQUIRE(button != nullptr);
+            CHECK(button->bounds().x >= bar->bounds().x);
+            CHECK(button->bounds().x + button->bounds().width <= bar->bounds().x + bar->bounds().width + 0.1f);
+            CHECK(button->bounds().y + button->bounds().height <= 400.1f);
+        }
+        CHECK(built.tree->duplicate_ids().empty());
+        CHECK(built.tree->unarranged().empty());
+    }
 }
 
 TEST_CASE("the commit detail shows the CI mark of a signed-in host", "[hosting][shell]")

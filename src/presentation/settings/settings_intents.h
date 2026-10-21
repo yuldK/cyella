@@ -93,16 +93,20 @@ namespace cyella {
     // ------------------------------------------------------------------ diff 도구
 
     struct add_tool_intent
-    {};
+    {
+        bool file_app { false };
+    };
 
     struct edit_tool_intent
     {
         std::size_t index { 0 };
+        bool file_app { false };
     };
 
     struct remove_tool_intent
     {
         std::size_t index { 0 };
+        bool file_app { false };
     };
 
     struct save_tool_intent

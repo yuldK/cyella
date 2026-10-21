@@ -726,6 +726,19 @@ TEST_CASE("unknown keys inside diff survive saving", "[json_app_settings][diff]"
     CHECK(document.at("diff").at("future_option") == true);
 }
 
+TEST_CASE("external file apps have defaults and persist custom entries and explicit removal", "[json_app_settings][file_app]")
+{
+    CHECK(parse_app_settings_json(u8"{}").settings.external_file_apps == default_external_file_apps());
+    CHECK(parse_app_settings_json(u8R"({"external_file_apps":[]})").settings.external_file_apps.empty());
+    app_settings settings {};
+    settings.external_file_apps = { { u8"내 편집기", u8"C:\\Tools\\editor.exe", u8"--open {file} --cwd {repository}" } };
+    const auto loaded { parse_app_settings_json(serialize_app_settings_json(settings, u8"")) };
+    CHECK(loaded.settings.external_file_apps == settings.external_file_apps);
+    const auto invalid { parse_app_settings_json(u8R"({"external_file_apps":[{},3,{"name":"Test","executable":"test.exe","arguments":"{file}"}]})") };
+    CHECK(invalid.settings.external_file_apps.size() == 1);
+    CHECK(invalid.diagnostics.size() == 2);
+}
+
 TEST_CASE("font families and working file view round trip while unknown settings survive", "[json_app_settings][fonts]")
 {
     const std::u8string source { u8R"({"appearance":{"ui_font":"맑은 고딕","code_font":"Font on another PC","future":true},"ui":{"working_files_view":"tree","future":7}})" };
@@ -743,4 +756,27 @@ TEST_CASE("font families and working file view round trip while unknown settings
     CHECK(invalid.settings.appearance.ui_font.empty());
     CHECK(invalid.settings.appearance.code_font.empty());
     CHECK(invalid.diagnostics.size() == 2);
+}
+
+TEST_CASE("repository layout defaults to graph and round trips both choices without losing other UI settings", "[json_app_settings][layout]")
+{
+    CHECK(parse_app_settings_json(u8"{}").settings.ui.graph_layout);
+    const std::u8string source { u8R"({"ui":{"repository_layout":"review","working_files_view":"tree","future":7}})" };
+    app_settings settings { parse_app_settings_json(source).settings };
+    CHECK_FALSE(settings.ui.graph_layout);
+    CHECK(settings.ui.working_files_tree);
+    CHECK_FALSE(parse_app_settings_json(serialize_app_settings_json(settings, source)).settings.ui.graph_layout);
+    settings.ui.graph_layout = true;
+    const auto saved { serialize_app_settings_json(settings, source) };
+    CHECK(parse_app_settings_json(saved).settings.ui.graph_layout);
+    const json document { json::parse(text_of(saved)) };
+    CHECK(document.at("ui").at("repository_layout") == "graph");
+    CHECK(document.at("ui").at("future") == 7);
+    CHECK(document.at("ui").at("working_files_view") == "tree");
+    for (const char8_t* const bad : { u8R"({"ui":{"repository_layout":false}})", u8R"({"ui":{"repository_layout":"unknown"}})" })
+    {
+        const auto loaded { parse_app_settings_json(bad) };
+        CHECK(loaded.settings.ui.graph_layout);
+        CHECK(loaded.diagnostics.size() == 1);
+    }
 }

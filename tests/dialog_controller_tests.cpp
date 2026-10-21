@@ -170,6 +170,28 @@ namespace {
     }
 } // namespace
 
+TEST_CASE("form scrolling clamps to layout feedback and resets for the next dialog", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load();
+    test.send(open_branch_dialog_intent {});
+    REQUIRE(test.view().form.has_value());
+    test.controller.apply_feedback(frame_feedback { .form_maximum = 300.0f });
+    test.send(form_scroll_intent { .value = 200.0f, .absolute = true });
+    CHECK(test.view().form->scroll == 200.0f);
+    test.send(form_scroll_intent { .value = 1000.0f });
+    CHECK(test.view().form->scroll == 300.0f);
+    test.controller.apply_feedback(frame_feedback { .form_maximum = 100.0f });
+    CHECK(test.view().form->scroll == 100.0f);
+    test.send(form_scroll_intent { .value = -1000.0f });
+    CHECK(test.view().form->scroll == 0.0f);
+    test.send(form_button_intent { u8"cancel" });
+    CHECK_FALSE(test.view().form.has_value());
+    test.send(form_scroll_intent { .value = 200.0f });
+    test.send(open_branch_dialog_intent {});
+    CHECK(test.view().form->scroll == 0.0f);
+}
+
 TEST_CASE("dropping a branch on another opens the drop menu and runs the picked action", "[presentation][dialogs]")
 {
     harness test {};

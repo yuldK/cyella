@@ -524,11 +524,12 @@ namespace cyella::ui {
     // ---------------------------------------------------------------- tool_button_element
 
     tool_button_element::tool_button_element(
-        std::u8string owner, const char32_t glyph, std::u8string label, std::u8string tooltip, const bool show_label, const bool enabled, luil::input_action action)
+        std::u8string owner, const char32_t glyph, std::u8string label, std::u8string tooltip, const bool show_label, const bool enabled, luil::input_action action, const bool horizontal)
         : ui_element { luil::ui_element_id { kind_tool_button, std::move(owner) } }
         , glyph_ { glyph }
         , label_ { std::move(label) }
         , show_label_ { show_label }
+        , horizontal_ { horizontal }
     {
         set_tooltip(tooltip.empty() ? label_ : std::move(tooltip));
         set_access_name(label_);
@@ -554,6 +555,18 @@ namespace cyella::ui {
             luil::draw_centered_glyph(context.canvas, glyph_, inner, icon_font(context, tool_icon_size), paint);
             return;
         }
+        if (horizontal_)
+        {
+            const float glyph_width { 16.0f * scale };
+            const float gap { 6.0f * scale };
+            const SkFont font { ui_font(context, 11.5f) };
+            const float text_width { std::max(inner.width - glyph_width - gap - 12.0f * scale, 0.0f) };
+            const float used { std::min(luil::measure_text(label_, font), text_width) };
+            const float left { inner.x + (inner.width - glyph_width - gap - used) / 2.0f };
+            luil::draw_centered_glyph(context.canvas, glyph_, { left, inner.y, glyph_width, inner.height }, icon_font(context, tool_icon_size), paint);
+            static_cast<void>(luil::draw_text_within(context.canvas, label_, left + glyph_width + gap, inner.y + luil::centered_text_baseline(font, inner.height), text_width, font, paint));
+            return;
+        }
         const float icon_height { tool_icon_size * scale };
         const float label_height { tool_label_size * scale + 2.0f * scale };
         const float top { inner.y + (inner.height - icon_height - tool_label_gap * scale - label_height) / 2.0f };
@@ -567,7 +580,7 @@ namespace cyella::ui {
 
     luil::access_info tool_button_element::accessibility() const
     {
-        return { .role = luil::access_role::button, .name = label_ };
+        return { .role = luil::access_role::button, .name = enabled() || tooltip().empty() ? label_ : label_ + u8" · " + tooltip() };
     }
 
     // ---------------------------------------------------------------- icon_element

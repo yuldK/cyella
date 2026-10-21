@@ -14,6 +14,7 @@
 #include "presentation/ui/rebase/rebase_editor_ui.h"
 #include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/repository_tabs_element.h"
+#include "presentation/ui/segmented_control.h"
 #include "presentation/ui/settings/appearance_ui.h"
 #include "presentation/ui/settings/settings_ui.h"
 #include "presentation/ui/ui_helpers.h"
@@ -48,7 +49,7 @@ namespace cyella::ui {
         constexpr float banner_line_height { 18.0f };
         constexpr float tab_width { 180.0f };
         constexpr float tab_row_button_width { 32.0f };
-        constexpr float tool_button_width { 52.0f };
+        constexpr float tool_button_width { 80.0f };
         constexpr float tool_button_compact_width { 36.0f };
         constexpr float toolbar_spacing { 2.0f };
         constexpr float toolbar_padding { 8.0f };
@@ -294,27 +295,18 @@ namespace cyella::ui {
             row->add(std::make_unique<separator_element>(u8"toolbar-separator-1"), toolbar_separator_width);
 
             const auto tool = [&](std::u8string owner, const char32_t glyph, std::u8string label, std::u8string tooltip, const bool enabled, const toolbar_action action) {
-                row->add(std::make_unique<tool_button_element>(std::move(owner), glyph, std::move(label), std::move(tooltip), toolbar.show_labels, enabled, message(toolbar_intent { action })), width);
+                row->add(std::make_unique<tool_button_element>(std::move(owner), glyph, std::move(label), std::move(tooltip), toolbar.show_labels, enabled, message(toolbar_intent { action }), true),
+                    width);
             };
-            tool(u8"fetch", codicons::icon_repo_fetch, u8"Fetch", u8"Fetch: 원격의 새 커밋과 ref를 받는다", toolbar.fetch_enabled, toolbar_action::fetch);
-            tool(u8"pull", codicons::icon_repo_pull, u8"Pull", u8"Pull (--ff-only)", toolbar.pull_enabled, toolbar_action::pull);
-            tool(u8"push", codicons::icon_repo_push, u8"Push",
-                toolbar.push_needs_dialog ? std::u8string { u8"Push: upstream이 없어 원격을 골라 --set-upstream으로 보냅니다" }
-                                          : u8"Push" + (toolbar.ahead > 0 ? u8" (↑" + number_text(toolbar.ahead) + u8")" : std::u8string {}),
-                toolbar.push_enabled, toolbar_action::push);
-            row->add(std::make_unique<separator_element>(u8"toolbar-separator-2"), toolbar_separator_width);
-            tool(u8"branch", codicons::icon_git_branch, u8"Branch", u8"새 브랜치: 이름과 만들 위치를 정한다", toolbar.branch_enabled, toolbar_action::branch);
-            tool(u8"stash", codicons::icon_git_stash, u8"Stash", u8"Stash: 변경을 stash에 넣는다 (추적하지 않는 파일 포함)", toolbar.stash_enabled, toolbar_action::stash);
-            tool(u8"pop", codicons::icon_git_stash_pop, u8"Pop", u8"Pop: 맨 위 stash를 꺼낸다", toolbar.pop_enabled, toolbar_action::pop);
+            tool(u8"fetch", codicons::icon_repo_fetch, u8"Fetch", toolbar.fetch_hint, toolbar.fetch_enabled, toolbar_action::fetch);
+            tool(u8"pull", codicons::icon_repo_pull, u8"Pull", toolbar.pull_hint, toolbar.pull_enabled, toolbar_action::pull);
+            tool(u8"push", codicons::icon_repo_push, u8"Push", toolbar.push_hint, toolbar.push_enabled, toolbar_action::push);
             row->add_flexible_gap();
-            const float busy_width { std::min(260.0f, std::max(view.logical_width - repository_width - branch_width - fixed_width - 24.0f, 0.0f)) };
-            if (toolbar.busy_text.empty() == false && busy_width >= 80.0f)
-            {
-                row->add(std::make_unique<spinner_element>(luil::ui_element_id { kind_spinner, u8"toolbar-busy-spinner" }, codicons::icon_sync, color_selector {}), 20.0f);
-                row->add(make_text(u8"toolbar-busy", toolbar.busy_text, text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } }),
-                    busy_width);
-            }
-            if (toolbar.show_detail_toggle)
+            row->add(std::make_unique<separator_element>(u8"toolbar-separator-2"), toolbar_separator_width);
+            tool(u8"branch", codicons::icon_git_branch, u8"브랜치", u8"새 브랜치의 이름과 시작 커밋을 정합니다.", toolbar.branch_enabled, toolbar_action::branch);
+            tool(u8"stash", codicons::icon_git_stash, u8"보관", u8"변경을 임시 보관합니다 (Stash, 추적하지 않는 파일 포함).", toolbar.stash_enabled, toolbar_action::stash);
+            tool(u8"pop", codicons::icon_git_stash_pop, u8"꺼내기", u8"가장 최근에 보관한 변경을 적용하고 목록에서 지웁니다 (Pop).", toolbar.pop_enabled, toolbar_action::pop);
+            if (toolbar.show_detail_toggle && (view.graph_layout || view.repository.has_value() == false || view.repository->detail != detail_mode::working))
                 row->add(make_icon_button(u8"detail-toggle", codicons::icon_layout_sidebar_right, toolbar.drawer_open ? u8"상세 패널 닫기" : u8"상세 패널 열기",
                              message(toggle_drawer_intent { toolbar.drawer_open == false }), true, toolbar.drawer_open, 16.0f),
                     toolbar_detail_width);
@@ -323,6 +315,33 @@ namespace cyella::ui {
         }
 
         // ---------------------------------------------------------------- 배너
+
+        std::unique_ptr<luil::ui_element> build_workspace_navigation(const view_snapshot& view, const repository_view& repository)
+        {
+            luil::tab_bar_config config {};
+            config.owner = u8"workspace-navigation";
+            config.tab_width = 136.0f;
+            config.items = {
+                { .key = u8"workspace-changes", .label = u8"변경 사항 " + number_text(repository.graph.wip_count), .icon = codicons::icon_diff_multiple },
+                { .key = u8"workspace-history", .label = u8"커밋 이력", .icon = codicons::icon_history },
+            };
+            config.selected = repository.detail == detail_mode::working ? u8"workspace-changes" : u8"workspace-history";
+            config.select = [](const std::u8string& key) { return message(select_workspace_intent { key == u8"workspace-changes" }); };
+            const luil::stack_config row_config { .direction = luil::stack_direction::row, .padding = luil::edge_insets { 8.0f, 0.0f, 8.0f, 0.0f } };
+            auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"workspace-navigation-row" }, row_config) };
+            auto navigation { std::make_unique<luil::tab_bar_element>(std::move(config)) };
+            navigation->set_access_name(u8"저장소 작업");
+            row->add(std::move(navigation), 272.0f);
+            row->add_flexible_gap();
+            luil::choice_group_config layout {};
+            layout.owner = u8"repository-layout";
+            layout.name = u8"저장소 배치";
+            layout.items = { { u8"layout-graph", u8"그래프 중심" }, { u8"layout-review", u8"변경 중심" } };
+            layout.selected = view.graph_layout ? u8"layout-graph" : u8"layout-review";
+            layout.select = [](const std::u8string& key) { return message(set_repository_layout_intent { key == u8"layout-graph" }); };
+            row->add(make_segmented_control(std::move(layout)), { .length = 188.0f, .cross_length = segmented_control_height });
+            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"workspace-navigation-bar" }, bar_style { .divider_bottom = true }, std::move(row));
+        }
 
         float banner_height(const std::optional<banner_view>& banner) noexcept
         {
@@ -428,11 +447,11 @@ namespace cyella::ui {
                 identity->set_tooltip(status.identity_tooltip);
                 row->add(std::move(identity), { .length = width, .cross_length = 20.0f });
             }
-            if (status.repository && view.logical_width >= medium_layout_minimum_width)
+            if (view.git_version.empty() == false)
             {
-                row->add(make_text(u8"status-branch", status.branch_text, text_style { .size = 11.0f, .color = dim, .align = 2 }), 150.0f);
-                row->add(make_text(u8"status-ahead-behind", u8"↑" + number_text(status.ahead) + u8" ↓" + number_text(status.behind), text_style { .size = 11.0f, .color = dim }), 56.0f);
-                row->add(make_text(u8"status-changes", u8"변경 " + number_text(status.changes), text_style { .size = 11.0f, .color = dim }), 60.0f);
+                auto version { make_text(u8"status-git", view.git_version, text_style { .size = 10.0f, .color = dim, .code = true }) };
+                version->set_tooltip(view.git_version);
+                row->add(std::move(version), std::min(190.0f, view.logical_width * 0.35f));
             }
             row->add(make_text_button(u8"operation-log-toggle", u8"작업 로그", status.log_open ? luil::text_button_visual::accent : luil::text_button_visual::normal,
                          message(toggle_operation_log_intent {}), true, codicons::icon_output),
@@ -474,7 +493,7 @@ namespace cyella::ui {
 
         // ---------------------------------------------------------------- Clone 대화 상자
 
-        std::unique_ptr<luil::ui_element> build_clone_dialog(const clone_dialog_view& dialog)
+        std::unique_ptr<luil::ui_element> build_clone_dialog(const clone_dialog_view& dialog, const float window_width, const float window_height)
         {
             luil::modal_host_config config {};
             config.owner = u8"clone-dialog";
@@ -482,8 +501,8 @@ namespace cyella::ui {
             config.dismiss = action_of(message(close_clone_dialog_intent {}));
             config.focus_entry = luil::ui_element_id { kind_clone_url_input, u8"clone-url" };
             config.surface = floating_panel_config(8.0f, 0.4f);
-            config.content_width = clone_dialog_width;
-            config.content_height = clone_dialog_height;
+            config.content_width = std::min(clone_dialog_width, std::max(window_width - 32.0f, 0.0f));
+            config.content_height = std::min(clone_dialog_height, std::max(window_height - 32.0f, 0.0f));
             auto host { std::make_unique<luil::modal_host_element>(std::move(config)) };
 
             auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"clone-column" }, luil::stack_config {}) };
@@ -532,13 +551,14 @@ namespace cyella::ui {
         }
 
         // 사이드바(왼쪽 판)나 상세(오른쪽 판)의 폭을 끄는 손잡이다. +는 언제나 그 판이 넓어지는 쪽이다.
-        std::unique_ptr<luil::ui_element> make_splitter(const bool sidebar)
+        std::unique_ptr<luil::ui_element> make_splitter(const bool sidebar, const bool working = false)
         {
             luil::split_handle_config config {};
             config.axis = luil::split_axis::horizontal;
-            config.grows = sidebar ? luil::split_grows::toward_end : luil::split_grows::toward_start;
+            config.grows = sidebar || working ? luil::split_grows::toward_end : luil::split_grows::toward_start;
             config.resize = [sidebar](const float delta) { return message(resize_pane_intent { .sidebar = sidebar, .delta = delta }); };
-            auto handle { std::make_unique<luil::split_handle_element>(luil::ui_element_id { kind_splitter, sidebar ? u8"sidebar-splitter" : u8"detail-splitter" }, std::move(config)) };
+            const std::u8string owner { working ? u8"working-splitter" : (sidebar ? u8"sidebar-splitter" : u8"detail-splitter") };
+            auto handle { std::make_unique<luil::split_handle_element>(luil::ui_element_id { kind_splitter, owner }, std::move(config)) };
             // 판이 커져 손잡이가 누른 자리를 떠나도 같은 id를 버튼을 뗄 때까지 붙잡는다.
             luil::pointer_drag_target drag { *handle->pointer_drag() };
             drag.follows_pointer = true;
@@ -562,6 +582,7 @@ namespace cyella::ui {
         const luil::caption_config caption_config { cyella_caption() };
         const bool window_caption { luil::current_ui_platform().window_caption };
         const float caption_height { window_caption ? luil::caption_element::height_for(caption_config) : 0.0f };
+        const bool working { view.graph_layout == false && view.repository.has_value() && view.repository->detail == detail_mode::working && view.repository->conflict.has_value() == false };
 
         const shell_layout_input input {
             .width = view.logical_width,
@@ -574,6 +595,9 @@ namespace cyella::ui {
             .sidebar_width = view.sidebar_width,
             .detail_width = view.detail_width,
             .drawer_open = view.drawer_open,
+            .working = working,
+            .diff_open = view.repository.has_value() && view.repository->diff.has_value(),
+            .detail_available = view.repository.has_value() && (view.graph_layout || view.repository->detail != detail_mode::none),
         };
         const shell_rects rects { compute_shell_layout(input) };
 
@@ -582,10 +606,11 @@ namespace cyella::ui {
         if (view.repository.has_value())
         {
             const repository_view& repository { *view.repository };
-            root->place(build_graph_area(view, repository, rects.graph.width, sources), rects.graph);
-            if (view.mode == layout_mode::narrow)
+            if (rects.graph.empty() == false)
+                root->place(build_graph_area(view, repository, rects.graph.width, sources), rects.graph);
+            if (working == false && view.mode == layout_mode::narrow)
                 root->place(build_rail(repository), rects.sidebar);
-            else
+            else if (working == false)
             {
                 root->place(build_sidebar(repository, sources), rects.sidebar);
                 root->place(make_splitter(true), rects.sidebar_splitter);
@@ -593,16 +618,18 @@ namespace cyella::ui {
             if (rects.detail_is_drawer == false && rects.detail.empty() == false)
             {
                 root->place(build_detail(view, repository, false, rects.detail.width, rects.detail.height, sources), rects.detail);
-                root->place(make_splitter(false), rects.detail_splitter);
+                if (rects.detail_splitter.empty() == false)
+                    root->place(make_splitter(false, working), rects.detail_splitter);
             }
             else if (rects.detail_is_drawer)
                 root->place(drawer_frame(build_detail(view, repository, true, rects.detail.width, rects.detail.height, sources)), rects.detail);
-            if (view.mode == layout_mode::narrow && repository.rail_section.has_value())
+            if (working == false && view.mode == layout_mode::narrow && repository.rail_section.has_value())
             {
                 const float height { std::min(rects.body.height - 8.0f, 420.0f) };
                 root->place(build_rail_popup(repository, *repository.rail_section), { rects.sidebar.x + rects.sidebar.width + 4.0f, rects.body.y + 4.0f, 260.0f, height });
             }
             root->place(build_toolbar(view), rects.toolbar);
+            root->place(build_workspace_navigation(view, repository), rects.navigation);
         }
         else if (view.start.has_value())
             root->place(build_start_page(view, *view.start, sources), rects.body);
@@ -625,7 +652,7 @@ namespace cyella::ui {
             root->place(build_drag_hint_overlay(view.repository->drop_hints), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         // 대화 상자는 마지막 자식이라 모든 것 위에 그려지고 누름도 먼저 받는다.
         if (view.clone.has_value())
-            root->place(build_clone_dialog(*view.clone), { 0.0f, 0.0f, view.logical_width, view.logical_height });
+            root->place(build_clone_dialog(*view.clone, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         if (view.settings.has_value())
             root->place(build_settings_dialog(*view.settings, view.logical_width, view.logical_height, sources), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         // 인터랙티브 rebase 편집기다. 인증 질문·확인 상자는 그 위에 선다.
@@ -633,9 +660,9 @@ namespace cyella::ui {
             root->place(build_rebase_editor(*view.rebase_editor, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         // 명령 팔레트는 설정 화면 위, 확인·인증 상자 아래에 선다.
         if (view.palette.has_value())
-            root->place(build_palette_dialog(*view.palette, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
+            root->place(build_palette_dialog(*view.palette, view.logical_width, view.logical_height, sources), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         if (view.form.has_value())
-            root->place(build_form_dialog(*view.form, view.logical_width, view.logical_height), { 0.0f, 0.0f, view.logical_width, view.logical_height });
+            root->place(build_form_dialog(*view.form, view.logical_width, view.logical_height, sources), { 0.0f, 0.0f, view.logical_width, view.logical_height });
         // 키 처리가 읽는 단축키 표다. 보이지 않는 1x1 표식이다 (빈 사각형은 놓지 않으므로 크기를 준다).
         root->place(std::make_unique<shortcut_table_element>(view.shortcuts), { 0.0f, 0.0f, 1.0f, 1.0f });
 
@@ -656,8 +683,19 @@ namespace cyella::ui {
             built.feedback.sidebar_maximum = sources.sidebar->metrics().maximum_scroll;
         if (sources.detail != nullptr)
             built.feedback.detail_maximum = sources.detail->metrics().maximum_scroll;
+        if (sources.detail_area != nullptr)
+            built.feedback.detail_maximum = sources.detail_area->metrics().maximum_scroll;
         if (sources.commit_meta != nullptr)
             built.feedback.commit_meta_maximum = sources.commit_meta->metrics().maximum_scroll;
+        if (sources.working != nullptr)
+            built.feedback.working_maximum = sources.working->metrics().maximum_scroll;
+        if (sources.form != nullptr)
+            built.feedback.form_maximum = sources.form->metrics().maximum_scroll;
+        if (sources.palette != nullptr)
+        {
+            built.feedback.palette_maximum = sources.palette->metrics().maximum_scroll;
+            built.feedback.palette_scroll = sources.palette->metrics().scroll_offset;
+        }
         if (sources.diff != nullptr)
             built.feedback.diff_maximum = sources.diff->metrics().maximum_scroll;
         if (sources.log != nullptr)

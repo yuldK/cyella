@@ -57,6 +57,7 @@ namespace cyella {
     // 외부 diff 도구 한 줄을 고치는 중이다.
     struct tool_edit_state
     {
+        bool file_app { false };
         // 표에서 고치는 줄이다. 값이 없으면 새로 더하는 줄이다.
         std::optional<std::size_t> index {};
         // 쉼표나 공백으로 가른 확장자 목록이다 (`.png, .psd`).

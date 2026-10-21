@@ -19,6 +19,7 @@ namespace cyella {
     {
         repository,
         branch,
+        file_app,
     };
 
     // 한 번에 보이는 항목 수의 상한이다. 넘으면 "입력으로 좁히세요" 줄이 서고 나머지는 거르기로 찾는다.

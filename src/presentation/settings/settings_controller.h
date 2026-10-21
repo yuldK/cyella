@@ -87,9 +87,9 @@ namespace cyella {
         void open(settings_page page);
         void update_settings(const std::function<void(app_settings&)>& change);
         void apply_git_path();
-        void start_tool_edit(std::optional<std::size_t> index);
+        void start_tool_edit(std::optional<std::size_t> index, bool file_app = false);
         void save_tool();
-        void remove_tool(std::size_t index);
+        void remove_tool(std::size_t index, bool file_app = false);
         void request_ssh_info();
         // 호스팅 화면의 메시지면 처리하고 true다 (`hosting_settings.cpp`).
         bool handle_hosting(const luil::app_message& message);

@@ -1,5 +1,6 @@
 #include "application/diff_sides.h"
 #include "application/external_diff_opener.h"
+#include "temporary_directory_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -75,6 +76,85 @@ namespace {
         return entry;
     }
 } // namespace
+
+TEST_CASE("file apps open the selected version without running a shell", "[diff][external][file_app]")
+{
+    fake_gateway gateway {};
+    gateway.result = two_files();
+    fake_launcher launcher {};
+    external_diff_opener opener { gateway, launcher };
+    external_open_request request {};
+    request.plan = plan_for("art/a b.psd", diff_view::staged);
+    request.file_app = external_file_app { u8"Editor", u8"editor.exe", u8"--file={file} --root {repository} {path}" };
+
+    SECTION("staged and historical versions use the extracted right side")
+    {
+        for (const diff_view view : { diff_view::staged, diff_view::commit })
+        {
+            request.plan.view = view;
+            REQUIRE(opener.open(request).launched());
+            REQUIRE(launcher.requests.back().arguments.size() == 4);
+            CHECK(launcher.requests.back().arguments[0] == u8"--file=C:\\Temp\\op\\right\\a b.psd");
+            CHECK(launcher.requests.back().arguments[2] == u8"C:\\repo");
+            CHECK(gateway.extractions.back().view == view);
+        }
+    }
+    SECTION("a deleted file opens the previous version")
+    {
+        request.plan.status = 'D';
+        request.plan.new_path.clear();
+        gateway.result.right = {};
+        REQUIRE(opener.open(request).launched());
+        CHECK(launcher.requests[0].arguments[0] == u8"--file=C:\\Temp\\op\\left\\a b.psd");
+    }
+    SECTION("worktree and untracked files open the actual file")
+    {
+        test::temporary_directory directory { "file-app" };
+        const auto file { directory.path() / L"src" / L"한 글.cpp" };
+        test::write_file(file, "working content");
+        request.plan.repository_path = directory.u8path();
+        request.plan.view = diff_view::unstaged;
+        request.plan.new_path = "src/한 글.cpp";
+        request.plan.untracked = true;
+        REQUIRE(opener.open(request).launched());
+        CHECK(std::filesystem::path { launcher.requests[0].arguments[0].substr(7) } == file);
+        CHECK(gateway.extractions.empty());
+        CHECK(test::read_file(file) == "working content");
+    }
+    SECTION("failed extraction, invalid templates and cancellation do not launch")
+    {
+        gateway.result.ok = false;
+        CHECK_FALSE(opener.open(request).launched());
+        gateway.result = two_files();
+        request.file_app->arguments = u8"\"{file}";
+        CHECK(opener.open(request).status == external_open_status::invalid_template);
+        process_cancellation_source cancellation {};
+        cancellation.request_cancellation();
+        request.cancellation = cancellation.token();
+        CHECK_FALSE(opener.open(request).launched());
+        CHECK(launcher.requests.empty());
+    }
+    SECTION("a repository-only app does not need a file extraction")
+    {
+        request.file_app->arguments = u8"{repository}";
+        gateway.result.ok = false;
+        REQUIRE(opener.open(request).launched());
+        CHECK(gateway.extractions.empty());
+        CHECK(launcher.requests[0].arguments == std::vector<std::u8string> { u8"C:\\repo" });
+    }
+    SECTION("a worktree directory such as a submodule can be passed to an editor")
+    {
+        test::temporary_directory directory { "file-app-folder" };
+        const auto folder { directory.path() / "nested-repository" };
+        std::filesystem::create_directories(folder);
+        request.plan.repository_path = directory.u8path();
+        request.plan.view = diff_view::unstaged;
+        request.plan.new_path = "nested-repository";
+        REQUIRE(opener.open(request).launched());
+        CHECK(std::filesystem::path { launcher.requests[0].arguments[0].substr(7) } == folder);
+        CHECK(gateway.extractions.empty());
+    }
+}
 
 TEST_CASE("resolve_diff_sides picks the two sides of each view", "[diff][external]")
 {

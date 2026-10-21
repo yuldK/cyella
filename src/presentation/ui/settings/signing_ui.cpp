@@ -41,11 +41,10 @@ namespace cyella::ui {
             return row;
         }
 
-        void build_scope(page_column& page, const signing_page_view& view)
+        void build_scope(page_column& page, const signing_page_view& view, const float content_width)
         {
             page.add(section_title(u8"settings-signing-section-scope", u8"커밋 서명"), section_height);
-            page.add(help_line(u8"settings-signing-intro-1", u8"커밋과 태그에 gpg(OpenPGP) 또는 ssh 키로 서명하면 서명한 사람을 확인할 수 있습니다."), line_height);
-            page.add(help_line(u8"settings-signing-intro-2", u8"passphrase는 저장하지 않습니다. ssh 키는 인증 대화 상자로, gpg 키는 gpg-agent의 pinentry 창에서 묻습니다."), line_height);
+            add_help(page, u8"settings-signing-intro-1", u8"OpenPGP 또는 SSH 키로 커밋·태그에 서명합니다. 암호는 저장하지 않고 인증할 때 묻습니다.", content_width);
             page.gap(small_gap);
 
             auto header { make_row(u8"settings-signing-scope-header") };
@@ -88,7 +87,7 @@ namespace cyella::ui {
             page.add(help_line(u8"settings-signing-message", view.message, tone_color(view.message_error ? tone::bad : tone::neutral)), line_height);
         }
 
-        void build_table(page_column& page, const signing_page_view& view)
+        void build_table(page_column& page, const signing_page_view& view, const float content_width)
         {
             page.add(section_title(u8"settings-signing-section-table", u8"지금 적용되는 설정"), section_height);
             if (view.loaded == false)
@@ -102,10 +101,29 @@ namespace cyella::ui {
             header->add(field_label(u8"settings-signing-table-origin", u8"출처"), table_origin_width);
             header->add_flexible(field_label(u8"settings-signing-table-local", u8"이 저장소"));
             header->add_flexible(field_label(u8"settings-signing-table-global", u8"전역"));
-            page.add(std::move(header), line_height + 2.0f);
+            const bool stacked { content_width < 560.0f };
+            if (stacked == false)
+                page.add(std::move(header), line_height + 2.0f);
             for (const signing_setting_row_view& row : view.rows)
             {
                 const std::u8string key { to_u8(signing_key_name(row.key)) };
+                if (stacked)
+                {
+                    page.add(cell(u8"settings-signing-name-" + key, row.name, true, true), table_row_height);
+                    const auto value_row = [&](const std::u8string& suffix, const std::u8string& label, const std::u8string& value, const bool bold) {
+                        const std::u8string owner { u8"settings-signing-" + suffix + u8"-" + key };
+                        auto values { make_row(owner + u8"-row", 8.0f) };
+                        values->add(cell(owner + u8"-label", label), 68.0f);
+                        values->add_flexible(cell(owner, value, bold, true));
+                        page.add(std::move(values), table_row_height);
+                    };
+                    value_row(u8"effective", u8"적용 값", row.effective, true);
+                    value_row(u8"origin", u8"출처", row.origin, false);
+                    value_row(u8"local", u8"이 저장소", row.local, false);
+                    value_row(u8"global", u8"전역", row.global, false);
+                    page.gap(small_gap);
+                    continue;
+                }
                 auto line { make_row(u8"settings-signing-row-" + key, 8.0f) };
                 line->add(cell(u8"settings-signing-name-" + key, row.name, true, true), table_name_width);
                 line->add(cell(u8"settings-signing-effective-" + key, row.effective, true), table_effective_width);
@@ -145,11 +163,11 @@ namespace cyella::ui {
         {
             const std::u8string scope { view.global_scope ? u8"전역" : u8"이 저장소" };
             page.add(section_title(u8"settings-signing-section-enable", u8"서명하기 (" + scope + u8")"), section_height);
-            page.add(field_label(u8"settings-signing-commit-label", u8"commit.gpgsign — 켜면 모든 커밋에 서명합니다 (커밋 상자의 \"서명\" 토글의 기본값)"), label_height);
+            page.add(field_label(u8"settings-signing-commit-label", u8"커밋에 서명 · commit.gpgsign"), label_height);
             page.add(
                 choice_row(u8"settings-signing-commit", u8"commit.gpgsign", toggle_items(u8"commit"), u8"commit:" + view.commit_choice, toggle_handler(signing_key_id::commit_gpgsign)), input_height);
             page.gap(small_gap);
-            page.add(field_label(u8"settings-signing-tag-label", u8"tag.gpgsign — 켜면 태그를 서명한 annotated 태그로 만듭니다"), label_height);
+            page.add(field_label(u8"settings-signing-tag-label", u8"태그에 서명 · tag.gpgsign"), label_height);
             page.add(choice_row(u8"settings-signing-tag", u8"tag.gpgsign", toggle_items(u8"tag"), u8"tag:" + view.tag_choice, toggle_handler(signing_key_id::tag_gpgsign)), input_height);
             page.gap(large_gap);
 
@@ -170,7 +188,7 @@ namespace cyella::ui {
             page.add(help_line(u8"settings-signing-format-help", u8"설정을 지우면 git의 기본값인 openpgp입니다."), line_height);
         }
 
-        void build_keys(page_column& page, const signing_page_view& view)
+        void build_keys(page_column& page, const signing_page_view& view, const float content_width)
         {
             const std::u8string scope { view.global_scope ? u8"전역" : u8"이 저장소" };
             page.add(section_title(u8"settings-signing-section-key", u8"서명 키 (" + scope + u8")"), section_height);
@@ -187,13 +205,24 @@ namespace cyella::ui {
                 const signing_key_row_view& key { view.keys[index] };
                 const std::u8string suffix { number_text(index) };
                 auto row { make_row(u8"settings-signing-key-row-" + suffix, 8.0f) };
-                row->add(make_text(u8"settings-signing-key-name-" + suffix, key.label, text_style { .size = 12.0f, .bold = true }), 200.0f);
-                row->add_flexible(make_text(u8"settings-signing-key-detail-" + suffix, key.detail, text_style { .size = 11.0f, .color = dim }));
+                const bool stacked { content_width < 560.0f };
+                auto name { make_text(u8"settings-signing-key-name-" + suffix, key.label, text_style { .size = 12.0f, .bold = true }) };
+                if (stacked)
+                    row->add_flexible(std::move(name));
+                else
+                    row->add(std::move(name), 200.0f);
+                if (stacked == false)
+                    row->add_flexible(make_text(u8"settings-signing-key-detail-" + suffix, key.detail, text_style { .size = 11.0f, .color = dim }));
                 if (key.selected)
                     row->add(make_text(u8"settings-signing-key-selected-" + suffix, u8"사용 중", text_style { .size = 11.0f, .color = tone_color(tone::good), .bold = true }), 56.0f);
                 row->add(button_of(u8"settings-signing-key-use-" + suffix, u8"사용", message(choose_signing_key_intent { key.value }), key.usable && key.selected == false && view.writing == false),
                     { .length = 56.0f, .cross_length = button_height });
                 page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-signing-key-bar-" + suffix }, bar_style { .divider_bottom = true }, std::move(row)), row_height);
+                if (stacked)
+                {
+                    page.add(help_line(u8"settings-signing-key-detail-" + suffix, key.detail), line_height);
+                    page.gap(small_gap);
+                }
             }
             auto clear_row { make_row(u8"settings-signing-key-clear-row") };
             clear_row->add(
@@ -252,17 +281,17 @@ namespace cyella::ui {
         }
     } // namespace
 
-    void build_signing_page(page_column& page, const signing_page_view& view)
+    void build_signing_page(page_column& page, const signing_page_view& view, const float content_width)
     {
-        build_scope(page, view);
+        build_scope(page, view, content_width);
         page.gap(large_gap);
-        build_table(page, view);
+        build_table(page, view, content_width);
         if (view.loaded == false)
             return;
         page.gap(large_gap);
         build_toggles(page, view);
         page.gap(large_gap);
-        build_keys(page, view);
+        build_keys(page, view, content_width);
         page.gap(large_gap);
         build_programs(page, view);
     }

@@ -53,11 +53,13 @@ namespace cyella {
         std::u8string extensions {};
         std::u8string executable {};
         std::u8string arguments {};
+        bool file_app { false };
     };
 
     struct tool_edit_view
     {
         bool is_new { true };
+        bool file_app { false };
         luil::text_input_view extensions {};
         luil::text_input_view executable {};
         luil::text_input_view arguments {};
@@ -174,6 +176,7 @@ namespace cyella {
         diff_settings diff {};
         git_settings_view git {};
         std::vector<tool_row_view> tools {};
+        std::vector<tool_row_view> file_apps {};
         std::optional<tool_edit_view> edit {};
         ssh_view ssh {};
         // "서명" 쪽이다.
@@ -209,6 +212,7 @@ namespace cyella {
         bool ok { false };
     };
     [[nodiscard]] tool_draft_check check_tool_draft(std::u8string_view extensions, std::u8string_view executable, std::u8string_view arguments, const file_probe* probe);
+    [[nodiscard]] tool_draft_check check_file_app_draft(std::u8string_view name, std::u8string_view executable, std::u8string_view arguments, const file_probe* probe);
 
     // 입력으로 만든 도구다. 검사를 통과한 입력에만 쓴다.
     [[nodiscard]] external_diff_tool make_external_tool(std::u8string_view extensions, std::u8string_view executable, std::u8string_view arguments);

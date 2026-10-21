@@ -28,6 +28,12 @@ namespace cyella {
         std::u8string key {};
     };
 
+    struct palette_scroll_intent
+    {
+        float value { 0.0f };
+        bool absolute { false };
+    };
+
     // 항목을 골랐다 (누름·UIA Select·Enter). 키는 `palette_model.h`의 접두를 따른다.
     struct palette_pick_intent
     {

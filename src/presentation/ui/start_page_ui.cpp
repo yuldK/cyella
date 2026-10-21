@@ -7,6 +7,7 @@
 
 #include "domain/repository_path.h"
 #include "presentation/build_view_snapshot.h"
+#include "presentation/settings/settings_intents.h"
 
 #include "luil/ui/dialog_elements.h"
 #include "luil/ui/scroll_area_element.h"
@@ -21,11 +22,8 @@ namespace cyella::ui {
         constexpr float start_content_width { 880.0f };
         constexpr float start_side_padding { 24.0f };
         constexpr float start_row_spacing { 6.0f };
-        constexpr float start_cards_minimum_width { 720.0f };
-        constexpr float start_card_height { 72.0f };
-        constexpr float start_card_spacing { 10.0f };
         // 머리말 왼쪽 앱 심볼의 한 변이다 (논리 픽셀). 심볼 그림은 이 크기의 4배까지 흐려지지 않는다.
-        constexpr float start_symbol_size { 64.0f };
+        constexpr float start_symbol_size { 40.0f };
 
         // `2026-10-20T09:30:12Z`를 유닉스 초로 읽는다. 읽지 못하면 0이다.
         std::int64_t parse_utc(const std::u8string_view text)
@@ -100,8 +98,6 @@ namespace cyella::ui {
         add_heading(make_text(u8"start-subtitle", u8"저장소를 열거나 새로 만드세요.", text_style { .size = 12.0f, .color = dim }), 20.0f);
         if (start.git_message.empty() == false)
             add_heading(make_text(u8"start-git", start.git_message, text_style { .size = 12.0f, .color = [](const luil::ui_color_palette& palette) { return palette.error_accent; } }), 20.0f);
-        else if (start.git_version.empty() == false)
-            add_heading(make_text(u8"start-git", start.git_version, text_style { .size = 11.0f, .color = dim, .code = true }), 18.0f);
         if (app_symbol().valid())
         {
             luil::stack_config row_config { .direction = luil::stack_direction::row, .spacing = 16.0f };
@@ -116,34 +112,38 @@ namespace cyella::ui {
         gap(14.0f);
 
         const bool git_usable { start.git_message.empty() };
-        const bool stacked_cards { view.logical_width < start_cards_minimum_width };
-        luil::stack_config cards_config {};
-        cards_config.direction = stacked_cards ? luil::stack_direction::column : luil::stack_direction::row;
-        cards_config.spacing = start_card_spacing;
-        auto cards { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-cards" }, cards_config) };
-        const auto add_card = [&](std::unique_ptr<luil::ui_element> card) {
-            if (stacked_cards)
-                cards->add(std::move(card), start_card_height);
+        const bool stacked { view.logical_width < 760.0f };
+        const float card_height { stacked ? 60.0f : 72.0f };
+        const luil::stack_config actions_config { .direction = stacked ? luil::stack_direction::column : luil::stack_direction::row, .spacing = 10.0f };
+        auto actions { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-actions" }, actions_config) };
+        const auto add_action = [&](std::unique_ptr<luil::ui_element> card) {
+            if (stacked)
+                actions->add(std::move(card), card_height);
             else
-                cards->add_flexible(std::move(card));
+                actions->add_flexible(std::move(card));
         };
-        add_card(std::make_unique<start_card_element>(
+        add_action(std::make_unique<start_card_element>(
             u8"start-open", codicons::icon_folder_opened, u8"저장소 열기", u8"내 컴퓨터의 폴더를 골라 엽니다", ui_command(static_cast<std::uint32_t>(ui_command_id::open_folder)), git_usable));
-        add_card(std::make_unique<start_card_element>(u8"start-clone", codicons::icon_repo_clone, u8"Clone", u8"URL로 원격 저장소를 받아 옵니다", message(open_clone_dialog_intent {}), git_usable));
-        add_card(std::make_unique<start_card_element>(
+        add_action(std::make_unique<start_card_element>(u8"start-clone", codicons::icon_repo_clone, u8"Clone", u8"URL로 원격 저장소를 받아 옵니다", message(open_clone_dialog_intent {}), git_usable));
+        add_action(std::make_unique<start_card_element>(
             u8"start-init", codicons::icon_add, u8"Init", u8"폴더를 골라 새 저장소를 만듭니다", ui_command(static_cast<std::uint32_t>(ui_command_id::init_folder)), git_usable));
-        add(std::move(cards), stacked_cards ? start_card_height * 3.0f + start_card_spacing * 2.0f : start_card_height);
+        add(std::move(actions), stacked ? card_height * 3.0f + 20.0f : card_height);
+        if (git_usable == false)
+        {
+            gap(8.0f);
+            add(make_text_button(u8"start-git-settings", u8"Git 설정 열기", luil::text_button_visual::normal, message(open_settings_intent {}), true, codicons::icon_settings_gear), 30.0f);
+        }
         if (start.setup_progress.empty() == false)
         {
             gap(8.0f);
             add(make_text(u8"start-setup-progress", start.setup_progress, text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.accent; } }), 18.0f);
         }
-        gap(16.0f);
+        gap(28.0f);
 
         auto search_row
             = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-search-row" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 8.0f });
         luil::text_input_config search_config {
-            .placeholder = u8"이름이나 경로로 거르기",
+            .placeholder = u8"최근 저장소 검색 · 이름 또는 경로",
             .leading_glyph = codicons::icon_search,
             .clear = action_of(message(edit_text_intent { luil::text_edit_request { .target = to_luil_target(text_target::start_search), .command = luil::text::text_edit_command::clear } })),
             .clear_tooltip = u8"지우기",
@@ -174,12 +174,12 @@ namespace cyella::ui {
         add_section(u8"start-recent", u8"최근", false);
         if (start.list.items.empty())
             add(make_text(u8"start-empty",
-                    start.list.total_count == 0 ? std::u8string { u8"최근에 연 저장소가 없습니다. 위의 카드로 저장소를 열거나 Clone 하세요." }
-                                                : std::u8string { u8"검색과 일치하는 저장소가 없습니다." },
+                    start.list.total_count == 0 ? std::u8string { u8"최근에 연 저장소가 없습니다. 저장소를 열거나 URL로 복제하세요." } : std::u8string { u8"검색과 일치하는 저장소가 없습니다." },
                     text_style { .size = 12.0f, .color = dim }),
                 24.0f);
 
         luil::scroll_area_config config {};
+        config.edges.shadows = true;
         config.owner = u8"start-scroll";
         config.content_height = height;
         config.scroll_offset = start.scroll;

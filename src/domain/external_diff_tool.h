@@ -6,6 +6,18 @@
 #include <vector>
 
 namespace cyella {
+    // diff에서 선택한 파일 한 개를 다른 앱으로 여는 명령이다.
+    struct external_file_app
+    {
+        std::u8string name {};
+        std::u8string executable {};
+        std::u8string arguments { u8"{file}" };
+
+        [[nodiscard]] bool operator==(const external_file_app&) const noexcept = default;
+    };
+
+    [[nodiscard]] std::vector<external_file_app> default_external_file_apps();
+
     // 확장자별 외부 diff 도구 한 줄이다 (ADR-002). 확장자는 `.png`처럼 점으로 시작하는
     // 접미사이며 `.tar.gz` 같은 여러 점도 쓸 수 있다. 점이나 `*.`이 없어도 받아들인다.
     struct external_diff_tool
@@ -27,6 +39,8 @@ namespace cyella {
         std::u8string right {};
         std::u8string base {};
         std::u8string path {};
+        std::u8string file {};
+        std::u8string repository {};
     };
 
     // 템플릿을 argv로 풀어 낸다. 셸을 거치지 않는다.

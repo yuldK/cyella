@@ -18,8 +18,9 @@
 
 namespace cyella::ui {
     namespace {
-        constexpr float conflict_row_height { 36.0f };
-        constexpr float conflict_header_height { 84.0f };
+        constexpr float conflict_row_height { 44.0f };
+        constexpr float conflict_stacked_row_height { 76.0f };
+        constexpr float conflict_stacked_minimum_width { 720.0f };
         constexpr float conflict_footer_height { 48.0f };
         constexpr float conflict_button_height { 24.0f };
         constexpr float conflict_button_gap { 6.0f };
@@ -30,19 +31,20 @@ namespace cyella::ui {
         class conflict_row_element final : public luil::ui_element
         {
         public:
-            conflict_row_element(conflict_file_view file, std::string repository_id, bool busy)
+            conflict_row_element(conflict_file_view file, std::string repository_id, bool busy, const bool rebasing, const bool stacked)
                 : ui_element { luil::ui_element_id { kind_conflict_row, u8"conflict-" + file.name + u8"-" + number_text(std::hash<std::string> {}(file.path) % 100000) } }
                 , file_ { std::move(file) }
+                , stacked_ { stacked }
             {
                 set_hit_opaque(false);
                 set_tooltip(to_u8(file_.path));
                 const std::u8string tag { to_u8(file_.path) };
-                add_button(u8"conflict-ours:" + tag, u8"현재(ours)", luil::text_button_visual::normal,
-                    message(submit_operation_intent { repository_id, resolve_file_request { .path = file_.path, .side = conflict_side::ours } }), busy, 84.0f,
-                    u8"이 파일을 현재 쪽(ours)의 내용으로 정하고 해결로 표시합니다");
-                add_button(u8"conflict-theirs:" + tag, u8"들어오는(theirs)", luil::text_button_visual::normal,
-                    message(submit_operation_intent { repository_id, resolve_file_request { .path = file_.path, .side = conflict_side::theirs } }), busy, 116.0f,
-                    u8"이 파일을 들어오는 쪽(theirs)의 내용으로 정하고 해결로 표시합니다");
+                add_button(u8"conflict-ours:" + tag, rebasing ? u8"기준(ours)" : u8"현재(ours)", luil::text_button_visual::normal,
+                    message(submit_operation_intent { repository_id, resolve_file_request { .path = file_.path, .side = conflict_side::ours } }), busy, 96.0f,
+                    rebasing ? u8"리베이스의 기준 쪽 내용으로 이 파일을 정하고 해결로 표시합니다" : u8"이 파일을 현재 쪽(ours)의 내용으로 정하고 해결로 표시합니다");
+                add_button(u8"conflict-theirs:" + tag, rebasing ? u8"적용 커밋(theirs)" : u8"들어오는(theirs)", luil::text_button_visual::normal,
+                    message(submit_operation_intent { repository_id, resolve_file_request { .path = file_.path, .side = conflict_side::theirs } }), busy, 132.0f,
+                    rebasing ? u8"지금 다시 적용하는 내 커밋의 내용으로 이 파일을 정하고 해결로 표시합니다" : u8"이 파일을 들어오는 쪽(theirs)의 내용으로 정하고 해결로 표시합니다");
                 add_button(u8"conflict-resolved:" + tag, u8"해결 표시", luil::text_button_visual::accent,
                     message(submit_operation_intent { repository_id, mark_resolved_request { .paths = { file_.path } } }), busy, 84.0f, u8"직접 고친 파일을 해결로 표시(git add)합니다");
             }
@@ -53,7 +55,7 @@ namespace cyella::ui {
                 const float scale { context.scale };
                 float right { context.slot.x + context.slot.width - 12.0f * scale };
                 const float height { conflict_button_height * scale };
-                const float top { context.slot.y + (context.slot.height - height) / 2.0f };
+                const float top { stacked_ ? context.slot.y + 42.0f * scale : context.slot.y + (context.slot.height - height) / 2.0f };
                 for (auto it { children().rbegin() }; it != children().rend(); ++it)
                 {
                     const float width { widths_[static_cast<std::size_t>(children().rend() - it) - 1] * scale };
@@ -61,7 +63,7 @@ namespace cyella::ui {
                     (*it)->arrange(context.for_child({ right, top, width, height }));
                     right -= conflict_button_gap * scale;
                 }
-                text_right_ = right;
+                text_right_ = stacked_ ? context.slot.x + context.slot.width - 12.0f * scale : right;
             }
 
             [[nodiscard]] luil::access_info accessibility() const override
@@ -74,9 +76,10 @@ namespace cyella::ui {
                 const luil::rect_f box { bounds() };
                 const float scale { context.scale };
                 const luil::ui_color_palette& palette { context.palette };
+                const float text_height { stacked_ ? 36.0f * scale : box.height };
                 float x { box.x + 14.0f * scale };
                 const float letter { 18.0f * scale };
-                const luil::rect_f badge { x, box.y + (box.height - letter) / 2.0f, letter, letter };
+                const luil::rect_f badge { x, box.y + (text_height - letter) / 2.0f, letter, letter };
                 SkPaint fill { luil::solid_paint(luil::with_alpha(palette.error_accent, 0.18f)) };
                 fill.setAntiAlias(true);
                 context.canvas.drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(badge.x, badge.y, badge.width, badge.height), 3.0f * scale, 3.0f * scale), fill);
@@ -87,7 +90,7 @@ namespace cyella::ui {
                 x += letter + 10.0f * scale;
                 const float right { std::max(text_right_ - 8.0f * scale, x) };
                 const SkFont font { ui_font(context, 12.0f) };
-                const float name_baseline { box.y + luil::centered_text_baseline(font, box.height) };
+                const float name_baseline { box.y + luil::centered_text_baseline(font, text_height) };
                 const float drawn { luil::draw_text_within(context.canvas, file_.name, x, name_baseline, right - x, font, luil::solid_paint(palette.primary_foreground)) };
                 const SkFont small { ui_font(context, 11.0f) };
                 std::u8string detail { file_.folder };
@@ -96,7 +99,8 @@ namespace cyella::ui {
                 const float detail_x { x + drawn + 8.0f * scale };
                 if (detail.empty() == false && right - detail_x > 0.0f)
                     static_cast<void>(luil::draw_text_within(
-                        context.canvas, detail, detail_x, box.y + luil::centered_text_baseline(small, box.height), right - detail_x, small, luil::solid_paint(palette.secondary_foreground)));
+                        context.canvas, detail, detail_x, box.y + luil::centered_text_baseline(small, text_height), right - detail_x, small, luil::solid_paint(palette.secondary_foreground)));
+                context.canvas.drawLine(box.x, box.y + box.height - scale, box.x + box.width, box.y + box.height - scale, luil::solid_paint(palette.divider));
                 draw_children(context, interaction);
             }
 
@@ -105,7 +109,7 @@ namespace cyella::ui {
             {
                 auto button { make_text_button(std::move(owner), std::move(label), visual, std::move(action), disabled == false) };
                 button->set_tooltip(std::move(tooltip));
-                button->set_tab_stop(false);
+                button->set_tab_stop(true);
                 widths_.push_back(width);
                 add_child(std::move(button));
             }
@@ -113,27 +117,35 @@ namespace cyella::ui {
             conflict_file_view file_ {};
             std::vector<float> widths_ {};
             float text_right_ { 0.0f };
+            bool stacked_ { false };
         };
     } // namespace
 
-    std::unique_ptr<luil::ui_element> build_conflict_screen(const repository_view& repository, const conflict_view& conflict, const float scroll, feedback_sources& sources)
+    std::unique_ptr<luil::ui_element> build_conflict_screen(const repository_view& repository, const conflict_view& conflict, const float width, const float scroll, feedback_sources& sources)
     {
         const std::string& repo { repository.repository_id };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-area" }, luil::stack_config {}) };
 
         const luil::stack_config header_config { .spacing = 4.0f, .padding = luil::edge_insets { 16.0f, 12.0f, 16.0f, 8.0f } };
         auto header { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-header" }, header_config) };
-        header->add(make_text(u8"conflict-title", conflict.title, text_style { .size = 14.0f, .bold = true }), 22.0f);
-        header->add(make_text(u8"conflict-progress", conflict.progress, text_style { .size = 12.0f }), 18.0f);
-        header->add(make_text(u8"conflict-detail", conflict.detail.empty() ? std::u8string { u8"충돌은 닫을 수 없습니다. 끝내려면 계속하거나 중단하세요." } : conflict.detail,
-                        text_style { .size = 11.0f, .color = dim_color }),
-            16.0f);
+        float header_height { 20.0f };
+        std::size_t header_lines { 0 };
+        const auto add_header = [&](std::u8string owner, std::u8string text, const text_style style, const float line_height) {
+            const float text_height { std::clamp(wrapped_text_height(text, std::max(width - 32.0f, 120.0f), style, line_height), line_height, line_height * 3.0f) };
+            header->add(make_wrapped_text(std::move(owner), std::move(text), style, line_height), text_height);
+            header_height += text_height + (header_lines++ > 0 ? 4.0f : 0.0f);
+        };
+        add_header(u8"conflict-title", conflict.title, text_style { .size = 14.0f, .bold = true }, 22.0f);
+        add_header(u8"conflict-progress", conflict.progress, text_style { .size = 12.0f }, 18.0f);
+        add_header(u8"conflict-detail", conflict.detail.empty() ? u8"파일을 수정하고 해결로 표시한 뒤 계속하세요." : conflict.detail, text_style { .size = 11.0f, .color = dim_color }, 16.0f);
+        const bool rebasing { conflict.kind == repository_operation_state::rebase };
+        if (rebasing)
+            add_header(u8"conflict-sides-help", u8"기준(ours)은 리베이스 기준 쪽, 적용 커밋(theirs)은 지금 다시 적용하는 내 커밋입니다.", text_style { .size = 11.0f, .color = dim_color }, 16.0f);
         // 인터랙티브 rebase는 멈춘 할 일을 한 줄 더 보인다.
         const bool has_note { conflict.todo_note.empty() == false };
         if (has_note)
-            header->add(make_text(u8"conflict-todo", conflict.todo_note, text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.accent; } }), 16.0f);
-        column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"conflict-header-bar" }, bar_style { .divider_bottom = true }, std::move(header)),
-            conflict_header_height + (has_note ? 20.0f : 0.0f));
+            add_header(u8"conflict-todo", conflict.todo_note, text_style { .size = 11.0f, .color = dim_color }, 16.0f);
+        column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"conflict-header-bar" }, bar_style { .divider_bottom = true }, std::move(header)), header_height);
 
         if (conflict.files.empty())
         {
@@ -148,13 +160,15 @@ namespace cyella::ui {
             auto files { std::make_shared<std::vector<conflict_file_view>>(conflict.files) };
             luil::virtual_list_config config {};
             config.owner = u8"conflict-files";
+            const bool stacked { width < conflict_stacked_minimum_width };
+            const float row_height { stacked ? conflict_stacked_row_height : conflict_row_height };
             for (std::size_t index { 0 }; index < files->size(); ++index)
-                config.items.push_back({ .key = u8"c" + number_text(index), .label = (*files)[index].name, .height = conflict_row_height, .enabled = false });
-            config.row_height = conflict_row_height;
+                config.items.push_back({ .key = u8"c" + number_text(index), .label = (*files)[index].name, .height = row_height, .enabled = false });
+            config.row_height = row_height;
             config.scroll_offset = scroll;
             const bool busy { conflict.busy };
-            config.build_row = [files, repo, busy](const luil::virtual_list_item&, const std::size_t index, bool) -> std::unique_ptr<luil::ui_element> {
-                return std::make_unique<conflict_row_element>((*files)[index], repo, busy);
+            config.build_row = [files, repo, busy, rebasing, stacked](const luil::virtual_list_item&, const std::size_t index, bool) -> std::unique_ptr<luil::ui_element> {
+                return std::make_unique<conflict_row_element>((*files)[index], repo, busy, rebasing, stacked);
             };
             config.scroll = [](const float delta) { return message(scroll_intent { .target = scroll_target::diff, .value = delta }); };
             config.scroll_to = [](const float offset) { return message(scroll_intent { .target = scroll_target::diff, .value = offset, .absolute = true }); };
@@ -175,12 +189,27 @@ namespace cyella::ui {
         footer->add(
             make_text_button(u8"conflict-abort", u8"중단", luil::text_button_visual::danger, message(conflict_action_intent { conflict_action::abort_sequence }), conflict.busy == false), 76.0f);
         if (conflict.can_skip)
-            footer->add(
-                make_text_button(u8"conflict-skip", u8"건너뛰기", luil::text_button_visual::normal, message(conflict_action_intent { conflict_action::skip_sequence }), conflict.busy == false), 96.0f);
-        footer->add(
-            make_text_button(u8"conflict-continue", u8"계속", luil::text_button_visual::accent, message(conflict_action_intent { conflict_action::continue_sequence }), conflict.can_continue, 0, true),
-            96.0f);
-        column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"conflict-footer-bar" }, bar_style { .divider_top = true }, std::move(footer)), conflict_footer_height);
+        {
+            auto skip = make_text_button(u8"conflict-skip", u8"건너뛰기", luil::text_button_visual::normal, message(conflict_action_intent { conflict_action::skip_sequence }), conflict.busy == false);
+            skip->set_tooltip(u8"현재 적용 중인 커밋을 제외하고 다음 커밋으로 진행합니다.");
+            footer->add(std::move(skip), 96.0f);
+        }
+        auto next = make_text_button(
+            u8"conflict-continue", u8"계속", luil::text_button_visual::accent, message(conflict_action_intent { conflict_action::continue_sequence }), conflict.can_continue, 0, true);
+        next->set_tooltip(conflict.can_continue ? u8"해결한 결과로 작업을 이어갑니다." : u8"충돌을 모두 해결로 표시한 뒤 계속할 수 있습니다.");
+        footer->add(std::move(next), 96.0f);
+        auto footer_column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-footer-content" }, luil::stack_config {}) };
+        const float help_height { conflict.files.empty() ? 0.0f : 24.0f };
+        if (help_height > 0.0f)
+        {
+            const luil::stack_config help_config { .padding = luil::edge_insets { 16.0f, 4.0f, 16.0f, 4.0f } };
+            auto help { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-continue-help-row" }, help_config) };
+            help->add(make_text(u8"conflict-continue-help", u8"모든 파일을 해결로 표시하면 계속할 수 있습니다.", text_style { .size = 11.0f, .color = dim_color }), 16.0f);
+            footer_column->add(std::move(help), help_height);
+        }
+        footer_column->add(std::move(footer), conflict_footer_height);
+        column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"conflict-footer-bar" }, bar_style { .divider_top = true }, std::move(footer_column)),
+            conflict_footer_height + help_height);
 
         return std::make_unique<bar_element>(
             luil::ui_element_id { kind_panel, u8"conflict-panel" }, bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.surface_background; } }, std::move(column));

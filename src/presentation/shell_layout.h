@@ -15,6 +15,8 @@ namespace cyella {
     // 셸의 고정 치수다 (논리 픽셀).
     inline constexpr float shell_tab_row_height { 40.0f };
     inline constexpr float shell_toolbar_height { 44.0f };
+    inline constexpr float shell_navigation_height { 34.0f };
+    inline constexpr float changes_split_minimum_width { 720.0f };
     inline constexpr float shell_status_height { 24.0f };
     inline constexpr float shell_banner_height { 32.0f };
     inline constexpr float shell_log_height { 200.0f };
@@ -70,6 +72,9 @@ namespace cyella {
         float detail_width { default_detail_width };
         // medium·narrow에서 상세 서랍이 열려 있다.
         bool drawer_open { false };
+        bool working { false };
+        bool diff_open { false };
+        bool detail_available { true };
     };
 
     // 셸의 판 자리다 (논리 픽셀, 창 원점 기준). 없는 판은 빈 사각형이다.
@@ -77,6 +82,7 @@ namespace cyella {
     {
         shell_rect tab_row {};
         shell_rect toolbar {};
+        shell_rect navigation {};
         shell_rect banner {};
         // 사이드바·그래프·상세가 놓이는 본문 전체다. 시작 탭이면 시작 페이지가 여기에 선다.
         shell_rect body {};

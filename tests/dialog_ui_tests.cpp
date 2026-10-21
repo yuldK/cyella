@@ -47,6 +47,29 @@ namespace {
     }
 } // namespace
 
+TEST_CASE("start actions remain reachable on narrow windows and Git failure has a settings action", "[presentation][ui][start]")
+{
+    snapshot_harness harness {};
+    for (const float width : { 480.0f, 720.0f, 1440.0f })
+    {
+        view_snapshot view { harness.build(width) };
+        const auto built { ui::build_ui_tree(view) };
+        for (const std::u8string owner : { u8"start-open", u8"start-clone", u8"start-init" })
+        {
+            const auto* const button { find_element(built, ui::kind_start_card, owner) };
+            REQUIRE(button != nullptr);
+            CHECK(button->bounds().x >= 0.0f);
+            CHECK(button->bounds().x + button->bounds().width <= width);
+            CHECK(button->bounds().width >= 120.0f);
+        }
+        view.start->git_message = u8"Git 실행 파일을 찾을 수 없습니다.";
+        const auto failed { ui::build_ui_tree(view) };
+        REQUIRE(find_element(failed, ui::kind_text_button, u8"start-git-settings") != nullptr);
+        CHECK(find_element(failed, ui::kind_text_button, u8"start-git-settings")->enabled());
+        CHECK_FALSE(find_element(failed, ui::kind_start_card, u8"start-open")->enabled());
+    }
+}
+
 TEST_CASE("toolbar controls stay inside the window at every responsive boundary", "[presentation][ui][layout]")
 {
     tree_fixture fixture {};
@@ -206,6 +229,67 @@ TEST_CASE("working files use a single selection control and preserve file action
     CHECK(body->bounds().height >= 80.0f);
 }
 
+TEST_CASE("short working panes keep the file viewport and allow scrolling to commit", "[presentation][ui][working]")
+{
+    tree_fixture fixture {};
+    view_snapshot view { fixture.harness.build(480.0f) };
+    view.graph_layout = false;
+    view.height = view.logical_height = 333.0f;
+    view.mode = layout_mode::narrow;
+    view.repository->detail = detail_mode::working;
+    view.repository->working = working_area_view {};
+    view.repository->working->unstaged.push_back({ .key = u8"u:src/view.cpp", .path = "src/view.cpp", .name = u8"view.cpp", .status = 'M' });
+    for (const bool warning : { false, true })
+    {
+        view.repository->working->amend_warning = warning;
+        view.repository->working->scroll = 0.0f;
+        const ui::built_tree top { ui::build_ui_tree(view) };
+        REQUIRE(top.feedback.working_maximum.has_value());
+        CHECK(*top.feedback.working_maximum > 0.0f);
+        const luil::ui_element* const files { find_element(top, luil::ui_element_kind::virtual_list, u8"working-files") };
+        REQUIRE(files != nullptr);
+        CHECK(files->bounds().height >= 150.0f);
+        view.repository->working->scroll = *top.feedback.working_maximum;
+        const ui::built_tree bottom { ui::build_ui_tree(view) };
+        const luil::ui_element* const submit { find_element(bottom, ui::kind_text_button, u8"commit-button") };
+        REQUIRE(submit != nullptr);
+        const luil::ui_element* const viewport { find_element(bottom, luil::ui_element_kind::scroll_area, u8"working-scroll") };
+        const luil::ui_element* const status { find_element(bottom, ui::kind_panel, u8"status-bar") };
+        REQUIRE(viewport != nullptr);
+        REQUIRE(status != nullptr);
+        CHECK(submit->bounds().y >= viewport->bounds().y);
+        CHECK(submit->bounds().y + submit->bounds().height <= status->bounds().y);
+        CHECK(bottom.tree->duplicate_ids().empty());
+        CHECK(bottom.tree->unarranged().empty());
+    }
+}
+
+TEST_CASE("clone inputs and all footer actions retain margins in a minimum window", "[presentation][ui][clone]")
+{
+    tree_fixture fixture {};
+    view_snapshot view { fixture.harness.build(480.0f) };
+    view.height = view.logical_height = 333.0f;
+    view.clone = clone_dialog_view {};
+    for (const int state : { 0, 1, 2 })
+    {
+        view.clone->running = state == 2;
+        view.clone->error = state == 1 ? u8"원격에 연결하지 못했습니다. URL과 인증을 확인하세요." : u8"";
+        view.clone->phase = u8"객체를 받는 중";
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        for (const char8_t* owner : { u8"clone-close", u8"clone-submit", u8"clone-browse" })
+        {
+            const auto* const button { find_element(built, ui::kind_text_button, owner) };
+            REQUIRE(button != nullptr);
+            CHECK(button->bounds().x >= 16.0f);
+            CHECK(button->bounds().y >= 16.0f);
+            CHECK(button->bounds().x + button->bounds().width <= 464.0f);
+            CHECK(button->bounds().y + button->bounds().height <= 317.0f);
+        }
+        CHECK(built.tree->duplicate_ids().empty());
+        CHECK(built.tree->unarranged().empty());
+    }
+}
+
 TEST_CASE("graph labels are separate elements that can be dragged and dropped on", "[presentation][ui][drag]")
 {
     tree_fixture fixture {};
@@ -316,6 +400,52 @@ TEST_CASE("the WIP row has no menu and refuses drops", "[presentation][ui][drag]
     CHECK(row->action(luil::ui_trigger::left_click) != nullptr);
 }
 
+TEST_CASE("long forms keep captions and actions visible while content scrolls", "[presentation][ui][dialogs]")
+{
+    snapshot_harness harness {};
+    for (const float width : { 480.0f, 900.0f })
+    {
+        CAPTURE(width);
+        view_snapshot view { harness.build(width) };
+        view.height = 360.0f;
+        view.logical_height = 360.0f;
+        form_view form {};
+        form.id = u8"long-form";
+        form.title = u8"변경 내용과 실행 범위 확인";
+        for (int line { 0 }; line < 40; ++line)
+            form.notes.push_back({ .text = u8"실행 전에 대상과 변경 내용을 확인하는 긴 안내입니다." });
+        form.buttons = {
+            { .key = u8"cancel", .label = u8"취소" },
+            { .key = u8"keep", .label = u8"현재 변경을 임시 보관하고 선택한 브랜치로 이동" },
+            { .key = u8"discard", .label = u8"현재 변경을 버리고 선택한 브랜치로 이동", .tone = form_tone::danger },
+        };
+        form.dismiss_key = u8"cancel";
+        view.form = form;
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        REQUIRE(built.feedback.form_maximum.has_value());
+        CHECK(*built.feedback.form_maximum > 0.0f);
+        const luil::ui_element* const caption { built.tree->find({ luil::ui_element_kind::dialog_caption, form.id }) };
+        REQUIRE(caption != nullptr);
+        CHECK(caption->bounds().y >= 15.0f);
+        for (const std::u8string owner : { u8"long-form-cancel", u8"long-form-keep", u8"long-form-discard" })
+        {
+            const luil::ui_element* const button { find_element(built, ui::kind_text_button, owner) };
+            REQUIRE(button != nullptr);
+            CHECK(button->bounds().x >= 0.0f);
+            CHECK(button->bounds().x + button->bounds().width <= width);
+            CHECK(button->bounds().y + button->bounds().height <= 345.0f);
+        }
+        const auto before { find_element(built, ui::kind_text_button, u8"long-form-cancel")->bounds() };
+        view.form->scroll = 10000.0f;
+        const ui::built_tree scrolled { ui::build_ui_tree(view) };
+        const auto after { find_element(scrolled, ui::kind_text_button, u8"long-form-cancel")->bounds() };
+        CHECK(before.x == after.x);
+        CHECK(before.y == after.y);
+        CHECK(scrolled.tree->duplicate_ids().empty());
+        CHECK(scrolled.tree->unarranged().empty());
+    }
+}
+
 TEST_CASE("an open menu becomes a popup and a form becomes a modal host", "[presentation][ui][dialogs]")
 {
     tree_fixture fixture {};
@@ -384,6 +514,19 @@ TEST_CASE("the conflict screen replaces the graph with per file actions and a fo
     const luil::ui_element* const abort_button { find_element(built, cyella::ui::kind_text_button, u8"conflict-abort") };
     REQUIRE(abort_button != nullptr);
     CHECK(abort_button->enabled());
+    for (const float width : { 480.0f, 900.0f, 1440.0f })
+    {
+        const auto responsive { fixture.build(width) };
+        const auto* const ours { find_element(responsive, ui::kind_text_button, u8"conflict-ours:src/a.cpp") };
+        const auto* const theirs { find_element(responsive, ui::kind_text_button, u8"conflict-theirs:src/a.cpp") };
+        REQUIRE(ours != nullptr);
+        REQUIRE(theirs != nullptr);
+        CHECK(ours->accessibility().name == u8"기준(ours)");
+        CHECK(theirs->accessibility().name == u8"적용 커밋(theirs)");
+        CHECK(ours->bounds().x >= 0.0f);
+        CHECK(theirs->bounds().x + theirs->bounds().width <= width);
+        REQUIRE(find_element(responsive, ui::kind_label, u8"conflict-continue-help") != nullptr);
+    }
 }
 
 TEST_CASE("every tree the dialogs add has unique ids and complete layout", "[presentation][ui]")
@@ -476,4 +619,55 @@ TEST_CASE("the repository selector list ends with the folder picker that runs a 
     const std::vector<luil::input_action> actions { (*click)(luil::ui_action_context {}) };
     REQUIRE(actions.size() == 1);
     CHECK(std::holds_alternative<luil::app_ui_command>(actions.front()));
+}
+
+TEST_CASE("repository layouts share working controls and preserve their intended panel positions", "[presentation][ui][layout]")
+{
+    tree_fixture fixture {};
+    load(*fixture.harness.sessions["repo-1"], linear_history(6), 2);
+    fixture.harness.ui.tabs[fixture.tab].selected_sha = std::string { graph_wip_sha };
+    for (const float width : { 480.0f, 900.0f, 1440.0f })
+        for (const bool graph : { true, false })
+        {
+            CAPTURE(width, graph);
+            view_snapshot view { fixture.harness.build(width) };
+            view.graph_layout = graph;
+            view.drawer_open = graph && view.mode != layout_mode::wide;
+            const ui::built_tree built { ui::build_ui_tree(view) };
+            CHECK(built.tree->duplicate_ids().empty());
+            CHECK(built.tree->unarranged().empty());
+            const auto* const layout { find_element(built, ui::kind_segmented, u8"repository-layout") };
+            REQUIRE(layout != nullptr);
+            CHECK(layout->bounds().x >= 272.0f);
+            CHECK(layout->bounds().x + layout->bounds().width <= width);
+            const auto* const commit { find_element(built, ui::kind_commit_subject_input, u8"commit-subject") };
+            REQUIRE(commit != nullptr);
+            CHECK(commit->bounds().width > 100.0f);
+            const auto* const sidebar { find_element(built, ui::kind_panel, u8"sidebar-panel") };
+            if (graph && view.mode != layout_mode::narrow)
+                CHECK(sidebar != nullptr);
+            if (graph == false)
+                CHECK(sidebar == nullptr);
+            if (width >= wide_layout_minimum_width && graph)
+                CHECK(commit->bounds().x > width / 2.0f);
+            else if (graph == false)
+                CHECK(commit->bounds().x < width / 2.0f);
+        }
+}
+
+TEST_CASE("Git version stays in the application footer while the start page scrolls", "[presentation][ui][start]")
+{
+    snapshot_harness harness {};
+    view_snapshot view { harness.build(720.0f) };
+    view.git_version = u8"git version 2.52.0.windows.1";
+    view.start->scroll = 200.0f;
+    view.height = view.logical_height = 400.0f;
+    const auto built { ui::build_ui_tree(view) };
+    const auto* const version { find_element(built, ui::kind_label, u8"status-git") };
+    const auto* const status { find_element(built, ui::kind_panel, u8"status-bar") };
+    REQUIRE(version != nullptr);
+    REQUIRE(status != nullptr);
+    CHECK(version->bounds().y >= status->bounds().y);
+    CHECK(version->bounds().y + version->bounds().height <= view.height);
+    CHECK(find_element(built, ui::kind_label, u8"start-git") == nullptr);
 }

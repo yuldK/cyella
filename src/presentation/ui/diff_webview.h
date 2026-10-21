@@ -23,7 +23,7 @@ namespace cyella::ui {
 
     // diff 자리 전체다. 머리 막대(돌아가기·제목·전환 단추)는 luil이 그리고, 본문은 웹뷰 자리표다. 웹뷰를 쓸 수 없으면
     // 본문이 텍스트 hunk 목록(`diff_row_element`)이다.
-    [[nodiscard]] std::unique_ptr<luil::ui_element> build_diff_area(const view_snapshot& view, const repository_view& repository, feedback_sources& sources);
+    [[nodiscard]] std::unique_ptr<luil::ui_element> build_diff_area(const repository_view& repository, float width, feedback_sources& sources);
 
     struct diff_webview_options
     {

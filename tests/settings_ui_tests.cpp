@@ -57,6 +57,10 @@ namespace {
 
         view_snapshot view { harness.build(width) };
         view.settings = build_settings_view(inputs);
+        if (state.page == settings_page::shortcuts)
+            view.settings->shortcuts = build_shortcuts_page_view(settings, std::nullopt, std::nullopt);
+        if (state.page == settings_page::profiles)
+            view.settings->profiles = build_profiles_page_view(settings, std::nullopt, {}, std::nullopt, {});
         return ui::build_ui_tree(view);
     }
 
@@ -71,7 +75,8 @@ TEST_CASE("every settings page builds a tree with unique ids and no unarranged e
     snapshot_harness harness {};
     static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
 
-    for (const settings_page page : { settings_page::general, settings_page::diff_tools, settings_page::ssh })
+    for (const settings_page page :
+        { settings_page::general, settings_page::diff_tools, settings_page::ssh, settings_page::signing, settings_page::hosting, settings_page::profiles, settings_page::shortcuts })
         for (const float width : { 1440.0f, 900.0f, 480.0f })
         {
             INFO("page " << static_cast<int>(page) << " width " << width);
@@ -79,7 +84,11 @@ TEST_CASE("every settings page builds a tree with unique ids and no unarranged e
             state.page = page;
             const ui::built_tree built { build_tree(harness, state, width, page == settings_page::diff_tools) };
             REQUIRE(built.tree != nullptr);
-            CHECK(built.tree->duplicate_ids().empty());
+            for (const luil::ui_element_id& duplicate : built.tree->duplicate_ids())
+            {
+                INFO(std::string(duplicate.owner.begin(), duplicate.owner.end()));
+                FAIL_CHECK("duplicate settings element id");
+            }
             CHECK(built.tree->unarranged().empty());
             CHECK(built.feedback.settings_maximum.has_value());
         }
@@ -93,7 +102,7 @@ TEST_CASE("the page navigation and the close button are always there", "[setting
     for (const std::u8string& owner : { u8"settings-page-general", u8"settings-page-diff-tools", u8"settings-page-ssh" })
     {
         INFO(std::string(owner.begin(), owner.end()));
-        CHECK(has(built, ui::kind_text_button, owner));
+        CHECK(has(built, luil::ui_element_kind::list_row, owner));
     }
     CHECK(has(built, luil::ui_element_kind::modal_host, u8"settings-dialog"));
 }
@@ -229,6 +238,51 @@ TEST_CASE("appearance uses preview choices and editable font combo boxes", "[set
             CHECK(combo->accessibility().role == luil::access_role::combo_box);
             REQUIRE(combo->children().size() == 2);
             CHECK(combo->children().front()->text_input().has_value());
+        }
+    }
+}
+
+TEST_CASE("settings navigation exposes the selected page as a selection item", "[settings][ui]")
+{
+    snapshot_harness harness {};
+    for (const float width : { 480.0f, 1440.0f })
+    {
+        settings_state state {};
+        state.page = settings_page::ssh;
+        const ui::built_tree built { build_tree(harness, state, width) };
+        const luil::ui_element* const selected { built.tree->find({ luil::ui_element_kind::list_row, u8"settings-page-ssh" }) };
+        const luil::ui_element* const other { built.tree->find({ luil::ui_element_kind::list_row, u8"settings-page-general" }) };
+        REQUIRE(selected != nullptr);
+        REQUIRE(other != nullptr);
+        CHECK(selected->accessibility().selected == true);
+        CHECK(other->accessibility().selected == false);
+        CHECK(other->access_actions({ .command = luil::access_command::select }).has_value());
+    }
+}
+
+TEST_CASE("narrow settings keep command titles and file app actions readable", "[settings][ui]")
+{
+    snapshot_harness harness {};
+    for (const float width : { 480.0f, 600.0f, 1440.0f })
+    {
+        CAPTURE(width);
+        settings_state state {};
+        state.page = settings_page::shortcuts;
+        const ui::built_tree shortcuts { build_tree(harness, state, width) };
+        const luil::ui_element* const title { shortcuts.tree->find({ ui::kind_label, u8"shortcut-title-view.changes" }) };
+        REQUIRE(title != nullptr);
+        CHECK(title->bounds().width >= 160.0f);
+
+        state.page = settings_page::diff_tools;
+        const ui::built_tree apps { build_tree(harness, state, width) };
+        const luil::ui_element* const row { apps.tree->find({ ui::kind_panel, u8"settings-tool-bar-app-0" }) };
+        REQUIRE(row != nullptr);
+        for (const std::u8string owner : { u8"settings-tool-edit-app-0", u8"settings-tool-remove-app-0" })
+        {
+            const luil::ui_element* const button { apps.tree->find({ ui::kind_text_button, owner }) };
+            REQUIRE(button != nullptr);
+            CHECK(button->bounds().x >= row->bounds().x);
+            CHECK(button->bounds().x + button->bounds().width <= row->bounds().x + row->bounds().width + 0.1f);
         }
     }
 }

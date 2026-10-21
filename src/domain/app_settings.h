@@ -91,6 +91,8 @@ namespace cyella {
         // 커밋 상세의 변경 파일을 폴더 트리로 본다. 거짓이면 경로 목록이다 (`commit_files_view`: list·tree).
         bool commit_files_tree { false };
         bool working_files_tree { false };
+        // 그래프·오른쪽 상세 배치가 기본이다. 끄면 변경 검토를 왼쪽 목록·오른쪽 diff로 나눈다.
+        bool graph_layout { true };
 
         [[nodiscard]] bool operator==(const ui_settings&) const noexcept = default;
     };
@@ -147,6 +149,7 @@ namespace cyella {
         std::map<std::string, std::vector<std::u8string>> shortcuts {};
         // 명령 팔레트에서 쓴 명령의 id다. 가장 최근 것이 앞이고 순위 매기기에 쓴다.
         std::vector<std::string> command_history {};
+        std::vector<external_file_app> external_file_apps { default_external_file_apps() };
 
         [[nodiscard]] bool operator==(const app_settings&) const noexcept = default;
     };

@@ -86,6 +86,7 @@ namespace cyella {
         std::u8string dismiss_key {};
         // 비밀 칸에 "보이기" 단추를 단다.
         bool can_reveal { false };
+        float scroll { 0.0f };
     };
 
     // ------------------------------------------------------------------ 메뉴

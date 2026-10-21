@@ -143,6 +143,26 @@ TEST_CASE("the theme button cycles system, light and dark", "[presentation][cont
     CHECK(test.controller.settings().appearance.theme == theme_preference::system);
 }
 
+TEST_CASE("workspace navigation works for a clean repository and preserves the commit draft", "[presentation][controller][workspace]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(set_repository_layout_intent { false }));
+    test.controller.open_repository(u8"C:\\work\\repo");
+    REQUIRE(test.send(select_workspace_intent { true }));
+    const auto id { test.controller.tabs().selected().id };
+    CHECK(test.controller.state().tabs.at(id).selected_sha == "WIP");
+    luil::text_edit_request insert {};
+    insert.target = to_luil_target(text_target::commit_subject);
+    insert.command = luil::text::text_edit_command::insert;
+    insert.text = u8"작성 중인 메시지";
+    REQUIRE(test.send(edit_text_intent { insert }));
+    REQUIRE(test.send(select_workspace_intent { false }));
+    CHECK(test.controller.state().tabs.at(id).selected_sha.empty());
+    REQUIRE(test.send(select_workspace_intent { true }));
+    CHECK(test.controller.state().tabs.at(id).commit_subject.text == u8"작성 중인 메시지");
+    CHECK_FALSE(test.controller.state().drawer_open);
+}
+
 TEST_CASE("selecting a commit submits show_commit and WIP does not", "[presentation][controller]")
 {
     controller_harness test {};
@@ -170,6 +190,10 @@ TEST_CASE("selecting a commit submits show_commit and WIP does not", "[presentat
 
     // 상세가 서랍이 아닌 wide 배치에서는 서랍을 열지 않는다.
     CHECK_FALSE(test.controller.state().drawer_open);
+    REQUIRE(test.send(select_workspace_intent { true }));
+    CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).selected_sha == "WIP");
+    REQUIRE(test.send(select_workspace_intent { false }));
+    CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).selected_sha == sha_of(1));
 }
 
 TEST_CASE("choosing a changed file in the drawer closes it so the diff is not covered", "[presentation][controller]")
@@ -233,6 +257,11 @@ TEST_CASE("scroll is clamped to the last arranged maximum", "[presentation][cont
     CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).graph_scroll == 0.0f);
     REQUIRE(test.send(scroll_intent { .target = scroll_target::graph, .value = 40.0f, .absolute = true }));
     CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).graph_scroll == 40.0f);
+    test.controller.apply_feedback({ .working_maximum = 75.0f });
+    REQUIRE(test.send(scroll_intent { .target = scroll_target::working_area, .value = 1000.0f, .absolute = true }));
+    CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).working_scroll == 75.0f);
+    REQUIRE(test.send(scroll_intent { .target = scroll_target::working_area, .value = -1000.0f }));
+    CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).working_scroll == 0.0f);
 }
 
 TEST_CASE("text edits land in the targeted draft and stay on one line", "[presentation][controller]")
@@ -399,4 +428,31 @@ TEST_CASE("the diff surface is stored for the header bar", "[presentation][contr
     surface.content = diff_content::image;
     test.controller.set_diff_surface(surface);
     CHECK(test.controller.state().diff_surface == surface);
+}
+
+TEST_CASE("changing repository layout preserves the draft and exact diff request without submitting Git work", "[presentation][controller][layout]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:/work/repo");
+    REQUIRE(test.send(select_workspace_intent { true }));
+    luil::text_edit_request insert {};
+    insert.target = to_luil_target(text_target::commit_subject);
+    insert.command = luil::text::text_edit_command::insert;
+    insert.text = u8"배치와 무관한 초안";
+    REQUIRE(test.send(edit_text_intent { insert }));
+    const diff_file_request request { .path = "src/a.cpp", .view = diff_view::staged };
+    REQUIRE(test.send(select_file_intent { request }));
+    const auto before { test.controller.current_diff_target() };
+    const auto pending { test.dispatcher.pending() };
+    const auto tab { test.controller.tabs().selected().id };
+    for (const bool graph : { false, true, false })
+    {
+        REQUIRE(test.send(set_repository_layout_intent { graph }));
+        CHECK(test.controller.settings().ui.graph_layout == graph);
+        REQUIRE(test.controller.current_diff_target().has_value());
+        CHECK(test.controller.current_diff_target()->request == before->request);
+        CHECK(test.controller.state().tabs.at(tab).commit_subject.text == insert.text);
+        CHECK(test.dispatcher.pending() == pending);
+        CHECK_FALSE(test.controller.state().drawer_open);
+    }
 }

@@ -1,5 +1,8 @@
 #include "application/external_diff_opener.h"
 
+#include <filesystem>
+#include <system_error>
+
 namespace cyella {
     namespace {
         std::u8string to_u8(const std::string& text)
@@ -34,6 +37,46 @@ namespace cyella {
     {
         const diff_side_plan& plan { request.plan };
         const std::u8string path { to_u8(plan.display_path()) };
+
+        if (request.file_app.has_value())
+        {
+            const external_file_app& app { *request.file_app };
+            external_diff_values values {};
+            values.path = path;
+            values.repository = plan.repository_path;
+            const diff_side_pair specs { resolve_diff_sides(plan) };
+            const bool needs_file { app.arguments.find(u8"{file}") != std::u8string::npos };
+            if (needs_file && specs.right.kind == diff_side_kind::worktree)
+            {
+                const std::filesystem::path file { std::filesystem::path { plan.repository_path } / std::filesystem::path { to_u8(specs.right.path) } };
+                std::error_code error {};
+                if (std::filesystem::exists(file, error) == false)
+                    return { external_open_status::extraction_failed, app.name, "작업 경로를 찾을 수 없습니다. 저장소 상태를 새로 읽어 주세요." };
+                values.file = file.u8string();
+            }
+            else if (needs_file)
+            {
+                const extracted_sides sides { gateway_.extract_cancellable(plan, true, request.cancellation) };
+                if (sides.ok == false)
+                    return { external_open_status::extraction_failed, app.name, sides.error };
+                const extracted_side& side { sides.right.present ? sides.right : sides.left };
+                if (side.present == false || side.file.empty())
+                    return { external_open_status::extraction_failed, app.name, "열 수 있는 파일 버전이 없습니다." };
+                values.file = side.file;
+                // 이력·index의 사본을 편집해도 저장소에는 반영되지 않는다. 원본과 혼동하지 않게 읽기 전용으로 둔다.
+                std::error_code error {};
+                std::filesystem::permissions(std::filesystem::path { values.file }, std::filesystem::perms::owner_read, std::filesystem::perm_options::replace, error);
+            }
+            if (request.cancellation.cancelled())
+                return { external_open_status::launch_failed, app.name, "취소되었습니다." };
+            auto arguments { expand_external_diff_arguments(app.arguments, values) };
+            if (arguments.has_value() == false)
+                return { external_open_status::invalid_template, app.name, "인자 템플릿의 따옴표가 닫히지 않았습니다." };
+            const tool_launch_result launched { launcher_.launch({ app.executable, std::move(*arguments), plan.repository_path }) };
+            if (launched.launched == false)
+                return { external_open_status::launch_failed, app.name, launched.error };
+            return { external_open_status::launched_tool, app.name, {} };
+        }
 
         if (const external_diff_tool* const tool { select_external_diff_tool(request.tools, path) }; tool != nullptr)
         {

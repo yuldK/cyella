@@ -12,7 +12,6 @@ namespace cyella {
         constexpr std::int64_t pending_ci_ttl { 20 };
         constexpr std::int64_t final_ci_ttl { 300 };
         constexpr std::int64_t empty_ci_ttl { 60 };
-        constexpr std::size_t detail_body_chars { 600 };
 
         std::u8string to_u8(const std::string_view text)
         {
@@ -816,7 +815,7 @@ namespace cyella {
                 detail.from_fork = info.from_fork;
                 detail.head_sha = info.head_sha;
                 detail.web_url = info.web_url;
-                detail.body = to_u8(info.body.size() > detail_body_chars ? info.body.substr(0, detail_body_chars) : info.body);
+                detail.body = to_u8(info.body);
                 if (info.updated_at > 0)
                     detail.updated_text = relative_time_text(dependencies_.now(), info.updated_at);
                 detail.abbreviation = view.abbreviation;

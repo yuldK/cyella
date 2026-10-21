@@ -17,6 +17,9 @@ namespace cyella {
         {
             using group = command_group;
             std::vector<command_definition> list {};
+            // ---- 작업 보기
+            list.push_back(make("view.changes", u8"변경 사항 보기", u8"changes working files stage commit workspace", group::view, { u8"Ctrl+1" }));
+            list.push_back(make("view.history", u8"커밋 이력 보기", u8"history graph log commits workspace", group::view, { u8"Ctrl+2" }));
             // ---- 앱
             list.push_back(make("palette.open", u8"명령 팔레트 열기", u8"command palette search run", group::app, { u8"Ctrl+Shift+P", u8"Ctrl+P" }));
             list.push_back(make("app.settings", u8"환경 설정 열기", u8"settings preferences options", group::app, { u8"Ctrl+," }));
@@ -140,6 +143,8 @@ namespace cyella {
             return availability.repository;
         if (id == "view.drawer")
             return availability.repository && availability.drawer;
+        if (id == "view.changes" || id == "view.history")
+            return availability.repository;
         if (id == "view.menu")
             return availability.selection_menu;
         if (id == "profile.apply")
@@ -163,7 +168,16 @@ namespace cyella {
     {
         if (const auto found { settings.shortcuts.find(command.id) }; found != settings.shortcuts.end())
             return parse_all(found->second);
-        return default_shortcuts(command);
+        std::vector<key_chord> defaults { default_shortcuts(command) };
+        // 새 기본 단축키가 이전에 사용자가 직접 지정한 키를 가로채지 않게 한다.
+        std::erase_if(defaults, [&settings, &command](const key_chord& chord) {
+            for (const auto& [id, texts] : settings.shortcuts)
+                if (id != command.id && find_command(id) != nullptr)
+                    if (const auto custom { parse_all(texts) }; std::ranges::find(custom, chord) != custom.end())
+                        return true;
+            return false;
+        });
+        return defaults;
     }
 
     bool shortcuts_customized(const app_settings& settings, const std::string_view id)

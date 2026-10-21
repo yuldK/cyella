@@ -153,6 +153,8 @@ namespace cyella {
             return textconv_driver_;
         }
 
+        [[nodiscard]] diff_side_plan make_plan() const;
+
     private:
         enum class content_kind
         {
@@ -166,7 +168,6 @@ namespace cyella {
             special,
         };
 
-        [[nodiscard]] diff_side_plan make_plan() const;
         [[nodiscard]] std::string build_content_message();
         [[nodiscard]] bool has_actionable_content() const noexcept;
         [[nodiscard]] web_message_result reject(std::string reason) const;

@@ -305,9 +305,18 @@
         }
     }
 
+    function updateScrollShadows(target) {
+        const valid = target !== null && target.clientHeight > 0;
+        elements.content.classList.toggle('scroll-top', valid && target.scrollTop > 0.5);
+        elements.content.classList.toggle('scroll-bottom', valid && target.scrollTop + target.clientHeight + 0.5 < target.scrollHeight);
+        elements.content.classList.toggle('scroll-left', valid && target.scrollLeft > 0.5);
+        elements.content.classList.toggle('scroll-right', valid && target.scrollLeft + target.clientWidth + 0.5 < target.scrollWidth);
+    }
+
     function renderWindow(force) {
         if (scroller === null || state.rows === null)
             return;
+        updateScrollShadows(scroller);
         const rows = state.rows;
         const top = scroller.scrollTop;
         const bottom = top + scroller.clientHeight;
@@ -338,6 +347,7 @@
         // 뷰포트에 들어가면 너비를 정하지 않는다. 올림한 값이 뷰포트를 1px 넘어 막대가 생기는 일을 막는다.
         sizer.style.width = needed > viewport ? Math.ceil(needed) + 'px' : '';
         elements.content.style.setProperty('--view-w', viewport + 'px');
+        updateScrollShadows(scroller);
     }
 
     // 그려진 코드 칸의 내용 너비를 잰다. 칸 자체의 너비(scrollWidth)는 가로 범위를 따라 커지므로 되먹임이 생긴다.
@@ -597,6 +607,7 @@
         html += '</div>';
         elements.content.innerHTML = html;
         scroller = null;
+        updateScrollShadows(null);
         applyStackState();
         for (const element of elements.content.querySelectorAll('img.diff-img')) {
             element.addEventListener('load', () => {
@@ -664,12 +675,14 @@
             + (binary.canOpenExternal ? button('외부 도구로 열기', 'open_external', 'is-primary') : '')
             + '</div></div>';
         scroller = null;
+        updateScrollShadows(null);
     }
 
     function renderEmpty(text) {
         elements.content.className = 'content';
         elements.content.innerHTML = '<div class="empty">' + escapeHtml(text) + '</div>';
         scroller = null;
+        updateScrollShadows(null);
         state.rows = null;
     }
 
@@ -819,7 +832,10 @@
         return target === null ? null : target.closest('.dl-half, .dl');
     }
 
-    elements.content.addEventListener('scroll', () => renderWindow(false), true);
+    elements.content.addEventListener('scroll', (event) => {
+        updateScrollShadows(event.target);
+        renderWindow(false);
+    }, true);
 
     elements.content.addEventListener('pointerdown', (event) => {
         const number = event.target.closest('.dl-no.is-selectable');

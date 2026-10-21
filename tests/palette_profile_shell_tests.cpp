@@ -193,6 +193,22 @@ namespace {
 
 // ------------------------------------------------------------------ 명령 팔레트
 
+TEST_CASE("workspace commands switch views while preserving drafts and require a repository", "[palette][workspace]")
+{
+    p6_harness test {};
+    test.send(run_command_intent { "view.changes" });
+    REQUIRE(test.view().repository->detail == detail_mode::working);
+    test.type(text_target::commit_subject, u8"명령으로 전환해도 남는 초안");
+    test.send(run_command_intent { "view.history" });
+    REQUIRE(test.view().repository->detail != detail_mode::working);
+    test.send(run_command_intent { "view.changes" });
+    CHECK(test.view().repository->working->subject.displayed_text() == u8"명령으로 전환해도 남는 초안");
+    test.send(run_command_intent { "tab.new" });
+    REQUIRE(test.view().start.has_value());
+    test.send(run_command_intent { "view.changes" });
+    CHECK(test.view().start.has_value());
+}
+
 TEST_CASE("the palette opens from its button intent and lists what the repository can run", "[palette][controller]")
 {
     p6_harness test {};
@@ -221,6 +237,26 @@ TEST_CASE("the palette opens from its button intent and lists what the repositor
     CHECK(filtered.palette->cursor == filtered.palette->items.front().key);
     test.send(close_palette_intent {});
     CHECK_FALSE(test.controller.state().palette.has_value());
+}
+
+TEST_CASE("a repository without remotes cannot push from either toolbar or commands", "[commands][controller]")
+{
+    p6_harness test {};
+    repository_session& session { *test.workspace.find_session(test.repository) };
+    repository_snapshot snapshot { snap::make_snapshot(session.snapshot().summary.head_sha, 0) };
+    snapshot.summary.remotes.clear();
+    snapshot.summary.has_upstream = false;
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
+    test.controller.after_events();
+    CHECK_FALSE(test.view().toolbar.push_enabled);
+    test.send(open_palette_intent {});
+    test.type(text_target::palette_filter, u8"push");
+    CHECK_FALSE(test.palette_has(u8"cmd:git.push"));
+    const std::size_t before { test.dispatcher.pending() };
+    test.send(run_command_intent { "git.push" });
+    CHECK(test.dispatcher.pending() == before);
+    CHECK_FALSE(test.controller.state().dialog.has_value());
 }
 
 TEST_CASE("typing initial consonants finds a command and picking it runs it and remembers it", "[palette][controller]")
@@ -275,6 +311,38 @@ TEST_CASE("arrow keys move the cursor over enabled items and stop at the ends", 
     // 거르는 글이 바뀌면 커서는 맨 위로 돌아간다.
     test.type(text_target::palette_filter, u8"fetch");
     CHECK(test.view().palette->cursor == test.view().palette->items.front().key);
+}
+
+TEST_CASE("short palettes scroll, reveal keyboard cursors and reset on filtering", "[palette][ui]")
+{
+    p6_harness test {};
+    test.send(open_palette_intent {});
+    const auto build = [&test] { return ui::build_ui_tree(test.controller.make_view(480.0f, 360.0f, 1.0f)); };
+    const ui::built_tree first { build() };
+    REQUIRE(first.feedback.palette_maximum.has_value());
+    CHECK(*first.feedback.palette_maximum > 0.0f);
+    CHECK(first.feedback.palette_scroll == 0.0f);
+    const luil::ui_element* const help { first.tree->find({ ui::kind_label, u8"palette-help" }) };
+    REQUIRE(help != nullptr);
+    CHECK(help->bounds().y + help->bounds().height < 360.0f);
+    test.controller.apply_feedback(first.feedback);
+
+    test.send(palette_move_intent { 1000 });
+    const ui::built_tree last { build() };
+    REQUIRE(last.feedback.palette_scroll.has_value());
+    CHECK(*last.feedback.palette_scroll > 0.0f);
+    test.controller.apply_feedback(last.feedback);
+    const auto cursor { test.controller.state().palette->cursor };
+    test.send(palette_scroll_intent { .value = 0.0f, .absolute = true });
+    CHECK(build().feedback.palette_scroll == 0.0f);
+    CHECK(test.controller.state().palette->cursor == cursor);
+    test.send(palette_scroll_intent { .value = 100000.0f, .absolute = true });
+    CHECK(build().feedback.palette_scroll == last.feedback.palette_maximum);
+
+    test.type(text_target::palette_filter, u8"환경 설정");
+    CHECK(build().feedback.palette_scroll == 0.0f);
+    CHECK(build().tree->duplicate_ids().empty());
+    CHECK(build().tree->unarranged().empty());
 }
 
 TEST_CASE("branch mode checks out the picked branch through the normal checkout", "[palette][controller]")
@@ -571,8 +639,8 @@ TEST_CASE("the shortcut and profile pages build with unique ids", "[settings][ui
         REQUIRE(view.settings.has_value());
         const ui::built_tree built { ui::build_ui_tree(view) };
         REQUIRE(built.tree != nullptr);
-        CHECK(built.tree->find(luil::ui_element_id { ui::kind_text_button, u8"settings-page-profiles" }) != nullptr);
-        CHECK(built.tree->find(luil::ui_element_id { ui::kind_text_button, u8"settings-page-shortcuts" }) != nullptr);
+        CHECK(built.tree->find(luil::ui_element_id { luil::ui_element_kind::list_row, u8"settings-page-profiles" }) != nullptr);
+        CHECK(built.tree->find(luil::ui_element_id { luil::ui_element_kind::list_row, u8"settings-page-shortcuts" }) != nullptr);
     }
 }
 

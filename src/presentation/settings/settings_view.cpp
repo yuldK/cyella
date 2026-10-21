@@ -313,10 +313,12 @@ namespace cyella {
         {
             tool_edit_view view {};
             view.is_new = edit.index.has_value() == false;
+            view.file_app = edit.file_app;
             view.extensions = luil::make_text_input_view(edit.extensions, inputs.composition, to_luil_target(text_target::settings_tool_extensions));
             view.executable = luil::make_text_input_view(edit.executable, inputs.composition, to_luil_target(text_target::settings_tool_executable));
             view.arguments = luil::make_text_input_view(edit.arguments, inputs.composition, to_luil_target(text_target::settings_tool_arguments));
-            const tool_draft_check check { check_tool_draft(view.extensions.displayed_text(), view.executable.displayed_text(), view.arguments.displayed_text(), inputs.probe) };
+            const auto check = edit.file_app ? check_file_app_draft(view.extensions.displayed_text(), view.executable.displayed_text(), view.arguments.displayed_text(), inputs.probe)
+                                             : check_tool_draft(view.extensions.displayed_text(), view.executable.displayed_text(), view.arguments.displayed_text(), inputs.probe);
             view.error = check.error;
             view.warning = check.warning;
             view.preview = check.preview;
@@ -411,6 +413,33 @@ namespace cyella {
             else if (contains(argument_template, u8"{left}") == false && contains(argument_template, u8"{right}") == false)
                 check.warning = u8"인자에 {left}나 {right}가 없어 도구가 비교할 파일을 받지 못합니다.";
         }
+        check.ok = check.error.empty();
+        return check;
+    }
+
+    tool_draft_check check_file_app_draft(const std::u8string_view name, const std::u8string_view executable, const std::u8string_view arguments, const file_probe* const probe)
+    {
+        tool_draft_check check {};
+        const std::u8string program { trimmed(executable) };
+        external_diff_values values {};
+        values.file = u8"C:\\Projects\\sample repo\\src\\main.cpp";
+        values.path = u8"src/main.cpp";
+        values.repository = u8"C:\\Projects\\sample repo";
+        if (auto expanded { expand_external_diff_arguments(arguments, values) }; expanded.has_value())
+        {
+            check.preview_arguments = std::move(*expanded);
+            check.preview = format_command_preview(program, check.preview_arguments);
+        }
+        else
+            check.error = u8"인자 템플릿의 큰따옴표가 닫히지 않았습니다.";
+        if (trimmed(name).empty())
+            check.error = u8"앱 이름을 입력하세요.";
+        else if (program.empty())
+            check.error = u8"실행 파일을 입력하세요.";
+        else if (is_absolute_windows_path(program) && probe != nullptr && probe->probe(program) != path_kind::file)
+            check.warning = u8"실행 파일을 찾지 못했습니다. 경로를 확인하세요 (저장은 됩니다).";
+        else if (contains(arguments, u8"{file}") == false && contains(arguments, u8"{repository}") == false)
+            check.warning = u8"{file} 또는 {repository} 토큰을 넣으면 선택한 파일이나 저장소를 전달합니다.";
         check.ok = check.error.empty();
         return check;
     }
@@ -510,6 +539,11 @@ namespace cyella {
         view.diff = inputs.settings->diff;
         view.git = make_git_view(inputs);
         view.tools = make_tool_rows(*inputs.settings);
+        for (std::size_t index { 0 }; index < inputs.settings->external_file_apps.size(); ++index)
+        {
+            const external_file_app& app { inputs.settings->external_file_apps[index] };
+            view.file_apps.push_back({ index, app.name, app.executable, app.arguments, true });
+        }
         if (state.tool_edit.has_value())
             view.edit = make_edit_view(inputs, *state.tool_edit);
         fill_ssh(view.ssh, inputs);

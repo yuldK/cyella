@@ -78,7 +78,22 @@ namespace cyella {
         if (const auto* const intent { message.get<palette_cursor_intent>() }; intent != nullptr)
         {
             if (ui_.palette.has_value())
+            {
                 ui_.palette->cursor = intent->key;
+                ui_.palette->reveal_cursor = true;
+            }
+            return true;
+        }
+        if (const auto* const intent { message.get<palette_scroll_intent>() }; intent != nullptr)
+        {
+            if (ui_.palette.has_value())
+            {
+                const float offset { intent->absolute ? intent->value : ui_.palette->scroll + intent->value };
+                ui_.palette->scroll = std::max(offset, 0.0f);
+                if (feedback_.palette_maximum.has_value())
+                    ui_.palette->scroll = std::min(ui_.palette->scroll, *feedback_.palette_maximum);
+                ui_.palette->reveal_cursor = false;
+            }
             return true;
         }
         if (const auto* const intent { message.get<palette_pick_intent>() }; intent != nullptr)
@@ -102,7 +117,7 @@ namespace cyella {
         availability.repository = true;
         availability.fetch = ready && summary.remotes.empty() == false;
         availability.pull = ready && summary.has_upstream;
-        availability.push = ready && summary.is_detached == false && summary.current_branch.empty() == false;
+        availability.push = ready && summary.remotes.empty() == false && summary.is_detached == false && summary.current_branch.empty() == false;
         availability.branch = ready;
         availability.stash = ready && summary.changed_file_count > 0;
         availability.pop = ready && session->snapshot().stashes.empty() == false;
@@ -158,6 +173,8 @@ namespace cyella {
             send(luil::app_message { open_clone_dialog_intent {} });
         else if (id == "repo.refresh")
             send(luil::app_message { refresh_intent {} });
+        else if (id == "view.changes" || id == "view.history")
+            send(luil::app_message { select_workspace_intent { id == "view.changes" } });
         else if (id == "git.fetch")
             handle_toolbar(toolbar_action::fetch);
         else if (id == "git.pull")
@@ -258,6 +275,8 @@ namespace cyella {
         const palette_state& state { *ui_.palette };
         palette_view view {};
         view.mode = state.mode;
+        view.scroll = state.scroll;
+        view.reveal_cursor = state.reveal_cursor;
         view.title = std::u8string { palette_mode_title(state.mode) };
         view.placeholder = std::u8string { palette_mode_placeholder(state.mode) };
         view.filter = luil::make_text_input_view(state.filter, ui_.composition, to_luil_target(text_target::palette_filter));
@@ -295,6 +314,7 @@ namespace cyella {
         const int current { found == keys.end() ? 0 : static_cast<int>(found - keys.begin()) };
         const int next { std::clamp(current + delta, 0, static_cast<int>(keys.size()) - 1) };
         ui_.palette->cursor = keys[static_cast<std::size_t>(next)];
+        ui_.palette->reveal_cursor = true;
     }
 
     void shell_controller::pick_palette_item(const std::u8string& key)

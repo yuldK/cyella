@@ -87,6 +87,7 @@ namespace cyella {
         // 체크 칸의 값이다 (인증의 "이 질문에만", 체크아웃의 "추적 안 된 파일도").
         std::array<bool, 4> checks {};
         std::size_t choice { 0 };
+        float scroll { 0.0f };
     };
 
     // 체크아웃 정책 대화 상자의 선택이다. operation이 열고 정책으로 다시 낸 뒤 닫는다.

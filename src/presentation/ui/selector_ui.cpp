@@ -1,4 +1,6 @@
+#include "presentation/diff_view_intents.h"
 #include "presentation/selector_intents.h"
+#include "presentation/settings/settings_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ref_chip_element.h"
@@ -13,6 +15,7 @@
 #include "luil/ui/ui_tree.h"
 
 #include <algorithm>
+#include <charconv>
 
 namespace cyella::ui {
     namespace {
@@ -27,7 +30,7 @@ namespace cyella::ui {
     built_popup build_selector_popup(const selector_view& selector, const float scale)
     {
         luil::menu_config menu {};
-        menu.owner = selector.kind == selector_kind::repository ? u8"repository-selector-list" : u8"branch-selector-list";
+        menu.owner = selector.kind == selector_kind::file_app ? u8"file-app-list" : (selector.kind == selector_kind::repository ? u8"repository-selector-list" : u8"branch-selector-list");
         float widest { 0.0f };
         for (const menu_entry& entry : selector.entries)
         {
@@ -36,6 +39,16 @@ namespace cyella::ui {
         }
         // 폴더 대화 상자를 여는 항목은 UI thread 명령이고, 나머지는 controller가 처리하는 메시지다.
         menu.select = [](const std::u8string& key) {
+            if (key == u8"file-app-settings")
+                return message(open_settings_intent { settings_page::diff_tools });
+            if (key.starts_with(u8"file-app:"))
+            {
+                std::size_t index { 0 };
+                const std::string digits { to_text(key.substr(9)) };
+                if (std::from_chars(digits.data(), digits.data() + digits.size(), index).ec == std::errc {})
+                    return message(open_diff_file_app_intent { index });
+                return message(close_selector_intent {});
+            }
             if (key == selector_open_folder_key)
                 return ui_command(static_cast<std::uint32_t>(ui_command_id::open_folder));
             return message(selector_select_intent { key });

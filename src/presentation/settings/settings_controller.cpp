@@ -193,12 +193,30 @@ namespace cyella {
         state_->message = path.empty() ? u8"자동 탐색으로 돌아갑니다. 다음 실행부터 적용됩니다." : u8"git 경로를 저장했습니다. 다음 실행부터 적용됩니다.";
     }
 
-    void settings_controller::start_tool_edit(const std::optional<std::size_t> index)
+    void settings_controller::start_tool_edit(const std::optional<std::size_t> index, const bool file_app)
     {
         if (state_.has_value() == false)
             return;
         tool_edit_state edit {};
         edit.index = index;
+        edit.file_app = file_app;
+        if (file_app)
+        {
+            const std::vector<external_file_app>& apps { dependencies_.settings().external_file_apps };
+            if (index.has_value())
+            {
+                if (*index >= apps.size())
+                    return;
+                set_text(edit.extensions, apps[*index].name);
+                set_text(edit.executable, apps[*index].executable);
+                set_text(edit.arguments, apps[*index].arguments);
+            }
+            else
+                set_text(edit.arguments, u8"{file}");
+            state_->tool_edit = std::move(edit);
+            state_->message.clear();
+            return;
+        }
         const std::vector<external_diff_tool>& tools { dependencies_.settings().external_diff_tools };
         if (index.has_value())
         {
@@ -219,6 +237,22 @@ namespace cyella {
         if (state_.has_value() == false || state_->tool_edit.has_value() == false)
             return;
         const tool_edit_state& edit { *state_->tool_edit };
+        if (edit.file_app)
+        {
+            if (check_file_app_draft(edit.extensions.text, edit.executable.text, edit.arguments.text, dependencies_.probe).ok == false)
+                return;
+            const external_file_app app { trimmed(edit.extensions.text), trimmed(edit.executable.text), trimmed(edit.arguments.text) };
+            const std::optional<std::size_t> index { edit.index };
+            update_settings([&app, index](app_settings& settings) {
+                if (index.has_value() && *index < settings.external_file_apps.size())
+                    settings.external_file_apps[*index] = app;
+                else
+                    settings.external_file_apps.push_back(app);
+            });
+            state_->tool_edit.reset();
+            state_->message = u8"파일을 열 앱을 저장했습니다.";
+            return;
+        }
         if (check_tool_draft(edit.extensions.text, edit.executable.text, edit.arguments.text, dependencies_.probe).ok == false)
             return;
         const external_diff_tool tool { make_external_tool(edit.extensions.text, edit.executable.text, edit.arguments.text) };
@@ -233,8 +267,17 @@ namespace cyella {
         state_->message = u8"외부 diff 도구를 저장했습니다.";
     }
 
-    void settings_controller::remove_tool(const std::size_t index)
+    void settings_controller::remove_tool(const std::size_t index, const bool file_app)
     {
+        if (file_app)
+        {
+            if (state_.has_value() == false || index >= dependencies_.settings().external_file_apps.size())
+                return;
+            update_settings([index](app_settings& settings) { settings.external_file_apps.erase(settings.external_file_apps.begin() + static_cast<std::ptrdiff_t>(index)); });
+            state_->tool_edit.reset();
+            state_->message = u8"파일을 열 앱을 지웠습니다.";
+            return;
+        }
         if (state_.has_value() == false || index >= dependencies_.settings().external_diff_tools.size())
             return;
         update_settings([index](app_settings& settings) { settings.external_diff_tools.erase(settings.external_diff_tools.begin() + static_cast<std::ptrdiff_t>(index)); });
@@ -435,12 +478,12 @@ namespace cyella {
             set_text(state.git_path, {});
             apply_git_path();
         }
-        else if (message.get<add_tool_intent>() != nullptr)
-            start_tool_edit(std::nullopt);
+        else if (const auto* const add_intent { message.get<add_tool_intent>() }; add_intent != nullptr)
+            start_tool_edit(std::nullopt, add_intent->file_app);
         else if (const auto* const edit_intent { message.get<edit_tool_intent>() }; edit_intent != nullptr)
-            start_tool_edit(edit_intent->index);
+            start_tool_edit(edit_intent->index, edit_intent->file_app);
         else if (const auto* const remove_intent { message.get<remove_tool_intent>() }; remove_intent != nullptr)
-            remove_tool(remove_intent->index);
+            remove_tool(remove_intent->index, remove_intent->file_app);
         else if (message.get<save_tool_intent>() != nullptr)
             save_tool();
         else if (message.get<cancel_tool_edit_intent>() != nullptr)

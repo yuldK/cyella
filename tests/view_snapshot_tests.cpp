@@ -66,6 +66,34 @@ TEST_CASE("repository snapshot exposes toolbar state, graph model and labels", "
     CHECK(repository.detail == detail_mode::none);
 }
 
+TEST_CASE("remote toolbar explains unavailable synchronization actions", "[presentation][snapshot]")
+{
+    snapshot_harness harness {};
+    harness.open(u8"C:\\work\\repo", "repo-1");
+    repository_session& session { *harness.sessions["repo-1"] };
+    repository_snapshot snapshot { make_snapshot(sha_of(1), 0) };
+    snapshot.summary.has_upstream = false;
+    snapshot.summary.remotes.clear();
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+    const toolbar_view no_remote { harness.build().toolbar };
+    CHECK_FALSE(no_remote.fetch_enabled);
+    CHECK_FALSE(no_remote.pull_enabled);
+    CHECK_FALSE(no_remote.push_enabled);
+    CHECK(no_remote.push_hint.find(u8"원격") != std::u8string::npos);
+
+    snapshot.summary.remotes.push_back({ .name = "origin", .fetch_url = "https://example.com/repo.git" });
+    REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+    CHECK(harness.build().toolbar.push_enabled);
+    CHECK(harness.build().toolbar.push_needs_dialog);
+
+    snapshot.summary.is_detached = true;
+    REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+    const toolbar_view detached { harness.build().toolbar };
+    CHECK_FALSE(detached.push_enabled);
+    CHECK(detached.push_hint.find(u8"HEAD") != std::u8string::npos);
+}
+
 TEST_CASE("selecting WIP builds the working area and gates the commit button", "[presentation][snapshot]")
 {
     snapshot_harness harness {};

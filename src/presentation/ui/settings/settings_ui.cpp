@@ -16,6 +16,7 @@
 #include "luil/ui/check_element.h"
 #include "luil/ui/choice_group_element.h"
 #include "luil/ui/dialog_elements.h"
+#include "luil/ui/list_element.h"
 #include "luil/ui/modal_host_element.h"
 #include "luil/ui/scroll_area_element.h"
 #include "luil/ui/stack_element.h"
@@ -99,7 +100,7 @@ namespace cyella::ui {
             page.add(section_title(u8"settings-section-appearance", u8"테마"), section_height);
             page.add(make_theme_picker(view.theme), theme_picker_height);
             page.gap(small_gap);
-            page.add(help_line(u8"settings-theme-help", u8"'시스템'을 고르면 Windows의 앱 모드를 따릅니다."), line_height);
+            add_help(page, u8"settings-theme-help", u8"'시스템'을 고르면 Windows의 앱 모드를 따릅니다.", content_width);
 
             page.add(section_title(u8"settings-section-fonts", u8"글꼴"), section_height);
             const bool font_columns { content_width >= 480.0f + font_column_gap };
@@ -112,8 +113,8 @@ namespace cyella::ui {
                     fonts->add(make_font_column(view, code), font_column_height);
             page.add(std::move(fonts), font_columns ? font_column_height : font_column_height * 2.0f + font_column_gap);
             page.gap(small_gap);
-            page.add(help_line(u8"settings-font-help", u8"이름을 직접 입력하거나 목록에서 검색할 수 있습니다."), line_height);
-            page.add(help_line(u8"settings-font-fallback", u8"비워 두거나 설치되지 않은 글꼴이면 기본 글꼴로 표시합니다."), line_height);
+            add_help(page, u8"settings-font-help", u8"이름을 직접 입력하거나 목록에서 검색할 수 있습니다.", content_width);
+            add_help(page, u8"settings-font-fallback", u8"비워 두거나 설치되지 않은 글꼴이면 기본 글꼴로 표시합니다.", content_width);
             page.gap(small_gap);
             auto font_actions { make_row(u8"settings-font-actions") };
             font_actions->add_flexible_gap();
@@ -130,8 +131,8 @@ namespace cyella::ui {
                 .toggle = action_of(message(set_gravatar_intent { view.gravatar == false })),
             };
             page.add(std::make_unique<luil::check_element>(std::move(gravatar)), luil::check_row_height);
-            page.add(help_line(u8"settings-gravatar-help", u8"켜면 작성자 메일의 해시를 gravatar.com으로 보냅니다."), line_height);
-            page.add(help_line(u8"settings-gravatar-fallback", u8"끄거나 사진이 없으면 이름의 첫 글자를 표시합니다."), line_height);
+            add_help(page, u8"settings-gravatar-help", u8"켜면 작성자 메일의 해시를 gravatar.com으로 보냅니다.", content_width);
+            add_help(page, u8"settings-gravatar-fallback", u8"끄거나 사진이 없으면 이름의 첫 글자를 표시합니다.", content_width);
             page.gap(large_gap);
 
             const git_settings_view& git { view.git };
@@ -183,25 +184,39 @@ namespace cyella::ui {
 
         // ------------------------------------------------------------------ diff 도구
 
-        std::unique_ptr<luil::ui_element> build_tool_row(const tool_row_view& tool, const bool editing)
+        std::unique_ptr<luil::ui_element> build_tool_row(const tool_row_view& tool, const bool editing, const bool stacked)
         {
-            const std::u8string key { number_text(tool.index) };
+            const std::u8string key { (tool.file_app ? u8"app-" : u8"") + number_text(tool.index) };
             auto row { make_row(u8"settings-tool-row-" + key, 8.0f) };
-            row->add(make_text(u8"settings-tool-extensions-" + key, tool.extensions, text_style { .size = 12.0f, .bold = true }), 130.0f);
-            row->add_flexible(make_text(u8"settings-tool-executable-" + key, tool.executable, text_style { .size = 11.0f, .code = true }));
-            row->add_flexible(make_text(u8"settings-tool-arguments-" + key, tool.arguments, text_style { .size = 11.0f, .color = dim, .code = true }));
-            row->add(button_of(u8"settings-tool-edit-" + key, u8"편집", message(edit_tool_intent { tool.index }), editing == false), { .length = 52.0f, .cross_length = button_height });
-            row->add(button_of(u8"settings-tool-remove-" + key, u8"삭제", message(remove_tool_intent { tool.index }), editing == false, luil::text_button_visual::danger),
+            auto name { make_text(u8"settings-tool-extensions-" + key, tool.extensions, text_style { .size = 12.0f, .bold = true }) };
+            if (stacked)
+                row->add_flexible(std::move(name));
+            else
+                row->add(std::move(name), 130.0f);
+            if (stacked == false)
+            {
+                row->add_flexible(make_text(u8"settings-tool-executable-" + key, tool.executable, text_style { .size = 11.0f, .code = true }));
+                row->add_flexible(make_text(u8"settings-tool-arguments-" + key, tool.arguments, text_style { .size = 11.0f, .color = dim, .code = true }));
+            }
+            row->add(button_of(u8"settings-tool-edit-" + key, u8"편집", message(edit_tool_intent { tool.index, tool.file_app }), editing == false), { .length = 52.0f, .cross_length = button_height });
+            row->add(button_of(u8"settings-tool-remove-" + key, u8"삭제", message(remove_tool_intent { tool.index, tool.file_app }), editing == false, luil::text_button_visual::danger),
                 { .length = 52.0f, .cross_length = button_height });
-            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-tool-bar-" + key }, bar_style { .divider_bottom = true }, std::move(row));
+            if (stacked == false)
+                return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-tool-bar-" + key }, bar_style { .divider_bottom = true }, std::move(row));
+            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-tool-stack-" + key }, luil::stack_config {}) };
+            column->add(std::move(row), row_height);
+            column->add(code_line(u8"settings-tool-executable-" + key, tool.executable), line_height);
+            column->add(code_line(u8"settings-tool-arguments-" + key, tool.arguments), line_height);
+            column->add_gap(small_gap);
+            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-tool-bar-" + key }, bar_style { .divider_bottom = true }, std::move(column));
         }
 
         void build_tool_form(page_column& page, const tool_edit_view& edit)
         {
             page_column form { u8"settings-tool-form-column" };
-            form.add(section_title(u8"settings-tool-form-title", edit.is_new ? u8"도구 추가" : u8"도구 편집"), section_height);
-            form.add(field_label(u8"settings-tool-extensions-label", u8"확장자 (쉼표나 공백으로 구분)"), label_height);
-            form.add(input_of(kind_settings_tool_extensions_input, u8"settings-tool-extensions-input", edit.extensions, u8".png, .psd"), input_height);
+            form.add(section_title(u8"settings-tool-form-title", edit.file_app ? (edit.is_new ? u8"앱 추가" : u8"앱 편집") : (edit.is_new ? u8"도구 추가" : u8"도구 편집")), section_height);
+            form.add(field_label(u8"settings-tool-extensions-label", edit.file_app ? u8"앱 이름" : u8"확장자 (쉼표나 공백으로 구분)"), label_height);
+            form.add(input_of(kind_settings_tool_extensions_input, u8"settings-tool-extensions-input", edit.extensions, edit.file_app ? u8"예: Visual Studio Code" : u8".png, .psd"), input_height);
             form.gap(small_gap);
             form.add(field_label(u8"settings-tool-executable-label", u8"실행 파일"), label_height);
             auto executable_row { make_row(u8"settings-tool-executable-row") };
@@ -211,9 +226,11 @@ namespace cyella::ui {
             form.add(std::move(executable_row), input_height);
             form.gap(small_gap);
             form.add(field_label(u8"settings-tool-arguments-label", u8"인자 템플릿 (토큰을 누르면 끝에 붙습니다)"), label_height);
-            form.add(input_of(kind_settings_tool_arguments_input, u8"settings-tool-arguments-input", edit.arguments, u8"{left} {right}"), input_height);
+            form.add(input_of(kind_settings_tool_arguments_input, u8"settings-tool-arguments-input", edit.arguments, edit.file_app ? u8"--reuse-window {file}" : u8"{left} {right}"), input_height);
             auto chips { make_row(u8"settings-tool-chips") };
-            for (const std::u8string_view token : { u8"{left}", u8"{right}", u8"{base}", u8"{path}" })
+            const auto tokens
+                = edit.file_app ? std::vector<std::u8string_view> { u8"{file}", u8"{repository}", u8"{path}" } : std::vector<std::u8string_view> { u8"{left}", u8"{right}", u8"{base}", u8"{path}" };
+            for (const std::u8string_view token : tokens)
                 chips->add(
                     button_of(u8"settings-tool-chip-" + std::u8string { token.substr(1, token.size() - 2) }, std::u8string { token }, message(insert_tool_token_intent { std::u8string { token } })),
                     { .length = text_button_width(token) + 6.0f, .cross_length = button_height });
@@ -256,7 +273,7 @@ namespace cyella::ui {
         }
 
         // diff를 보는 방식이다: 처음 열 때의 보기와 hunk 둘레의 문맥 줄 수.
-        void build_diff_view_settings(page_column& page, const settings_view& view)
+        void build_diff_view_settings(page_column& page, const settings_view& view, const float content_width)
         {
             page.add(section_title(u8"settings-section-diff-view", u8"diff 보기"), section_height);
             page.add(field_label(u8"settings-diff-layout-label", u8"기본 보기"), label_height);
@@ -270,7 +287,7 @@ namespace cyella::ui {
             auto layout_row { make_row(u8"settings-diff-layout-row") };
             layout_row->add_flexible(make_segmented_control(std::move(layout)));
             page.add(std::move(layout_row), input_height);
-            page.add(help_line(u8"settings-diff-layout-help", u8"고르면 열려 있는 diff도 바로 이 보기로 바뀝니다. diff 머리의 단추로는 그 diff만 바꿉니다."), line_height);
+            add_help(page, u8"settings-diff-layout-help", u8"고르면 열려 있는 diff도 바로 이 보기로 바뀝니다. diff 머리의 단추로는 그 diff만 바꿉니다.", content_width);
             page.gap(small_gap);
 
             page.add(field_label(u8"settings-diff-context-label", u8"문맥 줄 수 (git diff -U<n>)"), label_height);
@@ -300,17 +317,38 @@ namespace cyella::ui {
             auto context_row { make_row(u8"settings-diff-context-row") };
             context_row->add_flexible(make_segmented_control(std::move(context)));
             page.add(std::move(context_row), input_height);
-            page.add(help_line(u8"settings-diff-context-help", u8"다음에 여는 diff부터 적용합니다. 0이면 바뀐 줄만 보이고 줄 단위 stage에는 --unidiff-zero를 씁니다."), line_height);
+            add_help(page, u8"settings-diff-context-help", u8"다음에 여는 diff부터 적용합니다. 0이면 바뀐 줄만 보이고 줄 단위 stage에는 --unidiff-zero를 씁니다.", content_width);
             page.gap(large_gap);
         }
 
-        void build_diff_tools(page_column& page, const settings_view& view)
+        void build_diff_tools(page_column& page, const settings_view& view, const float content_width)
         {
-            build_diff_view_settings(page, view);
+            const bool stacked { content_width < 560.0f };
+            const float tool_height { stacked ? row_height + line_height * 2.0f + small_gap : row_height };
+            build_diff_view_settings(page, view, content_width);
             const bool editing { view.edit.has_value() };
+            page.add(section_title(u8"settings-section-file-apps", u8"다른 앱으로 열기"), section_height);
+            add_help(page, u8"settings-file-apps-help", u8"diff 상단에서 앱을 골라 파일을 엽니다. 아래 목록에서 앱을 추가하거나 고칠 수 있습니다.", content_width);
+            add_help(page, u8"settings-file-apps-revision-help", u8"작업 중인 파일은 원본, 스테이징·이력의 파일은 해당 버전의 임시 사본으로 엽니다.", content_width);
+            page.gap(small_gap);
+            if (view.file_apps.empty())
+                page.add(help_line(u8"settings-file-apps-empty", u8"등록된 앱이 없습니다. 앱 이름, 실행 파일과 인자를 추가하세요."), row_height);
+            for (const tool_row_view& app : view.file_apps)
+                page.add(build_tool_row(app, editing, stacked), tool_height);
+            page.gap(small_gap);
+            auto app_add { make_row(u8"settings-file-app-add-row") };
+            app_add->add(button_of(u8"settings-file-app-add", u8"앱 추가", message(add_tool_intent { true }), editing == false, luil::text_button_visual::accent),
+                { .length = 92.0f, .cross_length = button_height });
+            page.add(std::move(app_add), input_height);
+            if (view.edit.has_value() && view.edit->file_app)
+            {
+                page.gap(small_gap);
+                build_tool_form(page, *view.edit);
+            }
+            page.gap(large_gap);
             page.add(section_title(u8"settings-section-tools", u8"확장자별 외부 diff 도구"), section_height);
-            page.add(help_line(u8"settings-tools-help-1", u8"바이너리 파일을 열 때 확장자로 도구를 찾아 실행합니다."), line_height);
-            page.add(help_line(u8"settings-tools-help-2", u8"두 판은 git에서 임시 파일로 꺼내 인자 템플릿의 {left}·{right}에 넣습니다."), line_height);
+            add_help(page, u8"settings-tools-help-1", u8"바이너리 파일을 열 때 확장자로 도구를 찾아 실행합니다.", content_width);
+            add_help(page, u8"settings-tools-help-2", u8"두 판은 git에서 임시 파일로 꺼내 인자 템플릿의 {left}·{right}에 넣습니다.", content_width);
             page.gap(small_gap);
             if (view.tools.empty())
                 page.add(help_line(u8"settings-tools-empty", u8"등록한 도구가 없습니다. [도구 추가]로 확장자와 실행 파일을 정하세요."), row_height);
@@ -321,30 +359,32 @@ namespace cyella::ui {
                 header->add_flexible(field_label(u8"settings-tools-header-executable", u8"실행 파일"));
                 header->add_flexible(field_label(u8"settings-tools-header-arguments", u8"인자 템플릿"));
                 header->add_gap(112.0f);
-                page.add(std::move(header), line_height + 4.0f);
+                if (stacked == false)
+                    page.add(std::move(header), line_height + 4.0f);
                 for (const tool_row_view& tool : view.tools)
-                    page.add(build_tool_row(tool, editing), row_height);
+                    page.add(build_tool_row(tool, editing, stacked), tool_height);
             }
             page.gap(small_gap);
             auto add_row { make_row(u8"settings-tools-add-row") };
             add_row->add(
                 button_of(u8"settings-tool-add", u8"도구 추가", message(add_tool_intent {}), editing == false, luil::text_button_visual::accent), { .length = 92.0f, .cross_length = button_height });
             page.add(std::move(add_row), input_height);
-            if (view.edit.has_value())
+            if (view.edit.has_value() && view.edit->file_app == false)
             {
                 page.gap(small_gap);
                 build_tool_form(page, *view.edit);
             }
             page.gap(large_gap);
             page.add(section_title(u8"settings-section-fallback", u8"표에 없는 확장자"), section_height);
-            page.add(help_line(u8"settings-fallback-help-1", u8"표에 없으면 git의 diff.tool을 써서 git difftool로 엽니다."), line_height);
-            page.add(help_line(u8"settings-fallback-help-2", u8"diff.tool도 없으면 이 화면에서 도구를 지정하라고 안내합니다. {base}는 병합용이라 지금은 비어 그 인자가 빠집니다."), line_height);
+            add_help(page, u8"settings-fallback-help-1", u8"표에 없으면 git의 diff.tool을 써서 git difftool로 엽니다.", content_width);
+            add_help(page, u8"settings-fallback-help-2", u8"diff.tool도 없으면 이 화면에서 도구를 지정하라고 안내합니다. {base}는 병합용이라 지금은 비어 그 인자가 빠집니다.", content_width);
         }
 
         // ------------------------------------------------------------------ SSH
 
-        void build_ssh(page_column& page, const settings_view& view)
+        void build_ssh(page_column& page, const settings_view& view, const float content_width)
         {
+            const bool stacked { content_width < 560.0f };
             const ssh_view& ssh { view.ssh };
             page.add(section_title(u8"settings-section-agent", u8"ssh-agent"), section_height);
             auto service_row { make_row(u8"settings-agent-row") };
@@ -372,11 +412,23 @@ namespace cyella::ui {
             for (const ssh_key_row_view& key : ssh.keys)
             {
                 auto row { make_row(u8"settings-key-row-" + key.name, 8.0f) };
-                row->add(make_text(u8"settings-key-name-" + key.name, key.name, text_style { .size = 12.0f, .bold = true }), 180.0f);
-                row->add_flexible(make_text(u8"settings-key-detail-" + key.name, key.detail, text_style { .size = 11.0f, .color = dim }));
+                auto name { make_text(u8"settings-key-name-" + key.name, key.name, text_style { .size = 12.0f, .bold = true }) };
+                if (stacked)
+                    row->add_flexible(std::move(name));
+                else
+                    row->add(std::move(name), 180.0f);
+                if (stacked == false)
+                    row->add_flexible(make_text(u8"settings-key-detail-" + key.name, key.detail, text_style { .size = 11.0f, .color = dim }));
                 row->add(
                     button_of(u8"settings-key-copy-" + key.name, u8"공개 키 복사", message(copy_public_key_intent { key.name }), key.can_copy), { .length = 100.0f, .cross_length = button_height });
-                page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-key-bar-" + key.name }, bar_style { .divider_bottom = true }, std::move(row)), row_height);
+                if (stacked)
+                {
+                    page.add(std::move(row), row_height);
+                    page.add(help_line(u8"settings-key-detail-" + key.name, key.detail), line_height);
+                    page.gap(small_gap);
+                }
+                else
+                    page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-key-bar-" + key.name }, bar_style { .divider_bottom = true }, std::move(row)), row_height);
             }
             page.gap(large_gap);
 
@@ -413,38 +465,58 @@ namespace cyella::ui {
 
         // ------------------------------------------------------------------ 호스팅
 
-        void build_hosting(page_column& page, const settings_view& view)
+        void build_hosting(page_column& page, const settings_view& view, const float content_width)
         {
+            const bool stacked { content_width < 560.0f };
             const hosting_settings_page_view& hosting { view.hosting };
             page.add(section_title(u8"settings-section-hosting", u8"호스팅 (GitHub·GitLab)"), section_height);
-            page.add(help_line(u8"settings-hosting-help", u8"토큰은 cyella가 저장하지 않습니다. 자격 증명 도우미(Git Credential Manager 등)에서 받아 이번 실행 동안 메모리에만 둡니다."), line_height);
-            page.add(help_line(u8"settings-hosting-help-2", u8"로그인은 사이드바 PULL REQUESTS의 '로그인…'에서 합니다. 로그아웃은 이 실행의 토큰만 잊고 도우미의 저장본은 그대로입니다."), line_height);
+            add_help(page, u8"settings-hosting-help", u8"토큰은 cyella가 저장하지 않습니다. 자격 증명 도우미(Git Credential Manager 등)에서 받아 이번 실행 동안 메모리에만 둡니다.", content_width);
+            add_help(page, u8"settings-hosting-help-2", u8"로그인은 사이드바 '풀 리퀘스트'의 '로그인…'에서 합니다. 로그아웃하면 이번 실행의 토큰을 지우며 도우미에 저장된 자격 증명은 유지합니다.",
+                content_width);
             page.gap(small_gap);
             for (const hosting_host_row_view& host : hosting.hosts)
             {
                 const std::u8string name { to_u8(host.host) };
                 auto row { make_row(u8"settings-hosting-row-" + name, 8.0f) };
-                row->add(make_text(u8"settings-hosting-host-" + name, name, text_style { .size = 12.0f, .bold = true }), 170.0f);
+                auto title { make_text(u8"settings-hosting-host-" + name, name, text_style { .size = 12.0f, .bold = true }) };
+                if (stacked)
+                    row->add_flexible(std::move(title));
+                else
+                    row->add(std::move(title), 170.0f);
                 const std::u8string kind { host.provider == hosting_provider::gitlab ? u8"GitLab" : u8"GitHub" };
-                row->add_flexible(make_text(u8"settings-hosting-kind-" + name, kind + u8" · " + (host.api_base.empty() ? std::u8string { u8"기본 API 주소" } : to_u8(host.api_base)),
-                    text_style { .size = 11.0f, .color = dim }));
+                const std::u8string provider_text { kind + u8" · " + (host.api_base.empty() ? std::u8string { u8"기본 API 주소" } : to_u8(host.api_base)) };
+                auto provider { make_text(u8"settings-hosting-kind-" + name, provider_text, text_style { .size = 11.0f, .color = dim }) };
+                if (stacked == false)
+                    row->add_flexible(std::move(provider));
                 const std::u8string state { host.signed_in ? u8"로그인됨 · " + (host.user.empty() ? std::u8string { u8"계정 확인 중" } : host.user) : std::u8string { u8"로그인하지 않음" } };
-                row->add(make_text(u8"settings-hosting-state-" + name, state,
-                             text_style { .size = 11.0f, .color = host.signed_in ? [](const luil::ui_color_palette& palette) { return success_color(palette); } : dim, .bold = host.signed_in }),
-                    150.0f);
+                const text_style status_style { .size = 11.0f, .color = host.signed_in ? [](const luil::ui_color_palette& palette) { return success_color(palette); } : dim, .bold = host.signed_in };
+                auto status { make_text(u8"settings-hosting-state-" + name, state, status_style) };
+                if (stacked == false)
+                    row->add(std::move(status), 150.0f);
                 row->add(
                     button_of(u8"settings-hosting-logout-" + name, u8"로그아웃", message(hosting_sign_out_intent { host.host }), host.signed_in), { .length = 76.0f, .cross_length = button_height });
                 if (host.builtin == false)
                     row->add(button_of(u8"settings-hosting-remove-" + name, u8"삭제", message(remove_hosting_host_intent { host.host }), true, luil::text_button_visual::danger),
                         { .length = 56.0f, .cross_length = button_height });
-                page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-hosting-bar-" + name }, bar_style { .divider_bottom = true }, std::move(row)), row_height);
+                if (stacked)
+                {
+                    auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-hosting-stack-" + name }, luil::stack_config {}) };
+                    column->add(std::move(row), row_height);
+                    column->add(std::move(provider), line_height);
+                    column->add(std::move(status), line_height);
+                    column->add_gap(small_gap);
+                    page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-hosting-bar-" + name }, bar_style { .divider_bottom = true }, std::move(column)),
+                        row_height + line_height * 2.0f + small_gap);
+                }
+                else
+                    page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-hosting-bar-" + name }, bar_style { .divider_bottom = true }, std::move(row)), row_height);
                 if (host.rate_limit_text.empty() == false)
                     page.add(help_line(u8"settings-hosting-rate-" + name, host.rate_limit_text), line_height);
             }
             page.gap(large_gap);
 
             page.add(section_title(u8"settings-section-hosting-add", u8"자체 호스팅 서버 더하기"), section_height);
-            page.add(help_line(u8"settings-hosting-add-help", u8"호스트 이름이 서비스 종류와 API 주소를 정합니다. API 주소를 비우면 GitHub는 /api/v3, GitLab은 /api/v4를 씁니다."), line_height);
+            add_help(page, u8"settings-hosting-add-help", u8"호스트 이름이 서비스 종류와 API 주소를 정합니다. API 주소를 비우면 GitHub는 /api/v3, GitLab은 /api/v4를 씁니다.", content_width);
             page.add(field_label(u8"settings-hosting-host-label", u8"호스트 (git.example.com 또는 127.0.0.1:8123)"), label_height);
             page.add(input_of(kind_settings_hosting_host_input, u8"settings-hosting-host-input", hosting.host, u8"git.example.com"), input_height);
             page.add(field_label(u8"settings-hosting-provider-label", u8"서비스 종류"), label_height);
@@ -470,23 +542,30 @@ namespace cyella::ui {
             luil::ui_element_id column_id { kind_layout, u8"settings-navigation" };
             const luil::stack_config column_config { .spacing = 4.0f, .padding = luil::edge_insets::all(10.0f) };
             auto column { std::make_unique<luil::stack_element>(std::move(column_id), column_config) };
+            luil::list_config navigation {};
+            navigation.owner = u8"settings-pages";
+            navigation.row_height = 34.0f;
+            std::vector<std::pair<std::u8string, settings_page>> pages {};
             const auto entry = [&](std::u8string owner, std::u8string text, const settings_page page, const char32_t glyph) {
-                if (compact)
-                {
-                    column->add(make_icon_button(std::move(owner), glyph, std::move(text), message(select_settings_page_intent { page }), true, view.page == page), 32.0f);
-                    return;
-                }
-                column->add(make_text_button(std::move(owner), std::move(text), view.page == page ? luil::text_button_visual::accent : luil::text_button_visual::normal,
-                                message(select_settings_page_intent { page }), true, glyph),
-                    30.0f);
+                if (view.page == page)
+                    navigation.selected = owner;
+                pages.emplace_back(owner, page);
+                navigation.items.push_back({ std::move(owner), std::move(text), glyph });
             };
             entry(u8"settings-page-general", u8"일반", settings_page::general, codicons::icon_settings_gear);
-            entry(u8"settings-page-diff-tools", u8"diff", settings_page::diff_tools, codicons::icon_diff);
+            entry(u8"settings-page-diff-tools", u8"diff · 외부 앱", settings_page::diff_tools, codicons::icon_diff);
             entry(u8"settings-page-ssh", u8"SSH", settings_page::ssh, codicons::icon_key);
             entry(u8"settings-page-signing", u8"서명", settings_page::signing, codicons::icon_verified);
             entry(u8"settings-page-hosting", u8"호스팅", settings_page::hosting, codicons::icon_cloud);
             entry(u8"settings-page-profiles", u8"사용자 프로필", settings_page::profiles, codicons::icon_person);
             entry(u8"settings-page-shortcuts", u8"단축키", settings_page::shortcuts, codicons::icon_keyboard);
+            navigation.select = [pages = std::move(pages)](const std::u8string& key) {
+                const auto found { std::ranges::find(pages, key, &std::pair<std::u8string, settings_page>::first) };
+                return message(select_settings_page_intent { found != pages.end() ? found->second : settings_page::general });
+            };
+            auto list { std::make_unique<luil::list_element>(std::move(navigation)) };
+            list->set_search_label(u8"설정 분류");
+            column->add(std::move(list), 34.0f * 7.0f);
             // 목록 맨 아래는 앱 심볼과 이름·버전이다. 따로 정보 화면을 두지 않고 이 자리가 그 몫을 한다.
             column->add_flexible_gap();
             auto about { make_row(u8"settings-about", 10.0f) };
@@ -526,7 +605,7 @@ namespace cyella::ui {
         config.owner = u8"settings-dialog";
         config.name = u8"환경 설정";
         config.dismiss = action_of(message(close_settings_intent {}));
-        config.focus_entry = luil::ui_element_id { kind_text_button, u8"settings-page-general" };
+        config.focus_entry = luil::ui_element_id { luil::ui_element_kind::list, u8"settings-pages" };
         config.surface = floating_panel_config(8.0f, 0.4f);
         config.content_width = width;
         config.content_height = height;
@@ -547,34 +626,35 @@ namespace cyella::ui {
             content->add(build_banner_bar(view), banner_height);
 
         page_column page { u8"settings-page" };
+        const float content_width { width - navigation_extent - scroll_inset - luil::scroll_area_bar_width - content_padding - content_right_padding - section_padding * 2.0f };
         switch (view.page)
         {
         case settings_page::general:
-            build_general(page, view, width - navigation_extent - scroll_inset - luil::scroll_area_bar_width - content_padding - content_right_padding - section_padding * 2.0f);
+            build_general(page, view, content_width);
             break;
         case settings_page::diff_tools:
-            build_diff_tools(page, view);
+            build_diff_tools(page, view, content_width);
             break;
         case settings_page::ssh:
-            build_ssh(page, view);
+            build_ssh(page, view, content_width);
             break;
         case settings_page::signing:
-            build_signing_page(page, view.signing);
+            build_signing_page(page, view.signing, content_width);
             break;
         case settings_page::hosting:
-            build_hosting(page, view);
+            build_hosting(page, view, content_width);
             break;
         case settings_page::profiles:
             if (view.profiles.has_value())
             {
-                built_settings_page built { build_profiles_page(*view.profiles) };
+                built_settings_page built { build_profiles_page(*view.profiles, content_width) };
                 page.add_unframed(std::move(built.content), built.height);
             }
             break;
         case settings_page::shortcuts:
             if (view.shortcuts.has_value())
             {
-                built_settings_page built { build_shortcuts_page(*view.shortcuts) };
+                built_settings_page built { build_shortcuts_page(*view.shortcuts, content_width) };
                 page.add_unframed(std::move(built.content), built.height);
             }
             break;

@@ -2,18 +2,24 @@
 
 #include "presentation/ui_state.h"
 
+#include <algorithm>
+#include <iterator>
 #include <utility>
 
 namespace cyella {
     shortcuts_page_view build_shortcuts_page_view(const app_settings& settings, const std::optional<shortcut_edit_state>& edit, const std::optional<luil::text_composition_event>& composition)
     {
         shortcuts_page_view view {};
-        // 묶음은 레지스트리의 순서(앱 → 탭 → 저장소 → Git → 화면 → 프로필)다. 키로만 쓰는 명령(Esc로 닫기)도 바꿀 수 있어 모두 보인다.
+        // 팔레트의 명령 우선순위와 무관하게 같은 분류를 한곳에 모은다. 키로만 쓰는 명령도 모두 보인다.
         for (const command_definition& command : command_definitions())
         {
             const std::u8string title_of_group { command_group_title(command.group) };
-            if (view.groups.empty() || view.groups.back().title != title_of_group)
+            auto group { std::ranges::find(view.groups, title_of_group, &shortcut_group_view::title) };
+            if (group == view.groups.end())
+            {
                 view.groups.push_back(shortcut_group_view { .title = title_of_group, .rows = {} });
+                group = std::prev(view.groups.end());
+            }
             shortcut_row_view row {};
             row.command = command.id;
             row.title = command.title;
@@ -21,7 +27,7 @@ namespace cyella {
             row.customized = shortcuts_customized(settings, command.id);
             row.editing = edit.has_value() && edit->command == command.id;
             view.any_customized = view.any_customized || row.customized;
-            view.groups.back().rows.push_back(std::move(row));
+            group->rows.push_back(std::move(row));
         }
         if (edit.has_value())
             if (const command_definition* const command { find_command(edit->command) }; command != nullptr)

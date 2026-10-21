@@ -227,6 +227,46 @@ TEST_CASE("rebase editor tree: rows drag onto each other, letters change the act
     }
 }
 
+TEST_CASE("a narrow rebase editor scrolls full width content and retains footer actions", "[presentation][rebase][ui]")
+{
+    rebase_editor_view view { editing_view() };
+    view.show_autosquash = true;
+    view.show_autostash = true;
+    view.needs_flatten_confirm = true;
+    view.warnings = { u8"범위에 병합 커밋이 있습니다.", u8"원격에 있는 커밋의 이력을 고칩니다." };
+    view.message_editable = true;
+    const auto build = [&view] { return luil::make_arranged_tree(ui::build_rebase_editor(view, 480.0f, 333.0f), { 0.0f, 0.0f, 480.0f, 333.0f }, 1.0f); };
+    const luil::ui_tree top { build() };
+    CHECK(top.duplicate_ids().empty());
+    CHECK(top.unarranged().empty());
+    const auto* const list { top.find({ luil::ui_element_kind::virtual_list, u8"rebase-todo" }) };
+    REQUIRE(list != nullptr);
+    CHECK(list->bounds().width >= 380.0f);
+    CHECK(list->bounds().height > 0.0f);
+    for (const char8_t* owner : { u8"rebase-cancel", u8"rebase-start" })
+    {
+        const auto* const button { top.find({ ui::kind_text_button, owner }) };
+        REQUIRE(button != nullptr);
+        CHECK(button->bounds().x >= 16.0f);
+        CHECK(button->bounds().x + button->bounds().width <= 464.0f);
+        CHECK(button->bounds().y + button->bounds().height <= 317.0f);
+    }
+    const auto* const bar { top.find({ luil::ui_element_kind::scroll_area_bar, u8"rebase-side" }) };
+    REQUIRE(bar != nullptr);
+    REQUIRE(bar->accessibility().range.has_value());
+    view.side_scroll = bar->accessibility().range->maximum;
+    CHECK(view.side_scroll > 0.0f);
+    const luil::ui_tree bottom { build() };
+    const auto before { top.find({ ui::kind_text_button, u8"rebase-start" })->bounds() };
+    const auto after { bottom.find({ ui::kind_text_button, u8"rebase-start" })->bounds() };
+    CHECK(after.x == before.x);
+    CHECK(after.y == before.y);
+    CHECK(after.width == before.width);
+    CHECK(after.height == before.height);
+    CHECK(bottom.duplicate_ids().empty());
+    CHECK(bottom.unarranged().empty());
+}
+
 TEST_CASE("rebase editor policy: Alt+arrows move the selected row and the body takes Enter as a line break", "[presentation][rebase][ui]")
 {
     const std::shared_ptr<const luil::ui_tree> tree { editor_tree(editing_view()) };

@@ -242,6 +242,34 @@ namespace cyella {
                 warn(result, u8"앱 설정의 외부 diff 도구 중 확장자나 실행 파일이 없는 항목을 무시했습니다.");
         }
 
+        void parse_external_file_apps(const json& root, app_settings_load_result& result)
+        {
+            const auto source { root.find("external_file_apps") };
+            if (source == root.end() || source->is_null())
+                return;
+            if (source->is_array() == false)
+            {
+                warn(result, u8"앱 설정의 external_file_apps가 배열이 아니라 기본 앱을 사용합니다.");
+                return;
+            }
+            result.settings.external_file_apps.clear();
+            for (const json& entry : *source)
+            {
+                if (entry.is_object() == false)
+                {
+                    warn(result, u8"파일을 열 앱의 항목이 object가 아니라 무시했습니다.");
+                    continue;
+                }
+                external_file_app app { read_string(entry, "name"), read_string(entry, "executable"), read_string(entry, "arguments") };
+                if (is_blank(app.name) || is_blank(app.executable))
+                {
+                    warn(result, u8"파일을 열 앱의 이름이나 실행 파일이 비어 있어 무시했습니다.");
+                    continue;
+                }
+                result.settings.external_file_apps.push_back(std::move(app));
+            }
+        }
+
         void parse_appearance(const json& root, app_settings_load_result& result)
         {
             const auto source { root.find("appearance") };
@@ -357,6 +385,13 @@ namespace cyella {
                     result.settings.ui.working_files_tree = true;
                 else if (view->is_string() == false || view->get<std::string>() != "list")
                     warn(result, u8"앱 설정의 ui.working_files_view는 list나 tree여야 합니다. 목록으로 봅니다.");
+            }
+            if (const auto layout { source->find("repository_layout") }; layout != source->end() && layout->is_null() == false)
+            {
+                if (layout->is_string() && layout->get<std::string>() == "review")
+                    result.settings.ui.graph_layout = false;
+                else if (layout->is_string() == false || layout->get<std::string>() != "graph")
+                    warn(result, u8"앱 설정의 ui.repository_layout은 graph나 review여야 합니다. 그래프 중심으로 봅니다.");
             }
             const auto panes { source->find("pane_widths") };
             if (panes == source->end() || panes->is_null())
@@ -526,6 +561,10 @@ namespace cyella {
             tools.push_back(std::move(entry));
         }
         root["external_diff_tools"] = std::move(tools);
+        json file_apps { json::array() };
+        for (const external_file_app& app : settings.external_file_apps)
+            file_apps.push_back({ { "name", as_string(app.name) }, { "executable", as_string(app.executable) }, { "arguments", as_string(app.arguments) } });
+        root["external_file_apps"] = std::move(file_apps);
 
         // 객체 안의 알 수 없는 키도 살아남도록 기존 object 위에 덮어쓴다.
         {
@@ -549,7 +588,8 @@ namespace cyella {
         // 보기는 트리를 골랐거나, 골랐다가 목록으로 되돌린 파일(키가 이미 있다)에만 쓴다.
         const bool has_view { settings.ui.commit_files_tree || existing_object(root, "ui").contains("commit_files_view") };
         const bool has_working_view { settings.ui.working_files_tree || existing_object(root, "ui").contains("working_files_view") };
-        if (has_widths || has_view || has_working_view)
+        const bool has_layout { settings.ui.graph_layout == false || existing_object(root, "ui").contains("repository_layout") };
+        if (has_widths || has_view || has_working_view || has_layout)
         {
             json ui { existing_object(root, "ui") };
             if (has_widths)
@@ -570,6 +610,8 @@ namespace cyella {
                 ui["commit_files_view"] = settings.ui.commit_files_tree ? "tree" : "list";
             if (has_working_view)
                 ui["working_files_view"] = settings.ui.working_files_tree ? "tree" : "list";
+            if (has_layout)
+                ui["repository_layout"] = settings.ui.graph_layout ? "graph" : "review";
             root["ui"] = std::move(ui);
         }
 
@@ -637,6 +679,7 @@ namespace cyella {
         parse_open_tabs(root, result);
         parse_git_executable(root, result);
         parse_external_diff_tools(root, result);
+        parse_external_file_apps(root, result);
         parse_appearance(root, result);
         result.settings.window = parse_window(root, result);
         parse_ui(root, result);

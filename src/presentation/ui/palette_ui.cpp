@@ -5,6 +5,7 @@
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/ui_helpers.h"
+#include "presentation/ui/ui_parts.h"
 
 #include "luil/ui/modal_host_element.h"
 #include "luil/ui/stack_element.h"
@@ -49,13 +50,15 @@ namespace cyella::ui {
         }
     } // namespace
 
-    std::unique_ptr<luil::ui_element> build_palette_dialog(const palette_view& view, const float window_width, const float window_height)
+    std::unique_ptr<luil::ui_element> build_palette_dialog(const palette_view& view, const float window_width, const float window_height, feedback_sources& sources)
     {
         const float width { std::min(dialog_maximum_width, std::max(window_width - dialog_margin * 2.0f, 280.0f)) };
         const float list_height { static_cast<float>(view.items.size()) * row_height };
         // 둘레 여백 두 번 + 제목 + 거르는 칸 + 목록 + 도움말 + 표식 한 칸(높이 0)까지 사이마다 간격이다.
-        const float wanted { padding * 2.0f + title_height + input_height + list_height + help_height + gap * 5.0f };
+        const float chrome { padding * 2.0f + title_height + input_height + help_height + gap * 5.0f };
+        const float wanted { chrome + list_height };
         const float height { std::min(wanted, std::max(window_height - dialog_margin * 2.0f, 200.0f)) };
+        const float viewport { std::max(height - chrome, 0.0f) };
 
         luil::modal_host_config config {};
         config.owner = u8"palette-dialog";
@@ -88,6 +91,23 @@ namespace cyella::ui {
             list_config.items.push_back({ .key = item.key, .label = item.title, .enabled = item.enabled });
         list_config.row_height = row_height;
         list_config.cursor = view.cursor;
+        float offset { view.scroll };
+        if (view.reveal_cursor)
+        {
+            const auto selected { std::ranges::find(view.items, view.cursor, &palette_item_view::key) };
+            if (selected != view.items.end())
+            {
+                const float top { static_cast<float>(selected - view.items.begin()) * row_height };
+                if (top < offset)
+                    offset = top;
+                else if (top + row_height > offset + viewport)
+                    offset = top + row_height - viewport;
+            }
+        }
+        list_config.scroll_offset = std::clamp(offset, 0.0f, std::max(list_height - viewport, 0.0f));
+        list_config.scroll = [](const float delta) { return message(palette_scroll_intent { .value = delta }); };
+        list_config.scroll_to = [](const float value) { return message(palette_scroll_intent { .value = value, .absolute = true }); };
+        list_config.edges = luil::scroll_edges { .shadows = true };
         auto items { std::make_shared<std::vector<palette_item_view>>(view.items) };
         const std::u8string cursor { view.cursor };
         list_config.build_row = [items, cursor](const luil::virtual_list_item&, const std::size_t index, const bool) -> std::unique_ptr<luil::ui_element> {
@@ -107,9 +127,11 @@ namespace cyella::ui {
         list_config.move = [](const std::u8string& key) { return message(palette_cursor_intent { key }); };
         auto list { std::make_unique<luil::virtual_list_element>(std::move(list_config)) };
         list->set_access_name(view.title + u8" 목록");
-        column->add(std::move(list), list_height);
+        sources.palette = list.get();
+        column->add(std::move(list), viewport);
 
-        column->add(make_text(u8"palette-help", u8"↑↓로 고르고 Enter로 실행합니다 · Esc로 닫습니다", text_style { .size = 11.0f, .color = dim }), help_height);
+        const std::u8string help { view.matched == 0 ? u8"일치하는 항목이 없습니다 · 다른 검색어를 입력하세요" : u8"↑↓로 고르고 Enter로 실행합니다 · Esc로 닫습니다" };
+        column->add(make_text(u8"palette-help", help, text_style { .size = 11.0f, .color = dim }), help_height);
 
         // 거르는 칸의 Enter가 읽을 표식이다. 커서 항목이 없으면 낼 것이 없다.
         luil::input_action enter {};

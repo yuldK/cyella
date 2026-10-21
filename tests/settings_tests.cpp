@@ -180,6 +180,35 @@ namespace {
 
 // ---------------------------------------------------------------------------------------------- 보조 함수
 
+TEST_CASE("file apps can be added edited cancelled and removed without affecting diff tools", "[settings][file_app]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(open_settings_intent { settings_page::diff_tools }));
+    REQUIRE(test.view().file_apps.size() == 2);
+    REQUIRE(test.send(add_tool_intent { true }));
+    CHECK(test.view().edit->file_app);
+    CHECK_FALSE(test.view().edit->can_save);
+    test.type(text_target::settings_tool_extensions, u8"내 편집기");
+    test.type(text_target::settings_tool_executable, u8"editor.exe");
+    test.type(text_target::settings_tool_arguments, u8"--open {file} {repository}");
+    REQUIRE(test.view().edit->can_save);
+    REQUIRE(test.send(save_tool_intent {}));
+    REQUIRE(test.view().file_apps.size() == 3);
+    CHECK(test.view().file_apps.back().extensions == u8"내 편집기");
+    CHECK(test.view().tools.empty());
+    REQUIRE(test.send(edit_tool_intent { 2, true }));
+    test.type(text_target::settings_tool_extensions, u8"새 이름");
+    REQUIRE(test.send(cancel_tool_edit_intent {}));
+    CHECK(test.view().file_apps.back().extensions == u8"내 편집기");
+    REQUIRE(test.send(edit_tool_intent { 2, true }));
+    test.type(text_target::settings_tool_extensions, u8"새 이름");
+    REQUIRE(test.send(save_tool_intent {}));
+    CHECK(test.view().file_apps.back().extensions == u8"새 이름");
+    REQUIRE(test.send(remove_tool_intent { 2, true }));
+    CHECK(test.view().file_apps.size() == 2);
+    CHECK(test.service.settings().external_file_apps == default_external_file_apps());
+}
+
 TEST_CASE("extension lists are normalised, de-duplicated and may use commas or spaces", "[settings][tools]")
 {
     CHECK(parse_extension_list(u8".PNG, psd;*.tar.gz  .png") == std::vector<std::u8string> { u8".png", u8".psd", u8".tar.gz" });

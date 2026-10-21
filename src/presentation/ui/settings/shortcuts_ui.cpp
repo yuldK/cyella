@@ -38,26 +38,38 @@ namespace cyella::ui {
                 height);
         }
 
-        std::unique_ptr<luil::ui_element> build_row(const shortcut_row_view& row)
+        std::unique_ptr<luil::ui_element> build_row(const shortcut_row_view& row, const bool stacked)
         {
             const std::u8string key { key_of(row.command) };
             auto line { make_row(u8"shortcut-row-" + key, 8.0f) };
-            line->add_flexible(make_text(u8"shortcut-title-" + key, row.title, text_style { .size = 12.0f, .bold = row.customized }));
-            line->add(make_text(u8"shortcut-keys-" + key, row.keys.empty() ? std::u8string { u8"(키 없음)" } : row.keys,
-                          text_style { .size = 11.0f, .color = row.keys.empty() ? dim : color_selector {}, .code = true }),
-                keys_width);
+            auto title { make_text(u8"shortcut-title-" + key, row.title, text_style { .size = 12.0f, .bold = row.customized }) };
+            if (stacked == false)
+                line->add_flexible(std::move(title));
+            const text_style key_style { .size = 11.0f, .color = row.keys.empty() ? dim : color_selector {}, .code = true };
+            auto keys { make_text(u8"shortcut-keys-" + key, row.keys.empty() ? std::u8string { u8"(키 없음)" } : row.keys, key_style) };
+            if (stacked)
+                line->add_flexible(std::move(keys));
+            else
+                line->add(std::move(keys), keys_width);
             line->add(button_of(u8"shortcut-edit-" + key, u8"편집", message(edit_shortcut_intent { row.command }), row.editing == false), { .length = edit_width, .cross_length = button_height });
             line->add(button_of(u8"shortcut-reset-" + key, u8"기본값", message(reset_shortcut_intent { row.command }), row.customized), { .length = reset_width, .cross_length = button_height });
-            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"shortcut-bar-" + key }, bar_style { .divider_bottom = true }, std::move(line));
+            if (stacked == false)
+                return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"shortcut-bar-" + key }, bar_style { .divider_bottom = true }, std::move(line));
+            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"shortcut-stack-" + key }, luil::stack_config {}) };
+            column->add(std::move(title), 24.0f);
+            column->add(std::move(line), row_height);
+            column->add_gap(small_gap);
+            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"shortcut-bar-" + key }, bar_style { .divider_bottom = true }, std::move(column));
         }
     } // namespace
 
-    built_settings_page build_shortcuts_page(const shortcuts_page_view& view)
+    built_settings_page build_shortcuts_page(const shortcuts_page_view& view, const float content_width)
     {
         page_column page { u8"settings-shortcuts-page" };
+        const bool stacked { content_width < 560.0f };
         page.add(section_title(u8"settings-section-shortcuts", u8"단축키"), section_height);
-        page.add(help_line(u8"settings-shortcuts-help-1", u8"명령 팔레트(Ctrl+Shift+P)에서 쓰는 명령과 같은 목록입니다. [편집]을 눌러 새 키를 정하세요."), line_height);
-        page.add(help_line(u8"settings-shortcuts-help-2", u8"글자·숫자 키는 Ctrl이나 Alt와 함께여야 하고, 수정키 없이 쓸 수 있는 것은 F1~F12와 Esc뿐입니다. 이미 쓰는 키는 거절합니다."), line_height);
+        add_help(page, u8"settings-shortcuts-help-1", u8"명령 팔레트와 같은 명령 목록입니다. [편집]에서 단축키를 바꿀 수 있습니다.", content_width);
+        add_help(page, u8"settings-shortcuts-help-2", u8"글자·숫자는 Ctrl 또는 Alt와 함께 사용합니다. F1~F12·Esc는 단독으로 쓸 수 있으며, 중복된 키는 저장할 수 없습니다.", content_width);
         page.gap(small_gap);
         auto top { make_row(u8"settings-shortcuts-top") };
         top->add_flexible_gap();
@@ -69,7 +81,7 @@ namespace cyella::ui {
             page.add(section_title(u8"settings-shortcuts-group-" + std::u8string { group.title }, group.title), section_height);
             for (const shortcut_row_view& row : group.rows)
             {
-                page.add(build_row(row), row_height);
+                page.add(build_row(row, stacked), stacked ? 24.0f + row_height + small_gap : row_height);
                 if (row.editing && view.edit.has_value())
                 {
                     page.gap(small_gap);

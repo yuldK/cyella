@@ -254,6 +254,7 @@ namespace cyella::ui {
         static const std::vector<std::u8string> installed { luil::installed_font_families() };
         const std::u8string query { folded(std::u8string { input.displayed_text() }) };
         luil::virtual_list_config config {};
+        config.edges.shadows = true;
         config.owner = u8"settings-font-list";
         config.row_height = font_row_height;
         config.items.push_back({ .key = u8"font-default", .label = u8"기본 글꼴" });

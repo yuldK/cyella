@@ -8,6 +8,7 @@
 #include "luil/ui/choice_group_element.h"
 #include "luil/ui/dialog_elements.h"
 #include "luil/ui/modal_host_element.h"
+#include "luil/ui/scroll_area_element.h"
 #include "luil/ui/stack_element.h"
 
 #include <algorithm>
@@ -22,6 +23,9 @@ namespace cyella::ui {
         constexpr float form_field_height { 28.0f };
         constexpr float form_label_height { 16.0f };
         constexpr float form_button_height { 30.0f };
+        constexpr float form_button_gap { 8.0f };
+        constexpr float form_footer_padding { 12.0f };
+        constexpr float form_scroll_inset { 8.0f };
 
         const color_selector dim_color { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
         const color_selector warning_color { [](const luil::ui_color_palette& palette) { return palette.warning_accent; } };
@@ -87,10 +91,9 @@ namespace cyella::ui {
         };
     } // namespace
 
-    std::unique_ptr<luil::ui_element> build_form_dialog(const form_view& form, const float logical_width, const float logical_height)
+    std::unique_ptr<luil::ui_element> build_form_dialog(const form_view& form, const float logical_width, const float logical_height, feedback_sources& sources)
     {
         const float width { std::min(form_width, std::max(logical_width - 32.0f, 280.0f)) };
-        static_cast<void>(logical_height);
 
         luil::modal_host_config config {};
         config.owner = form.id;
@@ -113,7 +116,7 @@ namespace cyella::ui {
 
         const luil::stack_config body_config { .spacing = form_spacing, .padding = luil::edge_insets::all(form_padding) };
         auto body { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, form.id + u8"-body" }, body_config) };
-        form_body content { *body, width - form_padding * 2.0f, form_padding * 2.0f - form_spacing, form.id, 0 };
+        form_body content { *body, width - form_padding * 2.0f - form_scroll_inset - luil::scroll_area_bar_width, form_padding * 2.0f - form_spacing, form.id, 0 };
 
         for (const form_note& note : form.notes)
             content.add_text(note.text, text_style { .size = note.code ? 11.0f : 12.0f, .color = note.warning ? warning_color : color_selector {}, .code = note.code });
@@ -168,22 +171,45 @@ namespace cyella::ui {
             content.add_text(form.error, text_style { .size = 11.0f, .color = error_color });
 
         luil::ui_element_id buttons_id { kind_layout, form.id + u8"-buttons" };
-        const luil::stack_config buttons_config { .direction = luil::stack_direction::row, .spacing = 8.0f };
+        float buttons_width { 0.0f };
+        for (const form_button& button : form.buttons)
+            buttons_width += std::max(72.0f, text_button_width(button.label) + 12.0f) + form_button_gap;
+        const bool stacked { buttons_width - form_button_gap > width - form_padding * 2.0f };
+        const luil::stack_config buttons_config { .direction = stacked ? luil::stack_direction::column : luil::stack_direction::row, .spacing = form_button_gap };
         auto buttons { std::make_unique<luil::stack_element>(std::move(buttons_id), buttons_config) };
-        buttons->add_flexible_gap();
+        if (stacked == false)
+            buttons->add_flexible_gap();
         for (const form_button& button : form.buttons)
         {
             const std::u8string owner { form.id + u8"-" + button.key };
             buttons->add(make_text_button(owner, button.label, visual_of(button.tone), message(form_button_intent { button.key }), button.enabled, 0, button.default_button),
-                std::max(72.0f, text_button_width(button.label) + 12.0f));
+                stacked ? form_button_height : std::max(72.0f, text_button_width(button.label) + 12.0f));
             if (button.default_button && focus_entry == luil::ui_element_id {})
                 focus_entry = luil::ui_element_id { kind_text_button, owner };
         }
-        content.add(std::move(buttons), form_button_height);
-
         config.focus_entry = focus_entry;
-        config.content_height = caption_height + content.height + 2.0f;
-        column->add_flexible(std::move(body));
+        const float count { static_cast<float>(form.buttons.size()) };
+        const float buttons_height { stacked ? form_button_height * count + form_button_gap * std::max(count - 1.0f, 0.0f) : form_button_height };
+        const float footer_height { buttons_height + form_footer_padding * 2.0f };
+        config.content_height = std::min(caption_height + content.height + footer_height + 2.0f, std::max(logical_height - 32.0f, 160.0f));
+        luil::scroll_area_config scroll {};
+        scroll.owner = form.id + u8"-scroll";
+        scroll.content_height = content.height;
+        scroll.scroll_offset = form.scroll;
+        scroll.scroll = [](const float delta) { return message(form_scroll_intent { .value = delta }); };
+        scroll.scroll_to = [](const float offset) { return message(form_scroll_intent { .value = offset, .absolute = true }); };
+        scroll.edges = luil::scroll_edges { .shadows = true };
+        auto area { std::make_unique<luil::scroll_area_element>(std::move(scroll)) };
+        area->set_content(std::move(body));
+        sources.form = area.get();
+        const luil::stack_config inset_config { .padding = luil::edge_insets { 0.0f, 0.0f, form_scroll_inset, 0.0f } };
+        auto inset { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, form.id + u8"-scroll-inset" }, inset_config) };
+        inset->add_flexible(std::move(area));
+        column->add_flexible(std::move(inset));
+        const luil::stack_config footer_config { .padding = luil::edge_insets { form_padding, form_footer_padding, form_padding, form_footer_padding } };
+        auto footer { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, form.id + u8"-footer-content" }, footer_config) };
+        footer->add_flexible(std::move(buttons));
+        column->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, form.id + u8"-footer" }, bar_style { .divider_top = true }, std::move(footer)), footer_height);
         auto host { std::make_unique<luil::modal_host_element>(std::move(config)) };
         host->set_content(std::move(column));
         return host;

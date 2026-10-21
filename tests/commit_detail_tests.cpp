@@ -162,6 +162,27 @@ TEST_CASE("commit detail snapshot splits author fields and builds the file tree 
     CHECK(labels_of(commit->tree) == std::vector<std::string> { "[src/presentation]", "  [ui]", "    list_rows.cpp", "    repository_ui.cpp", "  file_tree.cpp", "[tests]", "README.md" });
 }
 
+TEST_CASE("commit diff navigation preserves its commit and never enters working changes", "[presentation][diff]")
+{
+    snapshot_harness harness {};
+    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    load(*harness.sessions["repo-1"], linear_history(3), 2);
+    const std::string sha { sha_of(1) };
+    harness.ui.tabs[tab].selected_sha = sha;
+    load_detail(*harness.sessions["repo-1"], sha, sample_files());
+    harness.ui.tabs[tab].diff = diff_file_request { .path = "README.md", .view = diff_view::commit, .sha = sha, .context_lines = 10 };
+    const repository_view repository { *harness.build().repository };
+    const diff_panel_view& diff { *repository.diff };
+    CHECK(diff.file_position == 1);
+    CHECK(diff.file_count == sample_files().size());
+    CHECK_FALSE(diff.previous_file.has_value());
+    REQUIRE(diff.next_file.has_value());
+    CHECK(diff.next_file->path == repository.commit->files[1].path);
+    CHECK(diff.next_file->view == diff_view::commit);
+    CHECK(diff.next_file->sha == sha);
+    CHECK(diff.next_file->context_lines == 10);
+}
+
 TEST_CASE("commit detail tree shows wrapped text, label columns, folder rows and the view toggle", "[presentation][ui][file_tree]")
 {
     snapshot_harness harness {};

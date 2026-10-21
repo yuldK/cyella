@@ -493,7 +493,7 @@ TEST_CASE("the signing page builds a tree with stable names for its controls", "
     }
 
     const ui::built_tree built { build_signing_tree(harness, test.view(&ssh), 1440.0f) };
-    CHECK(has_owner(built, ui::kind_text_button, u8"settings-page-signing"));
+    CHECK(has_owner(built, luil::ui_element_kind::list_row, u8"settings-page-signing"));
     std::vector<std::u8string> buttons {};
     buttons.push_back(u8"settings-signing-refresh");
     buttons.push_back(u8"settings-signing-key-use-1");

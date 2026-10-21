@@ -17,6 +17,7 @@ namespace cyella {
         std::vector<external_diff_tool> tools {};
         // 두 쪽을 꺼내는 동안의 취소다. 도구를 띄운 뒤에는 도구가 스스로 끝난다.
         process_cancellation_token cancellation {};
+        std::optional<external_file_app> file_app {};
     };
 
     enum class external_open_status

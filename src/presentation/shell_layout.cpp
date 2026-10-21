@@ -45,6 +45,8 @@ namespace cyella {
         {
             rects.toolbar = { 0.0f, top, width, shell_toolbar_height };
             top += shell_toolbar_height;
+            rects.navigation = { 0.0f, top, width, shell_navigation_height };
+            top += shell_navigation_height;
         }
         if (input.banner_height > 0.0f)
         {
@@ -66,6 +68,22 @@ namespace cyella {
             return rects;
 
         const shell_rect& body { rects.body };
+        if (input.working)
+        {
+            if (body.width >= changes_split_minimum_width)
+            {
+                const float files { std::min(clamp_detail_width(input.detail_width), body.width - 360.0f - shell_splitter_width) };
+                rects.detail = { body.x, body.y, files, body.height };
+                rects.detail_splitter = { body.x + files, body.y, shell_splitter_width, body.height };
+                const float offset { files + shell_splitter_width };
+                rects.graph = { body.x + offset, body.y, body.width - offset, body.height };
+            }
+            else if (input.diff_open)
+                rects.graph = body;
+            else
+                rects.detail = body;
+            return rects;
+        }
         if (input.mode == layout_mode::narrow)
         {
             const float rail { std::min(shell_rail_width, body.width) };
@@ -75,8 +93,8 @@ namespace cyella {
         else
         {
             float sidebar { clamp_sidebar_width(input.sidebar_width) };
-            float detail { input.mode == layout_mode::wide ? clamp_detail_width(input.detail_width) : 0.0f };
-            const float splitters { input.mode == layout_mode::wide ? shell_splitter_width * 2.0f : shell_splitter_width };
+            float detail { input.mode == layout_mode::wide && input.detail_available ? clamp_detail_width(input.detail_width) : 0.0f };
+            const float splitters { detail > 0.0f ? shell_splitter_width * 2.0f : shell_splitter_width };
             // 그래프 최소 폭을 지키려고 상세를 먼저, 그다음 사이드바를 줄인다.
             float overflow { sidebar + detail + splitters + minimum_graph_width - body.width };
             if (overflow > 0.0f && detail > 0.0f)
@@ -104,7 +122,7 @@ namespace cyella {
             }
         }
 
-        if (input.mode != layout_mode::wide && input.drawer_open)
+        if (input.mode != layout_mode::wide && input.drawer_open && input.detail_available)
         {
             // 서랍은 그래프 위에 겹친다. 왼쪽에 바깥을 눌러 닫을 자리를 조금 남긴다.
             const float drawer { std::min(clamp_detail_width(input.detail_width), std::max(body.width - 40.0f, 0.0f)) };

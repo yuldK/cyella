@@ -159,6 +159,8 @@ namespace cyella::ui {
             return message(select_sidebar_item_intent { row.key, row.group ? std::string {} : row.target_sha });
         }
 
+        std::u8string section_title(sidebar_section section);
+
         std::unique_ptr<luil::ui_element> make_sidebar_list(std::u8string owner, const std::vector<sidebar_row_view>& rows, const std::u8string& selected, const float scroll, const bool scrolls)
         {
             auto index { std::make_shared<sidebar_index>() };
@@ -166,8 +168,11 @@ namespace cyella::ui {
             config.owner = std::move(owner);
             for (const sidebar_row_view& row : rows)
             {
-                config.items.push_back({ .key = row.key, .label = row.label, .height = row.header ? sidebar_header_row_height : sidebar_row_height });
-                index->rows.emplace(row.key, row);
+                sidebar_row_view shown { row };
+                if (shown.header)
+                    shown.label = section_title(shown.section);
+                config.items.push_back({ .key = shown.key, .label = shown.label, .height = shown.header ? sidebar_header_row_height : sidebar_row_height });
+                index->rows.emplace(row.key, std::move(shown));
             }
             config.selected = selected;
             config.cursor = selected;
@@ -241,21 +246,21 @@ namespace cyella::ui {
             switch (section)
             {
             case sidebar_section::local:
-                return u8"LOCAL";
+                return u8"로컬 브랜치";
             case sidebar_section::remote:
-                return u8"REMOTE";
+                return u8"원격 브랜치";
             case sidebar_section::tags:
-                return u8"TAGS";
+                return u8"태그";
             case sidebar_section::stashes:
-                return u8"STASHES";
+                return u8"스태시";
             case sidebar_section::submodules:
-                return u8"SUBMODULES";
+                return u8"서브모듈";
             case sidebar_section::worktrees:
-                return u8"WORKTREES";
+                return u8"워크트리";
             case sidebar_section::lfs:
                 return u8"GIT LFS";
             case sidebar_section::pull_requests:
-                return u8"PULL REQUESTS";
+                return u8"PR · MR";
             }
             return {};
         }
@@ -593,16 +598,35 @@ namespace cyella::ui {
 
         std::unique_ptr<luil::ui_element> build_working_area(const repository_view& repository, const working_area_view& working, const bool drawer, const float height, feedback_sources& sources)
         {
+            // 작은 높이에서 고정 커밋 상자가 파일 목록과 확인 단추를 창 밖으로 밀지 않게 한다.
+            // 평소에는 기존 큰 작성 영역을 유지하고, 모자랄 때만 전체 영역에 스크롤을 제공한다.
+            const float minimum_height { 40.0f + 150.0f + commit_box_minimum + (working.amend_warning ? amend_warning_extra : 0.0f) };
+            if (height < minimum_height)
+            {
+                luil::scroll_area_config config {};
+                config.owner = u8"working-scroll";
+                config.content_height = minimum_height;
+                config.scroll_offset = working.scroll;
+                config.scroll = [](const float delta) { return message(scroll_intent { .target = scroll_target::working_area, .value = delta }); };
+                config.scroll_to = [](const float offset) { return message(scroll_intent { .target = scroll_target::working_area, .value = offset, .absolute = true }); };
+                config.bar = luil::scrollbar_visibility::always;
+                config.edges = luil::scroll_edges { .shadows = true };
+                auto area { std::make_unique<luil::scroll_area_element>(std::move(config)) };
+                area->set_access_name(u8"변경 파일과 커밋 작성");
+                area->set_content(build_working_area(repository, working, drawer, minimum_height, sources));
+                sources.working = area.get();
+                return area;
+            }
             const std::string& repo { repository.repository_id };
-            const std::size_t total { working.conflicts.size() + working.unstaged.size() + working.staged.size() };
             auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"working-area" }, luil::stack_config {}) };
-            column->add(detail_header(u8"작업 영역", number_text(total) + u8"개 변경 · " + working.branch, drawer), pane_header_height);
             luil::stack_config view_config { .direction = luil::stack_direction::row, .padding = luil::edge_insets { 10.0f, 4.0f, 10.0f, 4.0f } };
             auto view_row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"working-files-header" }, view_config) };
-            view_row->add_flexible(make_text(u8"working-files-title", u8"변경 파일", text_style { .size = 12.0f, .bold = true }));
+            view_row->add_flexible(make_text(u8"working-files-title", u8"변경 파일 · " + number_text(repository.graph.wip_count), text_style { .size = 12.0f, .bold = true }));
             view_row->add(make_file_view_control(u8"working-files-view", working.files_tree, [](const std::u8string& value) { return message(set_working_files_view_intent { value == u8"tree" }); }),
                 { .length = 60.0f, .cross_length = segmented_control_height });
-            column->add(std::move(view_row), 36.0f);
+            if (drawer)
+                view_row->add(make_icon_button(u8"detail-close", codicons::icon_close, u8"상세 패널 닫기", message(toggle_drawer_intent { false })), 28.0f);
+            column->add(std::move(view_row), 40.0f);
 
             auto builders { std::make_shared<std::map<std::u8string, std::function<std::unique_ptr<luil::ui_element>()>>>() };
             auto requests { std::make_shared<std::map<std::u8string, diff_file_request>>() };
@@ -619,14 +643,14 @@ namespace cyella::ui {
                     std::vector<file_row_button> buttons {};
                     if (view == diff_view::unstaged && row.conflicted == false)
                     {
-                        buttons.push_back(make_row_button(u8"stage:" + to_u8(row.path), codicons::icon_add, u8"stage", submit(repo, stage_files_request { { row.path } })));
+                        buttons.push_back(make_row_button(u8"stage:" + to_u8(row.path), codicons::icon_add, u8"스테이징", submit(repo, stage_files_request { { row.path } })));
                         // 버리기는 확인 대화 상자를 거친다. 추적하지 않는 파일은 휴지통으로 보낸다.
                         std::u8string tooltip { row.untracked ? u8"휴지통으로 보내기 (확인 후)" : u8"변경 버리기 (확인 후)" };
                         buttons.push_back(make_row_button(u8"discard:" + to_u8(row.path), row.untracked ? codicons::icon_trash : codicons::icon_discard, std::move(tooltip),
                             message(discard_files_intent { { row.path }, row.untracked }), true));
                     }
                     if (view == diff_view::staged)
-                        buttons.push_back(make_row_button(u8"unstage:" + to_u8(row.path), codicons::icon_remove, u8"unstage", submit(repo, unstage_files_request { { row.path } })));
+                        buttons.push_back(make_row_button(u8"unstage:" + to_u8(row.path), codicons::icon_remove, u8"스테이징 해제", submit(repo, unstage_files_request { { row.path } })));
                     const diff_file_request request { .path = row.path, .view = view, .sha = {}, .untracked = row.untracked };
                     menu_target target {};
                     target.kind = menu_target_kind::file;
@@ -684,12 +708,12 @@ namespace cyella::ui {
             for (const file_row_view& row : working.staged)
                 staged_paths.push_back(row.path);
             const bool any_unstaged { working.unstaged.empty() == false };
-            add_group(u8"g:unstaged", u8"Unstaged 변경", working.unstaged,
-                make_row_button(u8"stage-all", codicons::icon_add, u8"모두 stage", submit(repo, stage_files_request { unstaged_paths }), any_unstaged));
+            add_group(u8"g:unstaged", u8"스테이징 전", working.unstaged,
+                make_row_button(u8"stage-all", codicons::icon_add, u8"모두 스테이징", submit(repo, stage_files_request { unstaged_paths }), any_unstaged));
             add_rows(working.unstaged, diff_view::unstaged);
             const bool any_staged { working.staged.empty() == false };
-            add_group(u8"g:staged", u8"Staged 변경", working.staged,
-                make_row_button(u8"unstage-all", codicons::icon_remove, u8"모두 unstage", submit(repo, unstage_files_request { staged_paths }), any_staged));
+            add_group(u8"g:staged", u8"커밋에 포함", working.staged,
+                make_row_button(u8"unstage-all", codicons::icon_remove, u8"모두 해제", submit(repo, unstage_files_request { staged_paths }), any_staged));
             add_rows(working.staged, diff_view::staged);
             column->add_flexible(make_file_list(u8"working-files", std::move(items), std::move(builders), std::move(requests), std::move(selected), repository.detail_scroll, sources));
 
@@ -747,8 +771,8 @@ namespace cyella::ui {
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"sidebar" }, luil::stack_config {}) };
         auto header = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"sidebar-header" },
             luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 10.0f, 0.0f, 8.0f, 0.0f } });
-        header->add(std::make_unique<icon_element>(luil::ui_element_id { kind_label, u8"sidebar-repo-icon" }, codicons::icon_repo, color_selector {}), 18.0f);
-        header->add_flexible(make_text(u8"sidebar-repo-name", repository.display_name, text_style { .size = 12.0f, .bold = true }));
+        header->add(std::make_unique<icon_element>(luil::ui_element_id { kind_label, u8"sidebar-repo-icon" }, codicons::icon_git_branch, color_selector {}), 18.0f);
+        header->add_flexible(make_text(u8"sidebar-repo-name", u8"브랜치·참조", text_style { .size = 12.0f, .bold = true }));
         column->add(std::move(header), 32.0f);
 
         auto filter_row
@@ -820,11 +844,29 @@ namespace cyella::ui {
     std::unique_ptr<luil::ui_element> build_graph_area(const view_snapshot& view, const repository_view& repository, const float width, feedback_sources& sources)
     {
         if (repository.diff.has_value())
-            return build_diff_area(view, repository, sources);
+            return build_diff_area(repository, width, sources);
 
         // rebase·merge·cherry-pick·revert가 멈춰 있으면 그래프 자리를 닫을 수 없는 충돌 해결 화면이 덮는다.
         if (repository.conflict.has_value())
-            return build_conflict_screen(repository, *repository.conflict, repository.conflict_scroll, sources);
+            return build_conflict_screen(repository, *repository.conflict, width, repository.conflict_scroll, sources);
+
+        if (view.graph_layout == false && repository.detail == detail_mode::working)
+        {
+            if (repository.loaded == false)
+                return surface(
+                    u8"review-loading", centered_message(u8"review-loading-note", repository.load_error.empty() ? u8"저장소를 읽는 중…" : u8"저장소를 읽지 못했습니다: " + repository.load_error));
+            const bool clean { repository.graph.wip_count == 0 };
+            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"review-empty-content" }, luil::stack_config { .padding = luil::edge_insets::all(24.0f) }) };
+            column->add_flexible_gap();
+            column->add(make_text(u8"review-empty-title", clean ? u8"작업 트리가 깨끗합니다" : u8"검토할 파일을 선택하세요", text_style { .size = 18.0f, .bold = true, .align = 1 }), 38.0f);
+            column->add(make_text(u8"review-empty-description", clean ? u8"새로운 변경이 생기면 이곳에서 확인할 수 있습니다." : u8"왼쪽 파일 목록에서 변경 내용을 열어 보세요.",
+                            text_style { .size = 12.0f, .color = dim_color, .align = 1 }),
+                26.0f);
+            if (clean == false)
+                column->add(make_text(u8"review-empty-next", u8"필요한 변경을 스테이징한 뒤 커밋을 작성합니다.", text_style { .size = 12.0f, .color = dim_color, .align = 1 }), 26.0f);
+            column->add_flexible_gap();
+            return surface(u8"review-empty", std::move(column));
+        }
 
         const graph_view& graph { repository.graph };
         // 행은 목록의 스크롤 막대만큼 좁다. 머리줄도 같은 열 폭을 써야 제목이 열 위에 선다.
@@ -847,6 +889,7 @@ namespace cyella::ui {
 
         luil::virtual_list_config config {};
         config.owner = u8"graph";
+        config.edges.shadows = true;
         // 모델은 cache된 벡터의 복사다. 키가 15자라 짧은 문자열 최적화 안에 들어 할당 없이 끝난다.
         config.items = *graph.items;
         config.selected = graph.selected_key;
@@ -909,7 +952,7 @@ namespace cyella::ui {
         static_cast<void>(view);
         std::unique_ptr<luil::ui_element> content {};
         if (repository.detail == detail_mode::pull_request && repository.hosting.has_value() && repository.hosting->detail.has_value())
-            content = build_pull_request_detail(*repository.hosting->detail, drawer);
+            content = build_pull_request_detail(*repository.hosting->detail, drawer, width, repository.detail_scroll, sources);
         else if (repository.detail == detail_mode::commit && repository.commit.has_value())
             content = build_commit_detail(repository, *repository.commit, drawer, width, height, sources);
         else if (repository.detail == detail_mode::working && repository.working.has_value())

@@ -1,5 +1,6 @@
 // snapshot에서 tree를 짓고 배치하는 데 드는 시간이다 (10만 행). 숨김 태그 `[perf]`라 ctest에는 없다:
 // cyella_tests.exe "[perf]"
+#include "presentation/graph_index.h"
 #include "presentation/ui/build_ui_tree.h"
 
 #include "view_snapshot_support.h"
@@ -37,6 +38,8 @@ TEST_CASE("building and arranging the tree for 100k graph rows", "[.][perf]")
     const double copy_items { milliseconds(clock::now() - start) };
 
     auto cached { std::make_shared<const std::vector<luil::virtual_list_item>>(fresh) };
+    // 실제 controller처럼 이력 인덱스도 재사용한다. 생성 비용을 매 frame 비용에 섞지 않는다.
+    auto history { std::make_shared<const graph_index>(session.graph_commits()) };
     double snapshot_total { 0.0 };
     double tree_total { 0.0 };
     constexpr int rounds { 10 };
@@ -52,6 +55,7 @@ TEST_CASE("building and arranging the tree for 100k graph rows", "[.][perf]")
         frame.tab_repositories = &harness.tab_repositories;
         frame.find_session = [&harness](const std::string& id) -> const repository_session* { return harness.sessions[id].get(); };
         frame.graph_items = [&cached](const repository_session&) { return cached; };
+        frame.history_index = [&history](const repository_session&) { return history; };
         const view_snapshot view { build_view_snapshot(frame) };
         snapshot_total += milliseconds(clock::now() - start);
 

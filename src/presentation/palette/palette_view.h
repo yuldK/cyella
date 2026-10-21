@@ -30,5 +30,7 @@ namespace cyella {
         // 키보드 커서가 선 항목의 키다. 항상 목록에 있는 활성 항목이거나 (활성 항목이 없으면) 비어 있다.
         std::u8string cursor {};
         std::size_t matched { 0 };
+        float scroll { 0.0f };
+        bool reveal_cursor { true };
     };
 } // namespace cyella

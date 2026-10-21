@@ -75,6 +75,12 @@ namespace cyella {
     struct form_enter_intent
     {};
 
+    struct form_scroll_intent
+    {
+        float value { 0.0f };
+        bool absolute { false };
+    };
+
     // ------------------------------------------------------------------ 열기
 
     // 버리기 같은 확인이 필요한 동작을 확인 상자로 연다. hunk 버리기도 이 길을 쓴다.

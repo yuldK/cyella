@@ -18,12 +18,16 @@ namespace cyella::ui {
         const luil::virtual_list_element* graph { nullptr };
         const luil::virtual_list_element* sidebar { nullptr };
         const luil::virtual_list_element* detail { nullptr };
+        const luil::scroll_area_element* detail_area { nullptr };
         const luil::virtual_list_element* diff { nullptr };
         const luil::virtual_list_element* log { nullptr };
         const luil::scroll_area_element* start { nullptr };
         // 커밋 상세의 메시지·메타 칸이다. 넘칠 때만 흘리는 창이 선다.
         const luil::scroll_area_element* commit_meta { nullptr };
+        const luil::scroll_area_element* working { nullptr };
         const luil::scroll_area_element* settings { nullptr };
+        const luil::scroll_area_element* form { nullptr };
+        const luil::virtual_list_element* palette { nullptr };
         const repository_tabs_element* tabs { nullptr };
     };
 
@@ -38,7 +42,7 @@ namespace cyella::ui {
 
     // 대화 상자·메뉴·끌어 놓기·충돌 해결이다.
     // 모달 입력 상자다. 화면 전체를 덮고 가운데에 대화 상자를 놓는다.
-    [[nodiscard]] std::unique_ptr<luil::ui_element> build_form_dialog(const form_view& form, float logical_width, float logical_height);
+    [[nodiscard]] std::unique_ptr<luil::ui_element> build_form_dialog(const form_view& form, float logical_width, float logical_height, feedback_sources& sources);
     // 우클릭 메뉴 popup이다. 좌표는 논리 픽셀이고 크기는 항목 글로 짐작한다.
     [[nodiscard]] built_popup build_menu_popup(const menu_view& menu, float scale);
     // 툴바 저장소·브랜치 선택 상자의 목록 popup이다. 거르는 칸이 위에 서고 항목은 메뉴 항목이다. 좌표는 논리 픽셀이다.
@@ -46,5 +50,5 @@ namespace cyella::ui {
     // 끄는 동안 대상 위에 뜨는 문구다. 창 전체를 덮는 투명한 element이고 누름을 받지 않는다.
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_drag_hint_overlay(std::shared_ptr<const drop_hint_data> hints);
     // 그래프 자리를 덮는 충돌 해결 화면이다.
-    [[nodiscard]] std::unique_ptr<luil::ui_element> build_conflict_screen(const repository_view& repository, const conflict_view& conflict, float scroll, feedback_sources& sources);
+    [[nodiscard]] std::unique_ptr<luil::ui_element> build_conflict_screen(const repository_view& repository, const conflict_view& conflict, float width, float scroll, feedback_sources& sources);
 } // namespace cyella::ui

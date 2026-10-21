@@ -8,6 +8,7 @@
 #include "luil/ui/panel_element.h"
 #include "luil/ui/stack_element.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -158,6 +159,13 @@ namespace cyella::ui::pages {
     inline std::unique_ptr<luil::ui_element> help_line(std::u8string owner, std::u8string text, color_selector color = dim)
     {
         return make_text(std::move(owner), std::move(text), text_style { .size = 11.0f, .color = std::move(color) });
+    }
+
+    inline void add_help(page_column& page, std::u8string owner, std::u8string text, const float width, color_selector color = dim)
+    {
+        const text_style style { .size = 11.0f, .color = std::move(color) };
+        const float height { wrapped_text_height(text, std::max(width, 120.0f), style, line_height) };
+        page.add(make_wrapped_text(std::move(owner), std::move(text), style, line_height), height);
     }
 
     inline std::unique_ptr<luil::ui_element> field_label(std::u8string owner, std::u8string text)

@@ -263,6 +263,7 @@ namespace cyella {
         working_area_view build_working_area(const repository_snapshot& snapshot, const tab_ui_state& tab, const std::optional<luil::text_composition_event>& composition, const bool committing)
         {
             working_area_view view {};
+            view.scroll = tab.working_scroll;
             view.branch = snapshot.summary.is_detached ? u8"(detached) " + short_sha(snapshot.summary.head_sha) : to_u8(snapshot.summary.current_branch);
             for (const file_change& change : snapshot.conflicts)
                 view.conflicts.push_back(make_file_row(change, u8"c:"));
@@ -378,13 +379,13 @@ namespace cyella {
             switch (request.view)
             {
             case diff_view::unstaged:
-                view.subtitle = to_u8(request.path) + u8" · unstaged";
+                view.subtitle = to_u8(request.path) + u8" · 작업 파일";
                 break;
             case diff_view::staged:
-                view.subtitle = to_u8(request.path) + u8" · staged";
+                view.subtitle = to_u8(request.path) + u8" · 스테이징 사본";
                 break;
             case diff_view::commit:
-                view.subtitle = to_u8(request.path) + u8" · " + short_sha(request.sha);
+                view.subtitle = to_u8(request.path) + u8" · 이력 " + short_sha(request.sha);
                 break;
             }
             const std::optional<file_diff>& diff { session.selected_diff() };
@@ -448,6 +449,59 @@ namespace cyella {
             return {};
         }
 
+        void fill_diff_navigation(repository_view& repository)
+        {
+            diff_panel_view& diff { *repository.diff };
+            const std::vector<file_row_view>* files { nullptr };
+            bool tree { false };
+            if (diff.request.view == diff_view::commit)
+            {
+                if (repository.commit.has_value() == false || repository.commit->sha != diff.request.sha)
+                    return;
+                files = &repository.commit->files;
+                tree = repository.commit->files_tree;
+            }
+            else if (repository.working.has_value())
+            {
+                files = diff.request.view == diff_view::staged ? &repository.working->staged : &repository.working->unstaged;
+                tree = repository.working->files_tree;
+            }
+            if (files == nullptr || files->empty())
+                return;
+            std::vector<std::size_t> order {};
+            order.reserve(files->size());
+            if (tree)
+            {
+                std::vector<std::string> paths {};
+                paths.reserve(files->size());
+                for (const file_row_view& file : *files)
+                    paths.push_back(file.path);
+                // 접힌 폴더 안의 파일도 검토하며 폴더·파일 순서는 트리와 맞춘다.
+                for (const file_tree_row& row : build_file_tree(paths, {}))
+                    if (row.folder == false)
+                        order.push_back(row.file_index);
+            }
+            else
+                for (std::size_t index { 0 }; index < files->size(); ++index)
+                    order.push_back(index);
+            const auto selected { std::ranges::find_if(order, [&](const std::size_t index) { return (*files)[index].path == diff.request.path; }) };
+            if (selected == order.end())
+                return;
+            const std::size_t position { static_cast<std::size_t>(selected - order.begin()) };
+            diff.file_position = position + 1;
+            diff.file_count = order.size();
+            const auto request_at = [&](const std::size_t index) {
+                diff_file_request request { diff.request };
+                request.path = (*files)[order[index]].path;
+                request.untracked = (*files)[order[index]].untracked;
+                return request;
+            };
+            if (position > 0)
+                diff.previous_file = request_at(position - 1);
+            if (position + 1 < order.size())
+                diff.next_file = request_at(position + 1);
+        }
+
         repository_view build_repository(const view_inputs& inputs, const repository_tab& tab, const repository_session& session, const tab_ui_state& tab_state,
             std::span<const operation_status* const> operations, const std::int64_t now, const std::shared_ptr<const graph_index>& index)
         {
@@ -493,7 +547,7 @@ namespace cyella {
             graph.compact_columns = select_layout_mode(inputs.width / std::max(inputs.scale, 0.01f)) == layout_mode::narrow;
             graph.now = now;
 
-            if (tab_state.selected_sha == graph_wip_sha && graph.has_wip)
+            if (tab_state.selected_sha == graph_wip_sha)
             {
                 bool committing { false };
                 if (tab_state.pending_commit != 0)
@@ -527,7 +581,10 @@ namespace cyella {
             view.detail_scroll = tab_state.detail_scroll;
             view.commit_meta_scroll = tab_state.commit_meta_scroll;
             if (tab_state.diff.has_value())
+            {
                 view.diff = build_diff(session, *tab_state.diff, tab_state.diff_scroll, ui.diff_surface);
+                fill_diff_navigation(view);
+            }
             graph.labels = std::move(labels);
             view.drop_hints = build_drop_hints(snapshot, index);
             view.conflict = build_conflict_view(session, operations);
@@ -554,8 +611,15 @@ namespace cyella {
             const bool ready { git_usable && session.loaded() };
             toolbar.fetch_enabled = ready && summary.remotes.empty() == false;
             toolbar.pull_enabled = ready && summary.has_upstream;
-            toolbar.push_enabled = ready && summary.is_detached == false && summary.current_branch.empty() == false;
+            toolbar.push_enabled = ready && summary.remotes.empty() == false && summary.is_detached == false && summary.current_branch.empty() == false;
             toolbar.push_needs_dialog = summary.has_upstream == false;
+            toolbar.fetch_hint
+                = summary.remotes.empty() ? u8"등록된 원격이 없습니다. 원격을 추가하면 Fetch를 사용할 수 있습니다." : u8"원격의 새 커밋과 참조를 가져옵니다. 작업 파일은 바꾸지 않습니다.";
+            toolbar.pull_hint = summary.has_upstream ? u8"추적 원격의 변경을 fast-forward로 받습니다 (--ff-only)." : u8"현재 브랜치의 추적 원격(upstream)을 먼저 설정하세요.";
+            toolbar.push_hint = summary.remotes.empty() ? u8"등록된 원격이 없습니다. 원격을 추가하면 Push를 사용할 수 있습니다."
+                : summary.is_detached                   ? u8"브랜치에 연결되지 않은 HEAD입니다. 브랜치를 만든 뒤 Push할 수 있습니다."
+                : toolbar.push_needs_dialog             ? u8"원격을 고르고 현재 브랜치의 추적 원격(upstream)을 설정합니다."
+                                                        : u8"현재 브랜치의 커밋을 추적 원격으로 보냅니다.";
             toolbar.branch_enabled = ready;
             toolbar.stash_enabled = ready && summary.changed_file_count > 0;
             toolbar.pop_enabled = ready && session.snapshot().stashes.empty() == false;
@@ -670,7 +734,7 @@ namespace cyella {
                 row.current = value.is_current;
                 row.ahead = value.ahead;
                 row.behind = value.behind;
-                row.no_upstream = value.upstream.empty();
+                row.no_upstream = has_remotes && value.upstream.empty();
                 row.upstream_gone = value.upstream_gone;
                 row.worktree_path = value.worktree_path;
                 row.tooltip = value.upstream.empty() ? row.label + u8" · upstream 없음" : row.label + u8" → " + to_u8(value.upstream);
@@ -950,6 +1014,8 @@ namespace cyella {
         view.logical_height = inputs.height / view.scale;
         view.mode = select_layout_mode(view.logical_width);
         view.theme = settings.appearance.theme;
+        view.graph_layout = settings.ui.graph_layout;
+        view.git_version = inputs.git_version;
         view.tab_scroll = ui.tab_scroll;
         view.reveal_selected_tab = ui.reveal_selected_tab;
         view.log_open = ui.operation_log_open;
@@ -1050,6 +1116,8 @@ namespace cyella {
             const tab_ui_state* const tab { session != nullptr ? &tab_state : nullptr };
             const form_source source { resolve_form_source(repository_operations, setup, ui, tab) };
             view.form = build_form_view(source, ui, tab, session != nullptr ? &session->snapshot() : nullptr);
+            if (view.form.has_value())
+                view.form->scroll = ui.form.scroll;
             view.menu = build_menu_view(ui, session, index.get(), view.scale);
             view.selector = build_selector_view(ui, tabs, settings, inputs.exists, session, view.scale);
         }

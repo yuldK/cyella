@@ -28,7 +28,7 @@ namespace cyella::ui {
     namespace {
         constexpr float dialog_maximum_width { 1080.0f };
         constexpr float dialog_maximum_height { 760.0f };
-        constexpr float dialog_margin { 24.0f };
+        constexpr float dialog_margin { 16.0f };
         constexpr float side_width { 380.0f };
         constexpr float padding { 16.0f };
         constexpr float line_height { 18.0f };
@@ -38,7 +38,10 @@ namespace cyella::ui {
         constexpr float body_height { 150.0f };
         constexpr float button_height { 26.0f };
         constexpr float preview_row_height { 22.0f };
-        constexpr float footer_height { 52.0f };
+        constexpr float footer_height { 56.0f };
+        constexpr float compact_footer_height { 88.0f };
+        constexpr float stacked_width { 820.0f };
+        constexpr float stacked_list_height { 140.0f };
         constexpr float gap { 8.0f };
 
         const color_selector dim { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
@@ -138,7 +141,8 @@ namespace cyella::ui {
         {
             auto row { make_row(owner + u8"-row", 6.0f) };
             row->add(std::make_unique<icon_element>(luil::ui_element_id { kind_label, owner + u8"-icon" }, codicons::icon_warning, color), 16.0f);
-            auto label { make_text(std::move(owner), std::move(text), text_style { .size = 11.5f, .color = color }) };
+            auto label { make_text(std::move(owner), text, text_style { .size = 11.5f, .color = color }) };
+            label->set_tooltip(std::move(text));
             row->add_flexible(std::move(label));
             return row;
         }
@@ -301,7 +305,7 @@ namespace cyella::ui {
 
         // ---------------------------------------------------------------- 오른쪽 판
 
-        std::unique_ptr<luil::ui_element> build_side(const rebase_editor_view& view)
+        std::unique_ptr<luil::ui_element> build_side_content(const rebase_editor_view& view, float& height)
         {
             measured_column page { u8"rebase-side-page" };
             if (view.has_selection)
@@ -326,7 +330,7 @@ namespace cyella::ui {
                     return message(rebase_set_action_intent { .row_key = {}, .action = *action });
                 };
                 auto row { make_row(u8"rebase-action-row", 0.0f) };
-                row->add(make_segmented_control(std::move(choice)), { .length = side_width - 2.0f * padding, .cross_length = segmented_control_height });
+                row->add(make_segmented_control(std::move(choice)), { .length = 0.0f, .weight = 1.0f, .cross_length = segmented_control_height });
                 page.add(std::move(row), input_height);
                 page.add(make_text(u8"rebase-action-keys", u8"키: p pick · r reword · s squash · f fixup · d drop · Alt+↑↓ 옮기기", text_style { .size = 10.5f, .color = dim }), line_height);
                 // 끌기와 Alt+↑↓의 자리를 단추로도 둔다. 마우스 없이, 보조 기술로도 순서를 바꾼다.
@@ -375,45 +379,64 @@ namespace cyella::ui {
                 page.add(std::move(row), preview_row_height);
             }
 
-            luil::scroll_area_config scroll {};
-            scroll.owner = u8"rebase-side";
-            scroll.content_height = page.height() + padding;
-            scroll.scroll_offset = view.side_scroll;
-            scroll.scroll = [](const float delta) { return message(rebase_scroll_intent { .side = true, .value = delta, .absolute = false }); };
-            scroll.scroll_to = [](const float offset) { return message(rebase_scroll_intent { .side = true, .value = offset, .absolute = true }); };
-            scroll.edges = luil::scroll_edges { .shadows = true };
-            auto area { std::make_unique<luil::scroll_area_element>(std::move(scroll)) };
+            height = page.height() + padding;
             const float content_height { page.height() };
             auto padded { make_column(u8"rebase-side-padding", luil::stack_config { .padding = luil::edge_insets { padding, 10.0f, padding, 0.0f } }) };
             padded->add(page.take(), content_height);
-            area->set_content(std::move(padded));
+            return padded;
+        }
+
+        std::unique_ptr<luil::ui_element> scroll_side(const rebase_editor_view& view, std::unique_ptr<luil::ui_element> content, const float content_height, const float viewport_height)
+        {
+            const float maximum { std::max(content_height - viewport_height, 0.0f) };
+            const float offset { std::clamp(view.side_scroll, 0.0f, maximum) };
+            luil::scroll_area_config scroll {};
+            scroll.owner = u8"rebase-side";
+            scroll.content_height = content_height;
+            scroll.scroll_offset = offset;
+            scroll.scroll = [offset, maximum](const float delta) { return message(rebase_scroll_intent { .side = true, .value = std::clamp(offset + delta, 0.0f, maximum), .absolute = true }); };
+            scroll.scroll_to = [](const float value) { return message(rebase_scroll_intent { .side = true, .value = value, .absolute = true }); };
+            scroll.edges = luil::scroll_edges { .shadows = true };
+            auto area { std::make_unique<luil::scroll_area_element>(std::move(scroll)) };
+            area->set_content(std::move(content));
             return area;
         }
 
         // ---------------------------------------------------------------- 아래 막대
 
-        std::unique_ptr<luil::ui_element> build_footer(const rebase_editor_view& view)
+        bool separate_footer_options(const rebase_editor_view& view, const float width)
+        {
+            return width < stacked_width && view.phase == rebase_editor_phase::editing && (view.show_autosquash || view.show_autostash);
+        }
+
+        std::unique_ptr<luil::ui_element> build_footer(const rebase_editor_view& view, const float width)
         {
             auto row { make_row(u8"rebase-footer") };
+            const bool separate { separate_footer_options(view, width) };
+            auto options { make_row(u8"rebase-footer-options") };
+            luil::stack_element& option_row { separate ? *options : *row };
             const bool editing { view.phase == rebase_editor_phase::editing };
             if (editing && view.show_autosquash)
             {
-                luil::check_config check { .owner = u8"rebase-autosquash", .label = u8"fixup!·squash! 자동 정렬", .checked = view.autosquash };
+                luil::check_config check { .owner = u8"rebase-autosquash", .label = u8"fixup!·squash! 정렬", .checked = view.autosquash };
                 check.toggle = action_of(message(rebase_toggle_intent { rebase_option::autosquash }));
                 check.tooltip = u8"`fixup! 제목` 커밋을 대상 커밋 바로 뒤로 옮기고 fixup·squash로 둡니다 (git --autosquash와 같은 규칙).";
-                row->add(std::make_unique<luil::check_element>(std::move(check)), 176.0f);
+                option_row.add(std::make_unique<luil::check_element>(std::move(check)), 176.0f);
             }
             if (editing && view.show_autostash)
             {
-                luil::check_config check { .owner = u8"rebase-autostash", .label = u8"작업 트리 변경 보관(autostash)", .checked = view.autostash };
+                luil::check_config check { .owner = u8"rebase-autostash", .label = u8"작업 변경 자동 보관", .checked = view.autostash };
                 check.toggle = action_of(message(rebase_toggle_intent { rebase_option::autostash }));
-                row->add(std::make_unique<luil::check_element>(std::move(check)), 196.0f);
+                check.tooltip = u8"작업 트리 변경을 임시 보관하고 rebase 뒤에 다시 적용합니다 (--autostash).";
+                option_row.add(std::make_unique<luil::check_element>(std::move(check)), 196.0f);
             }
             auto status { make_column(u8"rebase-status-column", luil::stack_config { .spacing = 0.0f }) };
             status->add(make_text(u8"rebase-summary", view.summary, text_style { .size = 12.0f, .bold = true, .align = 2 }), 18.0f);
             const bool problem { view.problem.empty() == false };
             const std::u8string note { problem ? view.problem : view.status_text };
-            status->add(make_text(u8"rebase-problem", note, text_style { .size = 11.0f, .color = problem ? (view.can_start ? warning_color : error_color) : dim, .align = 2 }), 16.0f);
+            auto note_label { make_text(u8"rebase-problem", note, text_style { .size = 11.0f, .color = problem ? (view.can_start ? warning_color : error_color) : dim, .align = 2 }) };
+            note_label->set_tooltip(note);
+            status->add(std::move(note_label), 16.0f);
             row->add_flexible(std::move(status));
             row->add(make_text_button(u8"rebase-cancel", editing ? u8"취소" : u8"닫기", luil::text_button_visual::normal, message(close_rebase_editor_intent {})),
                 { .length = 72.0f, .cross_length = button_height });
@@ -421,7 +444,10 @@ namespace cyella::ui {
                 row->add(make_text_button(u8"rebase-start", view.phase == rebase_editor_phase::running ? u8"실행 중…" : u8"rebase 시작", luil::text_button_visual::accent,
                              message(rebase_start_intent {}), view.can_start, codicons::icon_play),
                     { .length = 118.0f, .cross_length = button_height });
-            auto padded { make_column(u8"rebase-footer-padding", luil::stack_config { .padding = luil::edge_insets { padding, 10.0f, padding, 10.0f } }) };
+            luil::stack_config config { .spacing = separate ? gap : 0.0f, .padding = luil::edge_insets { padding, 10.0f, padding, 10.0f } };
+            auto padded { make_column(u8"rebase-footer-padding", config) };
+            if (separate)
+                padded->add(std::move(options), luil::check_row_height);
             padded->add_flexible(std::move(row));
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"rebase-footer-bar" }, bar_style { .divider_top = true }, std::move(padded));
         }
@@ -429,8 +455,9 @@ namespace cyella::ui {
 
     std::unique_ptr<luil::ui_element> build_rebase_editor(const rebase_editor_view& view, const float logical_width, const float logical_height)
     {
-        const float width { std::min(dialog_maximum_width, std::max(logical_width - dialog_margin * 2.0f, 480.0f)) };
-        const float height { std::min(dialog_maximum_height, std::max(logical_height - dialog_margin * 2.0f, 360.0f)) };
+        const float width { std::clamp(logical_width - dialog_margin * 2.0f, 0.0f, dialog_maximum_width) };
+        const float height { std::clamp(logical_height - dialog_margin * 2.0f, 0.0f, dialog_maximum_height) };
+        const float footer { separate_footer_options(view, width) ? compact_footer_height : footer_height };
 
         luil::modal_host_config config {};
         config.owner = u8"rebase-editor";
@@ -455,14 +482,16 @@ namespace cyella::ui {
             body->add(make_text(u8"rebase-waiting-text", view.status_text, text_style { .size = 12.5f, .color = failed ? error_color : dim, .align = 1 }), 24.0f);
             body->add_flexible_gap();
             column->add_flexible(std::move(body));
-            column->add(build_footer(view), footer_height);
+            column->add(build_footer(view, width), footer);
             host->set_content(std::move(column));
             return host;
         }
 
         // ---- 머리: 범위와 경고
         measured_column header { u8"rebase-header" };
-        header.add(make_text(u8"rebase-subtitle", view.subtitle, text_style { .size = 12.0f }), line_height + 2.0f);
+        auto subtitle { make_text(u8"rebase-subtitle", view.subtitle, text_style { .size = 12.0f }) };
+        subtitle->set_tooltip(view.subtitle);
+        header.add(std::move(subtitle), line_height + 2.0f);
         std::size_t warning_index { 0 };
         for (const std::u8string& warning : view.warnings)
             header.add(warning_line(u8"rebase-warning-" + number_text(warning_index++), warning, warning_color), warning_height);
@@ -483,12 +512,26 @@ namespace cyella::ui {
         auto left { make_column(u8"rebase-left", luil::stack_config { .spacing = 4.0f, .padding = luil::edge_insets { 8.0f, 8.0f, 8.0f, 8.0f } }) };
         left->add(make_text(u8"rebase-list-hint", u8"위가 먼저 적용됩니다 · 끌어서 순서 바꾸기", text_style { .size = 10.5f, .color = dim }), 16.0f);
         left->add_flexible(build_list(view));
-        body->add_flexible(std::move(left));
-        body->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"rebase-side-bar" },
-                      bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.surface_background; } }, build_side(view)),
-            side_width);
-        column->add_flexible(std::move(body));
-        column->add(build_footer(view), footer_height);
+        float side_height { 0.0f };
+        auto side { build_side_content(view, side_height) };
+        const float viewport { std::max(height - caption_height - header_height - 16.0f - footer, 0.0f) };
+        if (width < stacked_width)
+        {
+            // 좁은 판은 전체 폭의 목록과 편집기를 위아래로 놓고, 본문만 흘린다.
+            auto stacked { make_column(u8"rebase-body-stacked") };
+            stacked->add(std::move(left), stacked_list_height);
+            stacked->add(std::move(side), side_height);
+            column->add_flexible(scroll_side(view, std::move(stacked), stacked_list_height + side_height, viewport));
+        }
+        else
+        {
+            body->add_flexible(std::move(left));
+            body->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"rebase-side-bar" },
+                          bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.surface_background; } }, scroll_side(view, std::move(side), side_height, viewport)),
+                side_width);
+            column->add_flexible(std::move(body));
+        }
+        column->add(build_footer(view, width), footer);
         host->set_content(std::move(column));
         return host;
     }

@@ -14,5 +14,7 @@ namespace cyella {
         luil::text::text_edit_state filter {};
         // 화살표가 가리키는 항목의 키다. 비었거나 목록에 없으면 첫 활성 항목이다.
         std::u8string cursor {};
+        float scroll { 0.0f };
+        bool reveal_cursor { true };
     };
 } // namespace cyella

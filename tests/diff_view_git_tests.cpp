@@ -281,6 +281,23 @@ TEST_CASE("integration: remove_all deletes everything the directory made", "[dif
     CHECK_FALSE(std::filesystem::exists(operation));
 }
 
+TEST_CASE("integration: temporary revision copies can be cleaned up while read only", "[diff][integration][temp]")
+{
+    const test::temp_directory scratch {};
+    diff_temp_directory temp { scratch.path() / "cyella-diff" };
+    const std::filesystem::path operation { temp.create_operation_directory() };
+    const std::filesystem::path file { operation / "right" / "old.cpp" };
+    test::write_file(file, "old revision");
+    std::filesystem::permissions(file, std::filesystem::perms::owner_read, std::filesystem::perm_options::replace);
+    temp.remove_all();
+    const bool removed { std::filesystem::exists(operation) == false };
+    // 실패해도 검증용 폴더를 읽기 전용으로 남기지 않는다.
+    std::error_code ignored {};
+    if (removed == false)
+        std::filesystem::permissions(file, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, ignored);
+    CHECK(removed);
+}
+
 TEST_CASE("integration: the Win32 launcher starts a detached process with arguments and a working directory", "[diff][integration][launcher]")
 {
     const test::temp_directory scratch {};

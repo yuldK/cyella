@@ -221,11 +221,22 @@ namespace cyella {
         }
     }
 
-    void diff_view_coordinator::run_open_external(const open_external_effect& effect)
+    void diff_view_coordinator::open_file_app(external_file_app app)
+    {
+        if (shown_target_.has_value() == false || controller_.content() == diff_content::empty)
+        {
+            notice(u8"파일을 읽은 뒤 다시 시도해 주세요.", true);
+            return;
+        }
+        run_open_external({ controller_.make_plan() }, std::move(app));
+    }
+
+    void diff_view_coordinator::run_open_external(const open_external_effect& effect, std::optional<external_file_app> app)
     {
         const std::shared_ptr<process_cancellation_source> source { replace_source(external_source_) };
         external_open_request open {};
         open.plan = effect.plan;
+        open.file_app = std::move(app);
         open.git_executable = ports_.git_executable;
         if (ports_.tools != nullptr)
             open.tools = ports_.tools();

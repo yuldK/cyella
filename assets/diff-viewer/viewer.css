@@ -254,6 +254,22 @@ body {
     background: var(--surface-background);
 }
 
+/* 스크롤에 가린 방향만 얕은 안쪽 그림자로 잇는다. 본문 선택·버튼 누름은 그대로 통과한다. */
+.content::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 8;
+    box-shadow: var(--scroll-top-shadow, 0 0 transparent), var(--scroll-bottom-shadow, 0 0 transparent),
+        var(--scroll-left-shadow, 0 0 transparent), var(--scroll-right-shadow, 0 0 transparent);
+}
+
+.content.scroll-top { --scroll-top-shadow: inset 0 12px 12px -12px color-mix(in srgb, var(--content-shadow) 45%, transparent); }
+.content.scroll-bottom { --scroll-bottom-shadow: inset 0 -12px 12px -12px color-mix(in srgb, var(--content-shadow) 35%, transparent); }
+.content.scroll-left { --scroll-left-shadow: inset 12px 0 12px -12px color-mix(in srgb, var(--content-shadow) 45%, transparent); }
+.content.scroll-right { --scroll-right-shadow: inset -12px 0 12px -12px color-mix(in srgb, var(--content-shadow) 35%, transparent); }
+
 .empty {
     margin: auto;
     padding: 48px 16px;

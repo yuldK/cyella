@@ -120,6 +120,12 @@ namespace cyella {
             else
             {
                 hosting_.activate_row(session->id(), intent.path);
+                if (hosting_.has_pull_request_detail(session->id()) && intent.path.empty() == false && std::ranges::all_of(intent.path, [](const char value) { return value >= '0' && value <= '9'; }))
+                    if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+                    {
+                        tab->diff.reset();
+                        tab->detail_scroll = 0.0f;
+                    }
                 if (last_mode_ != layout_mode::wide && hosting_.has_pull_request_detail(session->id()))
                     ui_.drawer_open = true;
             }

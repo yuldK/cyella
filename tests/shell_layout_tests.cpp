@@ -31,7 +31,7 @@ TEST_CASE("wide layout places sidebar, graph and detail side by side", "[present
     CHECK(rects.toolbar.y == 36.0f + shell_tab_row_height);
     CHECK(rects.banner.empty());
     CHECK(rects.status == shell_rect { 0.0f, 900.0f - shell_status_height, 1440.0f, shell_status_height });
-    CHECK(rects.body.y == rects.toolbar.y + shell_toolbar_height);
+    CHECK(rects.body.y == rects.toolbar.y + shell_toolbar_height + shell_navigation_height);
     CHECK(rects.body.y + rects.body.height == rects.status.y);
     CHECK(rects.sidebar.width == default_sidebar_width);
     CHECK(rects.detail.width == default_detail_width);
@@ -101,4 +101,43 @@ TEST_CASE("pane widths are clamped to their range", "[presentation][layout]")
     CHECK(clamp_sidebar_width(10000.0f) == maximum_sidebar_width);
     CHECK(clamp_detail_width(300.0f) == 300.0f);
     CHECK(clamp_detail_width(0.0f) == minimum_detail_width);
+}
+
+TEST_CASE("changes workspace gives files and diff separate space and uses a single pane on narrow windows", "[presentation][layout][workspace]")
+{
+    for (const float width : { 720.0f, 900.0f, 1440.0f })
+    {
+        shell_layout_input input { .width = width, .height = 900.0f, .repository = true, .mode = select_layout_mode(width), .drawer_open = true, .working = true };
+        const shell_rects files { compute_shell_layout(input) };
+        CHECK(files.sidebar.empty());
+        CHECK_FALSE(files.detail_is_drawer);
+        CHECK(files.detail.x == 0.0f);
+        CHECK(files.graph.x == files.detail.width + shell_splitter_width);
+        CHECK(files.graph.width >= 360.0f);
+        input.diff_open = true;
+        const shell_rects diff { compute_shell_layout(input) };
+        CHECK(diff.detail == files.detail);
+        CHECK(diff.graph == files.graph);
+    }
+    shell_layout_input narrow { .width = 480.0f, .height = 800.0f, .repository = true, .mode = layout_mode::narrow, .working = true };
+    const shell_rects files { compute_shell_layout(narrow) };
+    CHECK(files.detail == files.body);
+    CHECK(files.graph.empty());
+    narrow.diff_open = true;
+    const shell_rects diff { compute_shell_layout(narrow) };
+    CHECK(diff.graph == diff.body);
+    CHECK(diff.detail.empty());
+}
+
+TEST_CASE("history keeps the graph space until a detail is selected", "[presentation][layout][workspace]")
+{
+    shell_layout_input input { .width = 1280.0f, .height = 860.0f, .repository = true, .detail_available = false };
+    const shell_rects empty { compute_shell_layout(input) };
+    CHECK(empty.detail.empty());
+    CHECK(empty.detail_splitter.empty());
+    CHECK(empty.graph.x + empty.graph.width == input.width);
+    input.detail_available = true;
+    const shell_rects selected { compute_shell_layout(input) };
+    CHECK(selected.graph.width == empty.graph.width - default_detail_width - shell_splitter_width);
+    CHECK_FALSE(selected.detail.empty());
 }

@@ -527,6 +527,17 @@ namespace cyella::win32 {
 
     bool cyella_driver::handle_diff_view_intent(const luil::app_message& message)
     {
+        if (const auto* const app { message.get<open_diff_file_app_intent>() }; app != nullptr)
+        {
+            if (controller_ != nullptr)
+            {
+                static_cast<void>(controller_->handle(luil::app_message { close_selector_intent {} }));
+                const auto& apps { controller_->settings().external_file_apps };
+                if (diff_ != nullptr && app->index < apps.size())
+                    diff_->open_file_app(apps[app->index]);
+            }
+            return true;
+        }
         if (const auto* const web { message.get<ui::diff_webview_event_intent>() }; web != nullptr)
         {
             handle_webview_event(web->event);

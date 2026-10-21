@@ -44,6 +44,21 @@ TEST_CASE("key chords parse and print in the canonical form", "[commands]")
     REQUIRE(parse_key_chord(u8"Ctrl+").has_value() == false);
 }
 
+TEST_CASE("workspace shortcuts preserve pre-existing custom bindings", "[commands][workspace]")
+{
+    app_settings settings {};
+    CHECK(command_for(resolve_shortcut_bindings(settings), chord(u8"Ctrl+1")) == "view.changes");
+    CHECK(command_for(resolve_shortcut_bindings(settings), chord(u8"Ctrl+2")) == "view.history");
+    settings.shortcuts["repo.refresh"] = { u8"Ctrl+1" };
+    CHECK(command_for(resolve_shortcut_bindings(settings), chord(u8"Ctrl+1")) == "repo.refresh");
+    CHECK(effective_shortcuts(settings, *find_command("view.changes")).empty());
+    CHECK_FALSE(find_shortcut_conflict(settings, "repo.refresh", chord(u8"Ctrl+1")).has_value());
+    settings.shortcuts.erase("repo.refresh");
+    CHECK(command_for(resolve_shortcut_bindings(settings), chord(u8"Ctrl+1")) == "view.changes");
+    CHECK_FALSE(command_available("view.changes", {}));
+    CHECK(command_available("view.history", command_availability { .repository = true }));
+}
+
 TEST_CASE("a key event becomes a chord", "[commands]")
 {
     luil::key_pressed_event event {};

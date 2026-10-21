@@ -193,6 +193,8 @@ namespace cyella {
         operation_log,
         // 커밋 상세의 메시지·메타 칸이다. 본문이 길면 파일 목록(`detail`)과 따로 흘린다.
         commit_meta,
+        // 높이가 모자란 변경 파일·커밋 작성 영역 전체다. 파일 목록의 detail 스크롤과 구분한다.
+        working_area,
     };
 
     // 흘리는 창의 스크롤이다. `absolute`면 `value`가 자리, 아니면 변화량이다 (논리 픽셀).
@@ -236,6 +238,16 @@ namespace cyella {
 
     struct close_diff_intent
     {};
+
+    struct set_repository_layout_intent
+    {
+        bool graph { true };
+    };
+
+    struct select_workspace_intent
+    {
+        bool working { false };
+    };
 
     // 커밋 상세의 변경 파일을 경로 목록으로 볼지 폴더 트리로 볼지다. 앱 설정에 남는다.
     struct set_commit_files_view_intent

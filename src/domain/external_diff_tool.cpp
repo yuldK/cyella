@@ -39,6 +39,8 @@ namespace cyella {
                 { u8"{right}", &values.right },
                 { u8"{base}", &values.base },
                 { u8"{path}", &values.path },
+                { u8"{file}", &values.file },
+                { u8"{repository}", &values.repository },
             };
 
             std::u8string result {};
@@ -65,6 +67,14 @@ namespace cyella {
             return result;
         }
     } // namespace
+
+    std::vector<external_file_app> default_external_file_apps()
+    {
+        return {
+            { u8"Windows 탐색기", u8"explorer.exe", u8"/select,{file}" },
+            { u8"Visual Studio Code", u8"Code.exe", u8"--reuse-window {file}" },
+        };
+    }
 
     std::optional<std::vector<std::u8string>> expand_external_diff_arguments(const std::u8string_view argument_template, const external_diff_values& values)
     {

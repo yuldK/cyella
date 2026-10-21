@@ -110,6 +110,7 @@ namespace cyella::ui {
         std::u8string title_ {};
         std::size_t count_ { 0 };
         luil::ui_element* button_ { nullptr };
+        float button_width_ { 96.0f };
     };
 
     // diff 임시 본문의 한 줄이다 (웹뷰를 쓸 수 없을 때의 대체 보기).

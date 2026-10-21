@@ -167,6 +167,61 @@ TEST_CASE("with a webview the snapshot skips the line copy and fallback keeps it
     }
 }
 
+TEST_CASE("diff file navigation keeps versions separate and follows list or tree order", "[diff][webview][snapshot]")
+{
+    opened_diff test {};
+    repository_session& session { *test.harness.sessions["repo-1"] };
+    repository_snapshot snapshot { make_snapshot(sha_of(2), 3) };
+    snapshot.unstaged = {
+        { .path = "a.cpp", .status = 'M' },
+        { .path = "src/z.cpp", .status = 'M' },
+        { .path = "src/a.cpp", .status = '?' },
+    };
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+    test.harness.ui.tabs[test.tab].diff = diff_file_request { .path = "src/z.cpp", .context_lines = 25 };
+
+    SECTION("list order keeps untracked and context data")
+    {
+        const diff_panel_view diff { *test.harness.build().repository->diff };
+        CHECK(diff.file_position == 2);
+        CHECK(diff.file_count == 3);
+        REQUIRE(diff.previous_file.has_value());
+        CHECK(diff.previous_file->path == "a.cpp");
+        REQUIRE(diff.next_file.has_value());
+        CHECK(diff.next_file->path == "src/a.cpp");
+        CHECK(diff.next_file->untracked);
+        CHECK(diff.next_file->context_lines == 25);
+        CHECK(diff.next_file->view == diff_view::unstaged);
+    }
+    SECTION("tree order includes collapsed folders")
+    {
+        test.harness.settings.ui.working_files_tree = true;
+        test.harness.ui.tabs[test.tab].collapsed_folders.insert("src");
+        const diff_panel_view diff { *test.harness.build().repository->diff };
+        REQUIRE(diff.previous_file.has_value());
+        REQUIRE(diff.next_file.has_value());
+        CHECK(diff.previous_file->path == "src/a.cpp");
+        CHECK(diff.next_file->path == "a.cpp");
+    }
+    SECTION("staged navigation stays in the staged group")
+    {
+        test.harness.ui.tabs[test.tab].diff = diff_file_request { .path = "README.md", .view = diff_view::staged };
+        const diff_panel_view diff { *test.harness.build().repository->diff };
+        CHECK(diff.file_count == 1);
+        CHECK_FALSE(diff.previous_file.has_value());
+        CHECK_FALSE(diff.next_file.has_value());
+    }
+    SECTION("a file removed by refresh has no stale neighbors")
+    {
+        test.harness.ui.tabs[test.tab].diff->path = "removed.cpp";
+        const diff_panel_view diff { *test.harness.build().repository->diff };
+        CHECK(diff.file_count == 0);
+        CHECK_FALSE(diff.previous_file.has_value());
+        CHECK_FALSE(diff.next_file.has_value());
+    }
+}
+
 TEST_CASE("the diff area is a webview slot when the webview is usable and a line list otherwise", "[diff][webview][tree]")
 {
     opened_diff test {};
@@ -193,6 +248,35 @@ TEST_CASE("the diff area is a webview slot when the webview is usable and a line
         REQUIRE(built.tree != nullptr);
         CHECK(built.tree->find(slot_id) == nullptr);
         CHECK(built.feedback.diff_maximum.has_value());
+        CHECK(built.tree->duplicate_ids().empty());
+        CHECK(built.tree->unarranged().empty());
+    }
+}
+
+TEST_CASE("diff header actions stay inside the actual pane at small widths", "[diff][webview][tree]")
+{
+    opened_diff test {};
+    test.harness.ui.diff_surface.webview_available = true;
+    test.harness.ui.diff_surface.content = diff_content::text;
+    test.harness.ui.diff_surface.textconv_driver = "example";
+    test.harness.ui.diff_surface.truncated = true;
+    for (const float width : { 480.0f, 720.0f, 900.0f, 1440.0f })
+    {
+        CAPTURE(width);
+        view_snapshot view { test.harness.build(width) };
+        view.detail_width = maximum_detail_width;
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        const luil::ui_element* const header { built.tree->find({ ui::kind_panel, u8"diff-header-bar" }) };
+        REQUIRE(header != nullptr);
+        for (const std::u8string owner : { u8"diff-previous-file", u8"diff-next-file", u8"diff-open-app" })
+        {
+            const luil::ui_element* button { built.tree->find({ ui::kind_button, owner }) };
+            if (button == nullptr)
+                button = built.tree->find({ ui::kind_text_button, owner });
+            REQUIRE(button != nullptr);
+            CHECK(button->bounds().x >= header->bounds().x);
+            CHECK(button->bounds().x + button->bounds().width <= header->bounds().x + header->bounds().width + 0.1f);
+        }
         CHECK(built.tree->duplicate_ids().empty());
         CHECK(built.tree->unarranged().empty());
     }

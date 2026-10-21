@@ -2,6 +2,7 @@
 
 #include "application/diff_view_protocol.h"
 #include "presentation/diff_view_intents.h"
+#include "presentation/selector_intents.h"
 #include "presentation/ui/diff_special_card.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
@@ -19,7 +20,8 @@
 
 namespace cyella::ui {
     namespace {
-        constexpr float diff_header_height { 32.0f };
+        constexpr float diff_header_height { 64.0f };
+        constexpr float compact_header_width { 420.0f };
         constexpr float layout_toggle_width { 150.0f };
         constexpr float image_mode_toggle_width { 220.0f };
         constexpr float truncated_note_width { 150.0f };
@@ -85,34 +87,85 @@ namespace cyella::ui {
             return make_segmented_control(std::move(config));
         }
 
-        std::unique_ptr<luil::ui_element> build_header(const diff_panel_view& diff)
+        std::unique_ptr<luil::ui_element> build_header(const diff_panel_view& diff, const bool working, const float width)
         {
+            const bool compact { width < compact_header_width };
             luil::stack_config row_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 4.0f, 0.0f, 10.0f, 0.0f } };
             row_config.cross_alignment = luil::stack_alignment::center;
             auto header { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-header" }, row_config) };
-            header->add(make_icon_button(u8"diff-close", codicons::icon_arrow_left, u8"그래프로 돌아가기", message(close_diff_intent {})), 30.0f);
-            header->add(make_text(u8"diff-title", diff.title, text_style { .size = 12.0f, .bold = true }), text_button_width(diff.title));
-            header->add_flexible(make_text(u8"diff-subtitle", diff.subtitle, text_style { .size = 11.0f, .color = dim_color }));
+            header->add(make_icon_button(u8"diff-close", codicons::icon_arrow_left, working ? u8"변경 파일로 돌아가기" : u8"커밋 이력으로 돌아가기", message(close_diff_intent {})), 30.0f);
+            header->add_flexible(make_text(u8"diff-title", diff.title, text_style { .size = 13.0f, .bold = true }));
+            const auto file_button = [&](const std::u8string& owner, const char32_t glyph, const std::u8string& label, const std::optional<diff_file_request>& request) {
+                const std::u8string tooltip { request.has_value() ? label + u8": " + to_u8(request->path) : label + u8" 없음" };
+                header->add(make_icon_button(owner, glyph, tooltip, request.has_value() ? message(select_file_intent { *request }) : luil::input_action {}, request.has_value()), 28.0f);
+            };
+            file_button(u8"diff-previous-file", codicons::icon_chevron_up, u8"이전 파일", diff.previous_file);
+            file_button(u8"diff-next-file", codicons::icon_chevron_down, u8"다음 파일", diff.next_file);
+            std::unique_ptr<luil::ui_element> open {};
+            if (compact)
+                open = make_icon_button(u8"diff-open-app", codicons::icon_link_external, u8"다른 앱으로 열기", {}, diff.loading == false);
+            else
+                open = make_text_button(u8"diff-open-app", u8"다른 앱으로 열기", luil::text_button_visual::normal, {}, diff.loading == false, codicons::icon_link_external);
+            const auto open_menu = [anchor = open.get()](const luil::ui_action_context&) -> std::vector<luil::input_action> {
+                const luil::rect_f box { anchor->bounds() };
+                return { message(open_selector_intent { selector_kind::file_app, box.x, box.y + box.height, box.width }) };
+            };
+            open->set_action(luil::ui_trigger::left_click, open_menu);
+            open->set_access_handler([open_menu](const luil::access_request&) -> std::optional<std::vector<luil::input_action>> { return open_menu({}); });
+            header->add(std::move(open), { .length = compact ? 28.0f : 132.0f, .cross_length = 26.0f });
+            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-header-content" }, luil::stack_config {}) };
+            column->add(std::move(header), 32.0f);
+            const luil::stack_config metadata_config {
+                .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 12.0f, 0.0f, 10.0f, 4.0f }, .cross_alignment = luil::stack_alignment::center
+            };
+            auto metadata { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-header-metadata" }, metadata_config) };
+            auto subtitle { make_text(u8"diff-subtitle", diff.subtitle, text_style { .size = 11.0f, .color = dim_color }) };
+            subtitle->set_tooltip(diff.subtitle);
+            if (compact)
+            {
+                auto path { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-path-row" }, metadata_config) };
+                if (diff.surface.textconv_driver.empty() == false)
+                {
+                    luil::badge_config badge { .text = u8"textconv", .tone = luil::badge_tone::accent };
+                    path->add(std::make_unique<luil::badge_element>(luil::ui_element_id { kind_label, u8"diff-textconv-badge" }, badge), textconv_badge_width);
+                }
+                path->add_flexible(std::move(subtitle));
+                if (diff.surface.truncated)
+                {
+                    auto note { make_text(u8"diff-truncated-note", u8"일부", text_style { .size = 11.0f, .color = dim_color }) };
+                    note->set_tooltip(u8"큰 diff의 앞부분만 표시합니다.");
+                    path->add(std::move(note), 28.0f);
+                }
+                column->add(std::move(path), 32.0f);
+                metadata->add_flexible_gap();
+            }
+            else
+                metadata->add_flexible(std::move(subtitle));
+            if (diff.file_count > 0)
+                metadata->add(
+                    make_text(u8"diff-file-position", number_text(diff.file_position) + u8" / " + number_text(diff.file_count), text_style { .size = 11.0f, .color = dim_color, .align = 2 }), 48.0f);
             // 텍스트 변환(textconv)을 거친 diff라는 표시다. 변환 결과를 비교하므로 파일 내용과 줄이 다를 수 있다.
-            if (diff.surface.textconv_driver.empty() == false)
+            if (compact == false && diff.surface.textconv_driver.empty() == false)
             {
                 luil::badge_config badge { .text = u8"textconv", .tone = luil::badge_tone::accent };
-                header->add(std::make_unique<luil::badge_element>(luil::ui_element_id { kind_label, u8"diff-textconv-badge" }, badge),
+                metadata->add(std::make_unique<luil::badge_element>(luil::ui_element_id { kind_label, u8"diff-textconv-badge" }, badge),
                     { .length = textconv_badge_width, .cross_length = luil::badge_element::height_for(badge) });
             }
 
             if (diff.use_webview == false && diff.special.has_value() == false)
-                header->add(make_text(u8"diff-fallback-note", u8"WebView2 없이 텍스트로 보는 중", text_style { .size = 11.0f, .color = dim_color, .align = 2 }), fallback_note_width);
+                metadata->add(make_text(u8"diff-fallback-note", width < 640.0f ? u8"텍스트 보기" : u8"WebView2 없이 텍스트로 보는 중", text_style { .size = 11.0f, .color = dim_color, .align = 2 }),
+                    width < 640.0f ? 80.0f : fallback_note_width);
             else
             {
-                if (diff.surface.truncated)
-                    header->add(make_text(u8"diff-truncated-note", u8"큰 diff의 앞부분만 보임", text_style { .size = 11.0f, .color = dim_color, .align = 2 }), truncated_note_width);
+                if (compact == false && diff.surface.truncated)
+                    metadata->add(make_text(u8"diff-truncated-note", u8"큰 diff의 앞부분만 보임", text_style { .size = 11.0f, .color = dim_color, .align = 2 }), truncated_note_width);
                 if (diff.surface.content == diff_content::text)
-                    header->add(layout_toggle(diff.surface), { .length = layout_toggle_width, .cross_length = luil::choice_toggle_height });
+                    metadata->add(layout_toggle(diff.surface), { .length = layout_toggle_width, .cross_length = luil::choice_toggle_height });
                 else if (diff.surface.content == diff_content::image)
-                    header->add(image_mode_toggle(diff.surface), { .length = image_mode_toggle_width, .cross_length = luil::choice_toggle_height });
+                    metadata->add(image_mode_toggle(diff.surface), { .length = image_mode_toggle_width, .cross_length = luil::choice_toggle_height });
             }
-            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"diff-header-bar" }, bar_style { .divider_bottom = true }, std::move(header));
+            column->add(std::move(metadata), 32.0f);
+            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"diff-header-bar" }, bar_style { .divider_bottom = true }, std::move(column));
         }
 
         // 웹뷰가 앉을 자리다. 웹뷰가 서면 이 자리가 구멍으로 비워져 페이지가 보이고, 서지 못하면 placeholder 글이 남는다.
@@ -135,6 +188,7 @@ namespace cyella::ui {
                     u8"diff-empty", diff.binary ? std::u8string { u8"바이너리 파일입니다. 이미지·바이너리 비교에는 WebView2 Runtime이 필요합니다." } : std::u8string { u8"보일 변경이 없습니다." });
             auto lines { std::make_shared<std::vector<diff_line_view>>(diff.lines) };
             luil::virtual_list_config config {};
+            config.edges.shadows = true;
             config.owner = u8"diff-lines";
             config.items.reserve(lines->size());
             for (std::size_t index { 0 }; index < lines->size(); ++index)
@@ -162,12 +216,11 @@ namespace cyella::ui {
         }
     } // namespace
 
-    std::unique_ptr<luil::ui_element> build_diff_area(const view_snapshot& view, const repository_view& repository, feedback_sources& sources)
+    std::unique_ptr<luil::ui_element> build_diff_area(const repository_view& repository, const float width, feedback_sources& sources)
     {
-        static_cast<void>(view);
         const diff_panel_view& diff { *repository.diff };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-area" }, luil::stack_config {}) };
-        column->add(build_header(diff), diff_header_height);
+        column->add(build_header(diff, repository.detail == detail_mode::working, width), diff_header_height + (width < compact_header_width ? 32.0f : 0.0f));
         // LFS 포인터·submodule 포인터는 텍스트 diff가 아니라 카드다 (웹뷰 여부와 무관하다).
         if (diff.special.has_value())
             column->add_flexible(build_diff_special_card(*diff.special, repository.repository_id));

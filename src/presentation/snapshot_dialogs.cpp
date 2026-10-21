@@ -229,6 +229,24 @@ namespace cyella {
         view.width = state.width / scale;
         view.filter = luil::make_text_input_view(state.filter, ui.composition, to_luil_target(text_target::selector_filter));
         const std::u8string query { view.filter.displayed_text() };
+        if (state.kind == selector_kind::file_app)
+        {
+            view.placeholder = u8"파일을 열 앱 찾기";
+            std::size_t matched { 0 };
+            for (std::size_t index { 0 }; index < settings.external_file_apps.size(); ++index)
+            {
+                const external_file_app& app { settings.external_file_apps[index] };
+                if (selector_matches(app.name, query))
+                {
+                    if (++matched <= selector_visible_limit)
+                        view.entries.push_back({ u8"file-app:" + to_u8(std::to_string(index)), app.name });
+                }
+            }
+            if (matched > selector_visible_limit)
+                view.entries.push_back({ .key = u8"more", .label = u8"이름을 입력해 앱을 찾으세요", .enabled = false });
+            view.entries.push_back({ .key = u8"file-app-settings", .label = u8"앱 추가·편집…", .separator_above = true });
+            return view;
+        }
         if (state.kind == selector_kind::repository)
         {
             view.placeholder = u8"저장소 이름이나 경로로 거르기";
@@ -256,6 +274,7 @@ namespace cyella {
         switch (progress.kind)
         {
         case repository_operation_state::rebase:
+            view.title = u8"리베이스 · 충돌 해결";
             if (progress.total > 0)
                 view.progress = u8"커밋 " + number(progress.step) + u8"/" + number(progress.total) + u8" 적용 중";
             else
@@ -268,26 +287,27 @@ namespace cyella {
             if (progress.interactive)
             {
                 // 인터랙티브 rebase는 멈춘 할 일과, 이어서 적용할 메시지가 남았는지를 알린다.
-                view.title = u8"인터랙티브 rebase 중 · 충돌 해결";
                 view.todo_note = u8"할 일 " + number(progress.step) + u8"/" + number(progress.total);
                 if (progress.current_action.empty() == false)
                     view.todo_note
                         += u8" · " + to_u8(progress.current_action) + u8" " + to_u8(std::string_view { progress.current_sha }.substr(0, std::min<std::size_t>(progress.current_sha.size(), 7)));
-                view.todo_note += progress.cyella_messages ? std::u8string { u8" · 남은 reword·squash 메시지는 계속하거나 건너뛰면 그대로 적용됩니다." }
-                                                           : std::u8string { u8" · 이 rebase는 cyella 밖에서 시작해 메시지는 git의 기본값을 씁니다." };
+                view.todo_note += progress.cyella_messages ? std::u8string { u8" · 저장한 커밋 메시지가 이어서 적용됩니다." } : std::u8string { u8" · 커밋 메시지는 Git 설정을 따릅니다." };
             }
             break;
         case repository_operation_state::merge:
+            view.title = u8"병합 · 충돌 해결";
             view.progress = u8"병합 진행 중";
             if (progress.current_summary.empty() == false)
                 view.progress += u8": " + to_u8(progress.current_summary);
             break;
         case repository_operation_state::cherry_pick:
+            view.title = u8"Cherry-pick · 충돌 해결";
             view.progress = u8"cherry-pick 진행 중";
             if (progress.current_summary.empty() == false)
                 view.progress += u8": " + to_u8(progress.current_summary);
             break;
         case repository_operation_state::revert:
+            view.title = u8"되돌리기 · 충돌 해결";
             view.progress = u8"revert 진행 중";
             if (progress.current_summary.empty() == false)
                 view.progress += u8": " + to_u8(progress.current_summary);

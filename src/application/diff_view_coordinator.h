@@ -99,6 +99,7 @@ namespace cyella {
         void sides_prepared(const diff_sides_ready_intent& message);
         // 외부 도구 열기가 끝났다. 알릴 것이 있으면 안내가 쌓인다.
         void external_opened(const external_open_done_intent& message);
+        void open_file_app(external_file_app app);
         // operation이 끝났다. 패치 적용이나 그 뒤의 diff 다시 읽기면 이어서 처리한다.
         void on_operation_finished(operation_id id, const operation_finished& finished);
 
@@ -121,7 +122,7 @@ namespace cyella {
         void run_effects(const std::vector<diff_view_effect>& effects);
         void run_apply(const apply_patch_effect& effect);
         void run_prepare_sides(const prepare_sides_effect& effect);
-        void run_open_external(const open_external_effect& effect);
+        void run_open_external(const open_external_effect& effect, std::optional<external_file_app> app = std::nullopt);
         void forget_shown();
         void notice(std::u8string text, bool warning);
         [[nodiscard]] std::shared_ptr<process_cancellation_source> replace_source(std::shared_ptr<process_cancellation_source>& slot);

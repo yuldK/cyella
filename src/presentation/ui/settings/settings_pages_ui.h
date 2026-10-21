@@ -16,7 +16,7 @@ namespace cyella::ui {
     };
 
     // "단축키" 쪽이다. 명령을 묶음별로 보이고 줄마다 [편집]·[기본값]을 둔다. 고치는 줄 바로 아래에 입력 칸이 선다.
-    [[nodiscard]] built_settings_page build_shortcuts_page(const shortcuts_page_view& view);
+    [[nodiscard]] built_settings_page build_shortcuts_page(const shortcuts_page_view& view, float content_width);
     // "사용자 프로필" 쪽이다. 프로필 표, 고치는 줄, 프로필 제안 규칙이다.
-    [[nodiscard]] built_settings_page build_profiles_page(const profiles_page_view& view);
+    [[nodiscard]] built_settings_page build_profiles_page(const profiles_page_view& view, float content_width);
 } // namespace cyella::ui

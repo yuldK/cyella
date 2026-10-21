@@ -103,11 +103,15 @@ namespace cyella {
     {
         // 고른 커밋의 SHA다. WIP 행이면 `graph_wip_sha`다.
         std::string selected_sha {};
+        // 변경 사항에서 이력으로 돌아갈 때 이전 커밋과 그래프 위치를 되살린다.
+        std::string history_sha {};
         // 사이드바에서 고른 항목의 키다.
         std::u8string selected_sidebar_key {};
         float graph_scroll { 0.0f };
         float sidebar_scroll { 0.0f };
         float detail_scroll { 0.0f };
+        // 작은 높이에서 변경 파일과 커밋 작성 영역을 함께 흘리는 위치다.
+        float working_scroll { 0.0f };
         // 커밋 상세의 메시지·메타 칸이다. 커밋을 바꾸면 처음으로 돌아간다.
         float commit_meta_scroll { 0.0f };
         // 변경 파일 트리에서 접은 폴더다 (끝에 `/`가 없는 경로). 커밋을 바꿔도 같은 폴더는 접힌 채다.

@@ -375,8 +375,12 @@ namespace cyella {
                 tab->sidebar_scroll = 0.0f;
         }
         else if (target == text_target::palette_filter && ui_.palette.has_value())
+        {
             // 거르는 글이 바뀌면 커서는 맨 위(첫 활성 항목)로 돌아간다.
             ui_.palette->cursor.clear();
+            ui_.palette->scroll = 0.0f;
+            ui_.palette->reveal_cursor = true;
+        }
     }
 
     void shell_controller::handle_toolbar(const toolbar_action action)
@@ -447,6 +451,10 @@ namespace cyella {
             value = tab != nullptr ? &tab->commit_meta_scroll : nullptr;
             maximum = feedback_.commit_meta_maximum;
             break;
+        case scroll_target::working_area:
+            value = tab != nullptr ? &tab->working_scroll : nullptr;
+            maximum = feedback_.working_maximum;
+            break;
         case scroll_target::diff:
             value = tab != nullptr ? &tab->diff_scroll : nullptr;
             maximum = feedback_.diff_maximum;
@@ -486,6 +494,10 @@ namespace cyella {
         hosting_.clear_selection(session->id());
         if (tab->selected_sha == found->sha)
             return;
+        if (found->sha == graph_wip_sha && tab->selected_sha != graph_wip_sha)
+            tab->history_sha = tab->selected_sha;
+        else if (found->sha != graph_wip_sha)
+            tab->history_sha = found->sha;
         tab->selected_sha = found->sha;
         tab->diff.reset();
         tab->detail_scroll = 0.0f;
@@ -837,6 +849,40 @@ namespace cyella {
             handle_activate_ref(*intent);
             return true;
         }
+        if (const auto* const intent { message.get<set_repository_layout_intent>() }; intent != nullptr)
+        {
+            update_settings([graph = intent->graph](app_settings& value) { value.ui.graph_layout = graph; });
+            const tab_ui_state* const tab { selected_tab_state() };
+            // 배치만 바꾼다. 초안·선택한 버전·diff와 각 목록의 스크롤은 그대로 둔다.
+            ui_.drawer_open = intent->graph && tab != nullptr && tab->selected_sha.empty() == false && tab->diff.has_value() == false;
+            return true;
+        }
+        if (const auto* const intent { message.get<select_workspace_intent>() }; intent != nullptr)
+        {
+            repository_session* const session { selected_session() };
+            tab_ui_state* const tab { selected_tab_state() };
+            if (session == nullptr || tab == nullptr)
+                return true;
+            hosting_.clear_selection(session->id());
+            if (intent->working)
+            {
+                if (tab->selected_sha != graph_wip_sha)
+                    tab->history_sha = tab->selected_sha;
+                tab->selected_sha = std::string { graph_wip_sha };
+            }
+            else if (tab->selected_sha == graph_wip_sha)
+            {
+                tab->selected_sha = tab->history_sha;
+                if (tab->selected_sha.empty() == false)
+                    static_cast<void>(submit(show_commit_request { tab->selected_sha }));
+            }
+            tab->diff.reset();
+            tab->diff_scroll = 0.0f;
+            tab->detail_scroll = 0.0f;
+            ui_.drawer_open = settings().ui.graph_layout && intent->working;
+            ui_.rail_section.reset();
+            return true;
+        }
         if (const auto* const intent { message.get<select_commit_intent>() }; intent != nullptr)
         {
             handle_select_commit(*intent);
@@ -962,10 +1008,32 @@ namespace cyella {
             return true;
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         if (settings_.handle(message))
+        {
+            if (message.get<open_settings_intent>() != nullptr)
+                ui_.selector.reset();
             return true;
+        }
         // submodule·worktree·LFS와 인터랙티브 rebase 편집기의 메시지다.
-        if (handle_extension_message(message) || handle_rebase_entry(message) || rebase_.handle(message) || hosting_.handle(message))
+        if (handle_extension_message(message) || handle_rebase_entry(message) || rebase_.handle(message))
             return true;
+        const std::string repository_id { selected_repository_id() };
+        const bool had_pull_request { hosting_.has_pull_request_detail(repository_id) };
+        if (hosting_.handle(message))
+        {
+            const bool has_pull_request { hosting_.has_pull_request_detail(repository_id) };
+            if (has_pull_request && had_pull_request == false)
+            {
+                if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+                {
+                    tab->diff.reset();
+                    tab->detail_scroll = 0.0f;
+                }
+                ui_.drawer_open = last_mode_ != layout_mode::wide;
+            }
+            else if (had_pull_request && has_pull_request == false)
+                ui_.drawer_open = false;
+            return true;
+        }
         // 커밋 서명의 메시지다.
         if (handle_signing_message(message))
             return true;
@@ -1079,6 +1147,7 @@ namespace cyella {
             {
                 tab.commit_subject = {};
                 tab.commit_body = {};
+                tab.working_scroll = 0.0f;
                 tab.amend = false;
             }
             tab.pending_commit = 0;
@@ -1249,6 +1318,13 @@ namespace cyella {
     {
         feedback_ = feedback;
         settings_.apply_scroll_maximum(feedback.settings_maximum);
+        if (feedback.form_maximum.has_value())
+            ui_.form.scroll = std::clamp(ui_.form.scroll, 0.0f, *feedback.form_maximum);
+        if (feedback.palette_scroll.has_value() && ui_.palette.has_value())
+        {
+            ui_.palette->scroll = *feedback.palette_scroll;
+            ui_.palette->reveal_cursor = false;
+        }
         if (feedback.tab_scroll.has_value())
         {
             ui_.tab_scroll = *feedback.tab_scroll;
