@@ -1,5 +1,7 @@
 #include "domain/operation_status.h"
 
+#include "domain/text_catalog.h"
+
 namespace cyella {
     bool operation_status::finished() const noexcept
     {
@@ -269,55 +271,55 @@ namespace cyella {
         return input_kind::credentials;
     }
 
-    std::u8string_view failure_kind_message(const failure_kind value) noexcept
+    std::u8string failure_kind_message(const failure_kind value)
     {
         switch (value)
         {
         case failure_kind::other:
-            return u8"명령이 실패했습니다.";
+            return tr(u8"operation.failure.other");
         case failure_kind::rejected_fetch_first:
-            return u8"원격에 내게 없는 커밋이 있습니다. 먼저 Pull 하세요.";
+            return tr(u8"operation.failure.rejected_fetch_first");
         case failure_kind::rejected_non_ff:
-            return u8"원격 브랜치가 내 브랜치의 조상이 아니어서 push가 거절되었습니다.";
+            return tr(u8"operation.failure.rejected_non_ff");
         case failure_kind::stale_info:
-            return u8"원격 브랜치가 마지막으로 가져온 뒤 바뀌어 강제 push가 거절되었습니다.";
+            return tr(u8"operation.failure.stale_info");
         case failure_kind::rejected:
-            return u8"원격이 변경을 거절했습니다.";
+            return tr(u8"operation.failure.rejected");
         case failure_kind::auth_cancelled:
-            return u8"인증을 취소했습니다.";
+            return tr(u8"operation.failure.auth_cancelled");
         case failure_kind::auth_failed:
-            return u8"인증에 실패했습니다.";
+            return tr(u8"operation.failure.auth_failed");
         case failure_kind::host_key_refused:
-            return u8"SSH 호스트 키를 확인하지 못해 연결하지 않았습니다.";
+            return tr(u8"operation.failure.host_key_refused");
         case failure_kind::host_key_changed:
-            return u8"SSH 호스트 키가 known_hosts에 기록된 키와 다릅니다.";
+            return tr(u8"operation.failure.host_key_changed");
         case failure_kind::conflict:
-            return u8"충돌이 발생했습니다. 해결한 뒤 계속하세요.";
+            return tr(u8"operation.failure.conflict");
         case failure_kind::dirty_worktree:
-            return u8"작업 트리의 변경이 덮어써질 수 있어 중단했습니다.";
+            return tr(u8"operation.failure.dirty_worktree");
         case failure_kind::index_lock:
-            return u8"index.lock이 남아 있어 저장소를 바꿀 수 없습니다.";
+            return tr(u8"operation.failure.index_lock");
         case failure_kind::offline:
-            return u8"원격에 연결하지 못했습니다.";
+            return tr(u8"operation.failure.offline");
         case failure_kind::not_found:
-            return u8"저장소나 대상을 찾을 수 없습니다.";
+            return tr(u8"operation.failure.not_found");
         case failure_kind::not_possible_to_fast_forward:
-            return u8"fast-forward로 옮길 수 없습니다.";
+            return tr(u8"operation.failure.not_possible_to_fast_forward");
         case failure_kind::refused:
-            return u8"지금은 이 작업을 할 수 없습니다.";
+            return tr(u8"operation.failure.refused");
         case failure_kind::invalid_request:
-            return u8"요청 값이 올바르지 않습니다.";
+            return tr(u8"operation.failure.invalid_request");
         case failure_kind::timed_out:
-            return u8"명령이 제한 시간 안에 끝나지 않았습니다.";
+            return tr(u8"operation.failure.timed_out");
         case failure_kind::branch_checked_out_elsewhere:
-            return u8"이 브랜치는 다른 worktree에서 체크아웃되어 있어 옮길 수 없습니다.";
+            return tr(u8"operation.failure.branch_checked_out_elsewhere");
         case failure_kind::signing_failed:
-            return u8"서명하지 못했습니다. 환경 설정의 서명에서 서명 프로그램(gpg·ssh-keygen)과 키를 확인하세요.";
+            return tr(u8"operation.failure.signing_failed");
         case failure_kind::signing_key_missing:
-            return u8"서명할 키를 찾지 못했습니다. 환경 설정의 서명에서 키를 고르세요.";
+            return tr(u8"operation.failure.signing_key_missing");
         case failure_kind::signing_passphrase_failed:
-            return u8"서명 키의 passphrase를 받지 못했습니다.";
+            return tr(u8"operation.failure.signing_passphrase_failed");
         }
-        return u8"명령이 실패했습니다.";
+        return tr(u8"operation.failure.other");
     }
 } // namespace cyella

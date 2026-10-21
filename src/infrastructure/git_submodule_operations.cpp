@@ -1,3 +1,4 @@
+#include "domain/text_catalog.h"
 #include "infrastructure/git_extension_operations.h"
 #include "infrastructure/git_submodule_commands.h"
 #include "infrastructure/git_submodule_parser.h"
@@ -78,7 +79,7 @@ namespace cyella {
         std::optional<operation_outcome> stop {};
         if (context.run_required(std::move(spec), outcome, stop) == false)
             return *stop;
-        return operation_outcome::succeeded(u8"submodule을 기록된 커밋으로 맞췄습니다.");
+        return operation_outcome::succeeded(tr(u8"submodule.updated"));
     }
 
     operation_outcome run_submodule_sync(git_operation_context& context, const submodule_sync_request& request)
@@ -90,6 +91,6 @@ namespace cyella {
         std::optional<operation_outcome> stop {};
         if (context.run_required(std::move(spec), outcome, stop) == false)
             return *stop;
-        return operation_outcome::succeeded(u8"submodule의 url을 .gitmodules에 맞췄습니다.");
+        return operation_outcome::succeeded(tr(u8"submodule.synced"));
     }
 } // namespace cyella

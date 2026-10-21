@@ -88,6 +88,6 @@ namespace cyella {
     [[nodiscard]] palette_list build_palette_list(const palette_context& context, std::u8string_view query);
 
     // 모드의 제목과 입력 칸 안내 글이다.
-    [[nodiscard]] std::u8string_view palette_mode_title(palette_mode mode) noexcept;
-    [[nodiscard]] std::u8string_view palette_mode_placeholder(palette_mode mode) noexcept;
+    [[nodiscard]] std::u8string palette_mode_title(palette_mode mode);
+    [[nodiscard]] std::u8string palette_mode_placeholder(palette_mode mode);
 } // namespace cyella

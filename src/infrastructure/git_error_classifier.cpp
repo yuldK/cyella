@@ -1,5 +1,7 @@
 #include "infrastructure/git_error_classifier.h"
 
+#include "domain/text_catalog.h"
+
 #include <array>
 #include <cstddef>
 #include <span>
@@ -353,51 +355,51 @@ namespace cyella {
         return "unclassified";
     }
 
-    std::u8string_view git_failure_message(const git_failure_kind kind) noexcept
+    std::u8string git_failure_message(const git_failure_kind kind)
     {
         switch (kind)
         {
         case git_failure_kind::unclassified:
-            return u8"명령이 실패했습니다.";
+            return tr(u8"git.failure.command_failed");
         case git_failure_kind::authentication_required:
-            return u8"인증이 필요하거나 자격 증명이 거부되었습니다.";
+            return tr(u8"git.failure.authentication_required");
         case git_failure_kind::host_key_verification_failed:
-            return u8"SSH 호스트 키를 확인하지 못했습니다.";
+            return tr(u8"git.failure.host_key_verification_failed");
         case git_failure_kind::could_not_resolve_host:
-            return u8"원격 호스트 이름을 찾지 못했습니다.";
+            return tr(u8"git.failure.could_not_resolve_host");
         case git_failure_kind::repository_not_found:
-            return u8"저장소를 찾을 수 없습니다.";
+            return tr(u8"git.failure.repository_not_found");
         case git_failure_kind::permission_denied_publickey:
-            return u8"SSH 키가 거부되었습니다.";
+            return tr(u8"git.failure.publickey_denied");
         case git_failure_kind::push_rejected_non_fast_forward:
-            return u8"원격에 먼저 올라간 변경이 있어 push가 거절되었습니다. 먼저 가져오세요.";
+            return tr(u8"git.failure.push_rejected_non_fast_forward");
         case git_failure_kind::push_rejected:
-            return u8"원격이 push를 거절했습니다.";
+            return tr(u8"git.failure.push_rejected");
         case git_failure_kind::conflict:
-            return u8"충돌이 발생했습니다. 해결한 뒤 계속하세요.";
+            return tr(u8"git.failure.conflict");
         case git_failure_kind::index_lock_exists:
-            return u8"다른 git 작업이 저장소를 잠그고 있습니다.";
+            return tr(u8"git.failure.index_lock_exists");
         case git_failure_kind::local_changes_would_be_overwritten:
-            return u8"작업 트리의 변경이 덮어써질 수 있어 중단되었습니다.";
+            return tr(u8"git.failure.local_changes_would_be_overwritten");
         case git_failure_kind::push_rejected_fetch_first:
-            return u8"원격에 내게 없는 커밋이 있어 push가 거절되었습니다. 먼저 가져오세요.";
+            return tr(u8"git.failure.push_rejected_fetch_first");
         case git_failure_kind::push_rejected_stale_info:
-            return u8"원격 브랜치가 마지막으로 가져온 뒤 바뀌어 강제 push가 거절되었습니다.";
+            return tr(u8"git.failure.push_rejected_stale_info");
         case git_failure_kind::host_key_changed:
-            return u8"SSH 호스트 키가 known_hosts에 기록된 키와 다릅니다.";
+            return tr(u8"git.failure.host_key_changed");
         case git_failure_kind::connection_failed:
-            return u8"원격에 연결하지 못했습니다.";
+            return tr(u8"git.failure.connection_failed");
         case git_failure_kind::not_possible_to_fast_forward:
-            return u8"fast-forward로 옮길 수 없습니다.";
+            return tr(u8"git.failure.not_possible_to_fast_forward");
         case git_failure_kind::branch_checked_out_elsewhere:
-            return u8"이 브랜치는 다른 worktree에서 체크아웃되어 있어 옮길 수 없습니다.";
+            return tr(u8"git.failure.branch_checked_out_elsewhere");
         case git_failure_kind::signing_failed:
-            return u8"서명하지 못했습니다. 환경 설정의 서명에서 서명 프로그램(gpg·ssh-keygen)과 키를 확인하세요.";
+            return tr(u8"signing.failed_check_settings");
         case git_failure_kind::signing_key_missing:
-            return u8"서명할 키를 찾지 못했습니다. 환경 설정의 서명에서 키를 고르세요.";
+            return tr(u8"signing.key_missing");
         case git_failure_kind::signing_passphrase_failed:
-            return u8"서명 키의 passphrase를 받지 못했습니다.";
+            return tr(u8"signing.passphrase_failed");
         }
-        return u8"명령이 실패했습니다.";
+        return tr(u8"git.failure.command_failed");
     }
 } // namespace cyella

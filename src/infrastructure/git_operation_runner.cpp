@@ -1,6 +1,7 @@
 #include "infrastructure/git_operation_runner.h"
 
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/git_extension_operations.h"
 #include "infrastructure/git_operation_context.h"
 #include "infrastructure/git_signing_operations.h"
@@ -17,7 +18,7 @@ namespace cyella {
             if (is_setup_operation(kind))
                 return run_setup_operation(context);
             if (context.job().repository_path.empty())
-                return operation_outcome::failed(failure_kind::invalid_request, u8"저장소 경로가 없습니다.");
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.repository_path_missing"));
             // submodule·worktree·Git LFS의 operation이다.
             if (std::optional<operation_outcome> extension { run_extension_operation(context) }; extension.has_value())
                 return std::move(*extension);
@@ -61,11 +62,11 @@ namespace cyella {
         }
         catch (const std::exception& error)
         {
-            outcome = operation_outcome::failed(failure_kind::other, u8"작업을 처리하다 내부 오류가 났습니다.", exception_text(error));
+            outcome = operation_outcome::failed(failure_kind::other, tr(u8"git.internal_error"), exception_text(error));
         }
         catch (...)
         {
-            outcome = operation_outcome::failed(failure_kind::other, u8"작업을 처리하다 내부 오류가 났습니다.");
+            outcome = operation_outcome::failed(failure_kind::other, tr(u8"git.internal_error"));
         }
 
         // 실행 중 취소가 걸렸으면 마지막 명령의 결과와 관계없이 취소로 끝낸다. 실패 배너를 띄우지 않기 위해서다.

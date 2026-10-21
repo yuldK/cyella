@@ -205,6 +205,13 @@ cyella_add_source_filter(cyella_test_files "palette"
     user_profile_tests.cpp
     palette_profile_shell_tests.cpp)
 
+# 화면 문구: 틀 채우기·조사 규칙과, 실린 문구 파일과 코드가 쓰는 키의 일치다 (ADR-008). listener는 모든 test가
+# 한국어 원문을 보도록 시작할 때 카탈로그를 정한다.
+cyella_add_source_filter(cyella_test_files "locale"
+    locale_catalog_tests.cpp
+    locale_test_listener.cpp
+    text_catalog_tests.cpp)
+
 add_executable(cyella_tests ${cyella_test_files})
 # test가 도우미를 먼저 빌드하게 하고, 경로는 생성 시점의 target 파일로 받는다.
 add_dependencies(cyella_tests cyella_test_child cyella_askpass cyella_rebase_editor)
@@ -219,7 +226,8 @@ target_include_directories(cyella_tests
         "${CYELLA_TEST_DIRECTORY}")
 target_compile_definitions(cyella_tests
     PRIVATE
-        CYELLA_TEST_DATA_DIRECTORY="${CYELLA_TEST_DIRECTORY}/data")
+        CYELLA_TEST_DATA_DIRECTORY="${CYELLA_TEST_DIRECTORY}/data"
+        CYELLA_PROJECT_DIRECTORY="${PROJECT_SOURCE_DIR}")
 target_link_libraries(cyella_tests
     PRIVATE
         cyella_lib

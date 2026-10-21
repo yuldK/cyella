@@ -4,6 +4,7 @@
 #include "presentation/shell_controller.h"
 
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 #include "domain/user_profile.h"
 #include "presentation/settings/profiles_intents.h"
 
@@ -92,10 +93,10 @@ namespace cyella {
             if (const std::optional<std::size_t> index { find_profile_index(value.profiles, *assigned) }; index.has_value() && identity_matches_profile(entry.identity, value.profiles[*index]))
                 return;
         const user_profile& profile { value.profiles[*wanted] };
-        std::u8string text = u8"규칙 '" + value.profile_rules[*rule].path_prefix + u8"'이 이 저장소에 프로필 '" + profile.name + u8"' 권장 · 지금 ";
-        text += describe_identity_with_source(entry.identity);
+        const std::u8string identity { describe_identity_with_source(entry.identity) };
+        std::u8string text { tr(u8"profiles.rule_suggests", { { u8"prefix", value.profile_rules[*rule].path_prefix }, { u8"profile", profile.name }, { u8"identity", identity } }) };
         notice_state notice { .text = std::move(text), .warning = false, .actions = {} };
-        notice.actions.push_back(notice_action { .key = std::u8string { apply_profile_key_prefix } + profile.name, .label = u8"'" + profile.name + u8"' 적용" });
+        notice.actions.push_back(notice_action { .key = std::u8string { apply_profile_key_prefix } + profile.name, .label = tr(u8"profiles.apply_action", { { u8"profile", profile.name } }) });
         ui_.notice = std::move(notice);
     }
 
@@ -105,25 +106,25 @@ namespace cyella {
         const std::optional<std::size_t> index { find_profile_index(value.profiles, name) };
         if (index.has_value() == false)
         {
-            show_notice(u8"프로필을 찾을 수 없습니다: " + name, true);
+            show_notice(tr(u8"profiles.not_found", { { u8"name", name } }), true);
             return;
         }
         const std::string id { selected_repository_id() };
         const repository_session* const session { id.empty() || dependencies_.workspace == nullptr ? nullptr : std::as_const(*dependencies_.workspace).find_session(id) };
         if (session == nullptr)
         {
-            show_notice(u8"프로필을 적용할 저장소가 없습니다. 저장소 탭을 연 뒤 다시 시도하세요.", true);
+            show_notice(tr(u8"profiles.no_repository"), true);
             return;
         }
         if (dependencies_.apply_identity == nullptr)
         {
-            show_notice(u8"이 환경에서는 프로필을 적용할 수 없습니다.", true);
+            show_notice(tr(u8"profiles.apply_unavailable"), true);
             return;
         }
         const user_profile& profile { value.profiles[*index] };
         applying_profiles_[id] = profile.name;
         dependencies_.apply_identity(id, session->path(), profile.user_name, profile.user_email);
-        show_notice(u8"이 저장소에 프로필을 적용하는 중입니다: " + profile.name, false);
+        show_notice(tr(u8"profiles.applying", { { u8"name", profile.name } }), false);
     }
 
     bool shell_controller::warn_before_commit()
@@ -159,16 +160,19 @@ namespace cyella {
         notice_state notice {};
         notice.warning = true;
         if (missing)
-            notice.text = u8"작성자 설정이 없어 git이 커밋을 거절할 수 있습니다 · 지금 " + describe_identity_with_source(identity);
+            notice.text = tr(u8"profiles.commit_identity_missing", { { u8"identity", describe_identity_with_source(identity) } });
         else
-            notice.text = u8"규칙 '" + value.profile_rules[*rule].path_prefix + u8"'은 프로필 '" + wanted->name + u8"' 권장이지만 지금 " + describe_identity_with_source(identity);
+            notice.text = tr(u8"profiles.commit_rule_mismatch",
+                { { u8"prefix", value.profile_rules[*rule].path_prefix }, { u8"profile", wanted->name }, { u8"identity", describe_identity_with_source(identity) } });
         if (wanted != nullptr)
-            notice.actions.push_back(notice_action { .key = std::u8string { commit_apply_key_prefix } + wanted->name, .label = u8"'" + wanted->name + u8"' 적용 후 커밋" });
+            notice.actions.push_back(notice_action { .key = std::u8string { commit_apply_key_prefix } + wanted->name, .label = tr(u8"profiles.apply_and_commit", { { u8"profile", wanted->name } }) });
         else
             for (std::size_t index { 0 }; index < value.profiles.size() && index < offered_profile_limit; ++index)
-                notice.actions.push_back(
-                    notice_action { .key = std::u8string { commit_apply_key_prefix } + value.profiles[index].name, .label = u8"'" + value.profiles[index].name + u8"' 적용 후 커밋" });
-        notice.actions.push_back(notice_action { .key = std::u8string { commit_anyway_key }, .label = u8"그대로 커밋" });
+            {
+                const std::u8string& name { value.profiles[index].name };
+                notice.actions.push_back(notice_action { .key = std::u8string { commit_apply_key_prefix } + name, .label = tr(u8"profiles.apply_and_commit", { { u8"profile", name } }) });
+            }
+        notice.actions.push_back(notice_action { .key = std::u8string { commit_anyway_key }, .label = tr(u8"profiles.commit_anyway") });
         ui_.notice = std::move(notice);
         return true;
     }
@@ -226,7 +230,7 @@ namespace cyella {
             const bool commit_after { commit_after_apply_.erase(id) > 0 };
             if (intent->ok == false)
             {
-                show_notice(u8"프로필을 적용하지 못했습니다 (" + profile + u8"): " + intent->message, true);
+                show_notice(tr(u8"profiles.apply_failed", { { u8"profile", profile }, { u8"message", intent->message } }), true);
                 return true;
             }
             // 어느 프로필을 골랐는지 기억한다. 그 저장소의 "이 저장소의 프로필"이고, 신원이 그대로인 동안은 규칙을 거스르는 선택으로 존중한다.
@@ -236,7 +240,7 @@ namespace cyella {
                     const std::u8string path { session->path() };
                     update_settings([&path, &profile](app_settings& value) { assign_profile(value, path, profile); });
                 }
-            show_notice(u8"프로필을 적용했습니다: " + profile + u8" · " + intent->message, false);
+            show_notice(tr(u8"profiles.applied", { { u8"profile", profile }, { u8"message", intent->message } }), false);
             // 새 신원을 다시 읽는다.
             identities_[id].requested = false;
             identities_[id].loaded = false;

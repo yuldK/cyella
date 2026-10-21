@@ -1,5 +1,6 @@
 #include "presentation/ui/repository_tabs_element.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
@@ -28,7 +29,7 @@ namespace cyella::ui {
                 , viewport_ { viewport }
                 , offset_ { offset }
             {
-                set_access_name(u8"탭 가로 스크롤");
+                set_access_name(tr(u8"tabs.horizontal_scroll"));
                 set_tab_stop(true);
                 luil::pointer_drag_target drag {};
                 drag.follows_pointer = true;
@@ -123,7 +124,7 @@ namespace cyella::ui {
             if (element.id().kind == luil::ui_element_kind::tab)
             {
                 tabs.push_back(&element);
-                const std::u8string name { element.accessibility().name + u8" 탭 닫기" };
+                const std::u8string name { tr(u8"tabs.close_tab", { { u8"name", element.accessibility().name } }) };
                 for (const auto& child : element.children())
                     if (child->id().kind == luil::ui_element_kind::tab_close)
                     {
@@ -163,7 +164,7 @@ namespace cyella::ui {
         config.scroll = {};
         auto bar { std::make_unique<luil::tab_bar_element>(std::move(config)) };
         bar_ = bar.get();
-        bar->set_access_name(u8"저장소 탭");
+        bar->set_access_name(tr(u8"tabs.repository_tabs"));
         collect_tabs(*bar, tabs_);
         const luil::stack_config row_config { .direction = luil::stack_direction::row };
         auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"tabs-content" }, row_config) };

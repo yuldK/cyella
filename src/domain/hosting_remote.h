@@ -21,7 +21,7 @@ namespace cyella {
     // 알 수 없는 이름이면 값이 없다. `unknown`도 값이 없는 쪽이다 (설정에 쓸 수 있는 종류가 아니다).
     [[nodiscard]] std::optional<hosting_provider> parse_hosting_provider(std::string_view name) noexcept;
     // 화면에 보이는 서비스 이름이다 ("GitHub", "GitLab").
-    [[nodiscard]] std::string_view hosting_provider_display_name(hosting_provider provider) noexcept;
+    [[nodiscard]] std::string hosting_provider_display_name(hosting_provider provider);
     // "PR"(GitHub)과 "MR"(GitLab)이다. 알 수 없으면 "PR"이다.
     [[nodiscard]] std::string_view hosting_change_request_abbreviation(hosting_provider provider) noexcept;
 

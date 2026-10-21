@@ -1,4 +1,5 @@
 #include "presentation/ui/hosting_ui.h"
+#include "domain/text_catalog.h"
 #include "presentation/hosting_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
@@ -64,8 +65,9 @@ namespace cyella::ui {
                 luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 12.0f, 0.0f, 6.0f, 0.0f } });
             row->add(make_text(u8"pr-detail-title", title, text_style { .size = 13.0f, .bold = true }), text_button_width(title));
             row->add_flexible(make_text(u8"pr-detail-subtitle", std::move(tail), text_style { .size = 11.0f, .color = dim_color }));
-            row->add(
-                make_icon_button(u8"pr-detail-close", codicons::icon_close, drawer ? u8"상세 닫기" : u8"상세 닫기", message(hosting_detail_action_intent { hosting_detail_action::close })), 28.0f);
+            row->add(make_icon_button(u8"pr-detail-close", codicons::icon_close, drawer ? tr(u8"hosting.detail.close") : tr(u8"hosting.detail.close"),
+                         message(hosting_detail_action_intent { hosting_detail_action::close })),
+                28.0f);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"pr-detail-header-bar" }, bar_style { .divider_bottom = true }, std::move(row));
         }
     } // namespace
@@ -88,14 +90,14 @@ namespace cyella::ui {
         };
         wrapped(u8"pr-subject", detail.title.empty() ? std::u8string { u8"…" } : detail.title, text_style { .size = 14.0f, .bold = true }, 22.0f);
         if (detail.just_created)
-            wrapped(u8"pr-created", u8"방금 만들었습니다: " + to_u8(detail.web_url), text_style { .size = 11.0f, .color = ci_color(ci_state::success) }, line_height);
+            wrapped(u8"pr-created", tr(u8"hosting.detail.just_created", { { u8"url", detail.web_url } }), text_style { .size = 11.0f, .color = ci_color(ci_state::success) }, line_height);
         meta->add_gap(8.0f);
         meta_height += 8.0f;
         wrapped(u8"pr-branches", detail.source_branch + u8" → " + detail.target_branch + (detail.from_fork ? u8"  (fork)" : u8""), text_style { .size = 11.5f, .code = true }, line_height);
         if (detail.author.empty() == false)
-            add(make_text(u8"pr-author", u8"작성자  " + detail.author, text_style { .size = 11.0f, .color = dim_color }), line_height);
+            add(make_text(u8"pr-author", tr(u8"hosting.detail.author", { { u8"author", detail.author } }), text_style { .size = 11.0f, .color = dim_color }), line_height);
         if (detail.updated_text.empty() == false)
-            add(make_text(u8"pr-updated", u8"갱신  " + detail.updated_text, text_style { .size = 11.0f, .color = dim_color }), line_height);
+            add(make_text(u8"pr-updated", tr(u8"hosting.detail.updated", { { u8"time", detail.updated_text } }), text_style { .size = 11.0f, .color = dim_color }), line_height);
         if (detail.head_sha.empty() == false)
             add(make_text(u8"pr-sha", u8"SHA  " + to_u8(detail.head_sha.substr(0, 12)), text_style { .size = 11.0f, .color = dim_color, .code = true }), line_height);
         add(make_text(u8"pr-ci", ci_prefix(detail.ci.state) + detail.ci.text, text_style { .size = 12.0f, .color = ci_color(detail.ci.state), .bold = true }), line_height + 4.0f);
@@ -106,7 +108,8 @@ namespace cyella::ui {
         {
             if (shown >= check_line_limit)
             {
-                add(make_text(u8"pr-check-more", u8"   외 " + number_text(detail.ci.checks.size() - shown) + u8"개", text_style { .size = 11.0f, .color = dim_color }), line_height);
+                add(make_text(u8"pr-check-more", u8"   " + tr(u8"hosting.detail.more_checks", { { u8"count", detail.ci.checks.size() - shown } }), text_style { .size = 11.0f, .color = dim_color }),
+                    line_height);
                 break;
             }
             add(make_text(u8"pr-check-" + number_text(shown), u8"   " + ci_prefix(check.state) + check.name, text_style { .size = 11.0f, .color = ci_color(check.state) }), line_height);
@@ -114,8 +117,8 @@ namespace cyella::ui {
         }
         meta->add_gap(12.0f);
         meta_height += 12.0f;
-        add(make_text(u8"pr-body-label", u8"설명", text_style { .size = 11.0f, .color = dim_color, .bold = true }), 24.0f);
-        wrapped(u8"pr-body", detail.body.empty() ? std::u8string { u8"작성한 설명이 없습니다." } : detail.body, text_style { .size = 12.0f, .color = dim_color }, line_height);
+        add(make_text(u8"pr-body-label", tr(u8"hosting.detail.description"), text_style { .size = 11.0f, .color = dim_color, .bold = true }), 24.0f);
+        wrapped(u8"pr-body", detail.body.empty() ? tr(u8"hosting.detail.no_description") : detail.body, text_style { .size = 12.0f, .color = dim_color }, line_height);
 
         luil::scroll_area_config config {};
         config.owner = u8"pr-scroll";
@@ -137,16 +140,18 @@ namespace cyella::ui {
         const luil::stack_config actions_config { .spacing = action_gap, .padding = luil::edge_insets::all(content_padding) };
         auto actions { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"pr-actions-content" }, actions_config) };
         {
-            const std::u8string label { detail.checked_out ? u8"'" + detail.local_branch + u8"'에 있음" : u8"로컬에 체크아웃 (" + detail.local_branch + u8")" };
+            std::u8string label { tr(u8"hosting.detail.checkout_locally", { { u8"branch", detail.local_branch } }) };
+            if (detail.checked_out)
+                label = tr(u8"hosting.detail.on_branch", { { u8"branch", detail.local_branch } });
             auto checkout = make_text_button(u8"pr-checkout", label, luil::text_button_visual::accent, message(hosting_detail_action_intent { hosting_detail_action::checkout }),
                 detail.can_checkout && detail.checked_out == false, codicons::icon_git_pull_request_go_to_changes);
             checkout->set_tooltip(label);
             actions->add(std::move(checkout), action_height);
         }
-        auto browser = make_text_button(u8"pr-open-browser", u8"브라우저에서 열기", luil::text_button_visual::normal, message(hosting_detail_action_intent { hosting_detail_action::open_browser }),
-            detail.web_url.empty() == false, codicons::icon_link_external);
-        auto refresh = make_text_button(u8"pr-refresh-ci", u8"CI 새로고침", luil::text_button_visual::normal, message(hosting_detail_action_intent { hosting_detail_action::refresh_ci }),
-            detail.head_sha.empty() == false, codicons::icon_refresh);
+        auto browser = make_text_button(u8"pr-open-browser", tr(u8"hosting.detail.open_in_browser"), luil::text_button_visual::normal,
+            message(hosting_detail_action_intent { hosting_detail_action::open_browser }), detail.web_url.empty() == false, codicons::icon_link_external);
+        auto refresh = make_text_button(u8"pr-refresh-ci", tr(u8"hosting.detail.refresh_ci"), luil::text_button_visual::normal,
+            message(hosting_detail_action_intent { hosting_detail_action::refresh_ci }), detail.head_sha.empty() == false, codicons::icon_refresh);
         if (stacked)
         {
             actions->add(std::move(browser), action_height);

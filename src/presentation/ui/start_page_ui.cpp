@@ -6,6 +6,7 @@
 #include "presentation/ui_intents.h"
 
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/settings/settings_intents.h"
 
@@ -59,15 +60,15 @@ namespace cyella::ui {
         {
             std::vector<file_row_button> buttons {};
             const char32_t pin_glyph { item.pinned ? codicons::icon_pinned : codicons::icon_pin };
-            buttons.push_back(make_row_button(u8"pin:" + item.path, pin_glyph, item.pinned ? u8"고정 해제" : u8"고정", message(pin_recent_intent { item.path, item.pinned == false })));
-            buttons.push_back({ .owner = u8"remove:" + item.path, .glyph = codicons::icon_close, .tooltip = u8"목록에서 지우기", .action = message(remove_recent_intent { item.path }) });
+            buttons.push_back(make_row_button(u8"pin:" + item.path, pin_glyph, item.pinned ? tr(u8"start.unpin") : tr(u8"start.pin"), message(pin_recent_intent { item.path, item.pinned == false })));
+            buttons.push_back({ .owner = u8"remove:" + item.path, .glyph = codicons::icon_close, .tooltip = tr(u8"start.remove_from_list"), .action = message(remove_recent_intent { item.path }) });
             const std::int64_t opened { parse_utc(item.opened_at) };
             std::u8string when { opened > 0 ? relative_time_text(now, opened) : std::u8string {} };
             // 없는 경로는 새 위치를 고르는 폴더 대화 상자를 바로 연다 (옛 경로가 명령 인자다).
             if (item.exists == false)
                 buttons.insert(buttons.begin(),
-                    make_row_button(u8"locate:" + item.path, codicons::icon_folder_opened, u8"위치 찾기: 옮긴 폴더를 골라 이 항목의 경로를 바꿉니다",
-                        ui_command(static_cast<std::uint32_t>(ui_command_id::locate_folder), item.path)));
+                    make_row_button(
+                        u8"locate:" + item.path, codicons::icon_folder_opened, tr(u8"start.locate_tooltip"), ui_command(static_cast<std::uint32_t>(ui_command_id::locate_folder), item.path)));
             luil::input_action activate = item.exists ? message(open_recent_intent { item.path }) : ui_command(static_cast<std::uint32_t>(ui_command_id::locate_folder), item.path);
             return std::make_unique<start_row_element>(u8"recent:" + item.path, item, open, std::move(when), std::move(activate), std::move(buttons));
         }
@@ -107,8 +108,8 @@ namespace cyella::ui {
             add_heading(std::move(title), start_title_height);
         }
         else
-            add_heading(make_text(u8"start-title", u8"시작", text_style { .size = 20.0f, .bold = true }), 30.0f);
-        add_heading(make_text(u8"start-subtitle", u8"저장소를 열거나 새로 만드세요.", text_style { .size = 12.0f, .color = dim }), 20.0f);
+            add_heading(make_text(u8"start-title", tr(u8"start.title"), text_style { .size = 20.0f, .bold = true }), 30.0f);
+        add_heading(make_text(u8"start-subtitle", tr(u8"start.subtitle"), text_style { .size = 12.0f, .color = dim }), 20.0f);
         if (start.git_message.empty() == false)
             add_heading(make_text(u8"start-git", start.git_message, text_style { .size = 12.0f, .color = [](const luil::ui_color_palette& palette) { return palette.error_accent; } }), 20.0f);
         if (app_symbol().valid())
@@ -137,15 +138,16 @@ namespace cyella::ui {
                 actions->add_flexible(std::move(card));
         };
         add_action(std::make_unique<start_card_element>(
-            u8"start-open", codicons::icon_folder_opened, u8"저장소 열기", u8"내 컴퓨터의 폴더를 골라 엽니다", ui_command(static_cast<std::uint32_t>(ui_command_id::open_folder)), git_usable));
-        add_action(std::make_unique<start_card_element>(u8"start-clone", codicons::icon_repo_clone, u8"Clone", u8"URL로 원격 저장소를 받아 옵니다", message(open_clone_dialog_intent {}), git_usable));
+            u8"start-open", codicons::icon_folder_opened, tr(u8"start.open_title"), tr(u8"start.open_description"), ui_command(static_cast<std::uint32_t>(ui_command_id::open_folder)), git_usable));
+        add_action(std::make_unique<start_card_element>(u8"start-clone", codicons::icon_repo_clone, u8"Clone", tr(u8"start.clone_description"), message(open_clone_dialog_intent {}), git_usable));
         add_action(std::make_unique<start_card_element>(
-            u8"start-init", codicons::icon_add, u8"Init", u8"폴더를 골라 새 저장소를 만듭니다", ui_command(static_cast<std::uint32_t>(ui_command_id::init_folder)), git_usable));
+            u8"start-init", codicons::icon_add, u8"Init", tr(u8"start.init_description"), ui_command(static_cast<std::uint32_t>(ui_command_id::init_folder)), git_usable));
         add(std::move(actions), stacked ? card_height * 3.0f + 20.0f : card_height);
         if (git_usable == false)
         {
             gap(8.0f);
-            add(make_text_button(u8"start-git-settings", u8"Git 설정 열기", luil::text_button_visual::normal, message(open_settings_intent {}), true, codicons::icon_settings_gear), 30.0f);
+            add(make_text_button(u8"start-git-settings", tr(u8"start.open_git_settings"), luil::text_button_visual::normal, message(open_settings_intent {}), true, codicons::icon_settings_gear),
+                30.0f);
         }
         if (start.setup_progress.empty() == false)
         {
@@ -157,13 +159,13 @@ namespace cyella::ui {
         auto search_row
             = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-search-row" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 8.0f });
         luil::text_input_config search_config {
-            .placeholder = u8"최근 저장소 검색 · 이름 또는 경로",
+            .placeholder = tr(u8"start.search_placeholder"),
             .leading_glyph = codicons::icon_search,
             .clear = action_of(message(edit_text_intent { luil::text_edit_request { .target = to_luil_target(text_target::start_search), .command = luil::text::text_edit_command::clear } })),
-            .clear_tooltip = u8"지우기",
+            .clear_tooltip = tr(u8"start.search_clear"),
         };
         search_row->add_flexible(std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_start_search_input, u8"start-search" }, start.search, std::move(search_config)));
-        search_row->add(make_text(u8"start-count", number_text(start.list.items.size()) + u8"개", text_style { .size = 11.0f, .color = dim, .align = 2 }), 40.0f);
+        search_row->add(make_text(u8"start-count", tr(u8"start.result_count", { { u8"count", start.list.items.size() } }), text_style { .size = 11.0f, .color = dim, .align = 2 }), 40.0f);
         add(std::move(search_row), 28.0f);
         gap(12.0f);
 
@@ -184,13 +186,10 @@ namespace cyella::ui {
             }
             gap(10.0f);
         };
-        add_section(u8"start-pinned", u8"고정됨", true);
-        add_section(u8"start-recent", u8"최근", false);
+        add_section(u8"start-pinned", tr(u8"start.section_pinned"), true);
+        add_section(u8"start-recent", tr(u8"start.section_recent"), false);
         if (start.list.items.empty())
-            add(make_text(u8"start-empty",
-                    start.list.total_count == 0 ? std::u8string { u8"최근에 연 저장소가 없습니다. 저장소를 열거나 URL로 복제하세요." } : std::u8string { u8"검색과 일치하는 저장소가 없습니다." },
-                    text_style { .size = 12.0f, .color = dim }),
-                24.0f);
+            add(make_text(u8"start-empty", start.list.total_count == 0 ? tr(u8"start.empty_no_recent") : tr(u8"start.empty_no_match"), text_style { .size = 12.0f, .color = dim }), 24.0f);
 
         luil::scroll_area_config config {};
         config.edges.shadows = true;

@@ -61,7 +61,7 @@ namespace cyella {
 
     [[nodiscard]] git_identity parse_git_identity(std::u8string_view output, const identity_origin_hints& hints = {});
 
-    [[nodiscard]] std::u8string_view identity_origin_label(identity_origin origin) noexcept;
+    [[nodiscard]] std::u8string identity_origin_label(identity_origin origin);
     // `홍길동 <hong@example.com>` 꼴이다. 둘 다 없으면 "설정되지 않음"이다.
     [[nodiscard]] std::u8string describe_identity(const git_identity& identity);
     // 프로필의 이름·이메일과 같은 신원인가.

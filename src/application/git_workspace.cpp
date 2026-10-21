@@ -1,6 +1,7 @@
 #include "application/git_workspace.h"
 
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 
 #include <algorithm>
 #include <atomic>
@@ -301,7 +302,7 @@ namespace cyella {
             operation_record& stored { operations_.at(id) };
             operation_finished rejected {};
             rejected.state = operation_state::failed;
-            rejected.failure = operation_failure { failure_kind::other, u8"작업을 줄에 세우지 못했습니다(종료 중).", {} };
+            rejected.failure = operation_failure { failure_kind::other, tr(u8"operation.queue_failed_shutting_down"), {} };
             finish(stored, rejected);
         }
         return id;

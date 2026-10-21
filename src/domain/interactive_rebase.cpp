@@ -1,5 +1,7 @@
 #include "domain/interactive_rebase.h"
 
+#include "domain/text_catalog.h"
+
 #include <algorithm>
 #include <array>
 #include <set>
@@ -258,23 +260,23 @@ namespace cyella {
         switch (issue.problem)
         {
         case rebase_todo_problem::empty:
-            return u8"rebase할 커밋이 없습니다.";
+            return tr(u8"rebase_todo.empty");
         case rebase_todo_problem::starts_with_meld:
-            return u8"첫 커밋(" + where + u8")은 squash·fixup할 수 없습니다. 합칠 앞 커밋이 없습니다.";
+            return tr(u8"rebase_todo.starts_with_meld", { { u8"sha", where } });
         case rebase_todo_problem::unknown_commit:
-            return where + u8" 커밋은 rebase 범위에 없습니다. 편집기를 다시 여세요.";
+            return tr(u8"rebase_todo.unknown_commit", { { u8"sha", where } });
         case rebase_todo_problem::duplicate_commit:
-            return where + u8" 커밋이 목록에 두 번 있습니다.";
+            return tr(u8"rebase_todo.duplicate_commit", { { u8"sha", where } });
         case rebase_todo_problem::missing_commit:
-            return where + u8" 커밋이 목록에서 빠졌습니다. 지우려면 drop으로 두세요.";
+            return tr(u8"rebase_todo.missing_commit", { { u8"sha", where } });
         case rebase_todo_problem::reword_without_message:
-            return where + u8" 커밋의 새 메시지가 없습니다.";
+            return tr(u8"rebase_todo.reword_without_message", { { u8"sha", where } });
         case rebase_todo_problem::message_not_allowed:
-            return where + u8" 줄에는 메시지를 둘 수 없습니다.";
+            return tr(u8"rebase_todo.message_not_allowed", { { u8"sha", where } });
         case rebase_todo_problem::empty_message:
-            return where + u8" 커밋의 메시지가 비었습니다.";
+            return tr(u8"rebase_todo.empty_message", { { u8"sha", where } });
         }
-        return u8"할 일 목록이 올바르지 않습니다.";
+        return tr(u8"rebase_todo.invalid");
     }
 
     std::string serialize_rebase_todo(const std::span<const rebase_todo_entry> todo)

@@ -1,5 +1,6 @@
 #include "application/app_messages.h"
 #include "application/git_workspace.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/ssh_tools.h"
 #include "presentation/form_builders.h"
 #include "presentation/form_extension.h"
@@ -143,7 +144,7 @@ namespace cyella {
             for (std::size_t index { 0 }; index < std::min(paths.size(), listed_path_limit); ++index)
                 lines.push_back(to_u8(paths[index]));
             if (paths.size() > listed_path_limit)
-                lines.push_back(u8"외 " + to_u8(std::to_string(paths.size() - listed_path_limit)) + u8"개");
+                lines.push_back(tr(u8"shell.confirm.more_paths", { { u8"count", paths.size() - listed_path_limit } }));
         }
 
         bool awaiting_auth_status(const operation_status& status) noexcept
@@ -384,20 +385,20 @@ namespace cyella {
             if (intent->untracked)
             {
                 dialog_state trash {};
-                trash.title = intent->paths.size() == 1 ? u8"파일을 휴지통으로 보낼까요?" : u8"파일 " + to_u8(std::to_string(intent->paths.size())) + u8"개를 휴지통으로 보낼까요?";
-                trash.lines.push_back(u8"추적하지 않는 파일이라 git으로는 되돌릴 수 없습니다. 아래 파일을 휴지통으로 보냅니다. 휴지통에서 되돌릴 수 있습니다.");
+                trash.title = intent->paths.size() == 1 ? tr(u8"shell.trash.title_one") : tr(u8"shell.trash.title", { { u8"count", intent->paths.size() } });
+                trash.lines.push_back(tr(u8"shell.trash.description"));
                 list_paths(intent->paths, trash.lines);
-                trash.confirm_label = u8"휴지통으로 보내기";
+                trash.confirm_label = tr(u8"shell.trash.confirm");
                 trash.danger = true;
                 trash.plan.primary.push_back(trash_files_request { intent->paths });
                 open_confirm(std::move(trash));
                 return true;
             }
             dialog_state dialog {};
-            dialog.title = intent->paths.size() == 1 ? u8"변경을 버릴까요?" : u8"변경 " + to_u8(std::to_string(intent->paths.size())) + u8"개를 버릴까요?";
-            dialog.lines.push_back(u8"아래 파일의 작업 트리 변경이 사라집니다. 되돌릴 수 없습니다.");
+            dialog.title = intent->paths.size() == 1 ? tr(u8"shell.discard.title_one") : tr(u8"shell.discard.title", { { u8"count", intent->paths.size() } });
+            dialog.lines.push_back(tr(u8"shell.discard.description"));
             list_paths(intent->paths, dialog.lines);
-            dialog.confirm_label = u8"버리기";
+            dialog.confirm_label = tr(u8"shell.discard.confirm");
             dialog.danger = true;
             dialog.plan.primary.push_back(discard_files_request { intent->paths });
             open_confirm(std::move(dialog));
@@ -484,7 +485,7 @@ namespace cyella {
         const repository_snapshot& snapshot { session->snapshot() };
         if (snapshot.summary.remotes.empty())
         {
-            show_notice(u8"원격이 없어 push할 수 없습니다. 먼저 원격을 추가하세요.", true);
+            show_notice(tr(u8"shell.push.no_remote"), true);
             return;
         }
         dialog_state dialog {};
@@ -525,7 +526,7 @@ namespace cyella {
         const repository_snapshot& snapshot { session->snapshot() };
         if (snapshot.summary.remotes.empty())
         {
-            show_notice(u8"원격이 없어 upstream을 설정할 수 없습니다. 먼저 원격을 추가하세요.", true);
+            show_notice(tr(u8"shell.set_upstream.no_remote"), true);
             return;
         }
         dialog_state dialog {};
@@ -595,11 +596,11 @@ namespace cyella {
             return;
         }
         dialog_state dialog {};
-        dialog.title = u8"detached HEAD로 이동";
-        dialog.lines.push_back(u8"'" + label + u8"'을(를) 체크아웃하면 어느 브랜치에도 속하지 않는 detached HEAD 상태가 됩니다.");
-        dialog.lines.push_back(u8"여기서 만든 커밋은 브랜치를 만들어 두지 않으면 잃어버릴 수 있습니다.");
-        dialog.confirm_label = u8"체크아웃";
-        dialog.check_label = u8"다시 보지 않기";
+        dialog.title = tr(u8"shell.detached.title");
+        dialog.lines.push_back(tr(u8"shell.detached.description", { { u8"target", label } }));
+        dialog.lines.push_back(tr(u8"shell.detached.warning"));
+        dialog.confirm_label = tr(u8"shell.detached.confirm");
+        dialog.check_label = tr(u8"shell.detached.dont_show_again");
         dialog.remember_detached = true;
         dialog.plan.primary.push_back(checkout_detached_request { revision });
         open_confirm(std::move(dialog));
@@ -617,9 +618,9 @@ namespace cyella {
         }
         // 작업 트리가 더러우면 rebase가 거절된다. --autostash로 하기를 확인받는다.
         dialog_state dialog {};
-        dialog.title = u8"작업 트리에 변경이 있습니다";
-        dialog.lines.push_back(u8"변경을 잠시 stash에 넣고 " + to_u8(branch) + u8"을(를) " + to_u8(onto) + u8" 위로 rebase한 뒤 다시 꺼냅니다 (--autostash).");
-        dialog.confirm_label = u8"autostash로 rebase";
+        dialog.title = tr(u8"shell.autostash.title");
+        dialog.lines.push_back(tr(u8"shell.autostash.description", { { u8"branch", branch }, { u8"onto", onto } }));
+        dialog.confirm_label = tr(u8"shell.autostash.confirm");
         dialog.plan.primary.push_back(rebase_request { .branch = branch, .onto = onto, .autostash = true });
         open_confirm(std::move(dialog));
     }
@@ -825,8 +826,8 @@ namespace cyella {
                 return;
             }
             dialog_state dialog {};
-            dialog.title = u8"hard reset을 할까요?";
-            dialog.lines.push_back(u8"현재 브랜치를 " + label + u8"(으)로 옮기고 작업 트리와 index의 변경을 모두 버립니다. 되돌릴 수 없습니다.");
+            dialog.title = tr(u8"shell.reset_hard.title");
+            dialog.lines.push_back(tr(u8"shell.reset_hard.description", { { u8"target", label } }));
             dialog.confirm_label = u8"hard reset";
             dialog.danger = true;
             dialog.plan.primary.push_back(reset_request { .mode = reset_mode::hard, .to = to });
@@ -893,11 +894,11 @@ namespace cyella {
             else if (key == u8"delete")
             {
                 dialog_state dialog {};
-                dialog.title = u8"브랜치를 삭제할까요?";
-                dialog.lines.push_back(u8"로컬 브랜치 '" + to_u8(target.name) + u8"'을(를) 삭제합니다. 원격 브랜치는 그대로입니다.");
-                dialog.confirm_label = u8"삭제";
+                dialog.title = tr(u8"shell.delete_branch.title");
+                dialog.lines.push_back(tr(u8"shell.delete_branch.description", { { u8"branch", target.name } }));
+                dialog.confirm_label = tr(u8"shell.confirm.delete");
                 dialog.danger = true;
-                dialog.check_label = u8"강제 삭제 (merge되지 않은 커밋도 버립니다)";
+                dialog.check_label = tr(u8"shell.delete_branch.force");
                 dialog.check_warning = false;
                 dialog.plan.primary.push_back(delete_branch_request { .name = target.name, .force = false });
                 dialog.plan.alternate.push_back(delete_branch_request { .name = target.name, .force = true });
@@ -926,9 +927,9 @@ namespace cyella {
             else if (const auto remote_delete { menu_key_argument(key, u8"delete_remote:") }; remote_delete.has_value())
             {
                 dialog_state dialog {};
-                dialog.title = u8"원격 태그를 삭제할까요?";
-                dialog.lines.push_back(to_u8(*remote_delete) + u8"의 태그 '" + to_u8(target.name) + u8"'을(를) 삭제합니다. 로컬 태그는 그대로입니다.");
-                dialog.confirm_label = u8"원격에서 삭제";
+                dialog.title = tr(u8"shell.delete_remote_tag.title");
+                dialog.lines.push_back(tr(u8"shell.delete_remote_tag.description", { { u8"remote", *remote_delete }, { u8"tag", target.name } }));
+                dialog.confirm_label = tr(u8"shell.delete_remote_tag.confirm");
                 dialog.danger = true;
                 dialog.plan.primary.push_back(delete_remote_tag_request { .remote = *remote_delete, .name = target.name });
                 open_confirm(std::move(dialog));
@@ -936,16 +937,17 @@ namespace cyella {
             else if (key == u8"delete_local")
             {
                 dialog_state dialog {};
-                dialog.title = u8"태그를 삭제할까요?";
-                dialog.lines.push_back(u8"로컬 태그 '" + to_u8(target.name) + u8"'을(를) 삭제합니다.");
-                dialog.confirm_label = u8"삭제";
+                dialog.title = tr(u8"shell.delete_tag.title");
+                dialog.lines.push_back(tr(u8"shell.delete_tag.description", { { u8"tag", target.name } }));
+                dialog.confirm_label = tr(u8"shell.confirm.delete");
                 dialog.danger = true;
                 dialog.plan.primary.push_back(delete_tag_request { target.name });
                 const ref* const tag { find_ref(session->snapshot(), ref_kind::tag, target.name) };
                 if (tag != nullptr && tag->remotes.empty() == false)
                 {
                     // 원격을 먼저 지우고, 실패하면 로컬은 남긴다.
-                    dialog.check_label = u8"원격(" + to_u8(tag->remotes.front()) + (tag->remotes.size() > 1 ? u8" 외" : u8"") + u8")에서도 삭제";
+                    dialog.check_label = tag->remotes.size() > 1 ? tr(u8"shell.delete_tag.also_remotes", { { u8"remote", tag->remotes.front() } })
+                                                                 : tr(u8"shell.delete_tag.also_remote", { { u8"remote", tag->remotes.front() } });
                     dialog.check_warning = true;
                     for (const std::string& remote : tag->remotes)
                         dialog.plan.alternate.push_back(delete_remote_tag_request { .remote = remote, .name = target.name });
@@ -963,9 +965,9 @@ namespace cyella {
             else if (key == u8"drop")
             {
                 dialog_state dialog {};
-                dialog.title = u8"stash를 삭제할까요?";
-                dialog.lines.push_back(to_u8(target.name) + u8"을(를) 삭제합니다. 되돌릴 수 없습니다.");
-                dialog.confirm_label = u8"삭제";
+                dialog.title = tr(u8"shell.drop_stash.title");
+                dialog.lines.push_back(tr(u8"shell.drop_stash.description", { { u8"stash", target.name } }));
+                dialog.confirm_label = tr(u8"shell.confirm.delete");
                 dialog.danger = true;
                 dialog.plan.primary.push_back(stash_drop_request { target.index });
                 open_confirm(std::move(dialog));
@@ -989,7 +991,7 @@ namespace cyella {
             else if (key == u8"copy_path")
                 copy_text(to_u8(target.name));
             else if (key == u8"open_external_diff")
-                show_notice(u8"외부 diff 도구 열기는 diff 뷰어의 연결과 함께 붙습니다.");
+                show_notice(tr(u8"shell.external_diff.unavailable"));
             else if (key == u8"lfs_track")
                 open_lfs_track_dialog(lfs_pattern_for_path(target.name));
             else if (key == u8"lfs_pull")
@@ -1440,9 +1442,9 @@ namespace cyella {
             {
                 dismiss();
                 dialog_state dialog {};
-                dialog.title = u8"강제로 삭제할까요?";
-                dialog.lines.push_back(u8"'" + to_u8(deleted->name) + u8"'에는 아직 merge되지 않은 커밋이 있습니다. 강제로 삭제하면 그 커밋을 잃을 수 있습니다.");
-                dialog.confirm_label = u8"강제 삭제";
+                dialog.title = tr(u8"shell.force_delete_branch.title");
+                dialog.lines.push_back(tr(u8"shell.force_delete_branch.description", { { u8"branch", deleted->name } }));
+                dialog.confirm_label = tr(u8"shell.force_delete_branch.confirm");
                 dialog.danger = true;
                 dialog.plan.primary.push_back(delete_branch_request { .name = deleted->name, .force = true });
                 open_confirm(std::move(dialog));
@@ -1470,9 +1472,9 @@ namespace cyella {
             return;
         }
         dialog_state dialog {};
-        dialog.title = to_u8(repository_operation_state_name(state)) + u8"을(를) 중단할까요?";
-        dialog.lines.push_back(u8"지금까지의 진행과 풀어 둔 충돌을 버리고 시작하기 전 상태로 돌아갑니다.");
-        dialog.confirm_label = u8"중단";
+        dialog.title = tr(u8"shell.abort_sequence.title", { { u8"operation", repository_operation_state_name(state) } });
+        dialog.lines.push_back(tr(u8"shell.abort_sequence.description"));
+        dialog.confirm_label = tr(u8"shell.abort_sequence.confirm");
         dialog.danger = true;
         dialog.plan.primary.push_back(sequence_control_request { *kind });
         open_confirm(std::move(dialog));

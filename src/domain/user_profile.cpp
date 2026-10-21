@@ -2,6 +2,7 @@
 
 #include "domain/app_settings.h"
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 
 #include <algorithm>
 #include <utility>
@@ -51,21 +52,21 @@ namespace cyella {
     std::u8string check_user_profile(const user_profile& profile, const std::vector<user_profile>& existing, const std::optional<std::size_t> editing)
     {
         if (profile.name.empty())
-            return u8"프로필 이름을 입력하세요.";
+            return tr(u8"profile.name_required");
         if (profile.name.size() > maximum_profile_name_length || has_line_break(profile.name) || has_edge_space(profile.name))
-            return u8"프로필 이름은 한 줄이고 앞뒤 공백이 없어야 하며 40바이트 이하여야 합니다.";
+            return tr(u8"profile.name_invalid");
         for (std::size_t index { 0 }; index < existing.size(); ++index)
             if (index != editing && same_name(existing[index].name, profile.name))
-                return u8"같은 이름의 프로필이 이미 있습니다.";
+                return tr(u8"profile.name_duplicate");
         if (profile.user_name.empty() || has_line_break(profile.user_name) || has_edge_space(profile.user_name))
-            return u8"user.name을 한 줄로 입력하세요 (앞뒤 공백 없이).";
+            return tr(u8"profile.user_name_invalid");
         if (profile.user_email.empty() || has_space(profile.user_email))
-            return u8"user.email을 공백 없이 입력하세요.";
+            return tr(u8"profile.user_email_spaces");
         const std::size_t at { profile.user_email.find(u8'@') };
         if (at == std::u8string::npos || at == 0 || at + 1 >= profile.user_email.size())
-            return u8"user.email은 이름@도메인 꼴이어야 합니다.";
+            return tr(u8"profile.user_email_format");
         if (has_line_break(profile.signing_key))
-            return u8"서명 키는 한 줄이어야 합니다.";
+            return tr(u8"profile.signing_key_multiline");
         return {};
     }
 
@@ -102,11 +103,11 @@ namespace cyella {
     std::u8string check_profile_rule(const profile_rule& rule, const std::vector<user_profile>& profiles)
     {
         if (rule.path_prefix.empty() || has_line_break(rule.path_prefix))
-            return u8"규칙의 폴더 경로를 입력하세요.";
+            return tr(u8"profile.rule_path_required");
         if (rule.path_prefix.find(u8'\\') == std::u8string::npos && rule.path_prefix.find(u8'/') == std::u8string::npos)
-            return u8"폴더 경로 전체를 입력하세요 (예: E:\\work).";
+            return tr(u8"profile.rule_path_not_full");
         if (find_profile_index(profiles, rule.profile).has_value() == false)
-            return u8"규칙이 쓸 프로필을 고르세요.";
+            return tr(u8"profile.rule_profile_required");
         return {};
     }
 

@@ -1,5 +1,7 @@
 #include "domain/hosting_models.h"
 
+#include "domain/text_catalog.h"
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -42,12 +44,16 @@ namespace cyella {
     std::string describe_remaining_time(const std::int64_t seconds)
     {
         if (seconds <= 0)
-            return "곧";
+            return tr_narrow(u8"hosting_model.time_soon");
         if (seconds < 60)
-            return std::to_string(seconds) + "초 후";
+            return seconds == 1 ? tr_narrow(u8"hosting_model.time_seconds_one", { { u8"count", seconds } }) : tr_narrow(u8"hosting_model.time_seconds", { { u8"count", seconds } });
         if (seconds < 3600)
-            return std::to_string((seconds + 59) / 60) + "분 후";
-        return std::to_string((seconds + 3599) / 3600) + "시간 후";
+        {
+            const std::int64_t minutes { (seconds + 59) / 60 };
+            return minutes == 1 ? tr_narrow(u8"hosting_model.time_minutes_one", { { u8"count", minutes } }) : tr_narrow(u8"hosting_model.time_minutes", { { u8"count", minutes } });
+        }
+        const std::int64_t hours { (seconds + 3599) / 3600 };
+        return hours == 1 ? tr_narrow(u8"hosting_model.time_hours_one", { { u8"count", hours } }) : tr_narrow(u8"hosting_model.time_hours", { { u8"count", hours } });
     }
 
     std::string describe_hosting_error(const hosting_error& error, const std::int64_t now)
@@ -58,37 +64,38 @@ namespace cyella {
         case hosting_error_kind::none:
             return {};
         case hosting_error_kind::not_signed_in:
-            return "로그인하지 않았습니다. 사이드바나 환경 설정의 '로그인'을 누르세요.";
+            return tr_narrow(u8"hosting_model.error.not_signed_in");
         case hosting_error_kind::credential_unavailable:
-            return "자격 증명 도우미가 토큰을 주지 않았습니다. Git Credential Manager가 설정되어 있는지 확인하세요." + detail;
+            return tr_narrow(u8"hosting_model.error.credential_unavailable", { { u8"detail", detail } });
         case hosting_error_kind::unauthorized:
-            return "인증이 거절되었습니다. 저장해 둔 자격 증명을 지웠으니 다시 로그인하세요.";
+            return tr_narrow(u8"hosting_model.error.unauthorized");
         case hosting_error_kind::forbidden:
-            return "이 작업을 할 권한이 없습니다." + detail;
+            return tr_narrow(u8"hosting_model.error.forbidden", { { u8"detail", detail } });
         case hosting_error_kind::rate_limited: {
-            std::string text { "API 호출 한도에 도달했습니다" };
+            // 남은 횟수는 첫 절 바로 뒤에 붙는 괄호 덧말이다.
+            std::string remaining {};
             if (error.rate_limit.remaining.has_value())
-                text += " (남은 횟수 " + std::to_string(*error.rate_limit.remaining) + ")";
+                remaining = tr_narrow(u8"hosting_model.error.rate_limit_remaining", { { u8"count", *error.rate_limit.remaining } });
             if (error.rate_limit.reset_at.has_value())
-                text += ", " + describe_remaining_time(*error.rate_limit.reset_at - now) + " 초기화됩니다";
-            else if (error.rate_limit.retry_after_seconds.has_value())
-                text += ", " + describe_remaining_time(*error.rate_limit.retry_after_seconds) + " 다시 시도할 수 있습니다";
-            return text + ".";
+                return tr_narrow(u8"hosting_model.error.rate_limited_reset", { { u8"remaining", remaining }, { u8"when", describe_remaining_time(*error.rate_limit.reset_at - now) } });
+            if (error.rate_limit.retry_after_seconds.has_value())
+                return tr_narrow(u8"hosting_model.error.rate_limited_retry", { { u8"remaining", remaining }, { u8"when", describe_remaining_time(*error.rate_limit.retry_after_seconds) } });
+            return tr_narrow(u8"hosting_model.error.rate_limited", { { u8"remaining", remaining } });
         }
         case hosting_error_kind::not_found:
-            return "저장소나 대상을 찾을 수 없습니다. 비공개 저장소라면 토큰의 권한을 확인하세요." + detail;
+            return tr_narrow(u8"hosting_model.error.not_found", { { u8"detail", detail } });
         case hosting_error_kind::rejected:
-            return "서버가 요청을 받지 않았습니다." + detail;
+            return tr_narrow(u8"hosting_model.error.rejected", { { u8"detail", detail } });
         case hosting_error_kind::server_error:
-            return "서버 오류입니다 (" + std::to_string(error.status_code) + ")." + detail;
+            return tr_narrow(u8"hosting_model.error.server_error", { { u8"status", error.status_code }, { u8"detail", detail } });
         case hosting_error_kind::network:
-            return "서버에 연결하지 못했습니다." + detail;
+            return tr_narrow(u8"hosting_model.error.network", { { u8"detail", detail } });
         case hosting_error_kind::invalid_response:
-            return "서버의 응답을 읽지 못했습니다.";
+            return tr_narrow(u8"hosting_model.error.invalid_response");
         case hosting_error_kind::cancelled:
-            return "취소되었습니다.";
+            return tr_narrow(u8"hosting_model.error.cancelled");
         case hosting_error_kind::unsupported:
-            return "이 원격은 GitHub·GitLab 연동을 쓸 수 없습니다. 환경 설정의 '호스팅'에서 호스트를 추가하세요.";
+            return tr_narrow(u8"hosting_model.error.unsupported");
         }
         return {};
     }

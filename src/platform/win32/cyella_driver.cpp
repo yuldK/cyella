@@ -1,6 +1,7 @@
 #include "platform/win32/cyella_driver.h"
 
 #include "domain/operation_status.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/git_operation_runner.h"
 #include "infrastructure/git_tool_discovery.h"
 #include "platform/win32/askpass_helper_path.h"
@@ -190,7 +191,8 @@ namespace cyella::win32 {
         // 시작할 때 복원된 탭에도 감시를 켠다.
         sync_watchers();
         if (hosting_start_error_.empty() == false)
-            static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = u8"GitHub·GitLab 연동을 쓸 수 없습니다: " + hosting_start_error_, .warning = true } }));
+            static_cast<void>(
+                controller_->handle(luil::app_message { show_notice_intent { .text = tr(u8"hosting_remote.integration_unavailable", { { u8"reason", hosting_start_error_ } }), .warning = true } }));
         // 인증 도우미를 쓸 수 없으면 인증이 필요한 작업은 즉시 실패한다. 이유를 한 번 안내로 띄운다.
         if (const std::optional<diagnostic>& problem { askpass_.startup_diagnostic() }; problem.has_value() && git_tool_.usable())
             static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = problem->message, .warning = true } }));
@@ -433,9 +435,7 @@ namespace cyella::win32 {
             name.pop_back();
         if (const std::size_t separator { name.find_last_of(u8"\\/") }; separator != std::u8string::npos)
             name.erase(0, separator + 1);
-        std::u8string text { u8"'" + name + u8"' 폴더 " };
-        text += lost ? u8"감시가 끊겨 자동 갱신을 멈췄습니다." : u8"감시를 시작하지 못해 자동 갱신을 쓸 수 없습니다.";
-        text += u8" 창을 다시 누를 때 새로 읽습니다.";
+        std::u8string text { lost ? tr(u8"watch.lost", { { u8"folder", name } }) : tr(u8"watch.start_failed", { { u8"folder", name } }) };
         static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = std::move(text), .warning = true } }));
     }
 

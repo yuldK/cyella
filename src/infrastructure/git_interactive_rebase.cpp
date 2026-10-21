@@ -1,6 +1,7 @@
 #include "infrastructure/git_interactive_rebase.h"
 
 #include "domain/ref_name.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/git_log_parser.h"
 
 #include <algorithm>
@@ -186,16 +187,6 @@ namespace cyella {
             const std::vector<std::string> lines { split_lines(outcome.standard_output) };
             return lines.empty() ? std::string {} : lines.front();
         }
-
-        std::u8string to_u8(const std::string_view text)
-        {
-            return std::u8string { text.begin(), text.end() };
-        }
-
-        std::u8string count_text(const std::size_t value)
-        {
-            return to_u8(std::to_string(value));
-        }
     } // namespace
 
     std::u8string make_editor_command(const std::u8string_view helper_path)
@@ -312,20 +303,20 @@ namespace cyella {
     {
         const std::u8string& helper { context.owner().options().rebase_editor_helper };
         if (helper.empty())
-            return operation_outcome::failed(failure_kind::other, u8"편집기 도우미(cyella-rebase-editor.exe)를 찾지 못해 인터랙티브 rebase를 시작할 수 없습니다.");
+            return operation_outcome::failed(failure_kind::other, tr(u8"git.rebase.editor_helper_missing"));
 
         const std::string git_dir { context.read_git_dir() };
         if (git_dir.empty())
-            return operation_outcome::failed(failure_kind::not_found, u8"git 저장소가 아닙니다.");
+            return operation_outcome::failed(failure_kind::not_found, tr(u8"git.not_a_repository"));
         if (context.read_in_progress(git_dir).kind != repository_operation_state::none)
-            return operation_outcome::failed(failure_kind::refused, u8"이미 진행 중인 rebase·merge가 있습니다. 먼저 끝내거나 중단하세요.");
+            return operation_outcome::failed(failure_kind::refused, tr(u8"git.rebase.operation_in_progress"));
 
         loaded_range range {};
         std::optional<operation_outcome> stop {};
         if (load_range(context, request.onto, request.branch, range, stop) == false)
             return *stop;
         if (range.merge_count != 0 && request.allow_flatten_merges == false)
-            return operation_outcome::failed(failure_kind::refused, u8"범위에 병합 커밋이 " + count_text(range.merge_count) + u8"개 있습니다. 한 줄로 펴도 되는지 확인해야 합니다.");
+            return operation_outcome::failed(failure_kind::refused, tr(u8"git.rebase.merge_commits_in_range", { { u8"count", range.merge_count } }));
 
         std::vector<std::string> range_shas {};
         range_shas.reserve(range.commits.size());
@@ -336,7 +327,7 @@ namespace cyella {
 
         const rebase_state_directory state { context.owner().options().rebase_state_root, context.job().id };
         if (state.path().empty())
-            return operation_outcome::failed(failure_kind::other, u8"인터랙티브 rebase의 준비 파일을 둘 임시 폴더를 만들지 못했습니다.");
+            return operation_outcome::failed(failure_kind::other, tr(u8"git.rebase.temp_folder_failed"));
         std::string expected {};
         for (const std::string& sha : range_shas)
             expected.append(sha).push_back('\n');
@@ -344,7 +335,7 @@ namespace cyella {
         for (const rebase_message_file& file : rebase_message_files(request.todo))
             written = written && is_hex_object_id(file.sha) && write_file(state.path() / "messages" / file.sha, file.message);
         if (written == false)
-            return operation_outcome::failed(failure_kind::other, u8"인터랙티브 rebase의 준비 파일을 쓰지 못했습니다.");
+            return operation_outcome::failed(failure_kind::other, tr(u8"git.rebase.prepare_files_failed"));
 
         const std::u8string editor { make_editor_command(helper) };
         git_command_spec spec {};
@@ -359,10 +350,10 @@ namespace cyella {
 
         std::error_code error {};
         if (std::filesystem::exists(state.path() / "mismatch", error))
-            return operation_outcome::failed(failure_kind::refused, u8"편집기를 연 뒤 rebase할 커밋이 바뀌었습니다. 편집기를 다시 여세요.");
+            return operation_outcome::failed(failure_kind::refused, tr(u8"git.rebase.commits_changed"));
 
         const rebase_preview preview { preview_rebase(request.todo, {}) };
-        std::u8string summary { u8"인터랙티브 rebase를 마쳤습니다 (커밋 " + count_text(request.todo.size()) + u8"개 → " + count_text(preview.commits.size()) + u8"개)." };
+        std::u8string summary { tr(u8"git.rebase.finished", { { u8"before", request.todo.size() }, { u8"after", preview.commits.size() } }) };
         return context.finish_sequence(outcome, std::move(summary));
     }
 

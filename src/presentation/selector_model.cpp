@@ -1,6 +1,7 @@
 #include "presentation/selector_model.h"
 
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 
 #include "luil/generated/codicons.h"
 
@@ -114,7 +115,7 @@ namespace cyella {
             if (folder.empty() == false)
                 label += u8"   " + folder;
             if (choice.available == false)
-                label += u8"   (사용할 수 없음)";
+                label += tr(u8"selector.unavailable_suffix");
             if (choice.tab != 0)
             {
                 list.entries.push_back(make_entry(std::u8string { selector_tab_key_prefix } + number(choice.tab), std::move(label), choice.current ? icons::icon_check : icons::icon_repo,
@@ -128,10 +129,10 @@ namespace cyella {
         }
         limit_entries(list);
         if (list.hidden > 0)
-            list.entries.push_back(make_entry(std::u8string { selector_more_key }, u8"외 " + number(list.hidden) + u8"개 · 이름이나 경로로 좁히세요", 0, false, true));
+            list.entries.push_back(make_entry(std::u8string { selector_more_key }, tr(u8"selector.repository_more", { { u8"count", list.hidden } }), 0, false, true));
         if (list.matched == 0)
-            list.entries.push_back(make_entry(std::u8string { selector_empty_key }, u8"일치하는 저장소 없음", 0, false));
-        list.entries.push_back(make_entry(std::u8string { selector_open_folder_key }, u8"폴더에서 저장소 열기…", icons::icon_folder_opened, true, true));
+            list.entries.push_back(make_entry(std::u8string { selector_empty_key }, tr(u8"selector.repository_none"), 0, false));
+        list.entries.push_back(make_entry(std::u8string { selector_open_folder_key }, tr(u8"selector.open_folder"), icons::icon_folder_opened, true, true));
         return list;
     }
 
@@ -145,7 +146,7 @@ namespace cyella {
             const bool current { value.is_current && detached == false };
             std::u8string label { to_u8(value.name) };
             if (current)
-                label += u8"   (현재)";
+                label += tr(u8"selector.current_suffix");
             if (value.ahead > 0)
                 label += u8"   ↑" + number(value.ahead);
             if (value.behind > 0)
@@ -155,9 +156,9 @@ namespace cyella {
         }
         limit_entries(list);
         if (list.hidden > 0)
-            list.entries.push_back(make_entry(std::u8string { selector_more_key }, u8"외 " + number(list.hidden) + u8"개 · 이름으로 좁히세요", 0, false, true));
+            list.entries.push_back(make_entry(std::u8string { selector_more_key }, tr(u8"selector.branch_more", { { u8"count", list.hidden } }), 0, false, true));
         if (list.matched == 0)
-            list.entries.push_back(make_entry(std::u8string { selector_empty_key }, u8"일치하는 브랜치 없음", 0, false));
+            list.entries.push_back(make_entry(std::u8string { selector_empty_key }, tr(u8"selector.branch_none"), 0, false));
         return list;
     }
 } // namespace cyella

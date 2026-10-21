@@ -1,6 +1,7 @@
 #include "infrastructure/git_operation_context.h"
 
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 #include "infrastructure/git_interactive_rebase.h"
 #include "infrastructure/git_query_parser.h"
 
@@ -136,21 +137,22 @@ namespace cyella {
             // 충돌이 나도 git은 stash를 지우지 않는다. 체크아웃은 이미 됐으므로 그 사실과 함께 알린다.
             operation_outcome failure { context.failure_from(popped) };
             if (failure.failure.has_value())
-                failure.failure->summary = name_of(target) + u8"로 옮겼지만 보관한 변경을 다시 꺼내다 충돌했습니다. stash@{0}을 남겼습니다.";
+                failure.failure->summary = tr(u8"git.checkout.pop_conflict", { { u8"name", name_of(target) } });
             return failure;
         }
 
         operation_outcome checkout_branch(git_operation_context& context, const checkout_branch_request& request)
         {
             return checkout_with_policy(
-                context, request.policy, request.name, [&request](const git_switch_mode mode) { return make_git_switch_args(request.name, mode); }, name_of(request.name) + u8"로 체크아웃했습니다.");
+                context, request.policy, request.name, [&request](const git_switch_mode mode) { return make_git_switch_args(request.name, mode); },
+                tr(u8"git.checkout.done", { { u8"name", name_of(request.name) } }));
         }
 
         operation_outcome checkout_remote_branch(git_operation_context& context, const checkout_remote_branch_request& request)
         {
             const std::size_t slash { request.remote_branch.find('/') };
             if (slash == std::string::npos || slash + 1 >= request.remote_branch.size())
-                return operation_outcome::failed(failure_kind::invalid_request, u8"원격 브랜치 이름은 `<remote>/<branch>` 모양이어야 합니다.");
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.checkout.remote_branch_format"));
             const std::string local { request.remote_branch.substr(slash + 1) };
 
             git_command_spec exists {};
@@ -162,17 +164,16 @@ namespace cyella {
 
             if (found.exit_code() == 0)
                 return checkout_with_policy(
-                    context, request.policy, local, [&local](const git_switch_mode mode) { return make_git_switch_args(local, mode); }, name_of(local) + u8"로 체크아웃했습니다.");
+                    context, request.policy, local, [&local](const git_switch_mode mode) { return make_git_switch_args(local, mode); }, tr(u8"git.checkout.done", { { u8"name", name_of(local) } }));
             return checkout_with_policy(
                 context, request.policy, local, [&local, &request](const git_switch_mode mode) { return make_git_switch_create_args(local, request.remote_branch, true, mode); },
-                name_of(local) + u8" 추적 브랜치를 만들고 체크아웃했습니다.");
+                tr(u8"git.checkout.tracking_created", { { u8"name", name_of(local) } }));
         }
 
         operation_outcome checkout_detached(git_operation_context& context, const checkout_detached_request& request)
         {
             return checkout_with_policy(
-                context, request.policy, request.revision, [&request](const git_switch_mode mode) { return make_git_switch_detach_args(request.revision, mode); },
-                u8"커밋을 체크아웃했습니다(detached HEAD).");
+                context, request.policy, request.revision, [&request](const git_switch_mode mode) { return make_git_switch_detach_args(request.revision, mode); }, tr(u8"git.checkout.detached"));
         }
 
         operation_outcome commit(git_operation_context& context, const commit_request& request)
@@ -195,37 +196,37 @@ namespace cyella {
             const std::string message { options.keep_message ? std::string {} : with_trailing_newline(request.message) };
             // 서명하면 gpg의 pinentry나 ssh 키 passphrase 대화 상자를 사용자가 열 때까지 기다린다. 그동안 시간 제한(300초)으로 끊지 않고 취소만 받는다.
             const git_command_class command_class { request.sign == true ? git_command_class::network : git_command_class::local_write };
-            return run_single(context, make_git_commit_args(options), command_class, request.amend ? u8"직전 커밋을 고쳤습니다." : u8"커밋했습니다.", message);
+            return run_single(context, make_git_commit_args(options), command_class, request.amend ? tr(u8"git.commit.amended") : tr(u8"git.commit.done"), message);
         }
 
         // 추적하지 않는 파일을 휴지통으로 보낸다. git을 실행하지 않는 파일 연산이다.
         operation_outcome trash_files(git_operation_context& context, const trash_files_request& request)
         {
             if (request.paths.empty())
-                return operation_outcome::failed(failure_kind::invalid_request, u8"휴지통으로 보낼 파일이 없습니다.");
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.trash.nothing"));
             std::vector<std::u8string> targets {};
             targets.reserve(request.paths.size());
             for (const std::string& path : request.paths)
             {
                 const std::optional<std::u8string> absolute { resolve_workspace_child(context.job().repository_path, path) };
                 if (absolute.has_value() == false)
-                    return operation_outcome::failed(failure_kind::invalid_request, u8"저장소 안의 파일 경로가 아닙니다: " + to_utf8(path));
+                    return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.trash.outside_repository", { { u8"path", to_utf8(path) } }));
                 targets.push_back(*absolute);
             }
             // 이미 없는 파일은 보낼 것이 없다. 일부만 없을 때는 남은 것만 보낸다.
             workspace_files& files { context.owner().files() };
             std::erase_if(targets, [&files](const std::u8string& path) { return files.probe(path) == path_kind::missing; });
             if (targets.empty())
-                return operation_outcome::succeeded(u8"이미 없는 파일입니다.");
+                return operation_outcome::succeeded(tr(u8"git.trash.already_gone"));
             if (files.move_to_recycle_bin(targets) == false)
-                return operation_outcome::failed(failure_kind::other, u8"휴지통으로 보내지 못했습니다.");
-            return operation_outcome::succeeded(u8"휴지통으로 보냈습니다.");
+                return operation_outcome::failed(failure_kind::other, tr(u8"git.trash.failed"));
+            return operation_outcome::succeeded(tr(u8"git.trash.done"));
         }
 
         operation_outcome ignore_path(git_operation_context& context, const ignore_path_request& request)
         {
             if (request.pattern.empty() || request.pattern.find_first_of("\r\n") != std::string::npos)
-                return operation_outcome::failed(failure_kind::invalid_request, u8"한 줄짜리 패턴이 필요합니다.");
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.ignore.single_line_required"));
             const std::u8string path { join_path(context.job().repository_path, ".gitignore") };
             workspace_files& files { context.owner().files() };
             std::string line {};
@@ -234,8 +235,8 @@ namespace cyella {
                 line.push_back('\n');
             line.append(request.pattern).push_back('\n');
             if (files.append_text(path, line) == false)
-                return operation_outcome::failed(failure_kind::other, u8".gitignore에 쓰지 못했습니다.");
-            return operation_outcome::succeeded(u8".gitignore에 더했습니다.");
+                return operation_outcome::failed(failure_kind::other, tr(u8"git.ignore.write_failed"));
+            return operation_outcome::succeeded(tr(u8"git.ignore.added"));
         }
 
         operation_outcome push(git_operation_context& context, const push_execute_request& request)
@@ -248,11 +249,11 @@ namespace cyella {
             if (request.branch.empty() == false)
             {
                 if (request.remote.empty())
-                    return operation_outcome::failed(failure_kind::invalid_request, u8"브랜치를 고르면 원격도 골라야 합니다.");
+                    return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.push.remote_required"));
                 const std::string& remote_branch { request.remote_branch.empty() ? request.branch : request.remote_branch };
                 options.refspec = "refs/heads/" + request.branch + ":refs/heads/" + remote_branch;
             }
-            return run_single(context, make_git_push_args(options), git_command_class::network, u8"push했습니다.");
+            return run_single(context, make_git_push_args(options), git_command_class::network, tr(u8"git.push.done"));
         }
 
         operation_outcome merge(git_operation_context& context, const merge_request& request)
@@ -267,7 +268,7 @@ namespace cyella {
                 if (context.run_required(std::move(move), outcome, stop) == false)
                     return *stop;
             }
-            return run_sequence(context, make_git_merge_args(request.from), git_command_class::local_write, name_of(request.from) + u8"를 병합했습니다.");
+            return run_sequence(context, make_git_merge_args(request.from), git_command_class::local_write, tr(u8"git.merge.done", { { u8"name", name_of(request.from) } }));
         }
 
         operation_outcome fast_forward(git_operation_context& context, const fast_forward_request& request)
@@ -279,7 +280,7 @@ namespace cyella {
                 spec.command_class = git_command_class::local_write;
                 const git_command_outcome outcome { context.run(std::move(spec)) };
                 if (outcome.accepted)
-                    return operation_outcome::succeeded(name_of(request.target) + u8"를 fast-forward했습니다.");
+                    return operation_outcome::succeeded(tr(u8"git.fast_forward.done", { { u8"name", name_of(request.target) } }));
                 return context.failure_from(outcome);
             }
 
@@ -299,7 +300,7 @@ namespace cyella {
             spec.command_class = git_command_class::local_write;
             const git_command_outcome outcome { context.run(std::move(spec)) };
             if (outcome.accepted)
-                return operation_outcome::succeeded(name_of(request.target) + u8"를 fast-forward했습니다.");
+                return operation_outcome::succeeded(tr(u8"git.fast_forward.done", { { u8"name", name_of(request.target) } }));
             operation_outcome failure { context.failure_from(outcome) };
             // `fetch .`의 거절은 push 거절과 같은 표지(`[rejected] ... (non-fast-forward)`)다.
             if (failure.failure.has_value() && (failure.failure->kind == failure_kind::rejected_non_ff || failure.failure->kind == failure_kind::rejected))
@@ -352,7 +353,7 @@ namespace cyella {
             if (failure.failure.has_value() && status.has_value() && status->conflicts.empty() == false)
             {
                 failure.failure->kind = failure_kind::conflict;
-                failure.failure->summary = u8"stash를 꺼내다 충돌했습니다. stash는 남아 있습니다.";
+                failure.failure->summary = tr(u8"git.stash.pop_conflict");
             }
             return failure;
         }
@@ -367,9 +368,10 @@ namespace cyella {
                 // annotated 태그는 메시지가 필요하다. 비우면 이름을 메시지로 쓴다.
                 const std::string message { with_trailing_newline(request.message.empty() ? request.name : request.message) };
                 git_arguments arguments { signed_tag ? make_git_signed_tag_args(request.name, request.sha) : make_git_annotated_tag_args(request.name, request.sha, no_sign) };
-                return run_single(context, std::move(arguments), signed_tag ? git_command_class::network : git_command_class::local_write, name_of(request.name) + u8" 태그를 만들었습니다.", message);
+                return run_single(
+                    context, std::move(arguments), signed_tag ? git_command_class::network : git_command_class::local_write, tr(u8"git.tag.created", { { u8"name", name_of(request.name) } }), message);
             }
-            return run_single(context, make_git_tag_args(request.name, request.sha, no_sign), git_command_class::local_write, name_of(request.name) + u8" 태그를 만들었습니다.");
+            return run_single(context, make_git_tag_args(request.name, request.sha, no_sign), git_command_class::local_write, tr(u8"git.tag.created", { { u8"name", name_of(request.name) } }));
         }
 
         git_arguments sequence_arguments(const operation_kind kind)
@@ -407,7 +409,7 @@ namespace cyella {
         {
             git_arguments arguments { sequence_arguments(request.kind) };
             if (arguments.empty())
-                return operation_outcome::failed(failure_kind::invalid_request, u8"continue·skip·abort 종류가 아닙니다.");
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.sequence.invalid_kind"));
             git_command_spec spec {};
             spec.arguments = std::move(arguments);
             spec.command_class = git_command_class::local_write;
@@ -415,7 +417,7 @@ namespace cyella {
             if (request.kind == operation_kind::rebase_continue || request.kind == operation_kind::rebase_skip)
                 spec.environment = interactive_rebase_continue_environment(context);
             const git_command_outcome outcome { context.run(std::move(spec)) };
-            return context.finish_sequence(outcome, u8"진행 중 작업을 이어서 처리했습니다.");
+            return context.finish_sequence(outcome, tr(u8"git.sequence.continued"));
         }
 
         operation_outcome resolve_file(git_operation_context& context, const resolve_file_request& request)
@@ -428,24 +430,24 @@ namespace cyella {
             if (context.run_required(std::move(take), outcome, stop) == false)
                 return *stop;
             const std::vector<std::string> paths { request.path };
-            return run_single(context, make_git_add_args(paths), git_command_class::local_write, name_of(request.path) + u8" 충돌을 해결했습니다.");
+            return run_single(context, make_git_add_args(paths), git_command_class::local_write, tr(u8"git.conflict.resolved_file", { { u8"name", name_of(request.path) } }));
         }
 
         operation_outcome remove_stale_index_lock(git_operation_context& context)
         {
             const std::string git_dir { context.read_git_dir() };
             if (git_dir.empty())
-                return operation_outcome::failed(failure_kind::not_found, u8"git 저장소가 아닙니다.");
+                return operation_outcome::failed(failure_kind::not_found, tr(u8"git.not_a_repository"));
             // 우리가 띄운 git이 이 저장소에서 돌고 있으면 그 잠금은 버려진 것이 아니다.
             if (context.owner().active_process_count(context.job().repository_path) != 0)
-                return operation_outcome::failed(failure_kind::refused, u8"이 저장소에서 git이 실행 중이라 index.lock을 지우지 않았습니다.");
+                return operation_outcome::failed(failure_kind::refused, tr(u8"git.index_lock.git_running"));
             const std::u8string lock { join_path(to_utf8(git_dir), "index.lock") };
             workspace_files& files { context.owner().files() };
             if (files.probe(lock) == path_kind::missing)
-                return operation_outcome::succeeded(u8"index.lock이 이미 없습니다.");
+                return operation_outcome::succeeded(tr(u8"git.index_lock.already_gone"));
             if (files.remove_file(lock) == false)
-                return operation_outcome::failed(failure_kind::other, u8"index.lock을 지우지 못했습니다.");
-            return operation_outcome::succeeded(u8"남은 index.lock을 지웠습니다.");
+                return operation_outcome::failed(failure_kind::other, tr(u8"git.index_lock.remove_failed"));
+            return operation_outcome::succeeded(tr(u8"git.index_lock.removed"));
         }
     } // namespace
 
@@ -459,17 +461,17 @@ namespace cyella {
                 if constexpr (std::is_same_v<request_type, stage_files_request>)
                 {
                     git_command_spec spec { context.path_command(request.paths, &make_git_add_args, &make_git_add_from_stdin_args, write) };
-                    return run_single(context, std::move(spec.arguments), write, u8"stage했습니다.", std::move(spec.standard_input));
+                    return run_single(context, std::move(spec.arguments), write, tr(u8"git.stage.done"), std::move(spec.standard_input));
                 }
                 else if constexpr (std::is_same_v<request_type, unstage_files_request>)
                 {
                     git_command_spec spec { context.path_command(request.paths, &make_git_restore_staged_args, &make_git_restore_staged_from_stdin_args, write) };
-                    return run_single(context, std::move(spec.arguments), write, u8"unstage했습니다.", std::move(spec.standard_input));
+                    return run_single(context, std::move(spec.arguments), write, tr(u8"git.unstage.done"), std::move(spec.standard_input));
                 }
                 else if constexpr (std::is_same_v<request_type, discard_files_request>)
                 {
                     git_command_spec spec { context.path_command(request.paths, &make_git_restore_worktree_args, &make_git_restore_worktree_from_stdin_args, write) };
-                    return run_single(context, std::move(spec.arguments), write, u8"변경을 버렸습니다.", std::move(spec.standard_input));
+                    return run_single(context, std::move(spec.arguments), write, tr(u8"git.discard.done"), std::move(spec.standard_input));
                 }
                 else if constexpr (std::is_same_v<request_type, ignore_path_request>)
                     return ignore_path(context, request);
@@ -484,7 +486,7 @@ namespace cyella {
                     options.reverse = request.reverse;
                     options.recount = request.recount;
                     options.unidiff_zero = request.unidiff_zero;
-                    return run_single(context, make_git_apply_args(options), write, u8"patch를 적용했습니다.", request.patch);
+                    return run_single(context, make_git_apply_args(options), write, tr(u8"git.apply_patch.done"), request.patch);
                 }
                 else if constexpr (std::is_same_v<request_type, checkout_branch_request>)
                     return checkout_branch(context, request);
@@ -495,18 +497,18 @@ namespace cyella {
                 else if constexpr (std::is_same_v<request_type, create_branch_request>)
                 {
                     if (request.checkout)
-                        return run_single(context, make_git_switch_create_args(request.name, request.at), write, name_of(request.name) + u8" 브랜치를 만들고 체크아웃했습니다.");
-                    return run_single(context, make_git_branch_create_args(request.name, request.at), write, name_of(request.name) + u8" 브랜치를 만들었습니다.");
+                        return run_single(context, make_git_switch_create_args(request.name, request.at), write, tr(u8"git.branch.created_checked_out", { { u8"name", name_of(request.name) } }));
+                    return run_single(context, make_git_branch_create_args(request.name, request.at), write, tr(u8"git.branch.created", { { u8"name", name_of(request.name) } }));
                 }
                 else if constexpr (std::is_same_v<request_type, rename_branch_request>)
-                    return run_single(context, make_git_branch_rename_args(request.old_name, request.new_name), write, u8"브랜치 이름을 바꿨습니다.");
+                    return run_single(context, make_git_branch_rename_args(request.old_name, request.new_name), write, tr(u8"git.branch.renamed"));
                 else if constexpr (std::is_same_v<request_type, delete_branch_request>)
-                    return run_single(context, make_git_branch_delete_args(request.name, request.force), write, name_of(request.name) + u8" 브랜치를 지웠습니다.");
+                    return run_single(context, make_git_branch_delete_args(request.name, request.force), write, tr(u8"git.branch.deleted", { { u8"name", name_of(request.name) } }));
                 else if constexpr (std::is_same_v<request_type, set_upstream_request>)
                     return run_single(context, make_git_branch_set_upstream_args(request.branch, request.remote, request.remote_branch), write,
-                        name_of(request.branch) + u8"의 upstream을 " + name_of(request.remote) + u8"/" + name_of(request.remote_branch) + u8"로 정했습니다.");
+                        tr(u8"git.branch.upstream_set", { { u8"branch", name_of(request.branch) }, { u8"remote", name_of(request.remote) }, { u8"remote_branch", name_of(request.remote_branch) } }));
                 else if constexpr (std::is_same_v<request_type, unset_upstream_request>)
-                    return run_single(context, make_git_branch_unset_upstream_args(request.branch), write, name_of(request.branch) + u8"의 upstream을 해제했습니다.");
+                    return run_single(context, make_git_branch_unset_upstream_args(request.branch), write, tr(u8"git.branch.upstream_unset", { { u8"branch", name_of(request.branch) } }));
                 else if constexpr (std::is_same_v<request_type, fetch_request>)
                 {
                     git_fetch_options options {};
@@ -514,56 +516,56 @@ namespace cyella {
                     options.all = request.all;
                     options.prune = request.prune;
                     options.refspec = request.refspec;
-                    return run_single(context, make_git_fetch_args(options), network, u8"가져왔습니다.");
+                    return run_single(context, make_git_fetch_args(options), network, tr(u8"git.fetch.done"));
                 }
                 else if constexpr (std::is_same_v<request_type, pull_request>)
                 {
-                    return run_sequence(context, make_git_pull_args(pull_mode_of(request.strategy)), network, u8"pull했습니다.");
+                    return run_sequence(context, make_git_pull_args(pull_mode_of(request.strategy)), network, tr(u8"git.pull.done"));
                 }
                 else if constexpr (std::is_same_v<request_type, push_execute_request>)
                     return push(context, request);
                 else if constexpr (std::is_same_v<request_type, merge_request>)
                     return merge(context, request);
                 else if constexpr (std::is_same_v<request_type, rebase_request>)
-                    return run_sequence(
-                        context, make_git_rebase_args(request.onto, request.branch, request.autostash), write, name_of(request.branch) + u8"를 " + name_of(request.onto) + u8" 위로 rebase했습니다.");
+                    return run_sequence(context, make_git_rebase_args(request.onto, request.branch, request.autostash), write,
+                        tr(u8"git.rebase.done", { { u8"branch", name_of(request.branch) }, { u8"onto", name_of(request.onto) } }));
                 else if constexpr (std::is_same_v<request_type, fast_forward_request>)
                     return fast_forward(context, request);
                 else if constexpr (std::is_same_v<request_type, reset_request>)
-                    return run_single(context, make_git_reset_args(reset_mode_of(request.mode), request.to), write, u8"reset했습니다.");
+                    return run_single(context, make_git_reset_args(reset_mode_of(request.mode), request.to), write, tr(u8"git.reset.done"));
                 else if constexpr (std::is_same_v<request_type, cherry_pick_request>)
                 {
                     const std::vector<std::string> revisions { request.sha };
-                    return run_sequence(context, make_git_cherry_pick_args(revisions), write, u8"cherry-pick했습니다.");
+                    return run_sequence(context, make_git_cherry_pick_args(revisions), write, tr(u8"git.cherry_pick.done"));
                 }
                 else if constexpr (std::is_same_v<request_type, revert_request>)
                 {
                     const std::vector<std::string> revisions { request.sha };
-                    return run_sequence(context, make_git_revert_args(revisions), write, u8"되돌리는 커밋을 만들었습니다.");
+                    return run_sequence(context, make_git_revert_args(revisions), write, tr(u8"git.revert.done"));
                 }
                 else if constexpr (std::is_same_v<request_type, stash_push_request>)
                 {
                     git_stash_push_options options {};
                     options.message = request.message;
                     options.include_untracked = request.include_untracked;
-                    return run_single(context, make_git_stash_push_args(options), write, u8"stash에 보관했습니다.");
+                    return run_single(context, make_git_stash_push_args(options), write, tr(u8"git.stash.pushed"));
                 }
                 else if constexpr (std::is_same_v<request_type, stash_apply_request>)
-                    return stash_restore(context, make_git_stash_apply_args(request.index), u8"stash를 적용했습니다.");
+                    return stash_restore(context, make_git_stash_apply_args(request.index), tr(u8"git.stash.applied"));
                 else if constexpr (std::is_same_v<request_type, stash_pop_request>)
-                    return stash_restore(context, make_git_stash_pop_args(request.index), u8"stash를 꺼냈습니다.");
+                    return stash_restore(context, make_git_stash_pop_args(request.index), tr(u8"git.stash.popped"));
                 else if constexpr (std::is_same_v<request_type, stash_drop_request>)
-                    return run_single(context, make_git_stash_drop_args(request.index), write, u8"stash를 지웠습니다.");
+                    return run_single(context, make_git_stash_drop_args(request.index), write, tr(u8"git.stash.dropped"));
                 else if constexpr (std::is_same_v<request_type, create_tag_request>)
                     return create_tag(context, request);
                 else if constexpr (std::is_same_v<request_type, push_tag_request>)
-                    return run_single(context, make_git_push_tag_args(request.remote, request.name), network, name_of(request.name) + u8" 태그를 push했습니다.");
+                    return run_single(context, make_git_push_tag_args(request.remote, request.name), network, tr(u8"git.tag.pushed", { { u8"name", name_of(request.name) } }));
                 else if constexpr (std::is_same_v<request_type, push_tags_request>)
-                    return run_single(context, make_git_push_all_tags_args(request.remote), network, u8"모든 태그를 push했습니다.");
+                    return run_single(context, make_git_push_all_tags_args(request.remote), network, tr(u8"git.tag.pushed_all"));
                 else if constexpr (std::is_same_v<request_type, delete_tag_request>)
-                    return run_single(context, make_git_delete_tag_args(request.name), write, name_of(request.name) + u8" 태그를 지웠습니다.");
+                    return run_single(context, make_git_delete_tag_args(request.name), write, tr(u8"git.tag.deleted", { { u8"name", name_of(request.name) } }));
                 else if constexpr (std::is_same_v<request_type, delete_remote_tag_request>)
-                    return run_single(context, make_git_delete_remote_tag_args(request.remote, request.name), network, name_of(request.name) + u8" 태그를 원격에서 지웠습니다.");
+                    return run_single(context, make_git_delete_remote_tag_args(request.remote, request.name), network, tr(u8"git.tag.deleted_remote", { { u8"name", name_of(request.name) } }));
                 else if constexpr (std::is_same_v<request_type, sequence_control_request>)
                     return sequence_control(context, request);
                 else if constexpr (std::is_same_v<request_type, resolve_file_request>)
@@ -571,14 +573,14 @@ namespace cyella {
                 else if constexpr (std::is_same_v<request_type, mark_resolved_request>)
                 {
                     git_command_spec spec { context.path_command(request.paths, &make_git_add_args, &make_git_add_from_stdin_args, write) };
-                    return run_single(context, std::move(spec.arguments), write, u8"해결됨으로 표시했습니다.", std::move(spec.standard_input));
+                    return run_single(context, std::move(spec.arguments), write, tr(u8"git.conflict.marked_resolved"), std::move(spec.standard_input));
                 }
                 else if constexpr (std::is_same_v<request_type, remove_stale_index_lock_request>)
                     return remove_stale_index_lock(context);
                 else if constexpr (std::is_same_v<request_type, interactive_rebase_request>)
                     return run_interactive_rebase(context, request);
                 else
-                    return operation_outcome::failed(failure_kind::invalid_request, u8"쓰기 lane에서 실행할 수 없는 작업입니다.");
+                    return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.write_lane_unsupported"));
             },
             context.job().operation);
     }

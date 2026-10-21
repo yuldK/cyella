@@ -1,4 +1,5 @@
 // 환경 설정 "사용자 프로필" 쪽의 메시지 처리다. settings_controller의 멤버 함수를 파일 하나로 나눠 둔다.
+#include "domain/text_catalog.h"
 #include "domain/user_profile.h"
 #include "presentation/settings/profiles_intents.h"
 #include "presentation/settings/profiles_page.h"
@@ -66,7 +67,7 @@ namespace cyella {
             update_settings([index](app_settings& value) { static_cast<void>(remove_user_profile(value, index)); });
             // 줄 번호가 밀렸으니 고치던 줄은 접는다.
             state.profile_edit.reset();
-            state.message = u8"프로필을 지웠습니다 (가리키던 규칙·적용 기록도): " + name;
+            state.message = tr(u8"profiles.removed", { { u8"name", name } });
         }
         else if (message.get<save_profile_intent>() != nullptr)
         {
@@ -77,7 +78,7 @@ namespace cyella {
             if (check_user_profile(profile, settings.profiles, index).empty() == false)
                 return;
             update_settings([&profile, index](app_settings& value) { upsert_user_profile(value, index, profile); });
-            state.message = u8"프로필을 저장했습니다: " + profile.name;
+            state.message = tr(u8"profiles.saved", { { u8"name", profile.name } });
             state.profile_edit.reset();
         }
         else if (message.get<cancel_profile_edit_intent>() != nullptr)
@@ -91,7 +92,7 @@ namespace cyella {
                 rule.profile = settings.profiles.front().name;
             if (check_profile_rule(rule, settings.profiles).empty() == false)
                 return;
-            const std::u8string text { u8"'" + rule.path_prefix + u8"' 아래 저장소를 열면 프로필 '" + rule.profile + u8"' 제안" };
+            const std::u8string text { tr(u8"profiles.rule_added", { { u8"prefix", rule.path_prefix }, { u8"profile", rule.profile } }) };
             update_settings([&rule](app_settings& value) { upsert_profile_rule(value, rule); });
             set_text(state.rule_draft.prefix, {});
             state.message = text;
@@ -100,7 +101,7 @@ namespace cyella {
         {
             const std::size_t index { remove_rule_intent->index };
             update_settings([index](app_settings& value) { static_cast<void>(remove_profile_rule(value, index)); });
-            state.message = u8"프로필 제안 규칙을 지웠습니다.";
+            state.message = tr(u8"profiles.rule_removed");
         }
     }
 } // namespace cyella

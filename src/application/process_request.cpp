@@ -1,5 +1,7 @@
 #include "application/process_request.h"
 
+#include "domain/text_catalog.h"
+
 #include <utility>
 
 namespace cyella {
@@ -26,17 +28,6 @@ namespace cyella {
             return value.find(char8_t {}) != std::u8string_view::npos;
         }
 
-        std::u8string to_u8string(const std::size_t value)
-        {
-            if (value == 0)
-                return std::u8string { u8"0" };
-
-            std::u8string digits {};
-            for (std::size_t remaining = value; remaining > 0; remaining /= 10)
-                digits.insert(digits.begin(), static_cast<char8_t>(u8'0' + (remaining % 10)));
-            return digits;
-        }
-
         diagnostic make_invalid_request(std::u8string message)
         {
             diagnostic value {};
@@ -50,41 +41,41 @@ namespace cyella {
         {
             if (request.executable.empty())
             {
-                diagnostics.push_back(make_invalid_request(u8"실행 파일 경로가 비어 있습니다."));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.executable_empty")));
                 return;
             }
             if (contains_null(request.executable))
             {
-                diagnostics.push_back(make_invalid_request(u8"실행 파일 경로에 NUL 문자를 포함할 수 없습니다."));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.executable_contains_nul")));
                 return;
             }
             // PATH 탐색과 확장자 추론을 하지 않으므로 상대 경로는 호출자의 현재 디렉터리에
             // 따라 다른 프로그램을 실행할 수 있다. 따라서 절대 경로만 허용한다.
             if (is_absolute_windows_path(request.executable) == false)
-                diagnostics.push_back(make_invalid_request(u8"실행 파일은 절대 경로여야 합니다: " + request.executable));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.executable_not_absolute", { { u8"path", request.executable } })));
         }
 
         void validate_working_directory(const process_request& request, std::vector<diagnostic>& diagnostics)
         {
             if (request.working_directory.empty())
             {
-                diagnostics.push_back(make_invalid_request(u8"작업 디렉터리 경로가 비어 있습니다."));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.working_directory_empty")));
                 return;
             }
             if (contains_null(request.working_directory))
             {
-                diagnostics.push_back(make_invalid_request(u8"작업 디렉터리 경로에 NUL 문자를 포함할 수 없습니다."));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.working_directory_contains_nul")));
                 return;
             }
             if (is_absolute_windows_path(request.working_directory) == false)
-                diagnostics.push_back(make_invalid_request(u8"작업 디렉터리는 절대 경로여야 합니다: " + request.working_directory));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.working_directory_not_absolute", { { u8"path", request.working_directory } })));
         }
 
         void validate_arguments(const process_request& request, std::vector<diagnostic>& diagnostics)
         {
             for (std::size_t index = 0; index < request.arguments.size(); ++index)
                 if (contains_null(request.arguments[index]))
-                    diagnostics.push_back(make_invalid_request(u8"인자 " + to_u8string(index) + u8"에 NUL 문자를 포함할 수 없습니다."));
+                    diagnostics.push_back(make_invalid_request(tr(u8"process.argument_contains_nul", { { u8"index", index } })));
         }
 
         void validate_environment(const process_request& request, std::vector<diagnostic>& diagnostics)
@@ -92,20 +83,19 @@ namespace cyella {
             for (std::size_t index = 0; index < request.environment_overrides.size(); ++index)
             {
                 const process_environment_override& entry { request.environment_overrides[index] };
-                const std::u8string position { u8"환경 변수 " + to_u8string(index) };
                 if (entry.name.empty())
                 {
-                    diagnostics.push_back(make_invalid_request(position + u8"의 이름이 비어 있습니다."));
+                    diagnostics.push_back(make_invalid_request(tr(u8"process.environment_name_empty", { { u8"index", index } })));
                     continue;
                 }
                 if (entry.name.find(u8'=') != std::u8string::npos || contains_null(entry.name))
                 {
-                    diagnostics.push_back(make_invalid_request(position + u8"의 이름에는 '='와 NUL 문자를 포함할 수 없습니다: " + entry.name));
+                    diagnostics.push_back(make_invalid_request(tr(u8"process.environment_name_invalid", { { u8"index", index }, { u8"name", entry.name } })));
                     continue;
                 }
                 if (entry.value.has_value() && contains_null(*entry.value))
                 {
-                    diagnostics.push_back(make_invalid_request(position + u8"의 값에 NUL 문자를 포함할 수 없습니다: " + entry.name));
+                    diagnostics.push_back(make_invalid_request(tr(u8"process.environment_value_contains_nul", { { u8"index", index }, { u8"name", entry.name } })));
                     continue;
                 }
 
@@ -114,7 +104,7 @@ namespace cyella {
                 for (std::size_t earlier = 0; earlier < index; ++earlier)
                     if (equal_ignoring_ascii_case(request.environment_overrides[earlier].name, entry.name))
                     {
-                        diagnostics.push_back(make_invalid_request(position + u8"의 이름이 앞선 항목과 중복됩니다: " + entry.name));
+                        diagnostics.push_back(make_invalid_request(tr(u8"process.environment_name_duplicate", { { u8"index", index }, { u8"name", entry.name } })));
                         break;
                     }
             }
@@ -123,11 +113,11 @@ namespace cyella {
         void validate_limits(const process_request& request, std::vector<diagnostic>& diagnostics)
         {
             if (request.timeout.has_value() && request.timeout->count() <= 0)
-                diagnostics.push_back(make_invalid_request(u8"timeout은 0보다 커야 합니다."));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.timeout_not_positive")));
             if (request.maximum_captured_bytes_per_stream == 0)
-                diagnostics.push_back(make_invalid_request(u8"스트림별 캡처 상한은 0보다 커야 합니다."));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.capture_limit_not_positive")));
             if (request.maximum_record_bytes < minimum_process_record_byte_limit)
-                diagnostics.push_back(make_invalid_request(u8"레코드 크기 상한은 " + to_u8string(minimum_process_record_byte_limit) + u8" byte 이상이어야 합니다."));
+                diagnostics.push_back(make_invalid_request(tr(u8"process.record_limit_too_small", { { u8"minimum", minimum_process_record_byte_limit } })));
         }
     } // namespace
 

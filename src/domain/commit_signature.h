@@ -56,7 +56,7 @@ namespace cyella {
     [[nodiscard]] bool is_signed(signature_status status) noexcept;
 
     // 배지에 쓰는 짧은 글이다 ("서명 확인됨", "알 수 없는 키").
-    [[nodiscard]] std::u8string_view signature_badge_text(signature_status status) noexcept;
+    [[nodiscard]] std::u8string signature_badge_text(signature_status status);
     // 배지 아래에 붙는 설명 한 문장이다. `note`를 반영한다. 서명이 없으면 비어 있다. 서명자와 키는 따로 보인다(`commit_signature::signer`·`key`).
     [[nodiscard]] std::u8string signature_description(const commit_signature& signature);
     // `note`가 있으면 배지 글이 달라진다 ("확인할 수 없음 (allowed signers 없음)").

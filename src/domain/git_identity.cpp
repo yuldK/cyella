@@ -1,6 +1,7 @@
 #include "domain/git_identity.h"
 
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 
 #include <algorithm>
 #include <array>
@@ -170,26 +171,26 @@ namespace cyella {
         return identity;
     }
 
-    std::u8string_view identity_origin_label(const identity_origin origin) noexcept
+    std::u8string identity_origin_label(const identity_origin origin)
     {
         switch (origin)
         {
         case identity_origin::local:
-            return u8"로컬";
+            return tr(u8"identity.origin.local");
         case identity_origin::worktree:
             return u8"worktree";
         case identity_origin::global:
-            return u8"전역";
+            return tr(u8"identity.origin.global");
         case identity_origin::include:
             return u8"includeIf";
         case identity_origin::system:
-            return u8"시스템";
+            return tr(u8"identity.origin.system");
         case identity_origin::command_line:
-            return u8"명령줄";
+            return tr(u8"identity.origin.command_line");
         case identity_origin::unknown:
             break;
         }
-        return u8"알 수 없음";
+        return tr(u8"identity.origin.unknown");
     }
 
     std::u8string describe_identity(const git_identity& identity)
@@ -197,9 +198,9 @@ namespace cyella {
         const bool has_name { identity.name.has_value() && identity.name->value.empty() == false };
         const bool has_email { identity.email.has_value() && identity.email->value.empty() == false };
         if (has_name == false && has_email == false)
-            return u8"설정되지 않음";
-        std::u8string text { has_name ? identity.name->value : std::u8string { u8"(이름 없음)" } };
-        text += u8" <" + (has_email ? identity.email->value : std::u8string { u8"이메일 없음" }) + u8">";
+            return tr(u8"identity.not_set");
+        std::u8string text { has_name ? identity.name->value : tr(u8"identity.no_name") };
+        text += u8" <" + (has_email ? identity.email->value : tr(u8"identity.no_email")) + u8">";
         return text;
     }
 
@@ -217,6 +218,6 @@ namespace cyella {
         const std::u8string email_origin { identity.email.has_value() ? std::u8string { identity_origin_label(identity.email->origin) } : std::u8string {} };
         if (name_origin == email_origin || name_origin.empty() || email_origin.empty())
             return text + u8" · " + (name_origin.empty() ? email_origin : name_origin);
-        return text + u8" · 이름 " + name_origin + u8" · 이메일 " + email_origin;
+        return text + tr(u8"identity.split_origin_suffix", { { u8"name_origin", name_origin }, { u8"email_origin", email_origin } });
     }
 } // namespace cyella

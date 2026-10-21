@@ -54,6 +54,6 @@ namespace cyella {
 
     [[nodiscard]] git_tool_version minimum_supported_git_version() noexcept;
     [[nodiscard]] std::u8string_view git_tool_availability_name(git_tool_availability availability) noexcept;
-    [[nodiscard]] std::u8string_view git_tool_unavailable_message(git_tool_availability availability) noexcept;
+    [[nodiscard]] std::u8string git_tool_unavailable_message(git_tool_availability availability);
     [[nodiscard]] std::u8string format_git_tool_version(const git_tool_version& version);
 } // namespace cyella

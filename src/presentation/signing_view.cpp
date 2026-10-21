@@ -1,5 +1,7 @@
 #include "presentation/signing_view.h"
 
+#include "domain/text_catalog.h"
+
 namespace cyella {
     signature_tone signature_tone_of(const signature_status status) noexcept
     {
@@ -26,7 +28,7 @@ namespace cyella {
         signature_view view {};
         if (signature == nullptr)
         {
-            view.badge = u8"확인 중…";
+            view.badge = tr(u8"signing_page.signature_checking");
             return view;
         }
         view.known = true;
@@ -45,7 +47,7 @@ namespace cyella {
             return {};
         // ssh 서명은 키 파일(.pub)을 git이 스스로 찾지 못한다. gpg는 설정이 없으면 커밋터 이메일의 키를 쓴다.
         if (config.format() == signing_format::ssh && config.has_signing_key() == false)
-            return u8"ssh 서명 키가 없습니다 — 환경 설정의 서명에서 고르세요.";
+            return tr(u8"signing_page.ssh_signing_key_missing");
         return {};
     }
 } // namespace cyella

@@ -1,5 +1,6 @@
 #include "presentation/ui/settings/appearance_ui.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
@@ -142,9 +143,9 @@ namespace cyella::ui {
             {
                 set_focus_group(luil::focus_axis::horizontal);
                 set_focus_entry({ kind_theme_option, u8"settings-theme-" + std::u8string { theme_preference_name(selected) } });
-                add_child(std::make_unique<theme_option_element>(theme_preference::light, selected == theme_preference::light, u8"밝게"));
-                add_child(std::make_unique<theme_option_element>(theme_preference::system, selected == theme_preference::system, u8"시스템"));
-                add_child(std::make_unique<theme_option_element>(theme_preference::dark, selected == theme_preference::dark, u8"어둡게"));
+                add_child(std::make_unique<theme_option_element>(theme_preference::light, selected == theme_preference::light, tr(u8"settings.appearance.theme_light")));
+                add_child(std::make_unique<theme_option_element>(theme_preference::system, selected == theme_preference::system, tr(u8"settings.appearance.theme_system")));
+                add_child(std::make_unique<theme_option_element>(theme_preference::dark, selected == theme_preference::dark, tr(u8"settings.appearance.theme_dark")));
             }
 
             void arrange(const luil::arrange_context& context) override
@@ -167,7 +168,7 @@ namespace cyella::ui {
 
             [[nodiscard]] luil::access_info accessibility() const override
             {
-                return { .role = luil::access_role::radio_group, .name = u8"테마" };
+                return { .role = luil::access_role::radio_group, .name = tr(u8"settings.general.theme") };
             }
         };
 
@@ -180,12 +181,12 @@ namespace cyella::ui {
                 , open_ { view.font_list.has_value() && view.font_list->code == code }
             {
                 const std::u8string owner { code ? u8"settings-code-font" : u8"settings-ui-font" };
-                const luil::text_input_config input_config { .placeholder = u8"기본 글꼴 · 이름을 입력하거나 목록에서 선택" };
+                const luil::text_input_config input_config { .placeholder = tr(u8"settings.appearance.font_placeholder") };
                 const luil::ui_element_id input_id { code ? kind_code_font_input : kind_ui_font_input, owner };
                 auto input { std::make_unique<luil::text_input_element>(input_id, code ? view.code_font : view.ui_font, input_config) };
-                input->set_access_name(code ? u8"코드 글꼴" : u8"UI 글꼴");
+                input->set_access_name(code ? tr(u8"settings.general.code_font") : tr(u8"settings.general.ui_font"));
                 add_child(std::move(input));
-                auto arrow { make_icon_button(owner + u8"-expand", codicons::icon_chevron_down, u8"설치된 글꼴 목록", {}, true) };
+                auto arrow { make_icon_button(owner + u8"-expand", codicons::icon_chevron_down, tr(u8"settings.appearance.installed_fonts"), {}, true) };
                 arrow->set_action(luil::ui_trigger::left_click, [this](const luil::ui_action_context&) { return open_action(open_ == false); });
                 add_child(std::move(arrow));
                 set_access_handler([this](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
@@ -211,7 +212,7 @@ namespace cyella::ui {
 
             [[nodiscard]] luil::access_info accessibility() const override
             {
-                return { .role = luil::access_role::combo_box, .name = code_ ? u8"코드 글꼴 선택" : u8"UI 글꼴 선택", .expanded = open_ };
+                return { .role = luil::access_role::combo_box, .name = code_ ? tr(u8"settings.appearance.choose_code_font") : tr(u8"settings.appearance.choose_ui_font"), .expanded = open_ };
             }
 
         private:
@@ -257,7 +258,7 @@ namespace cyella::ui {
         config.edges.shadows = true;
         config.owner = u8"settings-font-list";
         config.row_height = font_row_height;
-        config.items.push_back({ .key = u8"font-default", .label = u8"기본 글꼴" });
+        config.items.push_back({ .key = u8"font-default", .label = tr(u8"settings.appearance.default_font") });
         for (const std::u8string& family : installed)
             if (query.empty() || folded(family).find(query) != std::u8string::npos)
                 config.items.push_back({ .key = family, .label = family });
@@ -281,8 +282,9 @@ namespace cyella::ui {
         const luil::stack_config column_config { .spacing = font_popup_padding, .padding = luil::edge_insets::all(font_popup_padding) };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"font-list-column" }, column_config) };
         const luil::ui_element_id search { anchor.code ? kind_code_font_input : kind_ui_font_input, u8"settings-font-search" };
-        auto filter { std::make_unique<luil::text_input_element>(search, input, luil::text_input_config { .placeholder = u8"설치된 글꼴 검색", .leading_glyph = codicons::icon_search }) };
-        filter->set_access_name(u8"설치된 글꼴 검색");
+        const luil::text_input_config filter_config { .placeholder = tr(u8"settings.appearance.search_fonts"), .leading_glyph = codicons::icon_search };
+        auto filter { std::make_unique<luil::text_input_element>(search, input, filter_config) };
+        filter->set_access_name(tr(u8"settings.appearance.search_fonts"));
         column->add(std::move(filter), font_search_height);
         column->add(std::make_unique<luil::virtual_list_element>(std::move(config)), list_height);
         auto panel { std::make_unique<luil::panel_element>(luil::ui_element_id { kind_panel, u8"font-list-panel" }, floating_panel_config(6.0f, 0.3f)) };

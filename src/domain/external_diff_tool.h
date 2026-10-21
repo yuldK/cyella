@@ -17,6 +17,9 @@ namespace cyella {
     };
 
     [[nodiscard]] std::vector<external_file_app> default_external_file_apps();
+    // 화면에 보이는 앱 이름이다. 기본 탐색기 항목의 이름(`Windows 탐색기`)은 설정 파일에 그대로 남는 값이라, 보일 때만 화면 언어로
+    // 바꾼다 (ADR-008). 사용자가 붙인 이름은 그대로다.
+    [[nodiscard]] std::u8string external_file_app_label(const external_file_app& app);
 
     // 저장소 폴더를 여는 앱 목록이다. 탐색기와 VS Code가 앞에 서고, 환경 설정에 사용자가 더한 파일 앱이 뒤따른다.
     // 기본 파일 앱의 인자는 파일 하나를 고르는 꼴(`/select,{file}`)이라 같은 실행 파일은 폴더를 여는 인자로 대신한다.

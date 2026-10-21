@@ -1,5 +1,7 @@
 #include "platform/win32/hosting_bridge.h"
 
+#include "domain/text_catalog.h"
+
 #include <chrono>
 #include <utility>
 
@@ -79,7 +81,7 @@ namespace cyella::win32 {
         if (service_ == nullptr || scheduler_ == nullptr)
         {
             // 전송을 세우지 못했다 (WinHTTP·client 생성 실패, git 없음). 원격을 모른다는 뜻이 아니므로 연결 오류로 알린다.
-            post_failure(job, hosting_error_kind::network, start_error_.empty() ? std::string { "호스팅 연동을 시작하지 못했습니다" } : start_error_);
+            post_failure(job, hosting_error_kind::network, start_error_.empty() ? tr_narrow(u8"hosting_remote.start_failed") : start_error_);
             return;
         }
         auto source { std::make_shared<process_cancellation_source>() };

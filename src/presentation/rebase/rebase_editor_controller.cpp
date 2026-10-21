@@ -1,5 +1,6 @@
 #include "presentation/rebase/rebase_editor_controller.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/rebase/rebase_editor_model.h"
 
 #include <algorithm>
@@ -76,7 +77,7 @@ namespace cyella {
         if (state.plan_operation == 0)
         {
             state.phase = rebase_editor_phase::load_failed;
-            state.error = u8"저장소가 열려 있지 않아 범위를 읽지 못했습니다.";
+            state.error = tr(u8"rebase_editor.load_no_repository");
         }
         state_ = std::move(state);
     }
@@ -243,7 +244,7 @@ namespace cyella {
         state.run_operation = dependencies_.workspace->submit(state.repository_id, std::move(request));
         if (state.run_operation == 0)
         {
-            state.error = u8"저장소가 열려 있지 않아 시작하지 못했습니다.";
+            state.error = tr(u8"rebase_editor.start_no_repository");
             return;
         }
         state.error.clear();
@@ -268,7 +269,7 @@ namespace cyella {
                 return;
             }
             state.phase = rebase_editor_phase::load_failed;
-            state.error = status->failure.has_value() ? status->failure->summary : std::u8string { u8"rebase할 커밋을 읽지 못했습니다." };
+            state.error = status->failure.has_value() ? status->failure->summary : tr(u8"rebase_editor.load_failed");
             return;
         }
         if (state.phase != rebase_editor_phase::running)

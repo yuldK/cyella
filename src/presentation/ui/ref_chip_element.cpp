@@ -1,5 +1,6 @@
 #include "presentation/ui/ref_chip_element.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/drop_hints.h"
 #include "presentation/menu_model.h"
@@ -225,9 +226,9 @@ namespace cyella::ui {
         set_tab_stop(false);
         set_tooltip(label_.also_remote ? label_.text + u8" · " + label_.remote_name : label_.text);
         if (label_.worktree_path.empty() == false)
-            set_tooltip(tooltip() + u8" · 다른 worktree에서 체크아웃됨: " + std::u8string { label_.worktree_path.begin(), label_.worktree_path.end() });
-        access_name_ = label_.text + (label_.local_only ? std::u8string { u8" (원격에 없음)" } : std::u8string {})
-            + (label_.worktree_path.empty() ? std::u8string {} : std::u8string { u8" (다른 worktree에서 사용 중)" });
+            set_tooltip(tooltip() + tr(u8"ref_chip.checked_out_in_worktree_suffix", { { u8"path", std::u8string { label_.worktree_path.begin(), label_.worktree_path.end() } } }));
+        access_name_ = label_.text + (label_.local_only ? tr(u8"ref_chip.not_on_remote_suffix") : std::u8string {})
+            + (label_.worktree_path.empty() ? std::u8string {} : tr(u8"ref_chip.in_other_worktree_suffix"));
         set_action(luil::ui_trigger::left_click, action_of(message(select_commit_intent { row_key })));
 
         switch (label_.kind)

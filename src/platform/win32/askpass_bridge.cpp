@@ -1,5 +1,6 @@
 #include "platform/win32/askpass_bridge.h"
 
+#include "domain/text_catalog.h"
 #include "platform/win32/win32_askpass_server.h"
 
 #include <charconv>
@@ -49,7 +50,7 @@ namespace cyella::win32 {
 
         if (helper.has_value() == false)
         {
-            startup_diagnostic_ = make_diagnostic(diagnostic_code::askpass_helper_missing, u8"인증 도우미(cyella-askpass.exe)를 찾지 못했습니다. 인증이 필요한 Git 작업은 실패합니다.");
+            startup_diagnostic_ = make_diagnostic(diagnostic_code::askpass_helper_missing, tr(u8"askpass.helper_missing"));
             return;
         }
 
@@ -71,7 +72,7 @@ namespace cyella::win32 {
         askpass_server_start_result started { start_askpass_server(askpass_prompt_handler { handler }) };
         if (started.server == nullptr)
         {
-            startup_diagnostic_ = make_diagnostic(diagnostic_code::askpass_server_failed, u8"인증 서버를 열지 못했습니다. 인증이 필요한 Git 작업은 실패합니다.", started.native_error);
+            startup_diagnostic_ = make_diagnostic(diagnostic_code::askpass_server_failed, tr(u8"askpass.server_failed"), started.native_error);
             return;
         }
         server_ = std::move(started.server);

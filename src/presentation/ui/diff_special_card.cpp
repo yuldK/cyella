@@ -1,6 +1,7 @@
 #include "presentation/ui/diff_special_card.h"
 
 #include "application/app_messages.h"
+#include "domain/text_catalog.h"
 #include "presentation/extension_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ref_chip_element.h"
@@ -76,9 +77,11 @@ namespace cyella::ui {
                                  true, codicons::icon_cloud_download),
                     text_button_width(special.action_label, true));
             if (special.open_path.empty() == false)
-                buttons->add(
-                    make_text_button(u8"diff-special-open", u8"서브모듈 열기", luil::text_button_visual::accent, message(open_submodule_intent { special.open_path }), true, codicons::icon_repo),
-                    text_button_width(u8"서브모듈 열기", true));
+            {
+                const std::u8string open_label { tr(u8"diff.special.open_submodule") };
+                buttons->add(make_text_button(u8"diff-special-open", open_label, luil::text_button_visual::accent, message(open_submodule_intent { special.open_path }), true, codicons::icon_repo),
+                    text_button_width(open_label, true));
+            }
             buttons->add_flexible_gap();
             card->add_gap(6.0f);
             card->add(std::move(buttons), button_height);

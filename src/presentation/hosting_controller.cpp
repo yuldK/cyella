@@ -1,5 +1,6 @@
 #include "presentation/hosting_controller.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/build_view_snapshot.h"
 
 #include <algorithm>
@@ -18,11 +19,6 @@ namespace cyella {
             return std::u8string { text.begin(), text.end() };
         }
 
-        std::u8string number_text(const std::uint64_t value)
-        {
-            return to_u8(std::to_string(value));
-        }
-
         std::optional<std::uint64_t> parse_number(const std::string_view text)
         {
             if (text.empty())
@@ -39,11 +35,11 @@ namespace cyella {
             switch (info.state)
             {
             case pull_request_state::open:
-                return info.draft ? u8"초안" : u8"열림";
+                return info.draft ? tr(u8"hosting.state_draft") : tr(u8"hosting.state_open");
             case pull_request_state::merged:
-                return u8"병합됨";
+                return tr(u8"hosting.state_merged");
             case pull_request_state::closed:
-                return u8"닫힘";
+                return tr(u8"hosting.state_closed");
             }
             return {};
         }
@@ -53,17 +49,17 @@ namespace cyella {
             switch (state)
             {
             case ci_state::success:
-                return u8"CI 통과";
+                return tr(u8"hosting.ci_success");
             case ci_state::failure:
-                return u8"CI 실패";
+                return tr(u8"hosting.ci_failure");
             case ci_state::pending:
-                return u8"CI 진행 중";
+                return tr(u8"hosting.ci_pending");
             case ci_state::error:
-                return u8"CI 오류";
+                return tr(u8"hosting.ci_error");
             case ci_state::none:
                 break;
             }
-            return u8"CI 상태 없음";
+            return tr(u8"hosting.ci_none");
         }
 
         bool web_url_allowed(const std::string_view url)
@@ -130,12 +126,12 @@ namespace cyella {
         };
         if (target.has_value() == false || target->repository.has_value() == false)
         {
-            tell(u8"이 저장소에는 GitHub·GitLab으로 연동할 원격이 없습니다.");
+            tell(tr(u8"hosting.no_remote_notice"));
             return std::nullopt;
         }
         if (target->repository->supported() == false)
         {
-            tell(u8"이 원격은 GitHub·GitLab으로 알아보지 못했습니다. 환경 설정의 '호스팅'에서 호스트를 추가하세요.");
+            tell(tr(u8"hosting.unsupported_remote_notice"));
             return std::nullopt;
         }
         return target;
@@ -231,7 +227,7 @@ namespace cyella {
         hosting_job job { make_job(*target, hosting_create_job { params }) };
         pending_[job.serial] = { .what = pending_job::kind::create, .repository_id = repository_id, .host_key = target->repository->host_key };
         if (dependencies_.notice != nullptr)
-            dependencies_.notice(to_u8(std::string { hosting_change_request_abbreviation(target->repository->provider) }) + u8"을 만드는 중…", false);
+            dependencies_.notice(tr(u8"hosting.creating", { { u8"kind", hosting_change_request_abbreviation(target->repository->provider) } }), false);
         dependencies_.submit_job(std::move(job));
     }
 
@@ -358,7 +354,7 @@ namespace cyella {
         if (web_url_allowed(url) == false)
         {
             if (dependencies_.notice != nullptr)
-                dependencies_.notice(u8"브라우저로 열 수 있는 주소가 아닙니다.", true);
+                dependencies_.notice(tr(u8"hosting.url_not_openable"), true);
             return;
         }
         dependencies_.open_url(url);
@@ -377,13 +373,13 @@ namespace cyella {
         if (target->current_branch == local)
         {
             if (dependencies_.notice != nullptr)
-                dependencies_.notice(u8"이미 '" + to_u8(local) + u8"' 브랜치에 있습니다. 최신으로 받으려면 pull하세요.", false);
+                dependencies_.notice(tr(u8"hosting.already_on_branch", { { u8"branch", local } }), false);
             return;
         }
         if (target->repository->remote_name.empty())
         {
             if (dependencies_.notice != nullptr)
-                dependencies_.notice(u8"PR을 받을 원격 이름을 알 수 없습니다.", true);
+                dependencies_.notice(tr(u8"hosting.no_remote_name"), true);
             return;
         }
         fetch_request fetch {};
@@ -394,7 +390,7 @@ namespace cyella {
         operations.emplace_back(std::move(fetch));
         operations.emplace_back(checkout_branch_request { .name = local });
         if (dependencies_.submit_git(repository_id, std::move(operations)) == 0 && dependencies_.notice != nullptr)
-            dependencies_.notice(u8"체크아웃 작업을 접수하지 못했습니다.", true);
+            dependencies_.notice(tr(u8"hosting.checkout_not_queued"), true);
     }
 
     // ------------------------------------------------------------------ 만들기
@@ -403,9 +399,9 @@ namespace cyella {
     {
         const host_session* const host { target.repository.has_value() ? find_session(target.repository->host_key) : nullptr };
         if (target.detached || target.current_branch.empty())
-            return u8"분리된 HEAD에서는 만들 수 없습니다. 브랜치를 체크아웃하세요.";
+            return tr(u8"hosting.create_blocked_detached");
         if (host == nullptr || host->signed_in == false)
-            return u8"먼저 로그인하세요.";
+            return tr(u8"hosting.create_blocked_signed_out");
         return {};
     }
 
@@ -464,12 +460,12 @@ namespace cyella {
         if (id == 0)
         {
             if (dependencies_.notice != nullptr)
-                dependencies_.notice(u8"push 작업을 접수하지 못했습니다.", true);
+                dependencies_.notice(tr(u8"hosting.push_not_queued"), true);
             return;
         }
         pending_creates_[id] = { repository_id, std::move(params) };
         if (dependencies_.notice != nullptr)
-            dependencies_.notice(u8"브랜치를 push한 뒤 " + to_u8(std::string { hosting_change_request_abbreviation(target->repository->provider) }) + u8"을 만듭니다…", false);
+            dependencies_.notice(tr(u8"hosting.push_then_create", { { u8"kind", hosting_change_request_abbreviation(target->repository->provider) } }), false);
     }
 
     void hosting_controller::after_events()
@@ -494,7 +490,7 @@ namespace cyella {
             if (status->state == operation_state::succeeded)
                 send_create(create.repository_id, create.params);
             else if (status->state == operation_state::failed && dependencies_.notice != nullptr)
-                dependencies_.notice(u8"push가 실패해 PR을 만들지 않았습니다. 작업 로그를 확인하세요.", true);
+                dependencies_.notice(tr(u8"hosting.push_failed_no_create"), true);
         }
     }
 
@@ -565,7 +561,7 @@ namespace cyella {
         }
         host.error_text.clear();
         if (dependencies_.notice != nullptr)
-            dependencies_.notice(to_u8(job.host_key) + u8"에 '" + to_u8(*payload->value) + u8"' 계정으로 로그인했습니다.", false);
+            dependencies_.notice(tr(u8"hosting.signed_in", { { u8"host", job.host_key }, { u8"user", *payload->value } }), false);
         request_list(job.repository_id, 1, false);
         if (const std::optional<hosting_target> target { dependencies_.target_of != nullptr ? dependencies_.target_of(job.repository_id) : std::nullopt }; target.has_value())
             request_ci(job.repository_id, target->selected_sha, false);
@@ -622,7 +618,7 @@ namespace cyella {
         if (payload->ok() == false)
         {
             if (dependencies_.notice != nullptr)
-                dependencies_.notice(to_u8(abbreviation) + u8"을 만들지 못했습니다. " + to_u8(describe_hosting_error(payload->error, result.at)), true);
+                dependencies_.notice(tr(u8"hosting.create_failed", { { u8"kind", abbreviation }, { u8"error", describe_hosting_error(payload->error, result.at) } }), true);
             return;
         }
         const created_pull_request& created { *payload->value };
@@ -637,7 +633,7 @@ namespace cyella {
         state.selected_copy = std::move(info);
         state.created = created_info { created.number, created.web_url };
         if (dependencies_.notice != nullptr)
-            dependencies_.notice(to_u8(abbreviation) + u8" #" + number_text(created.number) + u8"을 만들었습니다: " + to_u8(created.web_url), false);
+            dependencies_.notice(tr(u8"hosting.created", { { u8"kind", abbreviation }, { u8"number", created.number }, { u8"url", created.web_url } }), false);
         request_list(job.repository_id, 1, false);
         request_ci(job.repository_id, state.selected_copy->head_sha, false);
     }
@@ -694,11 +690,12 @@ namespace cyella {
     {
         if (info.remaining.has_value() == false)
             return {};
-        std::u8string text { u8"API 남은 호출 " + to_u8(std::to_string(*info.remaining)) };
+        std::string calls { std::to_string(*info.remaining) };
         if (info.limit.has_value())
-            text += u8"/" + to_u8(std::to_string(*info.limit));
+            calls += "/" + std::to_string(*info.limit);
+        std::u8string text { tr(u8"hosting.rate_limit_remaining", { { u8"calls", calls } }) };
         if (info.reset_at.has_value() && *info.remaining == 0)
-            text += u8" · " + to_u8(describe_remaining_time(*info.reset_at - dependencies_.now())) + u8" 초기화";
+            text += tr(u8"hosting.rate_limit_reset_suffix", { { u8"time", describe_remaining_time(*info.reset_at - dependencies_.now()) } });
         return text;
     }
 
@@ -708,7 +705,7 @@ namespace cyella {
         mark.source = to_u8(std::string { hosting_provider_display_name(repository.provider) });
         if (entry == nullptr)
         {
-            mark.text = u8"CI 상태를 읽지 않았습니다";
+            mark.text = tr(u8"hosting.ci_not_loaded");
             return mark;
         }
         mark.loading = entry->loading;
@@ -720,15 +717,15 @@ namespace cyella {
             for (const ci_check_info& check : entry->status.checks)
                 mark.checks.push_back({ to_u8(check.name), check.state, check.url });
             if (entry->loading)
-                mark.text += u8" (갱신 중…)";
+                mark.text += tr(u8"hosting.ci_refreshing_suffix");
             return mark;
         }
         if (entry->loading)
         {
-            mark.text = u8"CI 확인 중…";
+            mark.text = tr(u8"hosting.ci_checking");
             return mark;
         }
-        mark.text = u8"CI 상태를 읽지 못했습니다";
+        mark.text = tr(u8"hosting.ci_load_failed");
         mark.error = to_u8(entry->error_text);
         return mark;
     }

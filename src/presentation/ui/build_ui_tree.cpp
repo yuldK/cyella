@@ -1,6 +1,7 @@
 #include "presentation/ui/build_ui_tree.h"
 
 #include "application/app_messages.h"
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/palette/palette_intents.h"
 #include "presentation/selector_intents.h"
@@ -98,13 +99,13 @@ namespace cyella::ui {
             switch (marker)
             {
             case tab_marker::needs_input:
-                return u8" · 입력 필요";
+                return tr(u8"tabs.marker_needs_input");
             case tab_marker::running:
-                return u8" · 진행 중";
+                return tr(u8"tabs.marker_running");
             case tab_marker::queued:
-                return u8" · 대기 중";
+                return tr(u8"tabs.marker_queued");
             case tab_marker::changes:
-                return u8" · 변경 있음";
+                return tr(u8"tabs.marker_changes");
             case tab_marker::none:
                 break;
             }
@@ -116,13 +117,13 @@ namespace cyella::ui {
             switch (theme)
             {
             case theme_preference::system:
-                return u8"테마: 시스템 (누르면 밝게)";
+                return tr(u8"tree.theme_system");
             case theme_preference::light:
-                return u8"테마: 밝게 (누르면 어둡게)";
+                return tr(u8"tree.theme_light");
             case theme_preference::dark:
-                return u8"테마: 어둡게 (누르면 시스템)";
+                return tr(u8"tree.theme_dark");
             }
-            return u8"테마";
+            return tr(u8"tree.theme");
         }
 
         // 팔레트 단추의 툴팁이다. 지금 단축키(사용자가 바꿨을 수 있다)를 말한다.
@@ -133,7 +134,7 @@ namespace cyella::ui {
                 if (binding.command == "palette.open")
                     chords.push_back(binding.chord);
             const std::u8string keys { format_key_chord_list(chords) };
-            return keys.empty() ? std::u8string { u8"명령 팔레트" } : u8"명령 팔레트 (" + keys + u8")";
+            return keys.empty() ? tr(u8"tree.command_palette") : tr(u8"tree.command_palette_with_keys", { { u8"keys", keys } });
         }
 
         // ---------------------------------------------------------------- 탭 줄
@@ -162,19 +163,19 @@ namespace cyella::ui {
             };
             config.scroll = [](const float delta) { return message(scroll_tabs_intent { delta }); };
             const float viewport_width { std::max(view.logical_width - tab_row_button_width * 3.0f - 4.0f, 0.0f) };
-            auto add { make_icon_button(u8"new-tab", codicons::icon_add, u8"새 탭 (시작 페이지)", message(new_tab_intent {})) };
+            auto add { make_icon_button(u8"new-tab", codicons::icon_add, tr(u8"tabs.new_tab"), message(new_tab_intent {})) };
             auto tab_bar { std::make_unique<repository_tabs_element>(std::move(config), std::move(add), viewport_width, view.reveal_selected_tab) };
             sources.tabs = tab_bar.get();
             std::u8string names {};
             for (const tab_view& tab : view.tabs)
                 names += (names.empty() ? u8"" : u8", ") + tab.label + marker_text(tab.marker);
-            tab_bar->set_tabs_name(u8"탭: " + names);
+            tab_bar->set_tabs_name(tr(u8"tabs.tabs_access_name", { { u8"names", names } }));
 
             auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"tab-row" }, luil::stack_config { .direction = luil::stack_direction::row }) };
             row->add_flexible(std::move(tab_bar));
             row->add(make_icon_button(u8"command-palette", codicons::icon_terminal, palette_tooltip(view), message(open_palette_intent {}), true, view.palette.has_value()), tab_row_button_width);
             row->add(make_icon_button(u8"theme", codicons::icon_color_mode, theme_tooltip(view.theme), message(cycle_theme_intent {})), tab_row_button_width);
-            row->add(make_icon_button(u8"settings", codicons::icon_settings_gear, u8"환경 설정", message(open_settings_intent {})), tab_row_button_width);
+            row->add(make_icon_button(u8"settings", codicons::icon_settings_gear, tr(u8"tree.settings"), message(open_settings_intent {})), tab_row_button_width);
             row->add_gap(4.0f);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"tab-row-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; }, .divider_bottom = true }, std::move(row));
@@ -194,7 +195,7 @@ namespace cyella::ui {
                 , tail_ { std::move(tail) }
                 , open_ { open }
             {
-                set_tooltip(caption_ + u8": " + value_ + u8" (눌러서 고르기)");
+                set_tooltip(tr(u8"tree.selector_tooltip", { { u8"caption", caption_ }, { u8"value", value_ } }));
                 set_cursor(luil::ui_cursor::hand);
                 // 목록의 자리는 이 상자의 왼쪽 아래다. 배치가 끝난 뒤의 자리를 눌렀을 때 읽는다 (물리 픽셀).
                 const auto open_list = [this, kind](const luil::ui_action_context&) -> std::vector<luil::input_action> {
@@ -284,15 +285,15 @@ namespace cyella::ui {
             auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"toolbar" },
                 luil::stack_config { .direction = luil::stack_direction::row, .spacing = toolbar_spacing, .padding = luil::edge_insets { toolbar_padding, 0.0f, toolbar_padding, 0.0f } });
             if (toolbar.show_repository_selector)
-                row->add(std::make_unique<selector_element>(u8"repository-selector", selector_kind::repository, codicons::icon_repo, u8"저장소", toolbar.repository_name, std::u8string {},
-                             view.selector.has_value() && view.selector->kind == selector_kind::repository),
+                row->add(std::make_unique<selector_element>(u8"repository-selector", selector_kind::repository, codicons::icon_repo, tr(u8"tree.toolbar.repository"), toolbar.repository_name,
+                             std::u8string {}, view.selector.has_value() && view.selector->kind == selector_kind::repository),
                     repository_width);
             std::u8string tail {};
             if (toolbar.ahead > 0)
                 tail += u8"↑" + number_text(toolbar.ahead);
             if (toolbar.behind > 0)
                 tail += (tail.empty() ? u8"" : u8" ") + std::u8string { u8"↓" } + number_text(toolbar.behind);
-            row->add(std::make_unique<selector_element>(u8"branch-selector", selector_kind::branch, codicons::icon_git_branch, u8"브랜치", toolbar.branch_text, std::move(tail),
+            row->add(std::make_unique<selector_element>(u8"branch-selector", selector_kind::branch, codicons::icon_git_branch, tr(u8"tree.toolbar.branch"), toolbar.branch_text, std::move(tail),
                          view.selector.has_value() && view.selector->kind == selector_kind::branch),
                 branch_width);
             row->add(std::make_unique<separator_element>(u8"toolbar-separator-1"), toolbar_separator_width);
@@ -306,14 +307,14 @@ namespace cyella::ui {
             tool(u8"push", codicons::icon_repo_push, u8"Push", toolbar.push_hint, toolbar.push_enabled, toolbar_action::push);
             row->add_flexible_gap();
             row->add(std::make_unique<separator_element>(u8"toolbar-separator-2"), toolbar_separator_width);
-            tool(u8"branch", codicons::icon_git_branch, u8"브랜치", u8"새 브랜치의 이름과 시작 커밋을 정합니다.", toolbar.branch_enabled, toolbar_action::branch);
-            tool(u8"stash", codicons::icon_git_stash, u8"보관", u8"변경을 임시 보관합니다 (Stash, 추적하지 않는 파일 포함).", toolbar.stash_enabled, toolbar_action::stash);
-            tool(u8"pop", codicons::icon_git_stash_pop, u8"꺼내기", u8"가장 최근에 보관한 변경을 적용하고 목록에서 지웁니다 (Pop).", toolbar.pop_enabled, toolbar_action::pop);
+            tool(u8"branch", codicons::icon_git_branch, tr(u8"tree.toolbar.branch"), tr(u8"tree.toolbar.branch_tooltip"), toolbar.branch_enabled, toolbar_action::branch);
+            tool(u8"stash", codicons::icon_git_stash, tr(u8"tree.toolbar.stash"), tr(u8"tree.toolbar.stash_tooltip"), toolbar.stash_enabled, toolbar_action::stash);
+            tool(u8"pop", codicons::icon_git_stash_pop, tr(u8"tree.toolbar.pop"), tr(u8"tree.toolbar.pop_tooltip"), toolbar.pop_enabled, toolbar_action::pop);
             row->add(std::make_unique<separator_element>(u8"toolbar-separator-3"), toolbar_separator_width);
             // 저장소 폴더를 다른 앱으로 연다. 고를 앱 목록을 단추 밑에 펼치므로 누른 순간의 단추 자리를 함께 보낸다.
             const bool open_enabled { view.repository.has_value() };
             auto open = std::make_unique<tool_button_element>(
-                u8"open-repository", codicons::icon_folder_opened, u8"열기", u8"저장소 폴더를 탐색기·VS Code 같은 앱으로 엽니다.", toolbar.show_labels, open_enabled, luil::input_action {}, true);
+                u8"open-repository", codicons::icon_folder_opened, tr(u8"tree.toolbar.open"), tr(u8"tree.toolbar.open_tooltip"), toolbar.show_labels, open_enabled, luil::input_action {}, true);
             const auto open_list = [anchor = open.get()](const luil::ui_action_context&) -> std::vector<luil::input_action> {
                 const luil::rect_f box { anchor->bounds() };
                 return { message(open_selector_intent { selector_kind::repository_app, box.x, box.y + box.height, box.width }) };
@@ -322,8 +323,9 @@ namespace cyella::ui {
             open->set_access_handler([open_list](const luil::access_request&) -> std::optional<std::vector<luil::input_action>> { return open_list({}); });
             row->add(std::move(open), width);
             if (toolbar.show_detail_toggle && (view.graph_layout || view.repository.has_value() == false || view.repository->detail != detail_mode::working))
-                row->add(make_icon_button(u8"detail-toggle", codicons::icon_layout_sidebar_right, toolbar.drawer_open ? u8"상세 패널 닫기" : u8"상세 패널 열기",
-                             message(toggle_drawer_intent { toolbar.drawer_open == false }), true, toolbar.drawer_open, 16.0f),
+                row->add(
+                    make_icon_button(u8"detail-toggle", codicons::icon_layout_sidebar_right, toolbar.drawer_open ? tr(u8"tree.toolbar.close_detail_panel") : tr(u8"tree.toolbar.open_detail_panel"),
+                        message(toggle_drawer_intent { toolbar.drawer_open == false }), true, toolbar.drawer_open, 16.0f),
                     toolbar_detail_width);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"toolbar-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; }, .divider_bottom = true }, std::move(row));
@@ -337,24 +339,22 @@ namespace cyella::ui {
             config.owner = u8"workspace-navigation";
             config.tab_width = 136.0f;
             config.items = {
-                { .key = u8"workspace-changes", .label = u8"변경 사항 " + number_text(repository.graph.wip_count), .icon = codicons::icon_diff_multiple },
-                { .key = u8"workspace-history", .label = u8"커밋 이력", .icon = codicons::icon_history },
+                { .key = u8"workspace-changes", .label = tr(u8"tree.workspace_changes", { { u8"count", repository.graph.wip_count } }), .icon = codicons::icon_diff_multiple },
+                { .key = u8"workspace-history", .label = tr(u8"tree.workspace_history"), .icon = codicons::icon_history },
             };
             config.selected = repository.detail == detail_mode::working ? u8"workspace-changes" : u8"workspace-history";
             config.select = [](const std::u8string& key) { return message(select_workspace_intent { key == u8"workspace-changes" }); };
             // 탭은 줄 높이를 다 채우고, 그보다 낮은 배치 전환 컨트롤은 줄의 세로 가운데에 선다.
-            const luil::stack_config row_config {
-                .direction = luil::stack_direction::row, .padding = luil::edge_insets { 8.0f, 0.0f, 8.0f, 0.0f }, .cross_alignment = luil::stack_alignment::center
-            };
+            const luil::stack_config row_config { .direction = luil::stack_direction::row, .padding = luil::edge_insets { 8.0f, 0.0f, 8.0f, 0.0f }, .cross_alignment = luil::stack_alignment::center };
             auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"workspace-navigation-row" }, row_config) };
             auto navigation { std::make_unique<luil::tab_bar_element>(std::move(config)) };
-            navigation->set_access_name(u8"저장소 작업");
+            navigation->set_access_name(tr(u8"tree.workspace_navigation"));
             row->add(std::move(navigation), 272.0f);
             row->add_flexible_gap();
             luil::choice_group_config layout {};
             layout.owner = u8"repository-layout";
-            layout.name = u8"저장소 배치";
-            layout.items = { { u8"layout-graph", u8"그래프 중심" }, { u8"layout-review", u8"변경 중심" } };
+            layout.name = tr(u8"tree.layout");
+            layout.items = { { u8"layout-graph", tr(u8"tree.layout_graph") }, { u8"layout-review", tr(u8"tree.layout_review") } };
             layout.selected = view.graph_layout ? u8"layout-graph" : u8"layout-review";
             layout.select = [](const std::u8string& key) { return message(set_repository_layout_intent { key == u8"layout-graph" }); };
             row->add(make_segmented_control(std::move(layout)), { .length = 188.0f, .cross_length = segmented_control_height });
@@ -387,9 +387,11 @@ namespace cyella::ui {
                 row->add(make_text_button(u8"banner-action-" + action.key, action.label, luil::text_button_visual::accent, message(banner_action_intent { action.key, banner.id })),
                     text_button_width(action.label) + 24.0f);
             if (banner.details.empty() == false)
-                row->add(make_text_button(u8"banner-details", banner.expanded ? u8"접기" : u8"자세히", luil::text_button_visual::normal, message(toggle_banner_details_intent {})), 64.0f);
+                row->add(make_text_button(u8"banner-details", banner.expanded ? tr(u8"tree.banner.collapse") : tr(u8"tree.banner.details"), luil::text_button_visual::normal,
+                             message(toggle_banner_details_intent {})),
+                    64.0f);
             const luil::input_action close { banner.kind == banner_kind::notice ? message(dismiss_notice_intent {}) : message(dismiss_banner_intent { banner.id }) };
-            row->add(make_icon_button(u8"banner-close", codicons::icon_close, u8"배너 닫기", close), 28.0f);
+            row->add(make_icon_button(u8"banner-close", codicons::icon_close, tr(u8"tree.banner.close"), close), 28.0f);
             column->add(std::move(row), shell_banner_height);
             if (banner.expanded)
             {
@@ -401,7 +403,7 @@ namespace cyella::ui {
                                      text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; }, .code = true }),
                         banner_line_height);
                 if (banner.details.size() > shown)
-                    details->add(make_text(u8"banner-detail-more", u8"외 " + number_text(banner.details.size() - shown) + u8"줄 (작업 로그에서 전부 볼 수 있습니다)",
+                    details->add(make_text(u8"banner-detail-more", tr(u8"tree.banner.more_lines", { { u8"count", banner.details.size() - shown } }),
                                      text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } }),
                         banner_line_height);
                 column->add_flexible(std::move(details));
@@ -436,8 +438,8 @@ namespace cyella::ui {
                                  luil::ui_element_id { kind_progress, u8"status-progress" }, luil::progress_config { .value = static_cast<float>(*active.fraction), .thickness = 4.0f }),
                         { .length = 90.0f, .cross_length = 4.0f });
                 if (active.cancellable)
-                    row->add(
-                        make_text_button(u8"status-cancel", u8"취소", luil::text_button_visual::normal, message(cancel_operation_intent { active.id })), { .length = 48.0f, .cross_length = 20.0f });
+                    row->add(make_text_button(u8"status-cancel", tr(u8"tree.cancel"), luil::text_button_visual::normal, message(cancel_operation_intent { active.id })),
+                        { .length = 48.0f, .cross_length = 20.0f });
             }
             else
             {
@@ -452,10 +454,10 @@ namespace cyella::ui {
                 const std::u8string icon { failed ? u8"✗" : waiting ? u8"!" : u8"✓" };
                 if (status.last_result.empty() == false)
                     row->add(make_text(u8"status-result-icon", icon, std::move(icon_style)), 14.0f);
-                row->add_flexible(make_text(u8"status-result", status.last_result.empty() ? std::u8string { u8"준비됨" } : status.last_result, text_style { .size = 11.0f, .color = dim }));
+                row->add_flexible(make_text(u8"status-result", status.last_result.empty() ? tr(u8"tree.status_ready") : status.last_result, text_style { .size = 11.0f, .color = dim }));
             }
             if (status.queued_count > 0)
-                row->add(make_text(u8"status-queued", u8"쓰기 대기 " + number_text(status.queued_count), text_style { .size = 11.0f, .color = dim }), 80.0f);
+                row->add(make_text(u8"status-queued", tr(u8"tree.status_queued", { { u8"count", status.queued_count } }), text_style { .size = 11.0f, .color = dim }), 80.0f);
             // 이 저장소가 커밋에 쓰는 작성자와 출처다. 누르면 프로필을 고르는 팔레트가 열린다.
             if (status.identity_visible && view.logical_width >= medium_layout_minimum_width)
             {
@@ -471,7 +473,7 @@ namespace cyella::ui {
                 version->set_tooltip(view.git_version);
                 row->add(std::move(version), std::min(190.0f, view.logical_width * 0.35f));
             }
-            row->add(make_text_button(u8"operation-log-toggle", u8"작업 로그", status.log_open ? luil::text_button_visual::accent : luil::text_button_visual::normal,
+            row->add(make_text_button(u8"operation-log-toggle", tr(u8"tree.log.title"), status.log_open ? luil::text_button_visual::accent : luil::text_button_visual::normal,
                          message(toggle_operation_log_intent {}), true, codicons::icon_output),
                 { .length = 92.0f, .cross_length = 20.0f });
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"status-bar" },
@@ -485,8 +487,8 @@ namespace cyella::ui {
             auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"operation-log" }, luil::stack_config {}) };
             auto header = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"operation-log-header" },
                 luil::stack_config { .direction = luil::stack_direction::row, .padding = luil::edge_insets { 10.0f, 0.0f, 4.0f, 0.0f } });
-            header->add_flexible(make_text(u8"operation-log-title", u8"작업 로그 · 실행한 git 명령줄", text_style { .size = 12.0f, .bold = true }));
-            header->add(make_icon_button(u8"operation-log-close", codicons::icon_close, u8"작업 로그 닫기", message(toggle_operation_log_intent {})), 28.0f);
+            header->add_flexible(make_text(u8"operation-log-title", tr(u8"tree.log.header"), text_style { .size = 12.0f, .bold = true }));
+            header->add(make_icon_button(u8"operation-log-close", codicons::icon_close, tr(u8"tree.log.close"), message(toggle_operation_log_intent {})), 28.0f);
             column->add(std::move(header), log_header_height);
 
             auto lines { std::make_shared<std::vector<log_line_view>>(view.log) };
@@ -502,7 +504,7 @@ namespace cyella::ui {
             config.scroll_to = [](const float offset) { return message(scroll_intent { .target = scroll_target::operation_log, .value = offset, .absolute = true }); };
             config.edges = luil::scroll_edges { .shadows = true };
             auto list { std::make_unique<luil::virtual_list_element>(std::move(config)) };
-            list->set_access_name(u8"작업 로그");
+            list->set_access_name(tr(u8"tree.log.title"));
             sources.log = list.get();
             column->add_flexible(std::move(list));
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"operation-log-panel" },
@@ -515,7 +517,7 @@ namespace cyella::ui {
         {
             luil::modal_host_config config {};
             config.owner = u8"clone-dialog";
-            config.name = u8"저장소 Clone";
+            config.name = tr(u8"tree.clone.title");
             config.dismiss = action_of(message(close_clone_dialog_intent {}));
             config.focus_entry = luil::ui_element_id { kind_clone_url_input, u8"clone-url" };
             config.surface = floating_panel_config(8.0f, 0.4f);
@@ -525,22 +527,23 @@ namespace cyella::ui {
 
             auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"clone-column" }, luil::stack_config {}) };
             luil::dialog_caption_config caption {
-                .owner = u8"clone", .title = u8"저장소 Clone", .close = action_of(message(close_clone_dialog_intent {})), .close_tooltip = u8"닫기 (clone은 계속됩니다)"
+                .owner = u8"clone", .title = tr(u8"tree.clone.title"), .close = action_of(message(close_clone_dialog_intent {})), .close_tooltip = tr(u8"tree.clone.close_tooltip")
             };
             const float caption_height { luil::dialog_caption_element::height_for(caption) };
             column->add(std::make_unique<luil::dialog_caption_element>(std::move(caption)), caption_height);
 
             auto body { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"clone-body" }, luil::stack_config { .spacing = 6.0f, .padding = luil::edge_insets::all(16.0f) }) };
             const color_selector dim { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
-            body->add(make_text(u8"clone-url-label", u8"원격 URL", text_style { .size = 11.0f, .color = dim }), 16.0f);
-            luil::text_input_config url_config { .placeholder = u8"https://github.com/owner/repo.git 또는 git@host:owner/repo.git" };
+            body->add(make_text(u8"clone-url-label", tr(u8"tree.clone.url_label"), text_style { .size = 11.0f, .color = dim }), 16.0f);
+            luil::text_input_config url_config { .placeholder = tr(u8"tree.clone.url_placeholder") };
             body->add(std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_clone_url_input, u8"clone-url" }, dialog.url, std::move(url_config)), 28.0f);
-            body->add(make_text(u8"clone-path-label", u8"받을 위치 (새 폴더)", text_style { .size = 11.0f, .color = dim }), 16.0f);
+            body->add(make_text(u8"clone-path-label", tr(u8"tree.clone.path_label"), text_style { .size = 11.0f, .color = dim }), 16.0f);
             auto path_row
                 = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"clone-path-row" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f });
             path_row->add_flexible(
                 std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_clone_path_input, u8"clone-path" }, dialog.path, luil::text_input_config { .placeholder = u8"E:\\work\\repo" }));
-            path_row->add(make_text_button(u8"clone-browse", u8"찾아보기…", luil::text_button_visual::normal, ui_command(static_cast<std::uint32_t>(ui_command_id::clone_target_folder))), 86.0f);
+            path_row->add(
+                make_text_button(u8"clone-browse", tr(u8"tree.clone.browse"), luil::text_button_visual::normal, ui_command(static_cast<std::uint32_t>(ui_command_id::clone_target_folder))), 86.0f);
             body->add(std::move(path_row), 28.0f);
             const std::u8string preview { u8"git clone --progress -- " + std::u8string { dialog.url.text } + u8" " + std::u8string { dialog.path.text } };
             body->add(make_text(u8"clone-command", preview, text_style { .size = 11.0f, .color = dim, .code = true }), 18.0f);
@@ -558,8 +561,10 @@ namespace cyella::ui {
                 = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"clone-buttons" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 8.0f });
             buttons->add_flexible_gap();
             if (dialog.running)
-                buttons->add(make_text_button(u8"clone-cancel-operation", u8"Clone 취소", luil::text_button_visual::danger, message(cancel_operation_intent { dialog.operation })), 96.0f);
-            buttons->add(make_text_button(u8"clone-close", dialog.running ? u8"닫기 (계속 진행)" : u8"취소", luil::text_button_visual::normal, message(close_clone_dialog_intent {})),
+                buttons->add(
+                    make_text_button(u8"clone-cancel-operation", tr(u8"tree.clone.cancel_clone"), luil::text_button_visual::danger, message(cancel_operation_intent { dialog.operation })), 96.0f);
+            buttons->add(make_text_button(
+                             u8"clone-close", dialog.running ? tr(u8"tree.clone.close_keep_running") : tr(u8"tree.cancel"), luil::text_button_visual::normal, message(close_clone_dialog_intent {})),
                 dialog.running ? 120.0f : 72.0f);
             buttons->add(make_text_button(u8"clone-submit", u8"Clone", luil::text_button_visual::accent, message(submit_clone_intent {}), dialog.can_submit, codicons::icon_repo_clone, true), 92.0f);
             body->add(std::move(buttons), 30.0f);

@@ -1,3 +1,4 @@
+#include "domain/text_catalog.h"
 #include "infrastructure/git_extension_operations.h"
 #include "infrastructure/git_lfs_commands.h"
 #include "infrastructure/git_lfs_parser.h"
@@ -41,7 +42,7 @@ namespace cyella {
             }
             if (outcome.exit_code() != 0 || parse_git_lfs_version(outcome.standard_output).has_value() == false)
             {
-                stop = operation_outcome::failed(failure_kind::not_found, u8"Git LFS(git-lfs)가 설치되어 있지 않습니다.");
+                stop = operation_outcome::failed(failure_kind::not_found, tr(u8"lfs.not_installed"));
                 return false;
             }
             return true;
@@ -229,7 +230,7 @@ namespace cyella {
         git_command_outcome outcome {};
         if (context.run_required(std::move(spec), outcome, stop) == false)
             return *stop;
-        return operation_outcome::succeeded(u8"LFS 객체를 받아 작업 트리에 채웠습니다.");
+        return operation_outcome::succeeded(tr(u8"lfs.pulled"));
     }
 
     operation_outcome run_lfs_fetch(git_operation_context& context, const lfs_fetch_request& request)
@@ -245,7 +246,7 @@ namespace cyella {
         git_command_outcome outcome {};
         if (context.run_required(std::move(spec), outcome, stop) == false)
             return *stop;
-        return operation_outcome::succeeded(u8"LFS 객체를 받았습니다.");
+        return operation_outcome::succeeded(tr(u8"lfs.fetched"));
     }
 
     operation_outcome run_lfs_track(git_operation_context& context, const lfs_track_request& request)
@@ -259,6 +260,6 @@ namespace cyella {
         git_command_outcome outcome {};
         if (context.run_required(std::move(spec), outcome, stop) == false)
             return *stop;
-        return operation_outcome::succeeded(to_utf8(request.pattern) + u8"을(를) LFS로 추적합니다. .gitattributes가 바뀌었습니다.");
+        return operation_outcome::succeeded(tr(u8"lfs.tracked", { { u8"pattern", to_utf8(request.pattern) } }));
     }
 } // namespace cyella

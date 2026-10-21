@@ -1,5 +1,7 @@
 #include "presentation/settings/signing_page_controller.h"
 
+#include "domain/text_catalog.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -141,7 +143,7 @@ namespace cyella {
         if (dependencies_.write == nullptr)
             return;
         state_.writing = true;
-        state_.message = u8"저장하는 중…";
+        state_.message = tr(u8"signing_page.saving");
         state_.message_error = false;
         dependencies_.write(global, dependencies_.repository_path != nullptr ? dependencies_.repository_path() : std::u8string {}, std::move(changes));
     }
@@ -157,7 +159,8 @@ namespace cyella {
         if (value.empty() == false)
             change.value = with_slashes(to_text(value));
         const std::u8string name { key_name(key) };
-        request_change({ std::move(change) }, value.empty() ? name + u8" 설정을 지웁니다" : name + u8"을 " + value + u8"로 정합니다");
+        request_change(
+            { std::move(change) }, value.empty() ? tr(u8"signing_page.summary_unset", { { u8"name", name } }) : tr(u8"signing_page.summary_set", { { u8"name", name }, { u8"value", value } }));
     }
 
     bool signing_page_controller::handle(const luil::app_message& message, const bool page_open)
@@ -175,7 +178,7 @@ namespace cyella {
                 return true;
             state_.writing = false;
             state_.message_error = intent->ok == false;
-            state_.message = intent->ok ? u8"저장했습니다." : intent->error;
+            state_.message = intent->ok ? tr(u8"signing_page.saved") : intent->error;
             // 성공해도 실패해도 git의 실제 값을 다시 읽어 화면과 맞춘다.
             request_info();
             if (intent->ok && dependencies_.changed != nullptr)
@@ -214,14 +217,14 @@ namespace cyella {
             {
             case signing_toggle_choice::enabled:
                 change.value = "true";
-                summary = name + u8"을 켭니다";
+                summary = tr(u8"signing_page.summary_enable", { { u8"name", name } });
                 break;
             case signing_toggle_choice::disabled:
                 change.value = "false";
-                summary = name + u8"을 끕니다";
+                summary = tr(u8"signing_page.summary_disable", { { u8"name", name } });
                 break;
             case signing_toggle_choice::unset:
-                summary = name + u8" 설정을 지웁니다";
+                summary = tr(u8"signing_page.summary_unset", { { u8"name", name } });
                 break;
             }
             request_change({ std::move(change) }, std::move(summary));
@@ -232,7 +235,9 @@ namespace cyella {
             change.key = signing_key_id::gpg_format;
             if (format->format.has_value())
                 change.value = std::string { signing_format_name(*format->format) };
-            request_change({ std::move(change) }, format->format.has_value() ? u8"gpg.format을 " + to_u8(signing_format_name(*format->format)) + u8"로 정합니다" : u8"gpg.format 설정을 지웁니다");
+            request_change({ std::move(change) },
+                format->format.has_value() ? tr(u8"signing_page.summary_set", { { u8"name", u8"gpg.format" }, { u8"value", signing_format_name(*format->format) } })
+                                           : tr(u8"signing_page.summary_unset", { { u8"name", u8"gpg.format" } }));
         }
         else if (const auto* const key { message.get<choose_signing_key_intent>() }; key != nullptr)
         {
@@ -240,7 +245,8 @@ namespace cyella {
             change.key = signing_key_id::user_signingkey;
             if (key->value.empty() == false)
                 change.value = to_text(key->value);
-            request_change({ std::move(change) }, key->value.empty() ? u8"user.signingkey 설정을 지웁니다" : u8"user.signingkey를 " + key->value + u8"로 정합니다");
+            request_change({ std::move(change) },
+                key->value.empty() ? tr(u8"signing_page.summary_unset", { { u8"name", u8"user.signingkey" } }) : tr(u8"signing_page.summary_set_signing_key", { { u8"value", key->value } }));
         }
         else if (const auto* const text { message.get<apply_signing_text_intent>() }; text != nullptr)
             apply_text(text->key, text->clear);
@@ -251,7 +257,7 @@ namespace cyella {
                 signing_change change {};
                 change.key = signing_key_id::gpg_program;
                 change.value = with_slashes(to_text(state_.info->default_gpg));
-                request_change({ std::move(change) }, u8"gpg.program을 " + state_.info->default_gpg + u8"로 정합니다");
+                request_change({ std::move(change) }, tr(u8"signing_page.summary_set", { { u8"name", u8"gpg.program" }, { u8"value", state_.info->default_gpg } }));
             }
         }
         else if (message.get<confirm_global_signing_intent>() != nullptr)

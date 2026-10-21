@@ -7,6 +7,9 @@ set(cyella_app_icon "${PROJECT_SOURCE_DIR}/assets/cyella.ico")
 set(cyella_app_symbol "${PROJECT_SOURCE_DIR}/assets/cyella.svg")
 set(cyella_app_title "${PROJECT_SOURCE_DIR}/assets/cyella-title.svg")
 set(cyella_app_title_sea "${PROJECT_SOURCE_DIR}/assets/cyella-title-sea.svg")
+# 화면 문구 파일이다 (ADR-008). 언어마다 키 → 문구 JSON 하나이고 실행 파일에 RCDATA로 싣는다.
+set(cyella_locale_ko "${PROJECT_SOURCE_DIR}/assets/locales/ko.json")
+set(cyella_locale_en "${PROJECT_SOURCE_DIR}/assets/locales/en.json")
 
 file(TO_CMAKE_PATH "${cyella_manifest_file}" CYELLA_MANIFEST_PATH)
 file(TO_CMAKE_PATH "${cyella_resource_ids_file}" CYELLA_RESOURCE_IDS_PATH)
@@ -14,6 +17,8 @@ file(TO_CMAKE_PATH "${cyella_app_icon}" CYELLA_APP_ICON_PATH)
 file(TO_CMAKE_PATH "${cyella_app_symbol}" CYELLA_SYMBOL_PATH)
 file(TO_CMAKE_PATH "${cyella_app_title}" CYELLA_TITLE_PATH)
 file(TO_CMAKE_PATH "${cyella_app_title_sea}" CYELLA_TITLE_SEA_PATH)
+file(TO_CMAKE_PATH "${cyella_locale_ko}" CYELLA_LOCALE_KO_PATH)
+file(TO_CMAKE_PATH "${cyella_locale_en}" CYELLA_LOCALE_EN_PATH)
 configure_file(
     "${cyella_resource_template}"
     "${CYELLA_GENERATED_RESOURCE}"
@@ -22,7 +27,7 @@ set_source_files_properties(
     "${CYELLA_GENERATED_RESOURCE}"
     PROPERTIES
         GENERATED TRUE
-        OBJECT_DEPENDS "${cyella_manifest_file};${cyella_resource_ids_file};${cyella_app_icon};${cyella_app_symbol};${cyella_app_title};${cyella_app_title_sea}")
+        OBJECT_DEPENDS "${cyella_manifest_file};${cyella_resource_ids_file};${cyella_app_icon};${cyella_app_symbol};${cyella_app_title};${cyella_app_title_sea};${cyella_locale_ko};${cyella_locale_en}")
 
 # 앱 코드 전체가 하나의 static library다. 계층(domain → application →
 # infrastructure → presentation → platform)은 디렉터리 구조와 코드 리뷰로 지키며,
@@ -73,6 +78,13 @@ cyella_add_source_filter(cyella_lib_files "domain/diff"
 cyella_add_source_filter(cyella_lib_files "domain/operations"
     domain/operation_status.cpp
     domain/operation_status.h)
+
+# 화면 문구 카탈로그다 (ADR-008). 키 → 문구 찾기와 인자·조사 채우기만 하고, 모든 계층이 쓴다.
+cyella_add_source_filter(cyella_lib_files "domain/text"
+    domain/korean_josa.cpp
+    domain/korean_josa.h
+    domain/text_catalog.cpp
+    domain/text_catalog.h)
 
 cyella_add_source_filter(cyella_lib_files "domain/rules"
     domain/ref_name.cpp
@@ -242,7 +254,9 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/git"
 
 cyella_add_source_filter(cyella_lib_files "infrastructure/settings"
     infrastructure/json_app_settings_store.cpp
-    infrastructure/json_app_settings_store.h)
+    infrastructure/json_app_settings_store.h
+    infrastructure/json_text_catalog.cpp
+    infrastructure/json_text_catalog.h)
 
 cyella_add_source_filter(cyella_lib_files "infrastructure/authentication"
     infrastructure/askpass_environment.cpp
@@ -392,8 +406,6 @@ cyella_add_source_filter(cyella_lib_files "presentation/dialogs"
     presentation/form_view.h
     presentation/graph_index.cpp
     presentation/graph_index.h
-    presentation/korean_josa.cpp
-    presentation/korean_josa.h
     presentation/menu_model.cpp
     presentation/menu_model.h
     presentation/selector_intents.h
@@ -523,6 +535,8 @@ cyella_add_source_filter(cyella_lib_files "platform/settings"
     platform/win32/win32_app_settings_path.h
     platform/win32/win32_file_io.cpp
     platform/win32/win32_file_io.h
+    platform/win32/win32_locale.cpp
+    platform/win32/win32_locale.h
     platform/win32/win32_settings_file_system.cpp
     platform/win32/win32_settings_file_system.h)
 
@@ -634,7 +648,7 @@ target_link_libraries(cyella_lib
         shell32)
 
 # resource는 두 .rc다: luil 조각(코디콘 폰트·라이선스·고지, ID 101~104)과 cyella
-# 조각(manifest·앱 아이콘(ID 105)·앱 심볼 SVG(ID 106)·타이틀 SVG 두 장(ID 107·108)·VERSIONINFO).
+# 조각(manifest·앱 아이콘(ID 105)·앱 심볼 SVG(ID 106)·타이틀 SVG 두 장(ID 107·108)·문구 파일 두 개(ID 109·110)·VERSIONINFO).
 set(cyella_app_files)
 cyella_add_source_filter(cyella_app_files "app"
     platform/win32/main.cpp)
@@ -667,10 +681,16 @@ cyella_disable_automatic_windows_manifest(cyella_askpass)
 
 # 인터랙티브 rebase의 편집기 도우미다 (ADR-005). git이 `GIT_SEQUENCE_EDITOR`·`GIT_EDITOR`로 실행해 앱이 준비한
 # 할 일 목록과 메시지를 파일에 쓴다. askpass 도우미처럼 luil·Skia에 링크하지 않고 할 일 규칙만 직접 컴파일한다.
+# 할 일 규칙의 검사 문구가 카탈로그를 쓰므로 카탈로그 소스도 함께 넣는다. 도우미는 문구를 보이지 않으므로 카탈로그를
+# 정하지 않는다 (ADR-008).
 set(cyella_rebase_editor_files)
 cyella_add_source_filter(cyella_rebase_editor_files "rebase_editor"
     domain/interactive_rebase.cpp
     domain/interactive_rebase.h
+    domain/korean_josa.cpp
+    domain/korean_josa.h
+    domain/text_catalog.cpp
+    domain/text_catalog.h
     platform/win32/rebase_editor_main.cpp)
 add_executable(cyella_rebase_editor WIN32 ${cyella_rebase_editor_files})
 set_target_properties(cyella_rebase_editor PROPERTIES OUTPUT_NAME "cyella-rebase-editor")

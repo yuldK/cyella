@@ -1,6 +1,7 @@
 #include "presentation/palette/palette_model.h"
 
 #include "domain/hangul_search.h"
+#include "domain/text_catalog.h"
 
 #include <algorithm>
 #include <string>
@@ -68,7 +69,7 @@ namespace cyella {
                 item.title = entry.label;
                 if (context.selection_menu.title.empty() == false)
                     item.title += u8" — " + context.selection_menu.title;
-                item.detail = u8"선택 항목";
+                item.detail = tr(u8"palette.selection_item");
                 item.keywords = entry.key;
                 std::ranges::replace(item.keywords, u8'_', u8' ');
                 candidates.push_back(candidate { std::move(item), 0, order++ });
@@ -96,12 +97,12 @@ namespace cyella {
                     const bool current { context.detached == false && (value.is_current || value.name == context.current_branch) };
                     if (current)
                     {
-                        item.detail = u8"현재 브랜치";
+                        item.detail = tr(u8"palette.current_branch");
                         item.enabled = false;
                     }
                     else if (value.worktree_path.empty() == false)
                     {
-                        item.detail = u8"다른 worktree에서 사용 중";
+                        item.detail = tr(u8"palette.branch_in_other_worktree");
                         item.enabled = false;
                     }
                     else
@@ -117,7 +118,7 @@ namespace cyella {
                 else
                 {
                     item.key = std::u8string { palette_remote_branch_key_prefix } + to_u8(value.name);
-                    item.detail = u8"원격 브랜치";
+                    item.detail = tr(u8"palette.remote_branch");
                 }
                 candidates.push_back(candidate { std::move(item), 0, order++ });
             }
@@ -136,22 +137,22 @@ namespace cyella {
                 if (choice.tab != 0)
                 {
                     item.key = std::u8string { palette_tab_key_prefix } + number_text(choice.tab);
-                    item.detail = choice.current ? u8"현재 탭" : u8"열린 탭";
+                    item.detail = choice.current ? tr(u8"palette.current_tab") : tr(u8"palette.open_tab");
                     item.enabled = choice.current == false;
                 }
                 else
                 {
                     item.key = std::u8string { palette_recent_key_prefix } + choice.path;
-                    item.detail = choice.available ? choice.path : choice.path + u8" (사용할 수 없음)";
+                    item.detail = choice.available ? choice.path : tr(u8"palette.repository_unavailable", { { u8"path", choice.path } });
                     item.enabled = choice.available;
                 }
                 candidates.push_back(candidate { std::move(item), 0, order++ });
             }
             palette_item folder {};
             folder.key = std::u8string { palette_command_key_prefix } + u8"repo.open_folder";
-            folder.title = u8"폴더에서 저장소 열기…";
+            folder.title = tr(u8"command.repo.open_folder");
             folder.keywords = u8"open folder browse directory";
-            folder.detail = u8"폴더 대화 상자";
+            folder.detail = tr(u8"palette.folder_dialog");
             folder.ui_thread_command = true;
             candidates.push_back(candidate { std::move(folder), 0, order++ });
             return candidates;
@@ -169,50 +170,50 @@ namespace cyella {
                     item.title = profile.name;
                     item.detail = profile.user_name + u8" <" + profile.user_email + u8">";
                     if (profile.name == context.current_profile)
-                        item.detail += u8"  · 적용됨";
+                        item.detail += tr(u8"palette.profile_applied_suffix");
                     else if (profile.name == context.suggested_profile)
-                        item.detail += u8"  · 규칙 제안";
+                        item.detail += tr(u8"palette.profile_suggested_suffix");
                     item.keywords = profile.user_name + u8" " + profile.user_email + u8" profile identity";
                     candidates.push_back(candidate { std::move(item), 0, order++ });
                 }
             palette_item manage {};
             manage.key = std::u8string { palette_manage_profiles_key };
-            manage.title = u8"프로필 관리…";
+            manage.title = tr(u8"palette.manage_profiles");
             manage.keywords = u8"manage settings profiles add edit";
-            manage.detail = u8"환경 설정";
+            manage.detail = tr(u8"palette.settings");
             candidates.push_back(candidate { std::move(manage), 0, order++ });
             return candidates;
         }
     } // namespace
 
-    std::u8string_view palette_mode_title(const palette_mode mode) noexcept
+    std::u8string palette_mode_title(const palette_mode mode)
     {
         switch (mode)
         {
         case palette_mode::commands:
-            return u8"명령 팔레트";
+            return tr(u8"palette.mode.commands");
         case palette_mode::branches:
-            return u8"브랜치로 이동";
+            return tr(u8"palette.mode.branches");
         case palette_mode::repositories:
-            return u8"저장소 열기";
+            return tr(u8"palette.mode.repositories");
         case palette_mode::profiles:
-            return u8"프로필 적용";
+            return tr(u8"palette.mode.profiles");
         }
         return {};
     }
 
-    std::u8string_view palette_mode_placeholder(const palette_mode mode) noexcept
+    std::u8string palette_mode_placeholder(const palette_mode mode)
     {
         switch (mode)
         {
         case palette_mode::commands:
-            return u8"명령 검색 (초성도 됩니다: ㅂㄹㅊ)";
+            return tr(u8"palette.placeholder.commands");
         case palette_mode::branches:
-            return u8"이동할 브랜치 검색";
+            return tr(u8"palette.placeholder.branches");
         case palette_mode::repositories:
-            return u8"열 저장소 검색 (이름이나 경로)";
+            return tr(u8"palette.placeholder.repositories");
         case palette_mode::profiles:
-            return u8"적용할 프로필 검색";
+            return tr(u8"palette.placeholder.profiles");
         }
         return {};
     }
@@ -276,9 +277,9 @@ namespace cyella {
             list.items.resize(palette_visible_limit);
         }
         if (list.hidden > 0)
-            list.items.push_back(palette_item { .key = std::u8string { palette_more_key }, .title = u8"외 " + number_text(list.hidden) + u8"개 · 입력으로 좁히세요", .enabled = false });
+            list.items.push_back(palette_item { .key = std::u8string { palette_more_key }, .title = tr(u8"palette.more_items", { { u8"count", list.hidden } }), .enabled = false });
         if (list.matched == 0)
-            list.items.push_back(palette_item { .key = std::u8string { palette_empty_key }, .title = u8"일치하는 항목이 없습니다", .enabled = false });
+            list.items.push_back(palette_item { .key = std::u8string { palette_empty_key }, .title = tr(u8"palette.no_match"), .enabled = false });
         return list;
     }
 } // namespace cyella

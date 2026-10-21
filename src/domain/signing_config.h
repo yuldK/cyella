@@ -37,7 +37,7 @@ namespace cyella {
         command,
     };
 
-    [[nodiscard]] std::u8string_view config_origin_label(config_origin origin) noexcept;
+    [[nodiscard]] std::u8string config_origin_label(config_origin origin);
 
     enum class signing_format : std::uint8_t
     {

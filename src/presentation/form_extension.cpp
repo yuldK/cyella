@@ -1,6 +1,7 @@
 #include "presentation/form_extension.h"
 
 #include "domain/path_syntax.h"
+#include "domain/text_catalog.h"
 #include "presentation/ui_state.h"
 
 #include <algorithm>
@@ -87,31 +88,31 @@ namespace cyella {
         };
         const std::string folder { field_text(inputs, 0) };
         if (folder.empty())
-            return fail(u8"새 worktree의 폴더를 입력하세요.");
+            return fail(tr(u8"form.worktree.folder_required"));
         if (is_absolute_windows_path(to_u8(folder)) == false)
-            return fail(u8"폴더는 절대 경로여야 합니다 (예: E:/work/repo-feature).");
+            return fail(tr(u8"form.worktree.folder_absolute"));
         if (worktree_folder_used(snapshot, folder))
-            return fail(u8"이미 worktree가 있는 폴더입니다.");
+            return fail(tr(u8"form.worktree.folder_used"));
 
         const std::string branch { field_text(inputs, 1) };
         switch (mode_of(dialog))
         {
         case worktree_dialog_mode::new_branch:
             if (branch.empty())
-                return fail(u8"새 브랜치 이름을 입력하세요.");
+                return fail(tr(u8"form.worktree.new_branch_required"));
             if (const auto error { branch_name_error(branch, snapshot) }; error.has_value())
                 return fail(*error);
             break;
         case worktree_dialog_mode::existing_branch: {
             if (branch.empty())
-                return fail(u8"체크아웃할 브랜치 이름을 입력하세요.");
+                return fail(tr(u8"form.worktree.branch_required"));
             const ref* const found { find_local_branch(snapshot, branch) };
             if (found == nullptr)
-                return fail(u8"'" + to_u8(branch) + u8"' 로컬 브랜치가 없습니다.");
+                return fail(tr(u8"form.worktree.branch_missing", { { u8"branch", branch } }));
             if (found->is_current)
-                return fail(u8"지금 체크아웃한 브랜치입니다. 다른 브랜치를 고르거나 새 브랜치를 만드세요.");
+                return fail(tr(u8"form.worktree.branch_current"));
             if (found->worktree_path.empty() == false)
-                return fail(u8"다른 worktree에서 이미 체크아웃되어 있습니다: " + to_u8(found->worktree_path));
+                return fail(tr(u8"form.worktree.branch_in_other_worktree", { { u8"path", found->worktree_path } }));
             break;
         }
         case worktree_dialog_mode::detached:
@@ -146,19 +147,19 @@ namespace cyella {
         const repository_snapshot& snapshot { *context.snapshot };
         form_view form {};
         form.id = u8"worktree-dialog";
-        form.title = u8"worktree 추가";
-        form.notes.push_back({ .text = u8"같은 저장소를 다른 폴더에 하나 더 체크아웃합니다. 시작 위치: " + dialog.subject_label });
-        form.choices_label = u8"방식";
-        form.choices.push_back({ .label = u8"새 브랜치를 만들어 체크아웃" });
-        form.choices.push_back({ .label = u8"이미 있는 브랜치 체크아웃" });
-        form.choices.push_back({ .label = u8"detached HEAD로 체크아웃" });
+        form.title = tr(u8"form.worktree.title");
+        form.notes.push_back({ .text = tr(u8"form.worktree.note", { { u8"start", dialog.subject_label } }) });
+        form.choices_label = tr(u8"form.worktree.mode_label");
+        form.choices.push_back({ .label = tr(u8"form.worktree.mode_new_branch") });
+        form.choices.push_back({ .label = tr(u8"form.worktree.mode_existing_branch") });
+        form.choices.push_back({ .label = tr(u8"form.worktree.mode_detached") });
         form.chosen = std::min<std::size_t>(dialog.choice, 2);
-        form.fields.push_back(make_field(context, 0, u8"새 worktree 폴더", u8"E:/work/repo-feature", true));
+        form.fields.push_back(make_field(context, 0, tr(u8"form.worktree.folder_label"), u8"E:/work/repo-feature", true));
         const worktree_dialog_mode mode { mode_of(dialog) };
         if (mode == worktree_dialog_mode::new_branch)
-            form.fields.push_back(make_field(context, 1, u8"새 브랜치 이름", u8"feature/my-work"));
+            form.fields.push_back(make_field(context, 1, tr(u8"form.worktree.new_branch_label"), u8"feature/my-work"));
         else if (mode == worktree_dialog_mode::existing_branch)
-            form.fields.push_back(make_field(context, 1, u8"체크아웃할 브랜치", u8"main"));
+            form.fields.push_back(make_field(context, 1, tr(u8"form.worktree.branch_label"), u8"main"));
 
         std::u8string reason {};
         const bool ready { add_worktree_ready(dialog, *context.inputs, snapshot, &reason) };
@@ -168,23 +169,23 @@ namespace cyella {
 
         const std::string folder { field_text(*context.inputs, 0) };
         const std::string branch { field_text(*context.inputs, 1) };
-        const std::string shown_folder { folder.empty() ? std::string { "<폴더>" } : folder };
+        const std::string shown_folder { folder.empty() ? tr_narrow(u8"form.worktree.preview_folder") : folder };
         std::string preview { "git worktree add " };
         switch (mode)
         {
         case worktree_dialog_mode::new_branch:
-            preview += "-b " + (branch.empty() ? std::string { "<이름>" } : branch) + " -- " + shown_folder + (dialog.subject.empty() ? std::string {} : " " + dialog.subject.substr(0, 12));
+            preview += "-b " + (branch.empty() ? tr_narrow(u8"form.preview_name") : branch) + " -- " + shown_folder + (dialog.subject.empty() ? std::string {} : " " + dialog.subject.substr(0, 12));
             break;
         case worktree_dialog_mode::existing_branch:
-            preview += "-- " + shown_folder + " " + (branch.empty() ? std::string { "<브랜치>" } : branch);
+            preview += "-- " + shown_folder + " " + (branch.empty() ? tr_narrow(u8"form.worktree.preview_branch") : branch);
             break;
         case worktree_dialog_mode::detached:
             preview += "--detach -- " + shown_folder + (dialog.subject.empty() ? std::string {} : " " + dialog.subject.substr(0, 12));
             break;
         }
         form.preview = to_u8(preview);
-        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(make_button(u8"submit", u8"추가", form_tone::accent, ready, true));
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(make_button(u8"submit", tr(u8"form.worktree.submit"), form_tone::accent, ready, true));
         form.dismiss_key = u8"cancel";
         return form;
     }
@@ -195,13 +196,13 @@ namespace cyella {
         if (pattern.empty())
         {
             if (reason != nullptr)
-                *reason = u8"추적할 패턴을 입력하세요 (예: *.psd).";
+                *reason = tr(u8"form.lfs_track.pattern_required");
             return false;
         }
         if (pattern.front() == '-' || pattern.front() == '#')
         {
             if (reason != nullptr)
-                *reason = u8"'-'나 '#'로 시작하는 패턴은 쓸 수 없습니다.";
+                *reason = tr(u8"form.lfs_track.pattern_invalid_start");
             return false;
         }
         return true;
@@ -216,17 +217,17 @@ namespace cyella {
     {
         form_view form {};
         form.id = u8"lfs-track-dialog";
-        form.title = u8"Git LFS 추적 패턴";
-        form.notes.push_back({ .text = u8"패턴에 맞는 파일은 저장소에 포인터만 남고 실제 내용은 LFS가 따로 보관합니다. .gitattributes가 바뀌며 stage는 하지 않습니다." });
-        form.fields.push_back(make_field(context, 0, u8"추적 패턴", u8"*.psd", true));
+        form.title = tr(u8"form.lfs_track.title");
+        form.notes.push_back({ .text = tr(u8"form.lfs_track.note") });
+        form.fields.push_back(make_field(context, 0, tr(u8"form.lfs_track.pattern_label"), u8"*.psd", true));
         std::u8string reason {};
         const bool ready { lfs_track_ready(dialog, *context.inputs, &reason) };
         if (ready == false && field_text(*context.inputs, 0).empty() == false)
             form.error = reason;
         const std::string pattern { field_text(*context.inputs, 0) };
-        form.preview = to_u8("git lfs track -- " + (pattern.empty() ? std::string { "<패턴>" } : pattern));
-        form.buttons.push_back(make_button(u8"cancel", u8"취소"));
-        form.buttons.push_back(make_button(u8"submit", u8"추적", form_tone::accent, ready, true));
+        form.preview = to_u8("git lfs track -- " + (pattern.empty() ? tr_narrow(u8"form.lfs_track.preview_pattern") : pattern));
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(make_button(u8"submit", tr(u8"form.lfs_track.submit"), form_tone::accent, ready, true));
         form.dismiss_key = u8"cancel";
         return form;
     }

@@ -1,5 +1,7 @@
 #include "domain/commit_signature.h"
 
+#include "domain/text_catalog.h"
+
 namespace cyella {
     signature_status signature_status_from_code(const char code) noexcept
     {
@@ -80,35 +82,35 @@ namespace cyella {
         return status != signature_status::none;
     }
 
-    std::u8string_view signature_badge_text(const signature_status status) noexcept
+    std::u8string signature_badge_text(const signature_status status)
     {
         switch (status)
         {
         case signature_status::none:
-            return u8"서명 없음";
+            return tr(u8"signature.badge.none");
         case signature_status::good:
-            return u8"서명 확인됨";
+            return tr(u8"signature.badge.good");
         case signature_status::bad:
-            return u8"서명이 올바르지 않음";
+            return tr(u8"signature.badge.bad");
         case signature_status::unknown_key:
-            return u8"알 수 없는 키";
+            return tr(u8"signature.badge.unknown_key");
         case signature_status::expired_signature:
-            return u8"서명 만료";
+            return tr(u8"signature.badge.expired_signature");
         case signature_status::expired_key:
-            return u8"키 만료";
+            return tr(u8"signature.badge.expired_key");
         case signature_status::revoked_key:
-            return u8"키 폐기됨";
+            return tr(u8"signature.badge.revoked_key");
         case signature_status::cannot_check:
             break;
         }
-        return u8"확인할 수 없음";
+        return tr(u8"signature.badge.cannot_check");
     }
 
     std::u8string signature_badge_label(const commit_signature& signature)
     {
         if (signature.note == signature_note::allowed_signers_missing)
-            return u8"확인할 수 없음 (allowed signers 없음)";
-        return std::u8string { signature_badge_text(signature.status) };
+            return tr(u8"signature.badge.allowed_signers_missing");
+        return signature_badge_text(signature.status);
     }
 
     std::u8string signature_description(const commit_signature& signature)
@@ -119,29 +121,29 @@ namespace cyella {
         case signature_status::none:
             return text;
         case signature_status::good:
-            text = u8"올바른 서명입니다.";
+            text = tr(u8"signature.description.good");
             break;
         case signature_status::bad:
-            text = u8"서명이 커밋 내용과 맞지 않습니다. 커밋이 바뀌었거나 서명이 깨졌습니다.";
+            text = tr(u8"signature.description.bad");
             break;
         case signature_status::unknown_key:
-            text = u8"서명은 올바르지만 서명한 키를 신뢰할 수 없습니다.";
+            text = tr(u8"signature.description.unknown_key");
             break;
         case signature_status::expired_signature:
-            text = u8"서명의 유효 기간이 지났습니다.";
+            text = tr(u8"signature.description.expired_signature");
             break;
         case signature_status::expired_key:
-            text = u8"서명한 키의 유효 기간이 지났습니다.";
+            text = tr(u8"signature.description.expired_key");
             break;
         case signature_status::revoked_key:
-            text = u8"서명한 키가 폐기되었습니다.";
+            text = tr(u8"signature.description.revoked_key");
             break;
         case signature_status::cannot_check:
-            text = u8"서명을 확인하지 못했습니다. 서명한 사람의 공개 키가 없거나 서명 도구를 실행할 수 없습니다.";
+            text = tr(u8"signature.description.cannot_check");
             break;
         }
         if (signature.note == signature_note::allowed_signers_missing)
-            text = u8"ssh 서명의 서명자를 대조할 allowed signers 파일(gpg.ssh.allowedSignersFile)이 없어 확인하지 못했습니다.";
+            text = tr(u8"signature.description.allowed_signers_missing");
         return text;
     }
 } // namespace cyella

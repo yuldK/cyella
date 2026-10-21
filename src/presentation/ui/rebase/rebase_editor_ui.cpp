@@ -1,5 +1,6 @@
 #include "presentation/ui/rebase/rebase_editor_ui.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/rebase/rebase_editor_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/rebase/multiline_text_element.h"
@@ -227,7 +228,7 @@ namespace cyella::ui {
                 const SkFont badge_font { ui_font(context, 10.5f) };
                 if (row_.pushed)
                 {
-                    const std::u8string badge { u8"원격에 있음" };
+                    const std::u8string badge { tr(u8"rebase_editor.pushed_badge") };
                     const float width { luil::measure_text(badge, badge_font) };
                     right -= width;
                     static_cast<void>(luil::draw_text_within(
@@ -290,7 +291,7 @@ namespace cyella::ui {
             config.scroll_to = [](const float offset) { return message(rebase_scroll_intent { .side = false, .value = offset, .absolute = true }); };
             config.edges = luil::scroll_edges { .shadows = true };
             auto list { std::make_unique<luil::virtual_list_element>(std::move(config)) };
-            list->set_access_name(u8"할 일 목록 · 커밋 " + number_text(view.rows.size()) + u8"개");
+            list->set_access_name(tr(u8"rebase_editor.todo_list_name", { { u8"count", view.rows.size() } }));
             // 목록의 글자 탐색 대신 동작 단축키다. 줄 이름은 번호로 시작하므로 글자로 줄을 찾을 일이 없다.
             luil::key_search_target search {};
             search.on_search = [](const std::u8string_view query, bool) -> std::optional<std::vector<luil::input_action>> {
@@ -310,14 +311,14 @@ namespace cyella::ui {
             measured_column page { u8"rebase-side-page" };
             if (view.has_selection)
             {
-                page.add(make_text(u8"rebase-selected-caption", u8"고른 커밋", text_style { .size = 11.0f, .color = dim, .bold = true }), line_height);
+                page.add(make_text(u8"rebase-selected-caption", tr(u8"rebase_editor.selected_caption"), text_style { .size = 11.0f, .color = dim, .bold = true }), line_height);
                 page.add(make_text(u8"rebase-selected", view.selected_title, text_style { .size = 12.5f, .bold = true }), 22.0f);
                 page.gap(4.0f);
 
                 luil::choice_group_config choice {};
                 choice.owner = u8"rebase-action";
                 choice.style = luil::choice_style::toggle;
-                choice.name = u8"동작";
+                choice.name = tr(u8"rebase_editor.action_name");
                 for (const rebase_action action : actions)
                     choice.items.push_back({ action_value(action), action_value(action) });
                 choice.selected = action_value(view.selected_action);
@@ -332,14 +333,14 @@ namespace cyella::ui {
                 auto row { make_row(u8"rebase-action-row", 0.0f) };
                 row->add(make_segmented_control(std::move(choice)), { .length = 0.0f, .weight = 1.0f, .cross_length = segmented_control_height });
                 page.add(std::move(row), input_height);
-                page.add(make_text(u8"rebase-action-keys", u8"키: p pick · r reword · s squash · f fixup · d drop · Alt+↑↓ 옮기기", text_style { .size = 10.5f, .color = dim }), line_height);
+                page.add(make_text(u8"rebase-action-keys", tr(u8"rebase_editor.action_keys"), text_style { .size = 10.5f, .color = dim }), line_height);
                 // 끌기와 Alt+↑↓의 자리를 단추로도 둔다. 마우스 없이, 보조 기술로도 순서를 바꾼다.
                 auto move_row { make_row(u8"rebase-move-row", 6.0f) };
-                move_row->add(make_text_button(u8"rebase-move-up", u8"위로", luil::text_button_visual::normal, message(rebase_move_intent { .row_key = {}, .delta = -1 }), view.can_move_up,
-                                  codicons::icon_arrow_up),
+                move_row->add(make_text_button(u8"rebase-move-up", tr(u8"rebase_editor.move_up"), luil::text_button_visual::normal, message(rebase_move_intent { .row_key = {}, .delta = -1 }),
+                                  view.can_move_up, codicons::icon_arrow_up),
                     { .length = 76.0f, .cross_length = 24.0f });
-                move_row->add(make_text_button(u8"rebase-move-down", u8"아래로", luil::text_button_visual::normal, message(rebase_move_intent { .row_key = {}, .delta = 1 }), view.can_move_down,
-                                  codicons::icon_arrow_down),
+                move_row->add(make_text_button(u8"rebase-move-down", tr(u8"rebase_editor.move_down"), luil::text_button_visual::normal, message(rebase_move_intent { .row_key = {}, .delta = 1 }),
+                                  view.can_move_down, codicons::icon_arrow_down),
                     { .length = 86.0f, .cross_length = 24.0f });
                 move_row->add_flexible_gap();
                 page.add(std::move(move_row), 28.0f);
@@ -348,16 +349,18 @@ namespace cyella::ui {
                 if (view.message_editable)
                 {
                     page.add(make_text(u8"rebase-message-caption", view.message_caption, text_style { .size = 11.0f, .color = dim, .bold = true }), line_height);
-                    page.add(std::make_unique<luil::text_input_element>(
-                                 luil::ui_element_id { kind_rebase_subject_input, u8"rebase-subject" }, view.subject, luil::text_input_config { .placeholder = u8"제목 (첫 줄)" }),
+                    page.add(std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_rebase_subject_input, u8"rebase-subject" }, view.subject,
+                                 luil::text_input_config { .placeholder = tr(u8"rebase_editor.subject_placeholder") }),
                         input_height);
                     page.gap(6.0f);
-                    page.add(
-                        std::make_unique<multiline_text_element>(luil::ui_element_id { kind_rebase_body_input, u8"rebase-body" }, view.body, u8"본문 (Enter로 줄바꿈)", u8"메시지 본문"), body_height);
+                    page.add(std::make_unique<multiline_text_element>(
+                                 luil::ui_element_id { kind_rebase_body_input, u8"rebase-body" }, view.body, tr(u8"rebase_editor.body_placeholder"), tr(u8"rebase_editor.body_name")),
+                        body_height);
                     page.gap(4.0f);
                     auto actions_row { make_row(u8"rebase-message-actions") };
                     actions_row->add_flexible(make_text(u8"rebase-message-note", view.message_note, text_style { .size = 10.5f, .color = dim }));
-                    actions_row->add(make_text_button(u8"rebase-message-reset", u8"되돌리기", luil::text_button_visual::normal, message(rebase_reset_message_intent {}), view.message_edited),
+                    actions_row->add(
+                        make_text_button(u8"rebase-message-reset", tr(u8"rebase_editor.reset_message"), luil::text_button_visual::normal, message(rebase_reset_message_intent {}), view.message_edited),
                         { .length = 72.0f, .cross_length = 22.0f });
                     page.add(std::move(actions_row), 26.0f);
                 }
@@ -418,16 +421,16 @@ namespace cyella::ui {
             const bool editing { view.phase == rebase_editor_phase::editing };
             if (editing && view.show_autosquash)
             {
-                luil::check_config check { .owner = u8"rebase-autosquash", .label = u8"fixup!·squash! 정렬", .checked = view.autosquash };
+                luil::check_config check { .owner = u8"rebase-autosquash", .label = tr(u8"rebase_editor.autosquash_label"), .checked = view.autosquash };
                 check.toggle = action_of(message(rebase_toggle_intent { rebase_option::autosquash }));
-                check.tooltip = u8"`fixup! 제목` 커밋을 대상 커밋 바로 뒤로 옮기고 fixup·squash로 둡니다 (git --autosquash와 같은 규칙).";
+                check.tooltip = tr(u8"rebase_editor.autosquash_tooltip");
                 option_row.add(std::make_unique<luil::check_element>(std::move(check)), 176.0f);
             }
             if (editing && view.show_autostash)
             {
-                luil::check_config check { .owner = u8"rebase-autostash", .label = u8"작업 변경 자동 보관", .checked = view.autostash };
+                luil::check_config check { .owner = u8"rebase-autostash", .label = tr(u8"rebase_editor.autostash_label"), .checked = view.autostash };
                 check.toggle = action_of(message(rebase_toggle_intent { rebase_option::autostash }));
-                check.tooltip = u8"작업 트리 변경을 임시 보관하고 rebase 뒤에 다시 적용합니다 (--autostash).";
+                check.tooltip = tr(u8"rebase_editor.autostash_tooltip");
                 option_row.add(std::make_unique<luil::check_element>(std::move(check)), 196.0f);
             }
             auto status { make_column(u8"rebase-status-column", luil::stack_config { .spacing = 0.0f }) };
@@ -438,11 +441,12 @@ namespace cyella::ui {
             note_label->set_tooltip(note);
             status->add(std::move(note_label), 16.0f);
             row->add_flexible(std::move(status));
-            row->add(make_text_button(u8"rebase-cancel", editing ? u8"취소" : u8"닫기", luil::text_button_visual::normal, message(close_rebase_editor_intent {})),
+            row->add(
+                make_text_button(u8"rebase-cancel", editing ? tr(u8"rebase_editor.cancel") : tr(u8"rebase_editor.close"), luil::text_button_visual::normal, message(close_rebase_editor_intent {})),
                 { .length = 72.0f, .cross_length = button_height });
             if (view.phase == rebase_editor_phase::editing || view.phase == rebase_editor_phase::running)
-                row->add(make_text_button(u8"rebase-start", view.phase == rebase_editor_phase::running ? u8"실행 중…" : u8"rebase 시작", luil::text_button_visual::accent,
-                             message(rebase_start_intent {}), view.can_start, codicons::icon_play),
+                row->add(make_text_button(u8"rebase-start", view.phase == rebase_editor_phase::running ? tr(u8"rebase_editor.start_running") : tr(u8"rebase_editor.start"),
+                             luil::text_button_visual::accent, message(rebase_start_intent {}), view.can_start, codicons::icon_play),
                     { .length = 118.0f, .cross_length = button_height });
             luil::stack_config config { .spacing = separate ? gap : 0.0f, .padding = luil::edge_insets { padding, 10.0f, padding, 10.0f } };
             auto padded { make_column(u8"rebase-footer-padding", config) };
@@ -461,7 +465,7 @@ namespace cyella::ui {
 
         luil::modal_host_config config {};
         config.owner = u8"rebase-editor";
-        config.name = u8"인터랙티브 rebase";
+        config.name = tr(u8"rebase_editor.dialog_name");
         config.dismiss = action_of(message(close_rebase_editor_intent {}));
         config.focus_entry = luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"rebase-todo" };
         config.surface = floating_panel_config(8.0f, 0.4f);
@@ -470,7 +474,7 @@ namespace cyella::ui {
         auto host { std::make_unique<luil::modal_host_element>(std::move(config)) };
 
         auto column { make_column(u8"rebase-column") };
-        luil::dialog_caption_config caption { .owner = u8"rebase", .title = view.title, .close = action_of(message(close_rebase_editor_intent {})), .close_tooltip = u8"닫기" };
+        luil::dialog_caption_config caption { .owner = u8"rebase", .title = view.title, .close = action_of(message(close_rebase_editor_intent {})), .close_tooltip = tr(u8"rebase_editor.close") };
         const float caption_height { luil::dialog_caption_element::height_for(caption) };
         column->add(std::make_unique<luil::dialog_caption_element>(std::move(caption)), caption_height);
 
@@ -497,7 +501,7 @@ namespace cyella::ui {
             header.add(warning_line(u8"rebase-warning-" + number_text(warning_index++), warning, warning_color), warning_height);
         if (view.needs_flatten_confirm)
         {
-            luil::check_config check { .owner = u8"rebase-flatten", .label = u8"병합 커밋을 빼고 한 줄로 펴도 됩니다", .checked = view.flatten_confirmed };
+            luil::check_config check { .owner = u8"rebase-flatten", .label = tr(u8"rebase_editor.flatten_confirm_label"), .checked = view.flatten_confirmed };
             check.toggle = action_of(message(rebase_toggle_intent { rebase_option::flatten_merges }));
             header.add(std::make_unique<luil::check_element>(std::move(check)), luil::check_row_height);
         }
@@ -510,7 +514,7 @@ namespace cyella::ui {
         auto body { make_row(u8"rebase-body-row", 0.0f) };
 
         auto left { make_column(u8"rebase-left", luil::stack_config { .spacing = 4.0f, .padding = luil::edge_insets { 8.0f, 8.0f, 8.0f, 8.0f } }) };
-        left->add(make_text(u8"rebase-list-hint", u8"위가 먼저 적용됩니다 · 끌어서 순서 바꾸기", text_style { .size = 10.5f, .color = dim }), 16.0f);
+        left->add(make_text(u8"rebase-list-hint", tr(u8"rebase_editor.list_hint"), text_style { .size = 10.5f, .color = dim }), 16.0f);
         left->add_flexible(build_list(view));
         float side_height { 0.0f };
         auto side { build_side_content(view, side_height) };

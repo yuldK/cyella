@@ -1,5 +1,6 @@
 #include "infrastructure/git_credential_source.h"
 
+#include "domain/text_catalog.h"
 #include "infrastructure/git_execution_policy.h"
 #include "infrastructure/secret_masking.h"
 
@@ -122,7 +123,7 @@ namespace cyella {
         std::optional<std::string> input { encode_credential_input(query) };
         if (input.has_value() == false)
         {
-            result.error = "자격 증명을 물을 호스트가 올바르지 않습니다.";
+            result.error = tr_narrow(u8"credential.invalid_host");
             return result;
         }
         process_request request { make_request(query, "fill", std::move(*input)) };
@@ -133,18 +134,18 @@ namespace cyella {
         if (run.completion == process_completion::cancelled)
         {
             result.cancelled = true;
-            result.error = "취소되었습니다.";
+            result.error = tr_narrow(u8"credential.cancelled");
         }
         else if (run.completion == process_completion::timed_out)
-            result.error = "자격 증명 도우미가 제때 답하지 않았습니다.";
+            result.error = tr_narrow(u8"credential.helper_timed_out");
         else if (run.completion != process_completion::exited)
-            result.error = "git을 실행하지 못했습니다.";
+            result.error = tr_narrow(u8"git.run_failed");
         else if (run.exit_code.value_or(-1) != 0)
         {
-            result.error = "자격 증명 도우미가 토큰을 주지 않았습니다";
             if (sink.error_text.empty() == false)
-                result.error += " (" + masked(sink.error_text) + ")";
-            result.error += ".";
+                result.error = tr_narrow(u8"credential.helper_no_token_detail", { { u8"detail", masked(sink.error_text) } });
+            else
+                result.error = tr_narrow(u8"credential.helper_no_token");
         }
         else
         {
@@ -156,7 +157,7 @@ namespace cyella {
                 result.token = std::move(parsed.password);
             }
             else
-                result.error = "자격 증명 도우미가 비밀번호(토큰)를 주지 않았습니다.";
+                result.error = tr_narrow(u8"credential.helper_no_password");
         }
         wipe_secret(sink.output);
         return result;

@@ -1,6 +1,7 @@
 #include "presentation/build_view_snapshot.h"
 
 #include "domain/repository_path.h"
+#include "domain/text_catalog.h"
 #include "presentation/diff_special.h"
 #include "presentation/hosting_sidebar.h"
 #include "presentation/sidebar_extension.h"
@@ -99,9 +100,9 @@ namespace cyella {
             if (command.exit_code.has_value())
                 line += u8"   → exit " + to_u8(std::to_string(*command.exit_code));
             else if (command.completion == process_completion::cancelled)
-                line += u8"   → 취소 (프로세스 트리 종료)";
+                line += tr(u8"snapshot.command.cancelled_suffix");
             else if (command.completion == process_completion::timed_out)
-                line += u8"   → 시간 초과";
+                line += tr(u8"snapshot.command.timed_out_suffix");
             line += u8"  (" + number(static_cast<std::uint64_t>(std::max<long long>(command.duration.count(), 0))) + u8" ms)";
             return line;
         }
@@ -110,11 +111,11 @@ namespace cyella {
         {
             std::u8string text { operation_display_name(status.kind) };
             if (status.state == operation_state::queued)
-                return text + u8": 대기 중";
+                return tr(u8"snapshot.operation.queued", { { u8"name", text } });
             if (status.progress.phase_text.empty() == false)
                 text += u8": " + status.progress.phase_text;
             else
-                text += u8": 실행 중";
+                text = tr(u8"snapshot.operation.running", { { u8"name", text } });
             if (status.progress.fraction.has_value())
                 text += u8" " + percent_text(*status.progress.fraction);
             return text;
@@ -126,13 +127,13 @@ namespace cyella {
             switch (status.state)
             {
             case operation_state::succeeded:
-                return name + (status.result_summary.empty() ? std::u8string { u8" 완료" } : u8": " + status.result_summary);
+                return status.result_summary.empty() ? tr(u8"snapshot.operation.succeeded", { { u8"name", name } }) : name + u8": " + status.result_summary;
             case operation_state::failed:
-                return name + u8" 실패: " + (status.failure.has_value() ? status.failure->summary : std::u8string {});
+                return tr(u8"snapshot.operation.failed_with_summary", { { u8"name", name }, { u8"summary", status.failure.has_value() ? status.failure->summary : std::u8string {} } });
             case operation_state::cancelled:
-                return name + u8" 취소됨";
+                return tr(u8"snapshot.operation.cancelled", { { u8"name", name } });
             case operation_state::needs_input:
-                return name + u8": 입력 필요";
+                return tr(u8"snapshot.operation.needs_input", { { u8"name", name } });
             case operation_state::queued:
             case operation_state::running:
                 break;
@@ -192,7 +193,7 @@ namespace cyella {
             if (status.state == operation_state::failed && status.failure.has_value())
             {
                 banner.kind = banner_kind::failure;
-                banner.title = operation_display_name(status.kind) + u8" 실패";
+                banner.title = tr(u8"snapshot.operation.failed", { { u8"name", operation_display_name(status.kind) } });
                 banner.summary = status.failure->summary.empty() ? std::u8string { failure_kind_message(status.failure->kind) } : status.failure->summary;
                 for (const operation_command& command : status.commands)
                     banner.details.push_back(command_line_text(command));
@@ -224,7 +225,7 @@ namespace cyella {
                 ++shown;
                 std::u8string heading { u8"#" + number(status.id) + u8"  " + (status.finished() ? result_text(status) : phase_text(status)) };
                 if (status.automatic)
-                    heading += u8"  (자동)";
+                    heading += tr(u8"snapshot.log.automatic_suffix");
                 lines.push_back({ .key = u8"op-" + number(status.id), .text = std::move(heading), .heading = true, .failed = status.state == operation_state::failed, .automatic = status.automatic });
                 std::size_t index { 0 };
                 for (const operation_command& command : status.commands)
@@ -281,18 +282,18 @@ namespace cyella {
             view.sign = tab.sign.value_or(snapshot.signing.commit_signing());
             view.sign_hint = signing_setup_hint(snapshot.signing, view.sign);
             view.committing = committing;
-            const std::u8string staged_count { u8"(staged " + number(view.staged.size()) + u8"개)" };
-            view.commit_label = tab.amend ? u8"직전 커밋 수정 " + staged_count : view.branch + u8"에 커밋 " + staged_count;
+            view.commit_label = tab.amend ? tr(u8"snapshot.commit.amend_label", { { u8"count", view.staged.size() } })
+                                          : tr(u8"snapshot.commit.label", { { u8"branch", view.branch }, { u8"count", view.staged.size() } });
 
             const bool has_subject { view.subject.displayed_text().empty() == false };
             if (committing)
-                view.blocked_reason = u8"커밋하는 중입니다…";
+                view.blocked_reason = tr(u8"snapshot.commit.committing");
             else if (view.conflicts.empty() == false)
-                view.blocked_reason = u8"충돌을 먼저 해결하세요.";
+                view.blocked_reason = tr(u8"snapshot.commit.resolve_conflicts");
             else if (has_subject == false)
-                view.blocked_reason = u8"커밋 제목을 입력하세요.";
+                view.blocked_reason = tr(u8"snapshot.commit.enter_subject");
             else if (view.staged.empty() && tab.amend == false)
-                view.blocked_reason = u8"stage한 변경이 없습니다.";
+                view.blocked_reason = tr(u8"snapshot.commit.nothing_staged");
             view.can_commit = view.blocked_reason.empty();
             view.amend_warning = tab.amend && snapshot.summary.head_pushed;
             return view;
@@ -379,13 +380,13 @@ namespace cyella {
             switch (request.view)
             {
             case diff_view::unstaged:
-                view.subtitle = to_u8(request.path) + u8" · 작업 파일";
+                view.subtitle = tr(u8"snapshot.diff.subtitle_working", { { u8"path", request.path } });
                 break;
             case diff_view::staged:
-                view.subtitle = to_u8(request.path) + u8" · 스테이징 사본";
+                view.subtitle = tr(u8"snapshot.diff.subtitle_staged", { { u8"path", request.path } });
                 break;
             case diff_view::commit:
-                view.subtitle = to_u8(request.path) + u8" · 이력 " + short_sha(request.sha);
+                view.subtitle = tr(u8"snapshot.diff.subtitle_commit", { { u8"path", request.path }, { u8"sha", short_sha(request.sha) } });
                 break;
             }
             const std::optional<file_diff>& diff { session.selected_diff() };
@@ -601,7 +602,7 @@ namespace cyella {
             toolbar.detached = summary.is_detached;
             toolbar.branch_text = summary.is_detached ? u8"(detached) " + short_sha(summary.head_sha) : to_u8(summary.current_branch);
             if (toolbar.branch_text.empty())
-                toolbar.branch_text = u8"(브랜치 없음)";
+                toolbar.branch_text = tr(u8"snapshot.toolbar.no_branch");
             toolbar.ahead = summary.ahead;
             toolbar.behind = summary.behind;
             toolbar.show_labels = toolbar_shows_labels(view.logical_width);
@@ -613,13 +614,12 @@ namespace cyella {
             toolbar.pull_enabled = ready && summary.has_upstream;
             toolbar.push_enabled = ready && summary.remotes.empty() == false && summary.is_detached == false && summary.current_branch.empty() == false;
             toolbar.push_needs_dialog = summary.has_upstream == false;
-            toolbar.fetch_hint
-                = summary.remotes.empty() ? u8"등록된 원격이 없습니다. 원격을 추가하면 Fetch를 사용할 수 있습니다." : u8"원격의 새 커밋과 참조를 가져옵니다. 작업 파일은 바꾸지 않습니다.";
-            toolbar.pull_hint = summary.has_upstream ? u8"추적 원격의 변경을 fast-forward로 받습니다 (--ff-only)." : u8"현재 브랜치의 추적 원격(upstream)을 먼저 설정하세요.";
-            toolbar.push_hint = summary.remotes.empty() ? u8"등록된 원격이 없습니다. 원격을 추가하면 Push를 사용할 수 있습니다."
-                : summary.is_detached                   ? u8"브랜치에 연결되지 않은 HEAD입니다. 브랜치를 만든 뒤 Push할 수 있습니다."
-                : toolbar.push_needs_dialog             ? u8"원격을 고르고 현재 브랜치의 추적 원격(upstream)을 설정합니다."
-                                                        : u8"현재 브랜치의 커밋을 추적 원격으로 보냅니다.";
+            toolbar.fetch_hint = summary.remotes.empty() ? tr(u8"snapshot.toolbar.fetch_no_remote") : tr(u8"snapshot.toolbar.fetch_hint");
+            toolbar.pull_hint = summary.has_upstream ? tr(u8"snapshot.toolbar.pull_hint") : tr(u8"snapshot.toolbar.pull_no_upstream");
+            toolbar.push_hint = summary.remotes.empty() ? tr(u8"snapshot.toolbar.push_no_remote")
+                : summary.is_detached                   ? tr(u8"snapshot.toolbar.push_detached")
+                : toolbar.push_needs_dialog             ? tr(u8"snapshot.toolbar.push_set_upstream")
+                                                        : tr(u8"snapshot.toolbar.push_hint");
             toolbar.branch_enabled = ready;
             toolbar.stash_enabled = ready && summary.changed_file_count > 0;
             toolbar.pop_enabled = ready && session.snapshot().stashes.empty() == false;
@@ -737,9 +737,9 @@ namespace cyella {
                 row.no_upstream = has_remotes && value.upstream.empty();
                 row.upstream_gone = value.upstream_gone;
                 row.worktree_path = value.worktree_path;
-                row.tooltip = value.upstream.empty() ? row.label + u8" · upstream 없음" : row.label + u8" → " + to_u8(value.upstream);
+                row.tooltip = value.upstream.empty() ? row.label + tr(u8"snapshot.sidebar.no_upstream_suffix") : row.label + u8" → " + to_u8(value.upstream);
                 if (value.worktree_path.empty() == false)
-                    row.tooltip += u8" · 다른 worktree에서 체크아웃됨: " + to_u8(value.worktree_path);
+                    row.tooltip += tr(u8"snapshot.sidebar.checked_out_elsewhere_suffix", { { u8"path", value.worktree_path } });
                 result.rows.push_back(std::move(row));
             }
             result.counts[header] = count;
@@ -820,7 +820,7 @@ namespace cyella {
                 row.ref_name = value.name;
                 row.target_sha = value.target_sha;
                 row.local_only = has_remotes && value.remotes.empty();
-                row.tooltip = row.local_only ? row.label + u8" · 원격에 없는 태그" : row.label;
+                row.tooltip = row.local_only ? row.label + tr(u8"snapshot.sidebar.local_only_tag_suffix") : row.label;
                 result.rows.push_back(std::move(row));
             }
             result.counts[header] = count;
@@ -877,18 +877,17 @@ namespace cyella {
         constexpr std::int64_t day { 24 * hour };
         constexpr std::int64_t month { 30 * day };
         constexpr std::int64_t year { 365 * day };
-        const auto count = [](const std::int64_t value) { return number(static_cast<std::uint64_t>(value)); };
         if (elapsed < minute)
-            return u8"방금";
+            return tr(u8"snapshot.time.just_now");
         if (elapsed < hour)
-            return count(elapsed / minute) + u8"분 전";
+            return tr(u8"snapshot.time.minutes_ago", { { u8"count", elapsed / minute } });
         if (elapsed < day)
-            return count(elapsed / hour) + u8"시간 전";
+            return tr(u8"snapshot.time.hours_ago", { { u8"count", elapsed / hour } });
         if (elapsed < month)
-            return count(elapsed / day) + u8"일 전";
+            return tr(u8"snapshot.time.days_ago", { { u8"count", elapsed / day } });
         if (elapsed < year)
-            return count(elapsed / month) + u8"개월 전";
-        return count(elapsed / year) + u8"년 전";
+            return tr(u8"snapshot.time.months_ago", { { u8"count", elapsed / month } });
+        return tr(u8"snapshot.time.years_ago", { { u8"count", elapsed / year } });
     }
 
     std::u8string absolute_time_text(const std::int64_t seconds)
@@ -906,25 +905,25 @@ namespace cyella {
         switch (kind)
         {
         case operation_kind::refresh:
-            return u8"새로 고침";
+            return tr(u8"snapshot.operation_name.refresh");
         case operation_kind::load_more_log:
-            return u8"이력 읽기";
+            return tr(u8"snapshot.operation_name.load_more_log");
         case operation_kind::show_commit:
-            return u8"커밋 읽기";
+            return tr(u8"snapshot.operation_name.show_commit");
         case operation_kind::diff_file:
-            return u8"diff 읽기";
+            return tr(u8"snapshot.operation_name.diff_file");
         case operation_kind::stage_files:
             return u8"Stage";
         case operation_kind::unstage_files:
             return u8"Unstage";
         case operation_kind::discard_files:
-            return u8"변경 버리기";
+            return tr(u8"snapshot.operation_name.discard_files");
         case operation_kind::commit:
-            return u8"커밋";
+            return tr(u8"snapshot.operation_name.commit");
         case operation_kind::checkout_branch:
         case operation_kind::checkout_remote_branch:
         case operation_kind::checkout_detached:
-            return u8"체크아웃";
+            return tr(u8"snapshot.operation_name.checkout");
         case operation_kind::fetch:
             return u8"Fetch";
         case operation_kind::pull:
@@ -940,39 +939,39 @@ namespace cyella {
         case operation_kind::init:
             return u8"Init";
         case operation_kind::inspect_path:
-            return u8"경로 검사";
+            return tr(u8"snapshot.operation_name.inspect_path");
         case operation_kind::ssh_keygen:
-            return u8"SSH 키 만들기";
+            return tr(u8"snapshot.operation_name.ssh_keygen");
         case operation_kind::ssh_connection_test:
-            return u8"SSH 연결 시험";
+            return tr(u8"snapshot.operation_name.ssh_connection_test");
         case operation_kind::submodule_update:
-            return u8"서브모듈 업데이트";
+            return tr(u8"snapshot.operation_name.submodule_update");
         case operation_kind::submodule_sync:
-            return u8"서브모듈 url 동기화";
+            return tr(u8"snapshot.operation_name.submodule_sync");
         case operation_kind::worktree_add:
-            return u8"worktree 추가";
+            return tr(u8"snapshot.operation_name.worktree_add");
         case operation_kind::worktree_remove:
-            return u8"worktree 제거";
+            return tr(u8"snapshot.operation_name.worktree_remove");
         case operation_kind::worktree_prune:
-            return u8"worktree 정리";
+            return tr(u8"snapshot.operation_name.worktree_prune");
         case operation_kind::lfs_pull:
             return u8"LFS pull";
         case operation_kind::lfs_fetch:
             return u8"LFS fetch";
         case operation_kind::lfs_track:
-            return u8"LFS 추적";
+            return tr(u8"snapshot.operation_name.lfs_track");
         case operation_kind::load_rebase_plan:
-            return u8"rebase 범위 읽기";
+            return tr(u8"snapshot.operation_name.load_rebase_plan");
         case operation_kind::interactive_rebase:
-            return u8"인터랙티브 rebase";
+            return tr(u8"snapshot.operation_name.interactive_rebase");
         case operation_kind::refresh_status:
-            return u8"변경 새로 고침";
+            return tr(u8"snapshot.operation_name.refresh_status");
         case operation_kind::set_upstream:
-            return u8"upstream 설정";
+            return tr(u8"snapshot.operation_name.set_upstream");
         case operation_kind::unset_upstream:
-            return u8"upstream 해제";
+            return tr(u8"snapshot.operation_name.unset_upstream");
         case operation_kind::trash_files:
-            return u8"휴지통으로 보내기";
+            return tr(u8"snapshot.operation_name.trash_files");
         default:
             break;
         }
@@ -1040,8 +1039,8 @@ namespace cyella {
             item.id = tab.id;
             item.key = u8"tab-" + number(tab.id);
             item.start = tab.kind == repository_tab_kind::start;
-            item.label = item.start ? std::u8string { u8"시작" } : tab.display_name;
-            item.tooltip = item.start ? std::u8string { u8"시작 페이지" } : tab.path;
+            item.label = item.start ? tr(u8"snapshot.tab.start") : tab.display_name;
+            item.tooltip = item.start ? tr(u8"snapshot.tab.start_tooltip") : tab.path;
             if (const repository_session* session { repository_of(tab.id) }; session != nullptr)
             {
                 const std::vector<const operation_status*> mine { operations_of(inputs.operations, session->id()) };
@@ -1052,7 +1051,7 @@ namespace cyella {
                 const bool awaiting { session->awaiting_input().has_value() && *session->awaiting_input() > dismissed };
                 item.marker = compute_tab_marker(mine, summary.changed_file_count, awaiting);
                 if (summary.in_progress.kind != repository_operation_state::none)
-                    item.in_progress = to_u8(repository_operation_state_name(summary.in_progress.kind)) + u8" 중";
+                    item.in_progress = tr(u8"snapshot.tab.in_progress", { { u8"operation", repository_operation_state_name(summary.in_progress.kind) } });
             }
             view.tabs.push_back(std::move(item));
         }
@@ -1101,7 +1100,7 @@ namespace cyella {
         // 안내(아직 없는 대화 상자)는 operation 배너보다 앞선다. 사용자가 방금 누른 것의 답이기 때문이다.
         if (ui.notice.has_value())
         {
-            view.banner = banner_view { .kind = banner_kind::notice, .title = u8"안내", .summary = ui.notice->text, .warning = ui.notice->warning };
+            view.banner = banner_view { .kind = banner_kind::notice, .title = tr(u8"snapshot.banner.notice"), .summary = ui.notice->text, .warning = ui.notice->warning };
             // 프로필 제안·커밋 전 경고는 조치 단추를 달고 온다.
             for (const notice_action& action : ui.notice->actions)
                 view.banner->actions.push_back(banner_action_view { .key = action.key, .label = action.label });

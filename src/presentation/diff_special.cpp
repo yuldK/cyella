@@ -1,6 +1,7 @@
 #include "presentation/diff_special.h"
 
 #include "domain/lfs.h"
+#include "domain/text_catalog.h"
 
 #include <algorithm>
 #include <string>
@@ -55,15 +56,15 @@ namespace cyella {
         std::u8string pointer_text(const std::optional<lfs_pointer>& pointer)
         {
             if (pointer.has_value() == false)
-                return u8"없음";
+                return tr(u8"diff.special.lfs_pointer_none");
             return to_u8(format_byte_size(pointer->size)) + u8" · oid " + short_text(pointer->oid, 10);
         }
 
         std::u8string local_text(const std::optional<lfs_pointer>& pointer, const bool local)
         {
             if (pointer.has_value() == false)
-                return u8"해당 없음";
-            return local ? u8"로컬에 있음" : u8"로컬에 없음";
+                return tr(u8"diff.special.lfs_local_not_applicable");
+            return local ? tr(u8"diff.special.lfs_local_present") : tr(u8"diff.special.lfs_local_missing");
         }
 
         diff_special_view build_gitlink_card(const diff_file& file)
@@ -74,14 +75,14 @@ namespace cyella {
 
             diff_special_view card {};
             card.kind = diff_special_kind::submodule_pointer;
-            card.title = u8"서브모듈 포인터";
-            card.rows.push_back({ u8"서브모듈", to_u8(file.display_path()) });
-            card.rows.push_back({ u8"이전 커밋", old_side.present ? short_text(old_side.sha, 12) : u8"없음 (새 서브모듈)" });
-            std::u8string current { new_side.present ? short_text(new_side.sha, 12) : u8"없음 (서브모듈 제거)" };
+            card.title = tr(u8"diff.special.submodule_title");
+            card.rows.push_back({ tr(u8"diff.special.submodule_label"), to_u8(file.display_path()) });
+            card.rows.push_back({ tr(u8"diff.special.old_commit_label"), old_side.present ? short_text(old_side.sha, 12) : tr(u8"diff.special.submodule_added") });
+            std::u8string current { new_side.present ? short_text(new_side.sha, 12) : tr(u8"diff.special.submodule_removed") };
             if (new_side.dirty)
-                current += u8" · 서브모듈 안에 커밋하지 않은 변경이 있습니다";
-            card.rows.push_back({ u8"새 커밋", std::move(current) });
-            card.note = u8"서브모듈은 파일이 아니라 커밋 하나를 가리킵니다. 텍스트 diff 대신 가리키는 커밋만 보입니다.";
+                current += u8" · " + tr(u8"diff.special.submodule_dirty");
+            card.rows.push_back({ tr(u8"diff.special.new_commit_label"), std::move(current) });
+            card.note = tr(u8"diff.special.submodule_note");
             if (file.status != 'D')
                 card.open_path = file.display_path();
             return card;
@@ -92,16 +93,16 @@ namespace cyella {
             const lfs_diff_info& info { *file.lfs };
             diff_special_view card {};
             card.kind = diff_special_kind::lfs_pointer;
-            card.title = u8"LFS 포인터";
-            card.rows.push_back({ u8"파일", to_u8(file.display_path()) });
-            card.rows.push_back({ u8"이전", pointer_text(info.old_pointer) });
-            card.rows.push_back({ u8"현재", pointer_text(info.new_pointer) });
-            card.rows.push_back({ u8"이전 내용", local_text(info.old_pointer, info.old_local) });
-            card.rows.push_back({ u8"현재 내용", local_text(info.new_pointer, info.new_local) });
-            card.note = u8"저장소에는 큰 파일 대신 oid와 크기만 든 포인터가 있어 텍스트 diff로 보이지 않습니다.";
+            card.title = tr(u8"diff.special.lfs_title");
+            card.rows.push_back({ tr(u8"diff.special.file_label"), to_u8(file.display_path()) });
+            card.rows.push_back({ tr(u8"diff.special.lfs_old_label"), pointer_text(info.old_pointer) });
+            card.rows.push_back({ tr(u8"diff.special.lfs_new_label"), pointer_text(info.new_pointer) });
+            card.rows.push_back({ tr(u8"diff.special.lfs_old_content_label"), local_text(info.old_pointer, info.old_local) });
+            card.rows.push_back({ tr(u8"diff.special.lfs_new_content_label"), local_text(info.new_pointer, info.new_local) });
+            card.note = tr(u8"diff.special.lfs_note");
             if (info.all_local() == false)
             {
-                card.note += u8" 실제 내용을 받으면 이미지·바이너리 비교가 보입니다.";
+                card.note = tr(u8"diff.special.lfs_note_pull");
                 card.action_label = u8"LFS pull";
                 card.action = lfs_pull_request {};
             }

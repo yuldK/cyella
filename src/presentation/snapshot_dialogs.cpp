@@ -1,5 +1,6 @@
 #include "presentation/snapshot_dialogs.h"
 
+#include "domain/text_catalog.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/form_builders.h"
 #include "presentation/form_extension.h"
@@ -15,11 +16,6 @@ namespace cyella {
         std::u8string to_u8(const std::string_view text)
         {
             return std::u8string { text.begin(), text.end() };
-        }
-
-        std::u8string number(const std::uint64_t value)
-        {
-            return to_u8(std::to_string(value));
         }
 
         bool is_auth_kind(const input_kind kind) noexcept
@@ -44,19 +40,19 @@ namespace cyella {
         std::u8string conflict_meaning(const std::string& code)
         {
             if (code == "UU")
-                return u8"양쪽에서 수정했습니다";
+                return tr(u8"dialog.conflict.both_modified");
             if (code == "AA")
-                return u8"양쪽에서 추가했습니다";
+                return tr(u8"dialog.conflict.both_added");
             if (code == "DD")
-                return u8"양쪽에서 삭제했습니다";
+                return tr(u8"dialog.conflict.both_deleted");
             if (code == "DU")
-                return u8"우리 쪽에서 삭제했습니다";
+                return tr(u8"dialog.conflict.deleted_by_us");
             if (code == "UD")
-                return u8"그들 쪽에서 삭제했습니다";
+                return tr(u8"dialog.conflict.deleted_by_them");
             if (code == "AU")
-                return u8"우리 쪽에서 추가했습니다";
+                return tr(u8"dialog.conflict.added_by_us");
             if (code == "UA")
-                return u8"그들 쪽에서 추가했습니다";
+                return tr(u8"dialog.conflict.added_by_them");
             return {};
         }
 
@@ -199,8 +195,7 @@ namespace cyella {
         return context;
     }
 
-    std::optional<menu_view> build_menu_view(
-        const ui_state& ui, const repository_tabs& tabs, const repository_session* session, const graph_index* index, const float scale)
+    std::optional<menu_view> build_menu_view(const ui_state& ui, const repository_tabs& tabs, const repository_session* session, const graph_index* index, const float scale)
     {
         if (ui.menu.has_value() == false)
             return std::nullopt;
@@ -236,25 +231,26 @@ namespace cyella {
         const std::u8string query { view.filter.displayed_text() };
         if (state.kind == selector_kind::file_app)
         {
-            view.placeholder = u8"파일을 열 앱 찾기";
+            view.placeholder = tr(u8"dialog.selector.file_app_placeholder");
             std::size_t matched { 0 };
             for (std::size_t index { 0 }; index < settings.external_file_apps.size(); ++index)
             {
                 const external_file_app& app { settings.external_file_apps[index] };
-                if (selector_matches(app.name, query))
+                const std::u8string label { external_file_app_label(app) };
+                if (selector_matches(label, query))
                 {
                     if (++matched <= selector_visible_limit)
-                        view.entries.push_back({ u8"file-app:" + to_u8(std::to_string(index)), app.name });
+                        view.entries.push_back({ u8"file-app:" + to_u8(std::to_string(index)), label });
                 }
             }
             if (matched > selector_visible_limit)
-                view.entries.push_back({ .key = u8"more", .label = u8"이름을 입력해 앱을 찾으세요", .enabled = false });
-            view.entries.push_back({ .key = u8"file-app-settings", .label = u8"앱 추가·편집…", .separator_above = true });
+                view.entries.push_back({ .key = u8"more", .label = tr(u8"dialog.selector.type_to_find_app"), .enabled = false });
+            view.entries.push_back({ .key = u8"file-app-settings", .label = tr(u8"dialog.selector.edit_apps"), .separator_above = true });
             return view;
         }
         if (state.kind == selector_kind::repository_app)
         {
-            view.placeholder = u8"저장소를 열 앱 찾기";
+            view.placeholder = tr(u8"dialog.selector.repository_app_placeholder");
             const std::vector<external_file_app> apps { repository_open_apps(settings.external_file_apps) };
             std::size_t matched { 0 };
             for (std::size_t index { 0 }; index < apps.size(); ++index)
@@ -268,20 +264,20 @@ namespace cyella {
                 view.entries.push_back({ .key = std::u8string { selector_repository_app_key_prefix } + to_u8(std::to_string(index)), .label = apps[index].name, .icon = icon });
             }
             if (matched > selector_visible_limit)
-                view.entries.push_back({ .key = u8"more", .label = u8"이름을 입력해 앱을 찾으세요", .enabled = false });
-            view.entries.push_back({ .key = u8"file-app-settings", .label = u8"앱 추가·편집…", .separator_above = true });
+                view.entries.push_back({ .key = u8"more", .label = tr(u8"dialog.selector.type_to_find_app"), .enabled = false });
+            view.entries.push_back({ .key = u8"file-app-settings", .label = tr(u8"dialog.selector.edit_apps"), .separator_above = true });
             return view;
         }
         if (state.kind == selector_kind::repository)
         {
-            view.placeholder = u8"저장소 이름이나 경로로 거르기";
+            view.placeholder = tr(u8"dialog.selector.repository_placeholder");
             const std::vector<repository_choice> choices { make_repository_choices(tabs, settings, exists, tabs.selected().id) };
             view.entries = build_repository_selector(choices, query).entries;
             return view;
         }
         if (session == nullptr)
             return std::nullopt;
-        view.placeholder = u8"브랜치 이름으로 거르기";
+        view.placeholder = tr(u8"dialog.selector.branch_placeholder");
         view.entries = build_branch_selector(session->snapshot().refs, query, session->snapshot().summary.is_detached).entries;
         return view;
     }
@@ -295,45 +291,51 @@ namespace cyella {
         conflict_view view {};
         view.kind = progress.kind;
         const std::u8string kind_name { to_u8(repository_operation_state_name(progress.kind)) };
-        view.title = kind_name + u8" 중 · 충돌 해결";
+        view.title = tr(u8"dialog.conflict.title", { { u8"kind", kind_name } });
         switch (progress.kind)
         {
         case repository_operation_state::rebase:
-            view.title = u8"리베이스 · 충돌 해결";
+            view.title = tr(u8"dialog.conflict.rebase_title");
             if (progress.total > 0)
-                view.progress = u8"커밋 " + number(progress.step) + u8"/" + number(progress.total) + u8" 적용 중";
+                view.progress = tr(u8"dialog.conflict.rebase_applying", { { u8"step", progress.step }, { u8"total", progress.total } });
             else
-                view.progress = u8"rebase 진행 중";
+                view.progress = tr(u8"dialog.conflict.rebase_in_progress");
             if (progress.current_summary.empty() == false)
                 view.progress += u8": " + to_u8(progress.current_summary);
-            view.detail = progress.head_name.empty() ? std::u8string {} : branch_of_head_name(progress.head_name) + u8"를 ";
-            if (progress.onto.empty() == false)
-                view.detail += to_u8(std::string_view { progress.onto }.substr(0, std::min<std::size_t>(progress.onto.size(), 7))) + u8" 위로 옮기는 중";
+            {
+                const std::u8string onto { to_u8(std::string_view { progress.onto }.substr(0, std::min<std::size_t>(progress.onto.size(), 7))) };
+                if (progress.head_name.empty() == false && onto.empty() == false)
+                    view.detail = tr(u8"dialog.conflict.rebase_detail", { { u8"branch", branch_of_head_name(progress.head_name) }, { u8"onto", onto } });
+                else if (progress.head_name.empty() == false)
+                    view.detail = tr(u8"dialog.conflict.rebase_detail_branch", { { u8"branch", branch_of_head_name(progress.head_name) } });
+                else if (onto.empty() == false)
+                    view.detail = tr(u8"dialog.conflict.rebase_detail_onto", { { u8"onto", onto } });
+            }
             if (progress.interactive)
             {
                 // 인터랙티브 rebase는 멈춘 할 일과, 이어서 적용할 메시지가 남았는지를 알린다.
-                view.todo_note = u8"할 일 " + number(progress.step) + u8"/" + number(progress.total);
+                view.todo_note = tr(u8"dialog.conflict.todo_step", { { u8"step", progress.step }, { u8"total", progress.total } });
                 if (progress.current_action.empty() == false)
                     view.todo_note
                         += u8" · " + to_u8(progress.current_action) + u8" " + to_u8(std::string_view { progress.current_sha }.substr(0, std::min<std::size_t>(progress.current_sha.size(), 7)));
-                view.todo_note += progress.cyella_messages ? std::u8string { u8" · 저장한 커밋 메시지가 이어서 적용됩니다." } : std::u8string { u8" · 커밋 메시지는 Git 설정을 따릅니다." };
+                view.todo_note += progress.cyella_messages ? tr(u8"dialog.conflict.todo_saved_messages") : tr(u8"dialog.conflict.todo_git_messages");
             }
             break;
         case repository_operation_state::merge:
-            view.title = u8"병합 · 충돌 해결";
-            view.progress = u8"병합 진행 중";
+            view.title = tr(u8"dialog.conflict.merge_title");
+            view.progress = tr(u8"dialog.conflict.merge_in_progress");
             if (progress.current_summary.empty() == false)
                 view.progress += u8": " + to_u8(progress.current_summary);
             break;
         case repository_operation_state::cherry_pick:
-            view.title = u8"Cherry-pick · 충돌 해결";
-            view.progress = u8"cherry-pick 진행 중";
+            view.title = tr(u8"dialog.conflict.cherry_pick_title");
+            view.progress = tr(u8"dialog.conflict.cherry_pick_in_progress");
             if (progress.current_summary.empty() == false)
                 view.progress += u8": " + to_u8(progress.current_summary);
             break;
         case repository_operation_state::revert:
-            view.title = u8"되돌리기 · 충돌 해결";
-            view.progress = u8"revert 진행 중";
+            view.title = tr(u8"dialog.conflict.revert_title");
+            view.progress = tr(u8"dialog.conflict.revert_in_progress");
             if (progress.current_summary.empty() == false)
                 view.progress += u8": " + to_u8(progress.current_summary);
             break;
@@ -353,7 +355,7 @@ namespace cyella {
         if (const operation_status* last { latest_finished_user_operation(operations) }; last != nullptr)
         {
             if (last->state == operation_state::needs_input && last->needs_input.has_value() && last->needs_input->kind == input_kind::conflict)
-                view.message = view.files.empty() ? std::u8string {} : u8"아직 풀지 않은 충돌이 있습니다.";
+                view.message = view.files.empty() ? std::u8string {} : tr(u8"dialog.conflict.unresolved");
             else if (last->state == operation_state::failed && last->failure.has_value())
                 view.message = last->failure->summary;
         }
@@ -370,23 +372,23 @@ namespace cyella {
         {
         case operation_kind::push_execute:
             if (failure.kind == failure_kind::rejected_non_ff || failure.kind == failure_kind::rejected_fetch_first)
-                actions.push_back({ u8"pull_then_push", u8"Pull 후 다시 push" });
+                actions.push_back({ u8"pull_then_push", tr(u8"dialog.banner.pull_then_push") });
             else if (failure.kind == failure_kind::stale_info)
-                actions.push_back({ u8"fetch", u8"Fetch로 원격 상태 갱신" });
+                actions.push_back({ u8"fetch", tr(u8"dialog.banner.fetch") });
             break;
         case operation_kind::pull:
             if (failure.kind == failure_kind::not_possible_to_fast_forward)
-                actions.push_back({ u8"pull_rebase", u8"rebase로 Pull" });
+                actions.push_back({ u8"pull_rebase", tr(u8"dialog.banner.pull_rebase") });
             break;
         case operation_kind::delete_branch:
             if (failure.detail.find(u8"not fully merged") != std::u8string::npos)
-                actions.push_back({ u8"force_delete", u8"강제 삭제…" });
+                actions.push_back({ u8"force_delete", tr(u8"dialog.banner.force_delete") });
             break;
         default:
             break;
         }
         if (failure.kind == failure_kind::index_lock)
-            actions.push_back({ u8"remove_index_lock", u8"index.lock 지우기" });
+            actions.push_back({ u8"remove_index_lock", tr(u8"dialog.banner.remove_index_lock") });
         return actions;
     }
 

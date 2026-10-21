@@ -1,3 +1,4 @@
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/extension_intents.h"
 #include "presentation/form_extension.h"
@@ -68,7 +69,7 @@ namespace cyella {
             return;
         if (info->state == submodule_state::uninitialized)
         {
-            show_notice(u8"'" + to_u8(path) + u8"' submodule이 아직 초기화되지 않았습니다. 업데이트(init)한 뒤 여세요.", true);
+            show_notice(tr(u8"shell.submodule.uninitialized", { { u8"path", path } }), true);
             return;
         }
         // submodule은 자기 `.git`을 가진 저장소다. 상위 저장소와 별개의 탭이 된다.
@@ -87,7 +88,7 @@ namespace cyella {
             return;
         if (info->prunable)
         {
-            show_notice(u8"'" + to_u8(path) + u8"' 폴더가 사라졌습니다. 정리(prune)할 수 있습니다.", true);
+            show_notice(tr(u8"shell.worktree.folder_missing", { { u8"path", path } }), true);
             return;
         }
         open_repository(to_u8(path));
@@ -206,15 +207,14 @@ namespace cyella {
                 if (info == nullptr)
                     return;
                 dialog_state dialog {};
-                dialog.title = u8"worktree를 제거할까요?";
-                dialog.lines.push_back(u8"'" + to_u8(target.name) + u8"' 폴더와 그 worktree의 git 기록을 지웁니다. 브랜치와 커밋은 남습니다.");
-                dialog.lines.push_back(u8"커밋하지 않은 변경이 있으면 거절됩니다.");
+                dialog.title = tr(u8"shell.worktree_remove.title");
+                dialog.lines.push_back(tr(u8"shell.worktree_remove.description", { { u8"path", target.name } }));
+                dialog.lines.push_back(tr(u8"shell.worktree_remove.refuses_changes"));
                 if (info->locked)
-                    dialog.lines.push_back(
-                        u8"잠긴 worktree입니다" + (info->lock_reason.empty() ? std::u8string {} : u8" (" + to_u8(info->lock_reason) + u8")") + u8". 강제로 지울지 아래에서 정하세요.");
-                dialog.confirm_label = u8"제거";
+                    dialog.lines.push_back(info->lock_reason.empty() ? tr(u8"shell.worktree_remove.locked") : tr(u8"shell.worktree_remove.locked_reason", { { u8"reason", info->lock_reason } }));
+                dialog.confirm_label = tr(u8"shell.worktree_remove.confirm");
                 dialog.danger = true;
-                dialog.check_label = u8"변경이 있거나 잠겨 있어도 강제로 제거";
+                dialog.check_label = tr(u8"shell.worktree_remove.force");
                 dialog.plan.primary.push_back(worktree_remove_request { .path = to_u8(target.name), .force = false });
                 dialog.plan.alternate.push_back(worktree_remove_request { .path = to_u8(target.name), .force = true });
                 open_confirm(std::move(dialog));
