@@ -307,11 +307,8 @@ namespace cyella::ui {
             if (hidden > 0)
             {
                 overflow_width = (estimate_text_width(u8"+" + number_text(hidden), label_font_size) + 10.0f) * scale;
-                std::u8string names {};
-                for (std::size_t index { shown }; index < data_.labels.size(); ++index)
-                    names += (names.empty() ? u8"" : u8", ") + data_.labels[index].text;
                 if (overflow_ == nullptr)
-                    overflow_ = add_chip(std::make_unique<ref_overflow_element>(u8"overflow-" + data_.row_key, hidden, std::move(names)));
+                    overflow_ = add_chip(std::make_unique<ref_overflow_element>(u8"overflow-" + data_.row_key, hidden, data_.sha));
             }
             total = used + (overflow_width > 0.0f ? gap + overflow_width : 0.0f);
         }
@@ -331,7 +328,10 @@ namespace cyella::ui {
             x += width + gap;
         }
         if (overflow_ != nullptr)
+        {
+            overflow_->set_visible(overflow_width > 0.0f);
             overflow_->arrange(context.for_child({ x, top, overflow_width, height }));
+        }
     }
 
     luil::access_info graph_row_element::accessibility() const

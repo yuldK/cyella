@@ -3,6 +3,7 @@
 #include "luil/ui/ui_element_id.h"
 
 namespace cyella::ui {
+    inline constexpr luil::ui_element_kind kind_ref_overflow { luil::application_element_kind(608) };
     inline constexpr luil::ui_element_kind kind_segmented { luil::application_element_kind(600) };
     inline constexpr luil::ui_element_kind kind_segment { luil::application_element_kind(601) };
     inline constexpr luil::ui_element_kind kind_settings_section { luil::application_element_kind(602) };

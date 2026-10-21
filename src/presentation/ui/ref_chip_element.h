@@ -43,11 +43,11 @@ namespace cyella::ui {
         std::u8string access_name_ {};
     };
 
-    // 칸이 모자라 줄어든 라벨들의 "+N" 칩이다. 숨은 이름은 툴팁이 보인다.
+    // 칸이 모자라 줄어든 라벨들의 "+N" 단추다. 호버·클릭으로 이 커밋의 전체 ref 목록을 연다.
     class ref_overflow_element final : public luil::ui_element
     {
     public:
-        ref_overflow_element(std::u8string owner, std::size_t hidden, std::u8string names);
+        ref_overflow_element(std::u8string owner, std::size_t hidden, std::string sha);
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;

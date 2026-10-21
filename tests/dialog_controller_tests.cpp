@@ -176,6 +176,25 @@ namespace {
     }
 } // namespace
 
+TEST_CASE("overflow ref lists open for a loaded commit and hand actions to its branch menu", "[presentation][dialogs][refs]")
+{
+    harness test {};
+    test.load();
+    const std::string sha { snap::sha_of(4) };
+    test.send(open_ref_list_intent { sha, 120.0f, 140.0f });
+    REQUIRE(test.controller.state().ref_list.has_value());
+    auto view { test.controller.make_view(1440.0f, 900.0f, 1.0f) };
+    REQUIRE(view.ref_list.has_value());
+    CHECK(view.ref_list->sha == sha);
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "main", .sha = sha }, 120.0f, 140.0f });
+    CHECK_FALSE(test.controller.state().ref_list.has_value());
+    REQUIRE(test.controller.state().menu.has_value());
+    CHECK(test.controller.state().menu->target.name == "main");
+    test.send(close_menu_intent {});
+    test.send(open_ref_list_intent { "missing", 120.0f, 140.0f });
+    CHECK_FALSE(test.controller.state().ref_list.has_value());
+}
+
 TEST_CASE("form scrolling clamps to layout feedback and resets for the next dialog", "[presentation][dialogs]")
 {
     harness test {};

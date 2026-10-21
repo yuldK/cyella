@@ -196,6 +196,14 @@ namespace cyella {
         luil::text::text_edit_state filter {};
     };
 
+    struct ref_list_state
+    {
+        std::string sha {};
+        float x { 0.0f };
+        float y { 0.0f };
+        float scroll { 0.0f };
+    };
+
     struct ui_state
     {
         std::map<repository_tab_id, tab_ui_state> tabs {};
@@ -225,6 +233,7 @@ namespace cyella {
         form_inputs form {};
         // 열린 우클릭 메뉴다.
         std::optional<menu_state> menu {};
+        std::optional<ref_list_state> ref_list {};
         dialog_memory memory {};
         // 열린 저장소·브랜치 선택 상자 목록이다.
         std::optional<selector_state> selector {};

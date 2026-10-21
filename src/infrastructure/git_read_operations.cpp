@@ -12,6 +12,7 @@
 #include "infrastructure/git_stash_parser.h"
 #include "infrastructure/git_text.h"
 
+#include <algorithm>
 #include <chrono>
 #include <type_traits>
 #include <utility>
@@ -96,7 +97,8 @@ namespace cyella {
             git_log_parser parser { [&batcher](commit_info&& commit) { batcher.add(std::move(commit)); } };
 
             git_log_options log_options {};
-            log_options.max_count = static_cast<std::uint32_t>(options.log_page_size);
+            const std::size_t page_size { std::max(options.log_page_size, context.job().minimum_log_count) };
+            log_options.max_count = static_cast<std::uint32_t>(page_size);
             log_options.skip = static_cast<std::uint32_t>(skip);
             log_options.include_head = include_head;
 
@@ -108,7 +110,7 @@ namespace cyella {
             if (outcome.accepted == false)
                 return context.failure_from(outcome);
 
-            batcher.flush(true, batcher.count() < options.log_page_size);
+            batcher.flush(true, batcher.count() < page_size);
             return operation_outcome::succeeded();
         }
 

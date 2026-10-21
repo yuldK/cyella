@@ -305,6 +305,31 @@ namespace cyella {
 
     bool shell_controller::handle_dialog_message(const luil::app_message& message)
     {
+        if (const auto* const intent { message.get<open_ref_list_intent>() }; intent != nullptr)
+        {
+            const repository_session* const session { selected_session() };
+            if (session != nullptr && ui_.menu.has_value() == false && ui_.dialog.has_value() == false)
+            {
+                const auto& commits { session->graph_commits() };
+                if (std::any_of(commits.begin(), commits.end(), [intent](const commit_info& commit) { return commit.sha == intent->sha; }))
+                {
+                    ui_.selector.reset();
+                    ui_.ref_list = ref_list_state { intent->sha, intent->x, intent->y };
+                }
+            }
+            return true;
+        }
+        if (message.get<close_ref_list_intent>() != nullptr)
+        {
+            ui_.ref_list.reset();
+            return true;
+        }
+        if (const auto* const intent { message.get<scroll_ref_list_intent>() }; intent != nullptr)
+        {
+            if (ui_.ref_list.has_value())
+                ui_.ref_list->scroll = std::max(intent->absolute ? intent->value : ui_.ref_list->scroll + intent->value, 0.0f);
+            return true;
+        }
         if (const auto* const intent { message.get<open_context_menu_intent>() }; intent != nullptr)
         {
             open_context_menu(intent->target, intent->x, intent->y);
@@ -315,6 +340,7 @@ namespace cyella {
             // 메뉴 항목 탐색의 Esc는 선택 상자 목록에서도 같은 메시지로 온다.
             ui_.menu.reset();
             ui_.selector.reset();
+            ui_.ref_list.reset();
             return true;
         }
         if (const auto* const intent { message.get<menu_select_intent>() }; intent != nullptr)
@@ -632,6 +658,7 @@ namespace cyella {
         if (target.kind == menu_target_kind::commit && target.sha == graph_wip_sha)
             return;
         ui_.selector.reset();
+        ui_.ref_list.reset();
         ui_.menu = menu_state { .target = std::move(target), .x = x, .y = y, .asked_facts = false };
         if (ui_.menu->target.kind == menu_target_kind::drop)
             request_drop_facts();

@@ -698,6 +698,12 @@ namespace cyella::ui {
         root->place(std::make_unique<shortcut_table_element>(view.shortcuts), { 0.0f, 0.0f, 1.0f, 1.0f });
 
         built_tree built {};
+        if (view.ref_list.has_value() && view.repository.has_value() && view.repository->graph.labels != nullptr)
+        {
+            const auto found { view.repository->graph.labels->find(view.ref_list->sha) };
+            if (found != view.repository->graph.labels->end())
+                built.popups.push_back(build_ref_list_popup(*view.ref_list, found->second, scale, std::clamp(view.logical_height - 120.0f, 120.0f, 420.0f)));
+        }
         if (view.menu.has_value())
             built.popups.push_back(build_menu_popup(*view.menu, scale));
         if (view.selector.has_value())

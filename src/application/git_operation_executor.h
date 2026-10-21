@@ -24,6 +24,8 @@ namespace cyella {
         std::uint64_t generation { 0 };
         // load_more_log가 읽기 시작할 위치다(이미 받은 커밋 수).
         std::size_t log_skip { 0 };
+        // 갱신 뒤에도 이미 보고 있던 범위를 유지한다. 기본 쪽 크기보다 작으면 실행기가 기본값을 쓴다.
+        std::size_t minimum_log_count { 0 };
         // load_more_log에서 HEAD도 log의 시작점으로 넣는다. 첫 커밋 전이면 `log HEAD`가 실패하므로
         // 마지막 snapshot이 HEAD를 알 때만 켠다.
         bool log_include_head { true };

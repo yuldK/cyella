@@ -1,3 +1,4 @@
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/element_kinds.h"
@@ -6,6 +7,7 @@
 #include "presentation/ui/ui_parts.h"
 
 #include "luil/ui/menu_element.h"
+#include "luil/ui/scroll_area_element.h"
 #include "luil/ui/ui_tree.h"
 
 #include "include/core/SkCanvas.h"
@@ -105,6 +107,93 @@ namespace cyella::ui {
         popup.height = luil::menu_element::height_for(config);
         auto root { std::make_unique<luil::menu_element>(std::move(config)) };
         popup.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(root), { 0.0f, 0.0f, popup.width * scale, popup.height * scale }, scale));
+        return popup;
+    }
+
+    built_popup build_ref_list_popup(const ref_list_state& state, const std::vector<ref_label>& labels, const float scale, const float maximum_height)
+    {
+        std::vector<ref_label> entries {};
+        for (const ref_label& label : labels)
+        {
+            entries.push_back(label);
+            if (label.also_remote)
+            {
+                ref_label remote {};
+                remote.kind = ref_label_kind::remote;
+                remote.text = label.remote_name;
+                remote.ref_name = to_text(label.remote_name);
+                entries.push_back(std::move(remote));
+            }
+        }
+
+        luil::menu_config config {};
+        config.owner = u8"ref-list";
+        config.items.push_back({ .key = u8"ref-list-title", .label = tr(u8"ref_list.title", { { u8"count", entries.size() } }), .enabled = false });
+        float widest { 220.0f };
+        for (const ref_label& label : entries)
+        {
+            std::u8string text { label.text };
+            if (label.current)
+                text += tr(u8"ref_list.current_branch_suffix");
+            if (label.worktree_path.empty() == false)
+                text += tr(u8"ref_list.in_other_worktree_suffix");
+            char32_t icon { codicons::icon_git_branch };
+            if (label.current)
+                icon = codicons::icon_check;
+            else if (label.kind == ref_label_kind::remote)
+                icon = codicons::icon_cloud;
+            else if (label.kind == ref_label_kind::tag)
+                icon = codicons::icon_tag;
+            const bool enabled { label.kind == ref_label_kind::local || label.kind == ref_label_kind::remote || label.kind == ref_label_kind::tag };
+            config.items.push_back({ .key = u8"ref-list-" + ref_label_key(label), .label = text, .icon = icon, .enabled = enabled });
+            widest = std::max(widest, estimate_text_width(text, 12.0f));
+        }
+        config.select = [entries, state](const std::u8string& key) -> luil::input_action {
+            for (const ref_label& label : entries)
+            {
+                if (key != u8"ref-list-" + ref_label_key(label))
+                    continue;
+                menu_target target {};
+                target.kind = label.kind == ref_label_kind::local ? menu_target_kind::local_branch : label.kind == ref_label_kind::remote ? menu_target_kind::remote_branch : menu_target_kind::tag;
+                target.name = label.ref_name;
+                target.sha = state.sha;
+                return message(open_context_menu_intent { target, state.x, state.y });
+            }
+            return {};
+        };
+
+        built_popup popup {};
+        popup.id = u8"ref-list";
+        popup.ref_list = true;
+        popup.x = state.x / scale;
+        popup.y = state.y / scale + 2.0f;
+        popup.width = std::clamp(widest + menu_chrome_width, 280.0f, menu_maximum_width);
+        popup.height = luil::menu_element::height_for(config);
+        auto root { std::make_unique<luil::menu_element>(std::move(config)) };
+        for (std::size_t index { 0 }; index < entries.size(); ++index)
+        {
+            luil::ui_element& item { *root->children()[index + 1] };
+            const ref_label& label { entries[index] };
+            item.set_tooltip(label.text);
+            if (const luil::ui_action* const select { item.action(luil::ui_trigger::left_click) }; select != nullptr)
+                item.set_action(luil::ui_trigger::right_click, *select);
+        }
+        std::unique_ptr<luil::ui_element> content { std::move(root) };
+        if (popup.height > maximum_height)
+        {
+            luil::scroll_area_config scroll {};
+            scroll.owner = u8"ref-list-scroll";
+            scroll.content_height = popup.height;
+            scroll.scroll_offset = std::clamp(state.scroll, 0.0f, popup.height - maximum_height);
+            const float maximum { popup.height - maximum_height };
+            scroll.scroll = [offset = scroll.scroll_offset, maximum](const float delta) { return message(scroll_ref_list_intent { std::clamp(offset + delta, 0.0f, maximum), true }); };
+            scroll.scroll_to = [](const float value) { return message(scroll_ref_list_intent { value, true }); };
+            auto area { std::make_unique<luil::scroll_area_element>(std::move(scroll)) };
+            area->set_content(std::move(content));
+            content = std::move(area);
+            popup.height = maximum_height;
+        }
+        popup.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(content), { 0.0f, 0.0f, popup.width * scale, popup.height * scale }, scale));
         return popup;
     }
 } // namespace cyella::ui

@@ -7,6 +7,8 @@
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/graph_row_element.h"
+#include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
@@ -23,6 +25,64 @@
 #include <cmath>
 #include <string>
 #include <vector>
+
+TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][refs]")
+{
+    using namespace cyella;
+    const std::vector<ref_label> labels {
+        { .kind = ref_label_kind::local, .text = u8"main", .ref_name = "main", .current = true, .also_remote = true, .remote_name = u8"origin/main" },
+        { .kind = ref_label_kind::local, .text = u8"feature/hidden", .ref_name = "feature/hidden" },
+        { .kind = ref_label_kind::tag, .text = u8"v1.0", .ref_name = "v1.0" },
+    };
+    ui::graph_row_data data {};
+    data.labels = labels;
+    data.row_key = u8"abc";
+    data.sha = "abc";
+    ui::graph_columns columns {};
+    columns.refs = 140.0f;
+    auto row { std::make_unique<ui::graph_row_element>(u8"test-row", data, columns) };
+    const auto tree { luil::make_arranged_tree(std::move(row), { 0.0f, 0.0f, 600.0f, 28.0f }, 1.0f) };
+    const auto* const overflow { tree.find({ ui::kind_ref_overflow, u8"overflow-abc" }) };
+    REQUIRE(overflow != nullptr);
+    REQUIRE(overflow->visible());
+    CHECK(overflow->accessibility().role == luil::access_role::button);
+    REQUIRE(overflow->action(luil::ui_trigger::left_click) != nullptr);
+    const auto actions { (*overflow->action(luil::ui_trigger::left_click))({}) };
+    REQUIRE(actions.size() == 1);
+    const auto* const opened { std::get<luil::app_message>(actions.front()).get<open_ref_list_intent>() };
+    REQUIRE(opened != nullptr);
+    CHECK(opened->sha == "abc");
+    CHECK(opened->y == overflow->bounds().y + overflow->bounds().height);
+
+    test::snapshot::snapshot_harness harness {};
+    const auto tab { harness.open(u8"C:/work/repo", "repo-1") };
+    test::snapshot::load(*harness.sessions["repo-1"], test::snapshot::linear_history(1), 0);
+    view_snapshot view { harness.build() };
+    auto map { std::make_shared<ref_label_map>() };
+    (*map)["abc"] = labels;
+    view.repository->graph.labels = map;
+    view.ref_list = ref_list_state { "abc", 40.0f, 80.0f };
+    const auto built { ui::build_ui_tree(view) };
+    REQUIRE(built.popups.size() == 1);
+    const auto& popup { built.popups.front() };
+    CHECK(popup.id == u8"ref-list");
+    CHECK(popup.tree->duplicate_ids().empty());
+    for (const auto& [key, expected] :
+        std::vector<std::pair<std::u8string, std::string>> { { u8"ref-list-l:main", "main" }, { u8"ref-list-rb:origin/main", "origin/main" }, { u8"ref-list-l:feature/hidden", "feature/hidden" } })
+    {
+        const auto* const item { popup.tree->find({ luil::ui_element_kind::menu_item, key }) };
+        REQUIRE(item != nullptr);
+        REQUIRE(item->action(luil::ui_trigger::left_click) != nullptr);
+        REQUIRE(item->action(luil::ui_trigger::right_click) != nullptr);
+        const auto selected { (*item->action(luil::ui_trigger::left_click))({}) };
+        REQUIRE(selected.size() == 1);
+        const auto* const menu { std::get<luil::app_message>(selected.front()).get<open_context_menu_intent>() };
+        REQUIRE(menu != nullptr);
+        CHECK(menu->target.name == expected);
+        CHECK(menu->target.sha == "abc");
+    }
+    static_cast<void>(tab);
+}
 
 namespace {
     using namespace cyella;

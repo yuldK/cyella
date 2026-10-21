@@ -238,6 +238,7 @@ namespace cyella {
         ui_.notice.reset();
         ui_.rail_section.reset();
         ui_.drawer_open = false;
+        ui_.ref_list.reset();
         exists_cache_.clear();
     }
 
@@ -253,6 +254,7 @@ namespace cyella {
             return;
         tab_repositories_.erase(id);
         ui_.tabs.erase(id);
+        ui_.ref_list.reset();
         if (rebase_.state().has_value() && rebase_.state()->repository_id == repository)
             rebase_.close();
         if (repository.empty() == false)
@@ -285,6 +287,7 @@ namespace cyella {
         ui_.rail_section.reset();
         ui_.drawer_open = false;
         ui_.selector.reset();
+        ui_.ref_list.reset();
         exists_cache_.clear();
     }
 
@@ -651,6 +654,7 @@ namespace cyella {
         }
         if (message.get<new_tab_intent>() != nullptr)
         {
+            ui_.ref_list.reset();
             static_cast<void>(tabs_.new_tab());
             save_tabs();
             ui_.notice.reset();
@@ -763,6 +767,8 @@ namespace cyella {
             tab_ui_state* const tab { selected_tab_state() };
             if (ui_.palette.has_value())
                 ui_.palette.reset();
+            else if (ui_.ref_list.has_value())
+                ui_.ref_list.reset();
             else if (ui_.selector.has_value())
                 ui_.selector.reset();
             else if (ui_.rail_section.has_value())
@@ -1276,12 +1282,24 @@ namespace cyella {
             inputs.history_index = [this](const repository_session& session) { return history_index(session); };
         }
         view_snapshot view { build_view_snapshot(inputs) };
+        if (ui_.ref_list.has_value() && view.repository.has_value() && view.repository->graph.labels != nullptr)
+        {
+            if (view.repository->graph.labels->contains(ui_.ref_list->sha))
+                view.ref_list = ui_.ref_list;
+            else
+                ui_.ref_list.reset();
+        }
         if (view.repository.has_value() && view.repository->commit.has_value())
             attach_avatar(*view.repository->commit);
         view.settings = settings_.make_view(ui_.composition);
         view.rebase_editor = rebase_.make_view(ui_.composition);
         last_mode_ = view.mode;
         view.palette = make_palette_view();
+        if (view.form.has_value() || view.settings.has_value() || view.palette.has_value() || view.clone.has_value() || view.rebase_editor.has_value())
+        {
+            ui_.ref_list.reset();
+            view.ref_list.reset();
+        }
         view.shortcuts = resolve_shortcut_bindings(settings());
         // 선택된 저장소의 작성자 신원을 상태 줄에 보인다 (출처와 함께).
         if (view.repository.has_value() && dependencies_.request_identity != nullptr)

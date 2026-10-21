@@ -246,8 +246,12 @@ TEST_CASE("a repository without remotes cannot push from either toolbar or comma
     repository_snapshot snapshot { snap::make_snapshot(session.snapshot().summary.head_sha, 0) };
     snapshot.summary.remotes.clear();
     snapshot.summary.has_upstream = false;
+    std::vector<commit_info> commits { session.graph_commits() };
+    if (session.has_wip_row())
+        commits.erase(commits.begin());
     const std::uint64_t generation { session.begin_refresh() };
     REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
+    REQUIRE(session.apply(commits_loaded { .generation = generation, .commits = std::move(commits), .page_complete = true, .history_complete = true }));
     test.controller.after_events();
     CHECK_FALSE(test.view().toolbar.push_enabled);
     test.send(open_palette_intent {});

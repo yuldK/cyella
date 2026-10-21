@@ -29,6 +29,10 @@ namespace cyella {
     {
         // 전체 refresh의 snapshot이 곧 모든 것을 덮는다. 앞서 낸 status의 결과는 낡은 값이다.
         expected_status_ = 0;
+        pending_snapshot_.reset();
+        pending_commits_.clear();
+        pending_batches_ = 0;
+        page_loading_ = true;
         ++revision_;
         return ++requested_generation_;
     }
@@ -66,6 +70,21 @@ namespace cyella {
         if (event.generation != requested_generation_)
             return false;
 
+        if (loaded() && rows_.empty() == false)
+        {
+            pending_snapshot_ = event;
+            pending_commits_.clear();
+            pending_batches_ = 0;
+            ++revision_;
+            return true;
+        }
+        replace_snapshot(event);
+        ++revision_;
+        return true;
+    }
+
+    void repository_session::replace_snapshot(const snapshot_loaded& event)
+    {
         snapshot_ = event.snapshot;
         // 원격 목록에서 빠진 원격의 태그 기록은 더 이상 뜻이 없다.
         for (auto entry { remote_tags_.begin() }; entry != remote_tags_.end();)
@@ -98,12 +117,31 @@ namespace cyella {
             row_commits_.push_back(std::move(commit));
             has_wip_row_ = true;
         }
-        ++revision_;
-        return true;
     }
 
     bool repository_session::apply(const commits_loaded& event)
     {
+        if (event.generation != requested_generation_)
+            return false;
+        if (pending_snapshot_.has_value())
+        {
+            if (event.first_index != pending_commits_.size())
+                return false;
+            pending_commits_.insert(pending_commits_.end(), event.commits.begin(), event.commits.end());
+            ++pending_batches_;
+            if (event.page_complete == false)
+                return true;
+
+            // 중간의 빈 그래프나 일부 행을 게시하지 않고 snapshot과 첫 쪽을 한 번에 교체한다.
+            replace_snapshot(*pending_snapshot_);
+            pending_snapshot_.reset();
+            commits_loaded complete { .generation = event.generation, .first_index = 0, .commits = std::move(pending_commits_), .page_complete = true, .history_complete = event.history_complete };
+            const std::size_t batches { pending_batches_ };
+            pending_batches_ = 0;
+            const bool applied { apply(complete) };
+            batch_count_ = batches;
+            return applied;
+        }
         if (event.generation != requested_generation_ || event.generation != displayed_generation_)
             return false;
         // 쪽 경계가 어긋났다(같은 쪽을 두 번 읽었거나 앞 묶음이 빠졌다). 이어 붙이면 행이 틀린다.
@@ -197,8 +235,11 @@ namespace cyella {
 
     void repository_session::abandon_log_page(const std::uint64_t generation) noexcept
     {
-        if (generation != displayed_generation_)
+        if (generation != requested_generation_)
             return;
+        pending_snapshot_.reset();
+        pending_commits_.clear();
+        pending_batches_ = 0;
         page_loading_ = false;
         ++revision_;
     }

@@ -491,6 +491,7 @@ namespace cyella {
         // 모달 입력 상자다 (브랜치·태그·push·확인·체크아웃 정책·인증). 있으면 Clone 상자보다 위에 선다.
         std::optional<form_view> form {};
         std::optional<menu_view> menu {};
+        std::optional<ref_list_state> ref_list {};
         // 열린 저장소·브랜치 선택 상자 목록이다.
         std::optional<selector_view> selector {};
         float sidebar_width { default_sidebar_width };

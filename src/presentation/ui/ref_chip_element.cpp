@@ -306,12 +306,15 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- ref_overflow_element
 
-    ref_overflow_element::ref_overflow_element(std::u8string owner, const std::size_t hidden, std::u8string names)
-        : ui_element { luil::ui_element_id { kind_ref_chip, std::move(owner) } }
+    ref_overflow_element::ref_overflow_element(std::u8string owner, const std::size_t hidden, std::string sha)
+        : ui_element { luil::ui_element_id { kind_ref_overflow, std::move(owner) } }
         , text_ { u8"+" + number_text(hidden) }
     {
-        set_tooltip(std::move(names));
-        set_tab_stop(false);
+        set_cursor(luil::ui_cursor::hand);
+        set_action(luil::ui_trigger::left_click, [this, sha = std::move(sha)](const luil::ui_action_context&) -> std::vector<luil::input_action> {
+            const luil::rect_f box { bounds() };
+            return { message(open_ref_list_intent { sha, box.x, box.y + box.height }) };
+        });
     }
 
     void ref_overflow_element::arrange(const luil::arrange_context& context)
@@ -321,7 +324,7 @@ namespace cyella::ui {
 
     luil::access_info ref_overflow_element::accessibility() const
     {
-        return { .role = luil::access_role::static_text, .name = text_ + u8" " + tooltip() };
+        return { .role = luil::access_role::button, .name = tr(u8"ref_chip.overflow_access_name", { { u8"count", text_ } }) };
     }
 
     void ref_overflow_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const

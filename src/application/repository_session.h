@@ -30,7 +30,7 @@ namespace cyella {
     //
     // generation 규율: refresh를 낼 때마다 `begin_refresh`가 generation을 하나 올린다. 사건에
     // 실린 generation이 마지막으로 낸 값과 다르면 늦게 온 결과라 버린다. 새 generation의
-    // snapshot이 오면 레이아웃을 통째로 새로 만들고, 그 뒤의 log 묶음만 이어 붙인다.
+    // snapshot과 첫 log 쪽이 준비되면 레이아웃을 교체한다. 처음 열 때만 묶음마다 바로 보여 준다.
     class repository_session
     {
     public:
@@ -175,6 +175,7 @@ namespace cyella {
         void abandon_log_page(std::uint64_t generation) noexcept;
 
     private:
+        void replace_snapshot(const snapshot_loaded& event);
         void apply_known_remote_tags();
 
         std::string id_ {};
@@ -190,6 +191,10 @@ namespace cyella {
         std::size_t batch_count_ { 0 };
         bool page_loading_ { false };
         bool history_complete_ { false };
+        // 갱신의 첫 쪽이 완성될 때까지 지금 보이는 snapshot과 그래프를 함께 보존한다.
+        std::optional<snapshot_loaded> pending_snapshot_ {};
+        std::vector<commit_info> pending_commits_ {};
+        std::size_t pending_batches_ { 0 };
         // 원격마다 마지막으로 읽은 태그 목록이다. snapshot이 바뀌어도 다시 입힌다.
         std::map<std::string, std::vector<remote_tag>> remote_tags_ {};
         std::optional<commit_detail> commit_detail_ {};

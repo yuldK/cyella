@@ -9,6 +9,7 @@
 
 namespace cyella::win32 {
     class cyella_driver;
+    class ref_hover_monitor;
 
     // luil UI thread에 꽂는 cyella 훅이다. 창 사건을 앱 메시지로 바꾸기만 하고
     // 상태는 직접 고치지 않는다.
@@ -20,10 +21,9 @@ namespace cyella::win32 {
     public:
         // relay는 driver가 소유한다. host가 준비되면 묶어 worker 결과가 logic thread를 깨우게 한다.
         // driver는 host가 준비되면 클립보드 요청을 보낼 길을 얻는다.
-        explicit cyella_delegate(operation_result_relay* relay = nullptr, cyella_driver* driver = nullptr) noexcept
-            : relay_ { relay }
-            , driver_ { driver }
-        {}
+        explicit cyella_delegate(operation_result_relay* relay = nullptr, cyella_driver* driver = nullptr) noexcept;
+
+        ~cyella_delegate() override;
 
         void on_started(luil::app_host& host) override;
         void execute_app_ui_command(luil::app_host& host, const luil::app_ui_command& command) override;
@@ -34,5 +34,6 @@ namespace cyella::win32 {
         cyella_driver* driver_ { nullptr };
         // 다른 앱에서 창으로 돌아오는 순간을 듣는다 (`window_focus_intent`). UI thread에서 만들고 이 객체와 함께 없어진다.
         std::unique_ptr<foreground_monitor> foreground_ {};
+        std::unique_ptr<ref_hover_monitor> ref_hover_ {};
     };
 } // namespace cyella::win32

@@ -727,7 +727,9 @@ namespace cyella::win32 {
             shown.height = popup.height;
             shown.tree = std::move(popup.tree);
             // 바깥을 누르거나 Esc·휠·창 이동이면 닫는다. 닫는 것은 상태(`ui_state::menu`)이고 popup은 다음 frame에 빠진다.
-            if (popup.font)
+            if (popup.ref_list)
+                shown.dismiss = [](const luil::win32::popup_dismiss_reason) { return luil::make_app_action(close_ref_list_intent {}); };
+            else if (popup.font)
                 shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
                     if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
                         return luil::input_action {};

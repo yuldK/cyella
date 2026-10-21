@@ -179,6 +179,7 @@ TEST_CASE("diff file navigation keeps versions separate and follows list or tree
     };
     const std::uint64_t generation { session.begin_refresh() };
     REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+    REQUIRE(session.apply(commits_loaded { .generation = generation, .commits = linear_history(3), .page_complete = true, .history_complete = true }));
     test.harness.ui.tabs[test.tab].diff = diff_file_request { .path = "src/z.cpp", .context_lines = 25 };
 
     SECTION("list order keeps untracked and context data")

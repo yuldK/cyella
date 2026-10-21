@@ -206,6 +206,104 @@ TEST_CASE("log batches of a replaced layout are dropped mid-stream", "[workspace
     CHECK(test.session().graph_rows().size() == 4);
 }
 
+TEST_CASE("refresh keeps a coherent graph until the replacement page is ready", "[workspace][generation]")
+{
+    workspace_harness test {};
+    test.script_history(4, false);
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    test.settle();
+    repository_session& session { test.session() };
+    const auto displayed { session.displayed_generation() };
+    const auto old_head { session.snapshot().summary.head_sha };
+    repository_snapshot fresh { session.snapshot() };
+    fresh.summary.current_branch = "feature/hidden";
+    fresh.summary.head_sha = test::sha_of(9);
+    fresh.summary.changed_file_count = 1;
+    const auto generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, fresh }));
+    CHECK(session.displayed_generation() == displayed);
+    CHECK(session.snapshot().summary.head_sha == old_head);
+    CHECK(session.graph_rows().size() == 4);
+    CHECK_FALSE(session.has_wip_row());
+
+    commits_loaded batch {};
+    batch.generation = generation;
+    commit_info commit {};
+    commit.sha = fresh.summary.head_sha;
+    batch.commits.push_back(commit);
+    REQUIRE(session.apply(batch));
+    CHECK(session.graph_rows().size() == 4);
+    CHECK(session.snapshot().summary.current_branch == "main");
+    CHECK(session.displayed_generation() == displayed);
+
+    SECTION("the complete page replaces snapshot and graph together")
+    {
+        batch.first_index = 1;
+        batch.commits.clear();
+        batch.page_complete = true;
+        batch.history_complete = true;
+        REQUIRE(session.apply(batch));
+        CHECK(session.displayed_generation() == generation);
+        CHECK(session.snapshot().summary.current_branch == "feature/hidden");
+        REQUIRE(session.graph_rows().size() == 2);
+        CHECK(session.graph_commits().front().sha == graph_wip_sha);
+        CHECK(session.graph_commits().back().sha == fresh.summary.head_sha);
+        CHECK(session.has_wip_row());
+        CHECK(session.commit_batch_count() == 2);
+        CHECK_FALSE(session.log_page_loading());
+    }
+    SECTION("a failed refresh retains the displayed graph")
+    {
+        session.abandon_log_page(generation);
+        CHECK(session.graph_rows().size() == 4);
+        CHECK(session.snapshot().summary.head_sha == old_head);
+        CHECK(session.displayed_generation() == displayed);
+        CHECK_FALSE(session.log_page_loading());
+        batch.first_index = 1;
+        batch.commits.clear();
+        batch.page_complete = true;
+        CHECK_FALSE(session.apply(batch));
+    }
+    SECTION("a newer refresh discards the pending page")
+    {
+        const auto newer { session.begin_refresh() };
+        batch.first_index = 1;
+        batch.commits.clear();
+        batch.page_complete = true;
+        CHECK_FALSE(session.apply(batch));
+        fresh.summary.changed_file_count = 0;
+        fresh.summary.current_branch = "empty";
+        fresh.summary.head_sha.clear();
+        fresh.refs.clear();
+        REQUIRE(session.apply(snapshot_loaded { newer, fresh }));
+        CHECK(session.graph_rows().size() == 4);
+        batch.generation = newer;
+        batch.first_index = 0;
+        batch.history_complete = true;
+        REQUIRE(session.apply(batch));
+        CHECK(session.graph_rows().empty());
+        CHECK(session.snapshot().summary.current_branch == "empty");
+        CHECK(session.displayed_generation() == newer);
+    }
+}
+
+TEST_CASE("refresh rereads the previously loaded range", "[workspace][log]")
+{
+    workspace_harness test { 3 };
+    test.script_history(3, false);
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    test.settle();
+    REQUIRE(test.workspace.submit(test.repository, load_more_log_request {}) != 0);
+    test.settle();
+    REQUIRE(test.session().loaded_commit_count() == 6);
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    test.settle();
+    const auto& calls { test.process.calls() };
+    const auto log { std::find_if(calls.rbegin(), calls.rend(), [](const test::recorded_call& call) { return call.arguments.front() == "log"; }) };
+    REQUIRE(log != calls.rend());
+    CHECK(std::find(log->arguments.begin(), log->arguments.end(), "--max-count=6") != log->arguments.end());
+}
+
 TEST_CASE("load_more_log continues the same generation from the loaded count", "[workspace][log]")
 {
     // 쪽 크기가 3이라 첫 쪽이 꽉 차면 이력이 더 있다고 본다.

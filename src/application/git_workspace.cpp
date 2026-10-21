@@ -159,7 +159,8 @@ namespace cyella {
             return 0;
         // 읽는 중인 쪽을 또 읽으면 같은 위치의 묶음이 두 번 와서 둘째가 버려지고, 쪽이 끝났다는
         // 표시도 함께 버려져 읽는 중 상태가 풀리지 않는다. 이어 읽을 것이 없을 때도 내지 않는다.
-        if (kind == operation_kind::load_more_log && (session->loaded() == false || session->log_page_loading() || session->history_complete()))
+        if (kind == operation_kind::load_more_log
+            && (session->loaded() == false || session->log_page_loading() || session->history_complete() || session->requested_generation() != session->displayed_generation()))
             return 0;
         // 서명 검증은 커밋마다 gpg·ssh-keygen이 돈다. 이미 읽었거나 읽는 중인 커밋은 빼고, 남은 것이 없으면 내지 않는다.
         if (kind == operation_kind::verify_signatures)
@@ -189,6 +190,7 @@ namespace cyella {
         const operation_id id { next_id_ };
         if (kind == operation_kind::refresh)
         {
+            job.minimum_log_count = session->loaded_commit_count();
             record.generation = session->begin_refresh();
         }
         else if (kind == operation_kind::load_more_log)

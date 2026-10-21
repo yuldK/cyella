@@ -5,7 +5,9 @@
 #include "domain/text_catalog.h"
 #include "platform/win32/cyella_driver.h"
 #include "platform/win32/utf8.h"
+#include "presentation/dialog_intents.h"
 #include "presentation/settings/settings_intents.h"
+#include "presentation/ui/element_kinds.h"
 #include "presentation/ui_intents.h"
 
 #include <windows.h>
@@ -13,12 +15,95 @@
 #include <objbase.h>
 #include <shobjidl.h>
 
+#include <algorithm>
+#include <chrono>
 #include <iterator>
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 
 namespace cyella::win32 {
+    // luil에는 호버 intent 훅이 없어 UI thread에서 최신 상호작용만 살핀다. 상태가 바뀔 때만
+    // 메시지를 보내므로 이 타이머는 logic frame이나 그래프를 주기적으로 다시 짓지 않는다.
+    class ref_hover_monitor
+    {
+    public:
+        explicit ref_hover_monitor(luil::app_host& host)
+            : host_ { host }
+        {
+            if (active_ == nullptr)
+            {
+                timer_ = SetTimer(nullptr, 0, 60, &on_timer);
+                if (timer_ != 0)
+                    active_ = this;
+            }
+        }
+
+        ~ref_hover_monitor()
+        {
+            if (timer_ != 0)
+                KillTimer(nullptr, timer_);
+            if (active_ == this)
+                active_ = nullptr;
+        }
+
+    private:
+        static void CALLBACK on_timer(HWND, UINT, UINT_PTR, DWORD)
+        {
+            if (active_ != nullptr)
+                active_->update();
+        }
+
+        void update()
+        {
+            const auto frame { host_.acquire_frame() };
+            if (frame == nullptr || frame->tree == nullptr)
+                return;
+            const auto interaction { host_.acquire_interaction() };
+            const auto now { std::chrono::steady_clock::now() };
+            const bool list_open { std::any_of(frame->popups.begin(), frame->popups.end(), [](const luil::ui_popup& popup) { return popup.id == u8"ref-list"; }) };
+            const bool source { interaction.hovered.kind == ui::kind_ref_overflow && interaction.hovered_surface.empty() && interaction.drag.has_value() == false };
+            if (source)
+            {
+                last_inside_ = now;
+                if (sent_ == interaction.hovered || (frame->popups.empty() == false && list_open == false) || interaction.hover_started_at.has_value() == false
+                    || now - *interaction.hover_started_at < std::chrono::milliseconds { 180 })
+                    return;
+                const luil::ui_element* const element { frame->tree->find(interaction.hovered) };
+                if (element == nullptr || element->visible() == false)
+                    return;
+                const luil::ui_action* const open { element->action(luil::ui_trigger::left_click) };
+                if (open == nullptr)
+                    return;
+                for (const luil::input_action& action : (*open)({ .element = element->id() }))
+                    if (const auto* const message { std::get_if<luil::app_message>(&action) }; message != nullptr)
+                        host_.post_app_message(*message);
+                sent_ = interaction.hovered;
+                hover_open_ = true;
+            }
+            else if (interaction.hovered_surface == u8"ref-list")
+                last_inside_ = now;
+            else if (list_open == false)
+            {
+                sent_ = {};
+                hover_open_ = false;
+            }
+            else if (hover_open_ && now - last_inside_ >= std::chrono::milliseconds { 400 })
+            {
+                host_.post_app_message(luil::app_message { close_ref_list_intent {} });
+                hover_open_ = false;
+            }
+        }
+
+        inline static ref_hover_monitor* active_ { nullptr };
+        luil::app_host& host_;
+        UINT_PTR timer_ { 0 };
+        luil::ui_element_id sent_ {};
+        std::chrono::steady_clock::time_point last_inside_ {};
+        bool hover_open_ { false };
+    };
+
     namespace {
         // 대화 상자 문구를 Windows 문자열로 바꾼다. 바꾸지 못하면 빈 문자열이다.
         [[nodiscard]] std::wstring wide_text(const std::u8string& text)
@@ -87,6 +172,11 @@ namespace cyella::win32 {
         }
     } // namespace
 
+    cyella_delegate::cyella_delegate(operation_result_relay* relay, cyella_driver* driver) noexcept
+        : relay_ { relay }
+        , driver_ { driver }
+    {}
+
     void cyella_delegate::on_started(luil::app_host& host)
     {
         // 묶이기 전에 도착한 결과가 있으면 bind가 한 번 깨운다.
@@ -97,7 +187,10 @@ namespace cyella::win32 {
         // 창이 앞으로 돌아오면 선택된 탭을 다시 읽는다. relay에 넣으면 logic thread가 깨어난다.
         if (relay_ != nullptr && foreground_ == nullptr)
             foreground_ = foreground_monitor::start([relay = relay_] { relay->post(luil::app_message { window_focus_intent {} }); });
+        ref_hover_ = std::make_unique<ref_hover_monitor>(host);
     }
+
+    cyella_delegate::~cyella_delegate() = default;
 
     void cyella_delegate::execute_app_ui_command(luil::app_host& host, const luil::app_ui_command& command)
     {

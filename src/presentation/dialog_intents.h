@@ -29,6 +29,22 @@ namespace cyella {
     struct close_menu_intent
     {};
 
+    struct open_ref_list_intent
+    {
+        std::string sha {};
+        float x { 0.0f };
+        float y { 0.0f };
+    };
+
+    struct close_ref_list_intent
+    {};
+
+    struct scroll_ref_list_intent
+    {
+        float value { 0.0f };
+        bool absolute { false };
+    };
+
     struct menu_select_intent
     {
         std::u8string key {};

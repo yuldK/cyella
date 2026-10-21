@@ -38,6 +38,7 @@ namespace cyella {
 
     void shell_controller::open_selector(const open_selector_intent& intent)
     {
+        ui_.ref_list.reset();
         // 열려 있던 같은 상자를 다시 눌렀거나, 방금 바깥 누름으로 닫힌 상자를 누르는 중이다: 닫는다.
         if (ui_.selector.has_value() && ui_.selector->kind == intent.kind)
         {
