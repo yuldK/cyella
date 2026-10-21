@@ -15,6 +15,8 @@ namespace cyella::ui {
         constexpr float row_padding { 8.0f };
         constexpr float icon_size { 14.0f };
         constexpr float indent_step { 14.0f };
+        // 좁아진 배지가 남기는 가장 작은 폭이다. 첫 글자와 줄임표가 들어간다.
+        constexpr float badge_minimum_width { 36.0f };
 
         // PR 행은 번호가 있으면 PR 아이콘, 동작 행은 동작을 닮은 아이콘이다.
         char32_t pull_request_row_glyph(const sidebar_row_view& row) noexcept
@@ -119,20 +121,23 @@ namespace cyella::ui {
 
         float right { box.x + box.width - row_padding * scale };
         const SkFont small { ui_font(context, 11.0f) };
+        const SkFont font { ui_font(context, 12.0f, row.worktree_current) };
         if (row.badge.empty() == false)
         {
-            const float text_width { luil::measure_text(row.badge, small) };
-            const float pill_width { text_width + 10.0f * scale };
+            // 이름과 브랜치가 먼저 자리를 갖는다. 배지("Main · Current")는 남는 폭까지 줄고 글은 줄임표로 접힌다.
+            const float text_needed { luil::measure_text(row.label, font) + (row.detail.empty() ? 0.0f : 8.0f * scale + luil::measure_text(row.detail, small)) };
+            const float full_width { luil::measure_text(row.badge, small) + 10.0f * scale };
+            const float spare { right - x - text_needed - 6.0f * scale };
+            const float pill_width { std::clamp(spare, std::min(full_width, badge_minimum_width * scale), full_width) };
             const float pill_height { 16.0f * scale };
             const luil::rect_f pill { right - pill_width, box.y + (box.height - pill_height) / 2.0f, pill_width, pill_height };
             const luil::ui_color tone { tone_color(palette, row.tone) };
             fill_rounded(context.canvas, pill, pill_height / 2.0f, luil::with_alpha(tone, 0.16f));
-            static_cast<void>(
-                luil::draw_text_within(context.canvas, row.badge, pill.x + 5.0f * scale, pill.y + luil::centered_text_baseline(small, pill_height), pill_width, small, luil::solid_paint(tone)));
+            static_cast<void>(luil::draw_text_within(
+                context.canvas, row.badge, pill.x + 5.0f * scale, pill.y + luil::centered_text_baseline(small, pill_height), pill_width - 10.0f * scale, small, luil::solid_paint(tone)));
             right -= pill_width + 6.0f * scale;
         }
 
-        const SkFont font { ui_font(context, 12.0f, row.worktree_current) };
         const float baseline { box.y + luil::centered_text_baseline(font, box.height) };
         const float drawn { luil::draw_text_within(context.canvas, row.label, x, baseline, std::max(right - x, 0.0f), font, luil::solid_paint(dim)) };
         if (row.detail.empty() == false)
