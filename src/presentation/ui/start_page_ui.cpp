@@ -24,6 +24,9 @@ namespace cyella::ui {
         constexpr float start_row_spacing { 6.0f };
         // 머리말 왼쪽 앱 심볼의 한 변이다 (논리 픽셀). 심볼 그림은 이 크기의 4배까지 흐려지지 않는다.
         constexpr float start_symbol_size { 40.0f };
+        // 타이틀 그림이 있을 때의 머리말이다: 타이틀 높이와, 그 곁에서 가로 로고처럼 비슷한 키로 서는 심볼의 한 변이다 (논리 픽셀).
+        constexpr float start_title_height { 64.0f };
+        constexpr float start_titled_symbol_size { 72.0f };
 
         // `2026-10-20T09:30:12Z`를 유닉스 초로 읽는다. 읽지 못하면 0이다.
         std::int64_t parse_utc(const std::u8string_view text)
@@ -94,7 +97,17 @@ namespace cyella::ui {
             heading_height += length;
             heading->add(std::move(child), length);
         };
-        add_heading(make_text(u8"start-title", u8"시작", text_style { .size = 20.0f, .bold = true }), 30.0f);
+        const bool titled { app_title_available() };
+        if (titled)
+        {
+            // 타이틀 그림이 "시작" 글자 제목을 대신한다. 폭은 그림의 비율로 정하고 왼쪽에 붙인다.
+            auto title { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-title-row" }, luil::stack_config { .direction = luil::stack_direction::row }) };
+            title->add(make_app_title(u8"start-title", u8"cyella"), luil::stack_item { .length = start_title_height * app_title_aspect(), .cross_length = start_title_height });
+            title->add_flexible_gap();
+            add_heading(std::move(title), start_title_height);
+        }
+        else
+            add_heading(make_text(u8"start-title", u8"시작", text_style { .size = 20.0f, .bold = true }), 30.0f);
         add_heading(make_text(u8"start-subtitle", u8"저장소를 열거나 새로 만드세요.", text_style { .size = 12.0f, .color = dim }), 20.0f);
         if (start.git_message.empty() == false)
             add_heading(make_text(u8"start-git", start.git_message, text_style { .size = 12.0f, .color = [](const luil::ui_color_palette& palette) { return palette.error_accent; } }), 20.0f);
@@ -103,9 +116,10 @@ namespace cyella::ui {
             luil::stack_config row_config { .direction = luil::stack_direction::row, .spacing = 16.0f };
             row_config.cross_alignment = luil::stack_alignment::center;
             auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"start-heading-row" }, row_config) };
-            row->add(make_app_symbol(u8"start-symbol"), luil::stack_item { .length = start_symbol_size, .cross_length = start_symbol_size });
+            const float symbol_size { titled ? start_titled_symbol_size : start_symbol_size };
+            row->add(make_app_symbol(u8"start-symbol"), luil::stack_item { .length = symbol_size, .cross_length = symbol_size });
             row->add(std::move(heading), luil::stack_item { .length = 0.0f, .weight = 1.0f, .cross_length = heading_height });
-            add(std::move(row), std::max(heading_height, start_symbol_size));
+            add(std::move(row), std::max(heading_height, symbol_size));
         }
         else
             add(std::move(heading), heading_height);

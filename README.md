@@ -37,6 +37,13 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 
 ## 화면
 
+**시작 페이지**: 최근·고정 저장소를 고르거나 저장소를 열고, 복제하고, 새로 만든다.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/start-light.png">
+  <img src="docs/images/start-dark.png" alt="타이틀과 최근 저장소가 보이는 시작 페이지">
+</picture>
+
 **변경 중심 배치**: 스테이징 전·후 파일 목록과 diff를 나란히 보고 hunk 단위로 stage·unstage한 뒤 커밋한다.
 
 ![변경 중심 배치에서 staged 파일의 diff와 커밋 메시지](docs/images/review-dark.png)

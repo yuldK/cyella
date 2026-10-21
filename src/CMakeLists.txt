@@ -2,14 +2,18 @@ set(cyella_resource_directory "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/resour
 set(cyella_manifest_file "${cyella_resource_directory}/cyella.manifest")
 set(cyella_resource_ids_file "${cyella_resource_directory}/resource_ids.h")
 set(cyella_resource_template "${cyella_resource_directory}/cyella.rc.in")
-# 앱 아이콘과 앱 심볼 그림은 assets/cyella.svg에서 scripts/generate_app_icon.py로 만든다.
+# 앱 아이콘·앱 심볼 그림은 assets/cyella.svg에서, 타이틀 그림은 assets/cyella-title*.svg에서 scripts/generate_app_icon.py로 만든다.
 set(cyella_app_icon "${PROJECT_SOURCE_DIR}/assets/cyella.ico")
 set(cyella_app_symbol "${PROJECT_SOURCE_DIR}/assets/cyella-symbol.png")
+set(cyella_app_title "${PROJECT_SOURCE_DIR}/assets/cyella-title.png")
+set(cyella_app_title_sea "${PROJECT_SOURCE_DIR}/assets/cyella-title-sea.png")
 
 file(TO_CMAKE_PATH "${cyella_manifest_file}" CYELLA_MANIFEST_PATH)
 file(TO_CMAKE_PATH "${cyella_resource_ids_file}" CYELLA_RESOURCE_IDS_PATH)
 file(TO_CMAKE_PATH "${cyella_app_icon}" CYELLA_APP_ICON_PATH)
 file(TO_CMAKE_PATH "${cyella_app_symbol}" CYELLA_SYMBOL_PATH)
+file(TO_CMAKE_PATH "${cyella_app_title}" CYELLA_TITLE_PATH)
+file(TO_CMAKE_PATH "${cyella_app_title_sea}" CYELLA_TITLE_SEA_PATH)
 configure_file(
     "${cyella_resource_template}"
     "${CYELLA_GENERATED_RESOURCE}"
@@ -18,7 +22,7 @@ set_source_files_properties(
     "${CYELLA_GENERATED_RESOURCE}"
     PROPERTIES
         GENERATED TRUE
-        OBJECT_DEPENDS "${cyella_manifest_file};${cyella_resource_ids_file};${cyella_app_icon};${cyella_app_symbol}")
+        OBJECT_DEPENDS "${cyella_manifest_file};${cyella_resource_ids_file};${cyella_app_icon};${cyella_app_symbol};${cyella_app_title};${cyella_app_title_sea}")
 
 # 앱 코드 전체가 하나의 static library다. 계층(domain → application →
 # infrastructure → presentation → platform)은 디렉터리 구조와 코드 리뷰로 지키며,
@@ -630,7 +634,7 @@ target_link_libraries(cyella_lib
         shell32)
 
 # resource는 두 .rc다: luil 조각(코디콘 폰트·라이선스·고지, ID 101~104)과 cyella
-# 조각(manifest·앱 아이콘(ID 105)·앱 심볼 PNG(ID 106)·VERSIONINFO).
+# 조각(manifest·앱 아이콘(ID 105)·앱 심볼 PNG(ID 106)·타이틀 PNG 두 장(ID 107·108)·VERSIONINFO).
 set(cyella_app_files)
 cyella_add_source_filter(cyella_app_files "app"
     platform/win32/main.cpp)

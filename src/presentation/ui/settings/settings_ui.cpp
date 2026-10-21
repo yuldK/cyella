@@ -572,13 +572,24 @@ namespace cyella::ui {
             if (app_symbol().valid() && compact == false)
                 about->add(make_app_symbol(u8"settings-symbol"), luil::stack_item { .length = 32.0f, .cross_length = 32.0f });
             auto names { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"settings-about-names" }, luil::stack_config {}) };
-            names->add(make_text(u8"settings-app-name", u8"cyella", text_style { .size = 13.0f, .bold = true }), 18.0f);
+            // 타이틀 그림이 있으면 앱 이름 글자 대신 그린다. 그림은 비율대로 왼쪽에 붙인다.
+            const bool titled { app_title_available() };
+            const float name_height { titled ? 30.0f : 18.0f };
+            if (titled)
+            {
+                auto title { make_row(u8"settings-app-title-row", 0.0f) };
+                title->add(make_app_title(u8"settings-app-name", u8"cyella"), luil::stack_item { .length = name_height * app_title_aspect(), .cross_length = name_height });
+                title->add_flexible_gap();
+                names->add(std::move(title), name_height);
+            }
+            else
+                names->add(make_text(u8"settings-app-name", u8"cyella", text_style { .size = 13.0f, .bold = true }), name_height);
             names->add(make_text(u8"settings-app-version", u8"버전 " + std::u8string { app_version() },
                            text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } }),
                 16.0f);
-            about->add(std::move(names), luil::stack_item { .length = 0.0f, .weight = 1.0f, .cross_length = 34.0f });
+            about->add(std::move(names), luil::stack_item { .length = 0.0f, .weight = 1.0f, .cross_length = name_height + 16.0f });
             if (compact == false)
-                column->add(std::move(about), 36.0f);
+                column->add(std::move(about), name_height + 18.0f);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-navigation-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; } }, std::move(column));
         }

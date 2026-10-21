@@ -2,6 +2,7 @@
 // 자리가 겹치지 않는지와 탭의 삽입 방향 강조를 검증한다.
 #include "presentation/dialog_intents.h"
 #include "presentation/selector_intents.h"
+#include "presentation/ui/app_symbol.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
@@ -701,4 +702,34 @@ TEST_CASE("the open button asks for the app list and the list opens leftward fro
     REQUIRE(popup.tree != nullptr);
     CHECK(popup.tree->find(luil::ui_element_id { luil::ui_element_kind::menu_item, u8"repository-app:0" }) != nullptr);
     CHECK(popup.tree->find(luil::ui_element_id { luil::ui_element_kind::menu_item, u8"repository-app:1" }) != nullptr);
+}
+
+TEST_CASE("the start page heading draws the title calligraphy when its images are set", "[presentation][ui][start]")
+{
+    // 타이틀 그림은 앱 전체가 함께 쓰는 값이라 이 test가 끝나면 비워 둔다.
+    struct title_reset
+    {
+        ~title_reset()
+        {
+            ui::set_app_title({}, {});
+        }
+    } reset {};
+    const std::vector<std::uint8_t> pixels(4u * 2u * 4u, 255u);
+    ui::set_app_title(luil::make_rgba_image(4, 2, pixels), luil::make_rgba_image(4, 2, pixels));
+    REQUIRE(ui::app_title_available());
+    CHECK(ui::app_title_aspect() == 2.0f);
+
+    snapshot_harness harness {};
+    const auto titled { ui::build_ui_tree(harness.build(1440.0f)) };
+    const luil::ui_element* const title { find_element(titled, ui::kind_image, u8"start-title") };
+    REQUIRE(title != nullptr);
+    CHECK(title->accessibility().role == luil::access_role::image);
+    CHECK(title->accessibility().name == u8"cyella");
+    CHECK(title->bounds().height > 0.0f);
+    CHECK(title->bounds().width == 2.0f * title->bounds().height);
+    CHECK(titled.tree->duplicate_ids().empty());
+
+    ui::set_app_title({}, {});
+    const auto plain { ui::build_ui_tree(harness.build(1440.0f)) };
+    CHECK(find_element(plain, ui::kind_image, u8"start-title") == nullptr);
 }
