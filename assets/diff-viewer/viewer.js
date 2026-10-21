@@ -88,17 +88,34 @@
 
     const escapeHtml = diff.escapeHtml;
 
+    // 앱이 내용 메시지마다 싣는 문구 표(`diff_viewer.*` 키 → 틀)다 (ADR-008). 받기 전이면 빈 문자열, 없는 키는 키 자신이다.
+    // 틀의 `{name}`은 인자 값으로, `{{`·`}}`는 중괄호 한 글자로 바꾼다.
+    let strings = null;
+
+    function t(key, args) {
+        if (strings === null)
+            return '';
+        const pattern = Object.prototype.hasOwnProperty.call(strings, key) ? strings[key] : key;
+        return pattern.replace(/\{\{|\}\}|\{([a-z0-9_]+)\}/g, (match, name) => {
+            if (match === '{{')
+                return '{';
+            if (match === '}}')
+                return '}';
+            return args && Object.prototype.hasOwnProperty.call(args, name) ? String(args[name]) : match;
+        });
+    }
+
     function button(label, action, className, disabled) {
         return '<button type="button" class="btn ' + (className || '') + '" data-act="' + action + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>';
     }
 
     function statusLabel(status) {
         switch (status) {
-        case 'A': return '추가됨';
-        case 'D': return '삭제됨';
-        case 'R': return '이름 변경';
-        case 'C': return '복사됨';
-        default: return '수정됨';
+        case 'A': return t('diff_viewer.status_added');
+        case 'D': return t('diff_viewer.status_deleted');
+        case 'R': return t('diff_viewer.status_renamed');
+        case 'C': return t('diff_viewer.status_copied');
+        default: return t('diff_viewer.status_modified');
         }
     }
 
@@ -146,29 +163,29 @@
         html += '<div class="toolbar-spacer"></div>';
 
         if (state.mode === 'diff') {
-            html += '<div class="segmented" role="group" aria-label="보기">'
+            html += '<div class="segmented" role="group" aria-label="' + escapeHtml(t('diff_viewer.layout_group')) + '">'
                 + '<button type="button" class="seg' + (state.layout === 'inline' ? ' is-active' : '') + '" data-layout="inline">inline</button>'
-                + '<button type="button" class="seg' + (state.layout === 'split' ? ' is-active' : '') + '" data-layout="split">분할</button>'
+                + '<button type="button" class="seg' + (state.layout === 'split' ? ' is-active' : '') + '" data-layout="split">' + escapeHtml(t('diff_viewer.layout_split')) + '</button>'
                 + '</div>';
         } else if (state.mode === 'image') {
-            const modes = [['side_by_side', '좌우'], ['onion', '겹치기'], ['swipe', '밀기']];
-            html += '<div class="segmented" role="group" aria-label="이미지 비교">';
+            const modes = [['side_by_side', t('diff_viewer.image_side_by_side')], ['onion', t('diff_viewer.image_onion')], ['swipe', t('diff_viewer.image_swipe')]];
+            html += '<div class="segmented" role="group" aria-label="' + escapeHtml(t('diff_viewer.image_group')) + '">';
             for (const [value, label] of modes)
-                html += '<button type="button" class="seg' + (state.imageMode === value ? ' is-active' : '') + '" data-image-mode="' + value + '">' + label + '</button>';
+                html += '<button type="button" class="seg' + (state.imageMode === value ? ' is-active' : '') + '" data-image-mode="' + value + '">' + escapeHtml(label) + '</button>';
             html += '</div>';
         }
 
         const canOpen = state.mode === 'diff' || (state.mode === 'image' && state.image.canOpenExternal) || (state.mode === 'binary' && state.binary.canOpenExternal);
         if (canOpen)
-            html += button('외부 도구로 열기', 'open_external', 'is-quiet');
+            html += button(escapeHtml(t('diff_viewer.open_external')), 'open_external', 'is-quiet');
         elements.toolbar.innerHTML = html;
     }
 
     function showNotice() {
         if (state.mode === 'diff' && state.truncated) {
             elements.notice.hidden = false;
-            elements.notice.innerHTML = '<span>전체 ' + state.totalLines.toLocaleString() + '줄 중 ' + state.shownLines.toLocaleString() + '줄만 표시합니다. 줄 단위 stage는 전체를 볼 때 쓸 수 있습니다.</span>'
-                + button('전체 보기', 'show_full', 'is-primary');
+            elements.notice.innerHTML = '<span>' + escapeHtml(t('diff_viewer.truncated_notice', { total: state.totalLines.toLocaleString(), shown: state.shownLines.toLocaleString() })) + '</span>'
+                + button(escapeHtml(t('diff_viewer.show_full')), 'show_full', 'is-primary');
         } else {
             elements.notice.hidden = true;
             elements.notice.textContent = '';
@@ -255,7 +272,7 @@
         let actions = '';
         if (state.can.stage)
             actions += button('Stage hunk', 'stage_hunk', 'is-primary', locked)
-                + button(isArmed('discard_hunk', hunkIndex) ? '정말 버릴까요?' : 'Discard hunk', 'discard_hunk', isArmed('discard_hunk', hunkIndex) ? 'is-danger' : 'is-quiet', locked || state.can.discard === false);
+                + button(isArmed('discard_hunk', hunkIndex) ? escapeHtml(t('diff_viewer.confirm_discard')) : 'Discard hunk', 'discard_hunk', isArmed('discard_hunk', hunkIndex) ? 'is-danger' : 'is-quiet', locked || state.can.discard === false);
         if (state.can.unstage)
             actions += button('Unstage hunk', 'unstage_hunk', 'is-primary', locked);
         return '<div class="dl-hunk" data-h="' + hunkIndex + '"><div class="dl-hunk-inner">'
@@ -437,15 +454,15 @@
             return;
         }
         const locked = state.busy;
-        let html = '<span class="selbar-count">' + indexes.length + '줄 선택</span>';
+        let html = '<span class="selbar-count">' + escapeHtml(indexes.length === 1 ? t('diff_viewer.selected_lines_one', { count: indexes.length }) : t('diff_viewer.selected_lines', { count: indexes.length })) + '</span>';
         if (state.can.stage) {
-            html += button('선택한 줄 stage', 'stage_lines', 'is-primary', locked);
+            html += button(escapeHtml(t('diff_viewer.stage_lines')), 'stage_lines', 'is-primary', locked);
             if (state.can.discard)
-                html += button(isArmed('discard_lines', state.selection.hunk) ? '정말 버릴까요?' : '선택한 줄 discard', 'discard_lines', isArmed('discard_lines', state.selection.hunk) ? 'is-danger' : 'is-quiet', locked);
+                html += button(isArmed('discard_lines', state.selection.hunk) ? escapeHtml(t('diff_viewer.confirm_discard')) : escapeHtml(t('diff_viewer.discard_lines')), 'discard_lines', isArmed('discard_lines', state.selection.hunk) ? 'is-danger' : 'is-quiet', locked);
         }
         if (state.can.unstage)
-            html += button('선택한 줄 unstage', 'unstage_lines', 'is-primary', locked);
-        html += button('복사', 'copy_selection', 'is-quiet') + button('선택 해제', 'clear_selection', 'is-quiet');
+            html += button(escapeHtml(t('diff_viewer.unstage_lines')), 'unstage_lines', 'is-primary', locked);
+        html += button(escapeHtml(t('diff_viewer.copy')), 'copy_selection', 'is-quiet') + button(escapeHtml(t('diff_viewer.clear_selection')), 'clear_selection', 'is-quiet');
         elements.selection.innerHTML = html;
         elements.selection.hidden = false;
     }
@@ -571,12 +588,12 @@
     }
 
     function imageCaption(label, url, size) {
-        return '<figcaption class="image-caption"><span class="chip">' + label + '</span><span class="image-meta" data-meta="' + label + '">'
-            + (url ? diff.formatBytes(size) : '없음') + '</span></figcaption>';
+        return '<figcaption class="image-caption"><span class="chip">' + escapeHtml(label) + '</span><span class="image-meta" data-meta="' + escapeHtml(label) + '">'
+            + (url ? diff.formatBytes(size) : escapeHtml(t('diff_viewer.image_none'))) + '</span></figcaption>';
     }
 
     function imageElement(url, label) {
-        return url ? '<img class="diff-img" alt="' + label + '" src="' + pickUrl(url) + '" draggable="false">' : '';
+        return url ? '<img class="diff-img" alt="' + escapeHtml(label) + '" src="' + pickUrl(url) + '" draggable="false">' : '';
     }
 
     function renderImage() {
@@ -584,24 +601,27 @@
         elements.content.className = 'content';
         const left = image.leftUrl;
         const right = image.rightUrl;
+        const before = t('diff_viewer.image_before');
+        const after = t('diff_viewer.image_after');
+        const none = escapeHtml(t('diff_viewer.image_none'));
         let html = '<div class="image-stage">';
         if (state.imageMode === 'side_by_side') {
             html += '<div class="image-pair">'
-                + '<figure class="image-pane">' + imageCaption('이전', left, image.leftSize) + '<div class="checker">' + (left ? imageElement(left, '이전') : '<span class="image-none">(없음)</span>') + '</div></figure>'
-                + '<figure class="image-pane">' + imageCaption('이후', right, image.rightSize) + '<div class="checker">' + (right ? imageElement(right, '이후') : '<span class="image-none">(없음)</span>') + '</div></figure>'
+                + '<figure class="image-pane">' + imageCaption(before, left, image.leftSize) + '<div class="checker">' + (left ? imageElement(left, before) : '<span class="image-none">(' + none + ')</span>') + '</div></figure>'
+                + '<figure class="image-pane">' + imageCaption(after, right, image.rightSize) + '<div class="checker">' + (right ? imageElement(right, after) : '<span class="image-none">(' + none + ')</span>') + '</div></figure>'
                 + '</div>';
         } else {
             const slider = state.imageMode === 'onion'
-                ? '<label class="image-slider"><span>이전</span><input type="range" min="0" max="100" value="' + image.opacity + '" data-onion><span>이후 <b data-onion-label>' + image.opacity + '%</b></span></label>'
-                : '<div class="image-hint">손잡이를 끌거나 ← → 로 옮깁니다 (' + '<b data-swipe-label>' + image.split + '%</b>)</div>';
+                ? '<label class="image-slider"><span>' + escapeHtml(before) + '</span><input type="range" min="0" max="100" value="' + image.opacity + '" data-onion><span>' + escapeHtml(after) + ' <b data-onion-label>' + image.opacity + '%</b></span></label>'
+                : '<div class="image-hint">' + escapeHtml(t('diff_viewer.swipe_hint')) + ' (' + '<b data-swipe-label>' + image.split + '%</b>)</div>';
             html += '<div class="image-pair is-single"><figure class="image-pane">'
                 + '<div class="checker is-stack' + (state.imageMode === 'swipe' ? ' is-slide' : '') + '" data-stack>'
-                + (left ? '<span class="diff-img-wrap is-left">' + imageElement(left, '이전') + '</span>' : '')
-                + (right ? '<span class="diff-img-wrap is-right" data-right>' + imageElement(right, '이후') + '</span>' : '')
-                + (state.imageMode === 'swipe' && left && right ? '<span class="slide-handle" tabindex="0" role="slider" aria-label="이전/이후 경계" data-handle><span class="slide-grip">⇔</span></span>' : '')
+                + (left ? '<span class="diff-img-wrap is-left">' + imageElement(left, before) + '</span>' : '')
+                + (right ? '<span class="diff-img-wrap is-right" data-right>' + imageElement(right, after) + '</span>' : '')
+                + (state.imageMode === 'swipe' && left && right ? '<span class="slide-handle" tabindex="0" role="slider" aria-label="' + escapeHtml(t('diff_viewer.swipe_handle')) + '" data-handle><span class="slide-grip">⇔</span></span>' : '')
                 + '</div>'
-                + '<figcaption class="image-caption">' + '<span class="chip">이전</span><span class="image-meta">' + (left ? diff.formatBytes(image.leftSize) : '없음') + '</span>'
-                + '<span class="chip">이후</span><span class="image-meta">' + (right ? diff.formatBytes(image.rightSize) : '없음') + '</span></figcaption>'
+                + '<figcaption class="image-caption">' + '<span class="chip">' + escapeHtml(before) + '</span><span class="image-meta">' + (left ? diff.formatBytes(image.leftSize) : none) + '</span>'
+                + '<span class="chip">' + escapeHtml(after) + '</span><span class="image-meta">' + (right ? diff.formatBytes(image.rightSize) : none) + '</span></figcaption>'
                 + '</figure>' + slider + '</div>';
         }
         html += '</div>';
@@ -616,7 +636,7 @@
                     meta.textContent += ' · ' + element.naturalWidth + '×' + element.naturalHeight;
             });
             element.addEventListener('error', () => {
-                element.replaceWith(Object.assign(document.createElement('span'), { className: 'image-none', textContent: '이미지를 읽지 못했습니다' }));
+                element.replaceWith(Object.assign(document.createElement('span'), { className: 'image-none', textContent: t('diff_viewer.image_failed') }));
             });
         }
     }
@@ -659,9 +679,9 @@
         elements.content.className = 'content';
         let sizes;
         if (binary.oldSize === null && binary.newSize !== null)
-            sizes = '새 파일 · ' + diff.formatBytes(binary.newSize);
+            sizes = t('diff_viewer.binary_new', { size: diff.formatBytes(binary.newSize) });
         else if (binary.newSize === null && binary.oldSize !== null)
-            sizes = '삭제됨 · ' + diff.formatBytes(binary.oldSize);
+            sizes = t('diff_viewer.binary_deleted', { size: diff.formatBytes(binary.oldSize) });
         else {
             const delta = binary.oldSize !== null && binary.newSize !== null ? binary.newSize - binary.oldSize : null;
             sizes = diff.formatBytes(binary.oldSize) + ' → ' + diff.formatBytes(binary.newSize)
@@ -669,10 +689,10 @@
         }
         elements.content.innerHTML = '<div class="card-wrap"><div class="card">'
             + '<div class="card-icon" aria-hidden="true">▣</div>'
-            + '<div class="card-title">바이너리 파일 · 크기 변화</div>'
+            + '<div class="card-title">' + escapeHtml(t('diff_viewer.binary_title')) + '</div>'
             + '<div class="card-path">' + escapeHtml(state.path) + '</div>'
             + '<div class="card-sizes">' + escapeHtml(sizes) + '</div>'
-            + (binary.canOpenExternal ? button('외부 도구로 열기', 'open_external', 'is-primary') : '')
+            + (binary.canOpenExternal ? button(escapeHtml(t('diff_viewer.open_external')), 'open_external', 'is-primary') : '')
             + '</div></div>';
         scroller = null;
         updateScrollShadows(null);
@@ -689,6 +709,10 @@
     // ------------------------------------------------------------------ C++ 메시지
 
     function applyState(message) {
+        if (message.strings && typeof message.strings === 'object')
+            strings = message.strings;
+        if (message.lang === 'ko' || message.lang === 'en')
+            document.documentElement.lang = message.lang;
         if (message.theme)
             applyTheme(message.theme);
         if (message.layout)
@@ -726,7 +750,7 @@
         state.model = diff.buildModel(message.file);
         showNotice();
         if (state.model.hunks.length === 0) {
-            renderEmpty('변경 사항이 없습니다');
+            renderEmpty(t('diff_viewer.no_changes'));
             state.rows = null;
         } else {
             buildDiffView(keepScroll);
@@ -768,7 +792,7 @@
         state.path = '';
         state.rows = null;
         showNotice();
-        renderEmpty('보일 변경이 없습니다');
+        renderEmpty(t('diff_viewer.nothing_to_show'));
         renderToolbar();
     }
 
@@ -947,7 +971,7 @@
 
     window.CyellaDiff.viewer = { receive, state };
 
-    renderEmpty('diff를 기다리는 중입니다');
+    renderEmpty(t('diff_viewer.waiting'));
     renderToolbar();
     post({ type: 'ready', protocol: PROTOCOL_VERSION });
 })();

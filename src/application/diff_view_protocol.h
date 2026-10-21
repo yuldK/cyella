@@ -79,6 +79,10 @@ namespace cyella {
 
     // ------------------------------------------------------------------ C++ → JS
 
+    // 지금 카탈로그의 뷰어 문구와 언어 이름(`ko`·`en`)이다.
+    [[nodiscard]] std::map<std::string, std::string> diff_viewer_strings();
+    [[nodiscard]] std::string diff_viewer_language();
+
     // 내용 메시지가 공통으로 싣는 화면 상태다.
     struct diff_view_state
     {
@@ -87,6 +91,10 @@ namespace cyella {
         diff_theme theme {};
         // 뷰어 안의 머리 줄(경로·통계·보기 전환)을 보인다. luil이 머리를 그리면 끈다.
         bool toolbar { true };
+        // 뷰어가 그리는 문구(`diff_viewer.*` 키 → 틀)와 문서 언어다 (ADR-008). 카탈로그는 시작할 때 정해지고 바뀌지 않으므로
+        // 상태를 만들 때 한 번 읽는다. frame마다 마지막 메시지만 적용되므로 내용 메시지마다 함께 싣는다.
+        std::map<std::string, std::string> strings { diff_viewer_strings() };
+        std::string language { diff_viewer_language() };
     };
 
     struct show_diff_message

@@ -182,6 +182,10 @@ TEST_CASE("show_diff carries the state and the file in one message", "[diff][pro
     CHECK(parsed.at("image_mode") == "side_by_side");
     CHECK(parsed.at("theme").at("mode") == "light");
     CHECK(parsed.at("toolbar") == true);
+    // 뷰어 문구는 카탈로그의 `diff_viewer.*` 틀을 그대로 싣는다 (test는 한국어 카탈로그다).
+    CHECK(parsed.at("lang") == "ko");
+    CHECK(parsed.at("strings").at("diff_viewer.no_changes") == "변경 사항이 없습니다");
+    CHECK(parsed.at("strings").contains("menu.copy_path") == false);
     CHECK(parsed.at("can_stage") == false);
     CHECK(parsed.at("can_unstage") == true);
     CHECK(parsed.at("can_discard") == false);

@@ -1,5 +1,7 @@
 #include "application/diff_view_protocol.h"
 
+#include "domain/text_catalog.h"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -153,6 +155,8 @@ namespace cyella {
             message["image_mode"] = std::string { image_compare_mode_name(state.image_mode) };
             message["theme"] = theme_entry(state.theme);
             message["toolbar"] = state.toolbar;
+            message["strings"] = state.strings;
+            message["lang"] = state.language;
         }
 
         json optional_size(const std::optional<std::uint64_t>& size)
@@ -219,6 +223,19 @@ namespace cyella {
             return std::nullopt;
         }
     } // namespace
+
+    std::map<std::string, std::string> diff_viewer_strings()
+    {
+        std::map<std::string, std::string> result {};
+        for (const auto& [key, pattern] : text_patterns_with_prefix(u8"diff_viewer."))
+            result.emplace(std::string { key.begin(), key.end() }, std::string { pattern.begin(), pattern.end() });
+        return result;
+    }
+
+    std::string diff_viewer_language()
+    {
+        return active_ui_language() == ui_language::english ? "en" : "ko";
+    }
 
     bool is_valid_utf8(const std::string_view bytes) noexcept
     {
