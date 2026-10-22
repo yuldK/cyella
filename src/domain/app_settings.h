@@ -57,6 +57,9 @@ namespace cyella {
         // 커밋 작성자 사진을 Gravatar에서 받는다. 켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 가므로 기본은 꺼짐이고,
         // 꺼져 있거나 사진이 없으면 이름 첫 글자 동그라미다.
         bool gravatar { false };
+        // 키 컬러 id다 (luil 목록의 `blue`·`mint`…, 운영체제 색은 `system`). 비면 luil의 기본 키 컬러다.
+        // 목록에 없는 id도 설정에는 남기고 표시만 기본 키 컬러로 되돌린다 (다른 버전의 목록에서 고른 값일 수 있다).
+        std::u8string accent {};
 
         [[nodiscard]] bool operator==(const appearance_settings&) const noexcept = default;
     };

@@ -217,8 +217,9 @@ namespace cyella::win32 {
         std::atomic<luil::app_host*> host_ { nullptr };
         ssh_programs ssh_programs_ {};
         std::filesystem::path ssh_directory_ {};
-        // 웹뷰에 보낸 테마와 그 원천(해석한 luil 테마)이다.
-        std::optional<luil::color_theme> diff_theme_source_ {};
+        // 웹뷰에 보낸 테마와 그 원천(테마와 키 컬러로 합성한 luil 팔레트)이다. 운영체제 키 컬러가 바뀌어도 같은 id라
+        // id가 아니라 팔레트를 견준다.
+        std::optional<luil::ui_color_palette> diff_theme_source_ {};
         diff_theme diff_theme_ {};
         std::u8string diff_ui_font_ {};
         std::u8string diff_code_font_ {};

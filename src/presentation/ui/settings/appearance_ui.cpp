@@ -9,6 +9,7 @@
 #include "luil/ui/panel_element.h"
 #include "luil/ui/stack_element.h"
 #include "luil/ui/virtual_list_element.h"
+#include "luil/ui/wrap_element.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
@@ -32,6 +33,9 @@ namespace cyella::ui {
         constexpr float font_row_height { 26.0f };
         constexpr float font_search_height { 28.0f };
         constexpr std::size_t font_visible_rows { 9 };
+        // 견본 동그라미와 고른 표시 고리 사이의 틈이다.
+        constexpr float accent_ring_gap { 3.0f };
+        constexpr luil::wrap_config accent_grid { .item_width = 30.0f, .item_height = 30.0f, .spacing = 6.0f, .line_spacing = 6.0f };
 
         void rounded(luil::draw_context& context, const luil::rect_f& box, const float radius, const luil::ui_color color)
         {
@@ -61,11 +65,12 @@ namespace cyella::ui {
         class theme_option_element final : public luil::ui_element
         {
         public:
-            theme_option_element(const theme_preference theme, const bool selected, std::u8string title)
+            theme_option_element(const theme_preference theme, const bool selected, std::u8string title, const luil::accent_definition& accent)
                 : ui_element { { kind_theme_option, u8"settings-theme-" + std::u8string { theme_preference_name(theme) } } }
                 , theme_ { theme }
                 , selected_ { selected }
                 , title_ { std::move(title) }
+                , accent_ { accent }
             {
                 set_cursor(luil::ui_cursor::hand);
                 set_tooltip(title_);
@@ -85,8 +90,8 @@ namespace cyella::ui {
                 const SkRRect shape { SkRRect::MakeRectXY(SkRect::MakeXYWH(preview.x, preview.y, preview.width, preview.height), theme_radius * scale, theme_radius * scale) };
                 context.canvas.save();
                 context.canvas.clipRRect(shape, true);
-                const luil::ui_color_palette light { luil::color_palette_for(luil::color_theme::light) };
-                const luil::ui_color_palette dark { luil::color_palette_for(luil::color_theme::dark) };
+                const luil::ui_color_palette light { luil::color_palette_for(luil::color_theme::light, accent_) };
+                const luil::ui_color_palette dark { luil::color_palette_for(luil::color_theme::dark, accent_) };
                 draw_theme_preview(context, preview, theme_ == theme_preference::dark ? dark : light);
                 if (theme_ == theme_preference::system)
                 {
@@ -133,19 +138,20 @@ namespace cyella::ui {
             theme_preference theme_ { theme_preference::system };
             bool selected_ { false };
             std::u8string title_ {};
+            luil::accent_definition accent_ {};
         };
 
         class theme_picker_element final : public luil::ui_element
         {
         public:
-            explicit theme_picker_element(const theme_preference selected)
+            theme_picker_element(const theme_preference selected, const luil::accent_definition& accent)
                 : ui_element { { kind_segmented, u8"settings-theme" } }
             {
                 set_focus_group(luil::focus_axis::horizontal);
                 set_focus_entry({ kind_theme_option, u8"settings-theme-" + std::u8string { theme_preference_name(selected) } });
-                add_child(std::make_unique<theme_option_element>(theme_preference::light, selected == theme_preference::light, tr(u8"settings.appearance.theme_light")));
-                add_child(std::make_unique<theme_option_element>(theme_preference::system, selected == theme_preference::system, tr(u8"settings.appearance.theme_system")));
-                add_child(std::make_unique<theme_option_element>(theme_preference::dark, selected == theme_preference::dark, tr(u8"settings.appearance.theme_dark")));
+                add_child(std::make_unique<theme_option_element>(theme_preference::light, selected == theme_preference::light, tr(u8"settings.appearance.theme_light"), accent));
+                add_child(std::make_unique<theme_option_element>(theme_preference::system, selected == theme_preference::system, tr(u8"settings.appearance.theme_system"), accent));
+                add_child(std::make_unique<theme_option_element>(theme_preference::dark, selected == theme_preference::dark, tr(u8"settings.appearance.theme_dark"), accent));
             }
 
             void arrange(const luil::arrange_context& context) override
@@ -171,6 +177,99 @@ namespace cyella::ui {
                 return { .role = luil::access_role::radio_group, .name = tr(u8"settings.general.theme") };
             }
         };
+
+        // 키 컬러 견본 하나다. 동그라미는 테마와 무관한 대표색이고, 고른 것은 바깥 고리로 표시한다.
+        class accent_option_element final : public luil::ui_element
+        {
+        public:
+            accent_option_element(const luil::accent_definition& accent, const bool selected)
+                : ui_element { { kind_accent_option, u8"settings-accent-" + std::u8string { accent.id } } }
+                , color_ { accent.swatch }
+                , selected_ { selected }
+                , title_ { accent_title(accent) }
+            {
+                set_cursor(luil::ui_cursor::hand);
+                set_tooltip(title_);
+                set_action(luil::ui_trigger::left_click, action_of(message(set_accent_intent { std::u8string { accent.id } })));
+            }
+
+            void arrange(const luil::arrange_context& context) override
+            {
+                set_bounds(context.slot);
+            }
+
+            void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override
+            {
+                const float scale { context.scale };
+                const luil::rect_f box { bounds() };
+                const float inset { (accent_ring_gap + 1.0f) * scale };
+                const luil::rect_f dot { box.x + inset, box.y + inset, box.width - inset * 2.0f, box.height - inset * 2.0f };
+                SkPaint fill { luil::solid_paint(color_) };
+                fill.setAntiAlias(true);
+                context.canvas.drawOval(SkRect::MakeXYWH(dot.x, dot.y, dot.width, dot.height), fill);
+                if (selected_ == false && interaction.hovered != id())
+                    return;
+                // 견본은 어느 테마에서나 밝은 대표색이라 고리는 글자색으로 긋는다. 고른 것은 굵게, 올린 것은 가늘게다.
+                SkPaint ring { luil::solid_paint(selected_ ? context.palette.primary_foreground : context.palette.secondary_foreground) };
+                ring.setStyle(SkPaint::kStroke_Style);
+                ring.setStrokeWidth((selected_ ? 2.0f : 1.0f) * scale);
+                ring.setAntiAlias(true);
+                const float half { ring.getStrokeWidth() / 2.0f };
+                context.canvas.drawOval(SkRect::MakeXYWH(box.x + half, box.y + half, box.width - half * 2.0f, box.height - half * 2.0f), ring);
+            }
+
+            [[nodiscard]] luil::access_info accessibility() const override
+            {
+                return { .role = luil::access_role::radio_button, .name = title_, .selected = selected_ };
+            }
+
+        private:
+            luil::ui_color color_ { 0 };
+            bool selected_ { false };
+            std::u8string title_ {};
+        };
+
+        class accent_picker_element final : public luil::ui_element
+        {
+        public:
+            accent_picker_element(const std::vector<luil::accent_definition>& accents, const std::u8string_view selected)
+                : ui_element { { kind_accent_picker, u8"settings-accent" } }
+            {
+                set_focus_group(luil::focus_axis::horizontal);
+                set_focus_entry({ kind_accent_option, u8"settings-accent-" + std::u8string { selected } });
+                auto grid { std::make_unique<luil::wrap_element>(luil::ui_element_id { kind_layout, u8"settings-accent-grid" }, accent_grid) };
+                for (const luil::accent_definition& accent : accents)
+                    grid->add(std::make_unique<accent_option_element>(accent, accent.id == selected));
+                add_child(std::move(grid));
+            }
+
+            void arrange(const luil::arrange_context& context) override
+            {
+                set_bounds(context.slot);
+                children()[0]->arrange(context.for_child(context.slot));
+            }
+
+            void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override
+            {
+                draw_children(context, interaction);
+            }
+
+            [[nodiscard]] luil::access_info accessibility() const override
+            {
+                return { .role = luil::access_role::radio_group, .name = tr(u8"settings.general.accent") };
+            }
+        };
+
+        // 운영체제 키 컬러를 읽었으면 맨 앞, 그 뒤가 luil의 내장 목록이다 (테마에서 "시스템"이 앞서는 것과 같은 자리).
+        std::vector<luil::accent_definition> accent_choices()
+        {
+            std::vector<luil::accent_definition> accents {};
+            if (const std::optional<luil::accent_definition> system { luil::system_accent() }; system.has_value())
+                accents.push_back(*system);
+            for (const luil::accent_definition& accent : luil::accent_catalog())
+                accents.push_back(accent);
+            return accents;
+        }
 
         class font_combo_element final : public luil::ui_element
         {
@@ -237,9 +336,86 @@ namespace cyella::ui {
         }
     } // namespace
 
-    std::unique_ptr<luil::ui_element> make_theme_picker(const theme_preference selected)
+    std::u8string effective_accent_id(const std::u8string_view stored)
     {
-        return std::make_unique<theme_picker_element>(selected);
+        return std::u8string { stored.empty() ? luil::default_accent_id : stored };
+    }
+
+    std::u8string accent_title(const luil::accent_definition& accent)
+    {
+        // 화면 언어로 이름을 붙인다. luil 목록의 이름은 한국어뿐이라, 번역이 없는 새 색만 그 이름을 쓴다.
+        // 키를 글자 그대로 적는 것은 문구 검사(`locale_catalog_tests`)가 코드에서 쓰는 키를 찾을 수 있게 하려는 것이다.
+        const std::u8string_view id { accent.id };
+        if (id == u8"blue")
+            return tr(u8"settings.accent.blue");
+        if (id == u8"slate")
+            return tr(u8"settings.accent.slate");
+        if (id == u8"indigo")
+            return tr(u8"settings.accent.indigo");
+        if (id == u8"violet")
+            return tr(u8"settings.accent.violet");
+        if (id == u8"lavender")
+            return tr(u8"settings.accent.lavender");
+        if (id == u8"mauve")
+            return tr(u8"settings.accent.mauve");
+        if (id == u8"orchid")
+            return tr(u8"settings.accent.orchid");
+        if (id == u8"magenta")
+            return tr(u8"settings.accent.magenta");
+        if (id == u8"pink")
+            return tr(u8"settings.accent.pink");
+        if (id == u8"rose")
+            return tr(u8"settings.accent.rose");
+        if (id == u8"rosewood")
+            return tr(u8"settings.accent.rosewood");
+        if (id == u8"salmon")
+            return tr(u8"settings.accent.salmon");
+        if (id == u8"coral")
+            return tr(u8"settings.accent.coral");
+        if (id == u8"peach")
+            return tr(u8"settings.accent.peach");
+        if (id == u8"mocha")
+            return tr(u8"settings.accent.mocha");
+        if (id == u8"amber")
+            return tr(u8"settings.accent.amber");
+        if (id == u8"lemon")
+            return tr(u8"settings.accent.lemon");
+        if (id == u8"olive")
+            return tr(u8"settings.accent.olive");
+        if (id == u8"lime")
+            return tr(u8"settings.accent.lime");
+        if (id == u8"green")
+            return tr(u8"settings.accent.green");
+        if (id == u8"sage")
+            return tr(u8"settings.accent.sage");
+        if (id == u8"mint")
+            return tr(u8"settings.accent.mint");
+        if (id == u8"teal")
+            return tr(u8"settings.accent.teal");
+        if (id == u8"aqua")
+            return tr(u8"settings.accent.aqua");
+        if (id == u8"skyblue")
+            return tr(u8"settings.accent.skyblue");
+        if (id == u8"system")
+            return tr(u8"settings.accent.system");
+        return std::u8string { accent.label };
+    }
+
+    std::unique_ptr<luil::ui_element> make_theme_picker(const theme_preference selected, const std::u8string_view accent)
+    {
+        return std::make_unique<theme_picker_element>(selected, luil::accent_for(effective_accent_id(accent)));
+    }
+
+    std::unique_ptr<luil::ui_element> make_accent_picker(const std::u8string_view accent)
+    {
+        // 목록에 없는 id는 표시가 기본 키 컬러로 물러서므로 고른 표시도 그 색에 둔다.
+        const luil::accent_definition shown { luil::accent_for(effective_accent_id(accent)) };
+        return std::make_unique<accent_picker_element>(accent_choices(), shown.id);
+    }
+
+    float accent_picker_height(const float width)
+    {
+        return luil::wrap_height_for(accent_grid, width, accent_choices().size());
     }
 
     std::unique_ptr<luil::ui_element> make_font_combo(const settings_view& view, const bool code)

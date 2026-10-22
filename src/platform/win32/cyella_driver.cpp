@@ -26,6 +26,7 @@
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/diff_webview_theme.h"
+#include "presentation/ui/settings/appearance_ui.h"
 #include "presentation/ui_intents.h"
 
 #include "luil/ui/image_decode.h"
@@ -688,12 +689,13 @@ namespace cyella::win32 {
             // 팔레트를 만들고 CSS 변수로 옮기는 일은 선택된 테마가 바뀔 때만 한다 (frame마다 문자열 수십 개를 짓지 않는다).
             const luil::color_theme theme { luil::resolve_color_theme(to_luil_theme(controller_->settings().appearance.theme), high_contrast_enabled(), system_prefers_light_theme()) };
             const appearance_settings& appearance { controller_->settings().appearance };
-            if (diff_theme_source_.has_value() == false || *diff_theme_source_ != theme || diff_ui_font_ != appearance.ui_font || diff_code_font_ != appearance.code_font)
+            const luil::ui_color_palette palette { luil::color_palette_for(theme, luil::accent_for(ui::effective_accent_id(appearance.accent))) };
+            if (diff_theme_source_.has_value() == false || *diff_theme_source_ != palette || diff_ui_font_ != appearance.ui_font || diff_code_font_ != appearance.code_font)
             {
-                diff_theme_source_ = theme;
+                diff_theme_source_ = palette;
                 diff_ui_font_ = appearance.ui_font;
                 diff_code_font_ = appearance.code_font;
-                diff_theme_ = ui::make_diff_theme(luil::color_palette_for(theme), appearance.ui_font, appearance.code_font);
+                diff_theme_ = ui::make_diff_theme(palette, appearance.ui_font, appearance.code_font);
             }
             diff_->controller().set_theme(diff_theme_);
             // 환경 설정의 기본 보기가 바뀌면 열려 있는 diff도 그 보기로 바꾼다. diff 머리의 전환 단추는 그 diff 하나만 바꾼다.
@@ -747,6 +749,7 @@ namespace cyella::win32 {
             frame->popups.push_back(std::move(shown));
         }
         frame->appearance.theme = to_luil_theme(view.theme);
+        frame->appearance.accent_id = ui::effective_accent_id(controller_->settings().appearance.accent);
         frame->fonts.ui_family = controller_->settings().appearance.ui_font;
         frame->fonts.code_family = controller_->settings().appearance.code_font;
 

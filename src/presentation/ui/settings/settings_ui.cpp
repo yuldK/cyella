@@ -100,9 +100,14 @@ namespace cyella::ui {
         void build_general(page_column& page, const settings_view& view, const float content_width)
         {
             page.add(section_title(u8"settings-section-appearance", tr(u8"settings.general.theme")), section_height);
-            page.add(make_theme_picker(view.theme), theme_picker_height);
+            page.add(make_theme_picker(view.theme, view.accent), theme_picker_height);
             page.gap(small_gap);
             add_help(page, u8"settings-theme-help", tr(u8"settings.general.theme_help"), content_width);
+
+            page.add(section_title(u8"settings-section-accent", tr(u8"settings.general.accent")), section_height);
+            page.add(make_accent_picker(view.accent), accent_picker_height(content_width));
+            page.gap(small_gap);
+            add_help(page, u8"settings-accent-help", tr(u8"settings.general.accent_help"), content_width);
 
             // 언어 이름은 그 언어로 쓴다 (어느 화면 언어에서든 자기 언어를 찾을 수 있게). 바꾸면 다시 시작할 때 적용한다 (ADR-008).
             page.add(section_title(u8"settings-section-language", tr(u8"settings.general.language")), section_height);

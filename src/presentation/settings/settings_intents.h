@@ -39,6 +39,12 @@ namespace cyella {
         theme_preference theme { theme_preference::system };
     };
 
+    // 키 컬러를 고른다. 바로 저장한다. `id`는 luil 목록의 id이거나 운영체제 색(`system`)이다.
+    struct set_accent_intent
+    {
+        std::u8string id {};
+    };
+
     // 화면 문구의 언어다. 저장만 하고 다시 시작할 때 적용한다 (ADR-008).
     struct set_language_intent
     {

@@ -531,6 +531,7 @@ namespace cyella {
         view.unsaved = inputs.unsaved;
         view.message = state.message;
         view.theme = inputs.settings->appearance.theme;
+        view.accent = inputs.settings->appearance.accent;
         view.language = inputs.settings->language;
         view.ui_font = luil::make_text_input_view(state.ui_font, inputs.composition, to_luil_target(text_target::settings_ui_font));
         view.code_font = luil::make_text_input_view(state.code_font, inputs.composition, to_luil_target(text_target::settings_code_font));

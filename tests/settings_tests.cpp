@@ -469,6 +469,16 @@ TEST_CASE("choosing a theme is saved through the settings service", "[settings][
     CHECK(test.store.saved.appearance.theme == theme_preference::dark);
 }
 
+TEST_CASE("choosing a key color is saved through the settings service", "[settings][controller]")
+{
+    controller_harness test {};
+    test.send(open_settings_intent {});
+    CHECK(test.view().accent.empty());
+    test.send(set_accent_intent { u8"amber" });
+    CHECK(test.view().accent == u8"amber");
+    CHECK(test.store.saved.appearance.accent == u8"amber");
+}
+
 TEST_CASE("applying a git path saves it and resetting goes back to auto detection", "[settings][controller]")
 {
     controller_harness test {};

@@ -158,7 +158,10 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 
 - **구획**: 관련 항목은 제목·여백·테두리를 공유하는 카드로 묶는다. 창이 좁으면 왼쪽 탐색을 아이콘으로 줄인다.
   제목과 필드 이름 아래에는 간격을 두고 한 줄 입력 칸은 24 논리 픽셀이다. 스크롤 영역 바깥의 8 논리 픽셀 여백이 막대를 대화 상자 테두리에서 떼어 둔다.
-- **일반**: 밝게·시스템·어둡게 미리보기 카드(시스템은 밝고 어두운 화면을 대각선으로 나눔), UI·코드 글꼴, 작성자 사진, git 실행 파일을 각각 구획으로 보인다.
+- **일반**: 밝게·시스템·어둡게 미리보기 카드(시스템은 밝고 어두운 화면을 대각선으로 나눔), 키 컬러, UI·코드 글꼴, 작성자 사진, git 실행 파일을 각각 구획으로 보인다.
+  키 컬러는 luil 내장 목록(`assets/accents.json`)의 견본 격자(`settings-accent`, UIA radio group)이고, Windows 강조색을 읽었으면 `system` 견본이 맨 앞에 선다.
+  고르면 `appearance.accent`에 바로 저장되고 driver가 `frame->appearance.accent_id`로 넘긴다. 비어 있으면 luil의 기본 키 컬러(민트)다.
+  목록에 없는 id는 설정에 남기고 표시만 기본 키 컬러로 되돌린다. 테마 미리보기 카드와 diff 웹뷰도 같은 키 컬러로 칠한다.
   글꼴은 입력 가능한 콤보 상자(`settings-ui-font`, `settings-code-font`)와 검색 목록이며 `appearance.ui_font`·`appearance.code_font`에 저장한다.
   목록 선택은 바로, 직접 입력은 Enter나 [글꼴 적용]으로 반영한다. 빈 이름·설치되지 않은 이름은 기본 글꼴로 표시하며 설정값은 보존한다. diff 웹뷰도 같은 글꼴을 쓴다.
   테마와 보기 전환은 여러 독립 단추 대신 전용 선택 컨트롤(`segmented_control_element`)을 쓰고 UIA Selection으로 현재 값을 공개한다.

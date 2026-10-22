@@ -166,6 +166,8 @@ namespace cyella {
         std::u8string message {};
 
         theme_preference theme { theme_preference::system };
+        // 저장된 키 컬러 id다 (`appearance.accent`). 비면 luil의 기본 키 컬러다.
+        std::u8string accent {};
         language_preference language { language_preference::system };
         luil::text_input_view ui_font {};
         luil::text_input_view code_font {};

@@ -3,6 +3,7 @@
 #include "presentation/settings/settings_view.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/settings/appearance_ui.h"
 
 #include "view_snapshot_support.h"
 
@@ -240,6 +241,44 @@ TEST_CASE("appearance uses preview choices and editable font combo boxes", "[set
             CHECK(combo->children().front()->text_input().has_value());
         }
     }
+}
+
+TEST_CASE("the key color swatches are a radio group that marks the saved color", "[settings][ui][accent]")
+{
+    snapshot_harness harness {};
+    for (const float width : { 480.0f, 1440.0f })
+    {
+        CAPTURE(width);
+        const ui::built_tree built { build_tree(harness, settings_state {}, width) };
+        REQUIRE(built.tree->duplicate_ids().empty());
+        const luil::ui_element* const picker { built.tree->find({ ui::kind_accent_picker, u8"settings-accent" }) };
+        REQUIRE(picker != nullptr);
+        CHECK(picker->accessibility().role == luil::access_role::radio_group);
+        // 저장된 값이 없으면 luil의 기본 키 컬러가 고른 것이다.
+        const luil::ui_element* const fallback { built.tree->find({ ui::kind_accent_option, u8"settings-accent-" + std::u8string { luil::default_accent_id } }) };
+        REQUIRE(fallback != nullptr);
+        CHECK(fallback->accessibility().selected == true);
+        // 목록의 마지막 견본까지 격자 안에 들어온다 (줄바꿈 높이를 담는 쪽이 맞게 잡았다).
+        const luil::accent_definition& last { luil::accent_catalog().back() };
+        const luil::ui_element* const tail { built.tree->find({ ui::kind_accent_option, u8"settings-accent-" + std::u8string { last.id } }) };
+        REQUIRE(tail != nullptr);
+        CHECK(tail->bounds().y + tail->bounds().height <= picker->bounds().y + picker->bounds().height + 0.5f);
+        CHECK(tail->accessibility().selected == false);
+    }
+
+    settings_state state {};
+    app_settings settings {};
+    settings.appearance.accent = u8"violet";
+    settings_view_inputs inputs {};
+    inputs.state = &state;
+    inputs.settings = &settings;
+    view_snapshot view { harness.build(1440.0f) };
+    view.settings = build_settings_view(inputs);
+    const ui::built_tree built { ui::build_ui_tree(view) };
+    const luil::ui_element* const violet { built.tree->find({ ui::kind_accent_option, u8"settings-accent-violet" }) };
+    REQUIRE(violet != nullptr);
+    CHECK(violet->accessibility().selected == true);
+    CHECK(violet->accessibility().name == ui::accent_title(luil::accent_for(u8"violet")));
 }
 
 TEST_CASE("settings navigation exposes the selected page as a selection item", "[settings][ui]")

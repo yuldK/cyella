@@ -290,6 +290,14 @@ namespace cyella {
                     warn(result, tr(u8"app_settings.gravatar_not_bool"));
             }
 
+            if (const auto accent { source->find("accent") }; accent != source->end() && accent->is_null() == false)
+            {
+                if (accent->is_string())
+                    result.settings.appearance.accent = as_u8string(accent->get_ref<const std::string&>());
+                else
+                    warn(result, tr(u8"app_settings.accent_not_string"));
+            }
+
             for (const char* const key : { "ui_font", "code_font" })
             {
                 const auto field { source->find(key) };
@@ -590,6 +598,7 @@ namespace cyella {
             json appearance { existing_object(root, "appearance") };
             appearance["theme"] = as_string(theme_preference_name(settings.appearance.theme));
             appearance["gravatar"] = settings.appearance.gravatar;
+            appearance["accent"] = as_string(settings.appearance.accent);
             appearance["ui_font"] = as_string(settings.appearance.ui_font);
             appearance["code_font"] = as_string(settings.appearance.code_font);
             root["appearance"] = std::move(appearance);

@@ -632,6 +632,26 @@ TEST_CASE("the gravatar switch round trips and a wrong value stays off", "[json_
     CHECK(wrong.diagnostics.size() == 1);
 }
 
+TEST_CASE("the key color round trips, keeps an unknown id and drops a wrong type", "[json_app_settings]")
+{
+    CHECK(app_settings {}.appearance.accent.empty());
+    app_settings settings {};
+    settings.appearance.accent = u8"violet";
+    const app_settings_load_result loaded { parse_app_settings_json(serialize_app_settings_json(settings, u8"")) };
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings.appearance.accent == u8"violet");
+
+    // 목록에 없는 id도 남긴다 (다른 버전의 목록에서 고른 값일 수 있다). 표시만 기본 키 컬러다.
+    const app_settings_load_result unknown { parse_app_settings_json(u8R"({"appearance":{"accent":"ultramarine"}})") };
+    CHECK(unknown.diagnostics.empty());
+    CHECK(unknown.settings.appearance.accent == u8"ultramarine");
+
+    const app_settings_load_result wrong { parse_app_settings_json(u8R"({"appearance":{"theme":"dark","accent":3}})") };
+    CHECK(wrong.settings.appearance.accent.empty());
+    CHECK(wrong.settings.appearance.theme == theme_preference::dark);
+    CHECK(wrong.diagnostics.size() == 1);
+}
+
 TEST_CASE("the language choice round trips and a wrong value follows the system", "[json_app_settings]")
 {
     app_settings settings {};

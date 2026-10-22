@@ -392,12 +392,12 @@ namespace cyella {
                 || message.get<close_font_list_intent>() != nullptr || message.get<font_list_scroll_intent>() != nullptr)
                 return true;
             return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr
-                || message.get<set_language_intent>() != nullptr || message.get<set_gravatar_intent>() != nullptr || message.get<apply_git_path_intent>() != nullptr
-                || message.get<reset_git_path_intent>() != nullptr || message.get<add_tool_intent>() != nullptr || message.get<edit_tool_intent>() != nullptr
-                || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr || message.get<cancel_tool_edit_intent>() != nullptr
-                || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr || message.get<refresh_ssh_intent>() != nullptr
-                || message.get<create_ssh_key_intent>() != nullptr || message.get<copy_public_key_intent>() != nullptr || message.get<test_ssh_connection_intent>() != nullptr
-                || message.get<set_diff_layout_default_intent>() != nullptr || message.get<set_diff_context_lines_intent>() != nullptr;
+                || message.get<set_accent_intent>() != nullptr || message.get<set_language_intent>() != nullptr || message.get<set_gravatar_intent>() != nullptr
+                || message.get<apply_git_path_intent>() != nullptr || message.get<reset_git_path_intent>() != nullptr || message.get<add_tool_intent>() != nullptr
+                || message.get<edit_tool_intent>() != nullptr || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr
+                || message.get<cancel_tool_edit_intent>() != nullptr || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr
+                || message.get<refresh_ssh_intent>() != nullptr || message.get<create_ssh_key_intent>() != nullptr || message.get<copy_public_key_intent>() != nullptr
+                || message.get<test_ssh_connection_intent>() != nullptr || message.get<set_diff_layout_default_intent>() != nullptr || message.get<set_diff_context_lines_intent>() != nullptr;
         };
         if (settings_message() == false)
             return false;
@@ -427,6 +427,11 @@ namespace cyella {
         {
             const theme_preference theme { theme_intent->theme };
             update_settings([theme](app_settings& settings) { settings.appearance.theme = theme; });
+        }
+        else if (const auto* const accent_intent { message.get<set_accent_intent>() }; accent_intent != nullptr)
+        {
+            const std::u8string accent { accent_intent->id };
+            update_settings([&accent](app_settings& settings) { settings.appearance.accent = accent; });
         }
         else if (const auto* const language_intent { message.get<set_language_intent>() }; language_intent != nullptr)
         {
