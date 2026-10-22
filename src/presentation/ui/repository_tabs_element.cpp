@@ -1,5 +1,6 @@
 #include "presentation/ui/repository_tabs_element.h"
 
+#include "application/repository_tabs.h"
 #include "domain/text_catalog.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
@@ -10,15 +11,23 @@
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkRRect.h"
 #include "include/core/SkRect.h"
 
 #include <algorithm>
+#include <chrono>
+#include <optional>
 #include <utility>
 
 namespace cyella::ui {
     namespace {
         constexpr float add_width { 32.0f };
         constexpr float scrollbar_height { 10.0f };
+        // 탭마다 그리는 둥근 테두리의 자리다. 끌리는 탭도 같은 모양으로 뜬다.
+        SkRect tab_shape(const luil::rect_f& box, const float scale)
+        {
+            return SkRect::MakeXYWH(box.x + 2.5f * scale, box.y + 3.5f * scale, std::max(box.width - 5.0f * scale, 0.0f), std::max(box.height - 6.0f * scale, 0.0f));
+        }
 
         class tab_scrollbar_element final : public luil::ui_element
         {
@@ -119,7 +128,7 @@ namespace cyella::ui {
             float thumb_width_ { 0.0f };
         };
 
-        void collect_tabs(luil::ui_element& element, std::vector<const luil::ui_element*>& tabs)
+        void collect_tabs(luil::ui_element& element, std::vector<luil::ui_element*>& tabs)
         {
             if (element.id().kind == luil::ui_element_kind::tab)
             {
@@ -137,10 +146,15 @@ namespace cyella::ui {
         }
     } // namespace
 
-    repository_tabs_element::repository_tabs_element(luil::tab_bar_config config, std::unique_ptr<luil::ui_element> add_button, const float viewport_width, const bool reveal_selected)
+    repository_tabs_element::repository_tabs_element(
+        luil::tab_bar_config config, place_factory place, std::unique_ptr<luil::ui_element> add_button, const float viewport_width, const bool reveal_selected)
         : ui_element { { kind_layout, u8"repository-tabs" } }
         , selected_ { config.selected }
+        , place_ { std::move(place) }
     {
+        // luil 탭은 이 메시지가 있어야 끌기와 놓기를 단다. 놓기는 아래에서 앞·뒤를 가르는 것으로 바꿔 다므로 이 길로는 나가지 않는다.
+        if (place_ != nullptr)
+            config.reorder = [place = place_](const std::u8string& moved, const std::u8string& target) { return place(moved, target, false); };
         const float tabs_width { static_cast<float>(config.items.size()) * config.tab_width };
         const float content_width { tabs_width + add_width };
         const float maximum { std::max(content_width - viewport_width, 0.0f) };
@@ -166,6 +180,36 @@ namespace cyella::ui {
         bar_ = bar.get();
         bar->set_access_name(tr(u8"tabs.repository_tabs"));
         collect_tabs(*bar, tabs_);
+        for (luil::ui_element* const tab : tabs_)
+        {
+            if (const luil::drag_source* const source { tab->drag() }; source != nullptr)
+            {
+                // 끌리는 탭과 끼울 틈은 이 줄이 그린다. 트리의 기본 상자와 대상 테두리, 탭의 대상 배경은 끈다.
+                luil::drag_source own {};
+                own.make_payload = [make = source->make_payload](const luil::ui_action_context& context) -> luil::drag_payload {
+                    luil::drag_payload payload { make(context) };
+                    payload.custom_visual = true;
+                    payload.suppress_drop_highlight = true;
+                    return payload;
+                };
+                tab->set_drag_source(std::move(own));
+            }
+            if (const luil::drop_target* const drop { tab->drop() }; drop != nullptr)
+            {
+                luil::drop_target own { .accepts = drop->accepts };
+                own.on_drop = [this, target = tab->id()](const luil::drag_payload& payload, const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                    const std::optional<std::size_t> moved { index_of(payload.source) };
+                    const std::optional<std::size_t> over { index_of(target) };
+                    if (moved.has_value() == false || over.has_value() == false)
+                        return {};
+                    const bool after { lands_after(*over, context.x) };
+                    if (insertion_index(*moved, *over, after).has_value() == false)
+                        return {};
+                    return { place_(payload.dragged_owner, target.owner, after) };
+                };
+                tab->set_drop_target(std::move(own));
+            }
+        }
         const luil::stack_config row_config { .direction = luil::stack_direction::row };
         auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"tabs-content" }, row_config) };
         row->add(std::move(bar), tabs_width);
@@ -192,39 +236,24 @@ namespace cyella::ui {
 
     void repository_tabs_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
     {
-        luil::interaction_snapshot normal { interaction };
-        if (normal.drag.has_value())
-            normal.drag->payload.suppress_drop_highlight = true;
-        draw_children(context, normal);
+        draw_children(context, interaction);
         const float scale { context.scale };
         const luil::rect_f clip { lane_->bounds() };
         context.canvas.save();
         context.canvas.clipRect(SkRect::MakeXYWH(clip.x, clip.y, clip.width, clip.height));
-        std::size_t moved { tabs_.size() };
-        if (interaction.drag.has_value())
-            for (std::size_t index { 0 }; index < tabs_.size(); ++index)
-                if (tabs_[index]->id().owner == interaction.drag->payload.dragged_owner)
-                    moved = index;
-        for (std::size_t index { 0 }; index < tabs_.size(); ++index)
+        for (const luil::ui_element* const tab : tabs_)
         {
-            const luil::ui_element& tab { *tabs_[index] };
-            const luil::rect_f box { tab.bounds() };
-            const bool selected { tab.id().owner == selected_ };
+            const bool selected { tab->id().owner == selected_ };
             SkPaint border { luil::solid_paint(selected ? luil::with_alpha(context.palette.accent, 0.65f) : context.palette.divider) };
             border.setStyle(SkPaint::kStroke_Style);
             border.setStrokeWidth(scale);
-            const SkRect shape { SkRect::MakeXYWH(box.x + 2.5f * scale, box.y + 3.5f * scale, std::max(box.width - 5.0f * scale, 0.0f), std::max(box.height - 6.0f * scale, 0.0f)) };
-            context.canvas.drawRoundRect(shape, 4.0f * scale, 4.0f * scale, border);
-            if (moved == tabs_.size() || moved == index || interaction.drag->hovered_drop_target != tab.id() || interaction.drag->payload.suppress_drop_highlight)
-                continue;
-            // 순서 변경은 대상 인덱스로 옮긴다. 오른쪽으로 옮기면 대상 뒤, 왼쪽이면 대상 앞이다.
-            const bool after { moved < index };
-            const float edge { after ? box.x + box.width : box.x };
-            const SkPaint glow { luil::solid_paint(luil::with_alpha(context.palette.accent, 0.23f)) };
-            context.canvas.drawRect(SkRect::MakeXYWH(after ? edge - 18.0f * scale : edge, box.y + 2.0f * scale, 18.0f * scale, box.height - 4.0f * scale), glow);
-            const SkPaint line { luil::solid_paint(context.palette.accent) };
-            context.canvas.drawRect(SkRect::MakeXYWH(edge - 1.5f * scale, box.y + 2.0f * scale, 3.0f * scale, box.height - 4.0f * scale), line);
+            context.canvas.drawRoundRect(tab_shape(tab->bounds(), scale), 4.0f * scale, 4.0f * scale, border);
         }
+        const std::optional<std::size_t> moved { interaction.drag.has_value() ? index_of(interaction.drag->payload.source) : std::nullopt };
+        if (moved.has_value())
+            draw_drop(context, *interaction.drag, *moved);
+        else
+            motion_.visible = false;
         context.canvas.restore();
         const float reach { std::min(12.0f * scale, clip.width / 2.0f) };
         const auto shadow = [&](const bool left, const float strength) {
@@ -242,6 +271,145 @@ namespace cyella::ui {
             shadow(true, left);
         if (right > 0.0f)
             shadow(false, right);
+        // 끌리는 탭은 가장자리 그림자보다 위에 뜬다.
+        if (moved.has_value())
+            draw_dragged(context, interaction, *moved);
+    }
+
+    std::optional<std::chrono::steady_clock::time_point> repository_tabs_element::next_update(const luil::update_context& context, const luil::interaction_snapshot& interaction) const
+    {
+        if (interaction.drag.has_value() == false || motion_.visible == false)
+            return std::nullopt;
+        if (luil::transition_finished(motion_.caret, context.now) && luil::transition_finished(motion_.wash, context.now))
+            return std::nullopt;
+        return context.now + luil::transition_frame;
+    }
+
+    std::optional<std::size_t> repository_tabs_element::index_of(const luil::ui_element_id& id) const noexcept
+    {
+        for (std::size_t index { 0 }; index < tabs_.size(); ++index)
+            if (tabs_[index]->id() == id)
+                return index;
+        return std::nullopt;
+    }
+
+    bool repository_tabs_element::lands_after(const std::size_t target, const float x) const noexcept
+    {
+        const luil::rect_f box { tabs_[target]->bounds() };
+        return x >= box.x + box.width / 2.0f;
+    }
+
+    void repository_tabs_element::draw_drop(luil::draw_context& context, const luil::drag_visual& drag, const std::size_t moved) const
+    {
+        // 틈과 반쪽 강조의 자리를 탭 폭 단위로 구한다. 순서가 그대로인 자리에는 표시가 없다.
+        std::optional<float> caret {};
+        float wash { 0.0f };
+        if (const std::optional<std::size_t> over { index_of(drag.hovered_drop_target) }; over.has_value())
+        {
+            const bool after { lands_after(*over, drag.x) };
+            if (insertion_index(moved, *over, after).has_value())
+            {
+                caret = static_cast<float>(*over) + (after ? 1.0f : 0.0f);
+                wash = static_cast<float>(*over) + (after ? 0.75f : 0.25f);
+            }
+        }
+        if (caret.has_value() == false)
+        {
+            motion_.visible = false;
+            return;
+        }
+
+        const auto now { context.now };
+        // 처음 뜰 때는 그 자리에 바로 서고, 그 뒤로 자리가 바뀌면 지금 보이는 곳에서 미끄러져 간다.
+        //  - 나타날 때 흐리게 시작하지 않는다. 넘친 줄의 자동 스크롤은 틱마다 tree를 다시 지어 이 상태를 지우므로,
+        //    흐려짐이 있으면 스크롤하는 동안 표시가 내내 옅다.
+        if (motion_.visible == false)
+            motion_ = { .visible = true, .caret = { *caret, *caret, now }, .wash = { wash, wash, now } };
+        else if (motion_.caret.to != *caret)
+        {
+            motion_.caret = { luil::transition_value(motion_.caret, now), *caret, now, luil::transition_duration };
+            motion_.wash = { luil::transition_value(motion_.wash, now), wash, now, luil::transition_duration };
+        }
+
+        const float scale { context.scale };
+        const luil::rect_f first { tabs_.front()->bounds() };
+        const float wash_center { first.x + luil::transition_value(motion_.wash, now) * first.width };
+        const float wash_width { std::max(first.width / 2.0f - 6.0f * scale, 0.0f) };
+        const SkRect half { SkRect::MakeXYWH(wash_center - wash_width / 2.0f, first.y + 5.5f * scale, wash_width, std::max(first.height - 10.0f * scale, 0.0f)) };
+        context.canvas.drawRoundRect(half, 4.0f * scale, 4.0f * scale, luil::solid_paint(luil::with_alpha(context.palette.accent, 0.16f)));
+    }
+
+    void repository_tabs_element::draw_caret(luil::draw_context& context) const
+    {
+        if (motion_.visible == false)
+            return;
+
+        // 끝이 둥근 세로선과 위아래의 작은 점이다. 탭 테두리 사이의 틈에 선다.
+        const auto now { context.now };
+        const float scale { context.scale };
+        const luil::rect_f first { tabs_.front()->bounds() };
+        const float x { first.x + luil::transition_value(motion_.caret, now) * first.width };
+        const float top { first.y + 6.0f * scale };
+        const float bottom { first.y + first.height - 6.0f * scale };
+        const auto mark = [&](const float spread, const SkPaint& paint) {
+            const float half { scale + spread };
+            context.canvas.drawRoundRect(SkRect::MakeLTRB(x - half, top, x + half, bottom), half, half, paint);
+            context.canvas.drawCircle(x, top, 2.75f * scale + spread, paint);
+            context.canvas.drawCircle(x, bottom, 2.75f * scale + spread, paint);
+        };
+        // 끌리는 탭의 글자를 가로지를 때 섞여 보이지 않게 줄 바탕색 테를 먼저 두른다.
+        SkPaint halo { luil::solid_paint(context.palette.window_background) };
+        halo.setAntiAlias(true);
+        mark(1.5f * scale, halo);
+        SkPaint line { luil::solid_paint(context.palette.accent) };
+        line.setAntiAlias(true);
+        mark(0.0f, line);
+    }
+
+    void repository_tabs_element::draw_dragged(luil::draw_context& context, const luil::interaction_snapshot& interaction, const std::size_t moved) const
+    {
+        const float scale { context.scale };
+        const luil::ui_element& tab { *tabs_[moved] };
+        const luil::rect_f box { tab.bounds() };
+        const luil::rect_f lane { lane_->bounds() };
+        context.canvas.save();
+        context.canvas.clipRect(SkRect::MakeXYWH(lane.x, bounds().y, lane.width, bounds().height));
+
+        // 떠난 자리는 줄 바탕으로 덮어 흐리게 남긴다 — 어디서 왔는지는 보이되 놓을 자리와 헷갈리지 않는다.
+        context.canvas.drawRect(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), luil::solid_paint(luil::with_alpha(context.palette.window_background, 0.6f)));
+
+        // 잡은 지점 그대로 포인터를 따라 줄 위를 미끄러진다. 탭 줄 밖으로는 나가지 않는다.
+        const luil::drag_visual& drag { *interaction.drag };
+        const float lowest { std::max(lane.x, tabs_.front()->bounds().x) };
+        const float highest { std::max(std::min(lane.x + lane.width, tabs_.back()->bounds().x + box.width) - box.width, lowest) };
+        const float left { std::clamp(drag.x - drag.payload.grab_offset_x, lowest, highest) };
+        const SkRect shape { tab_shape({ left, box.y, box.width, box.height }, scale) };
+        const float radius { 5.0f * scale };
+        luil::draw_surface_shadow(context, { shape.x(), shape.y(), shape.width(), shape.height() }, radius, 0.45f);
+        const SkRRect rounded { SkRRect::MakeRectXY(shape, radius, radius) };
+        SkPaint fill { luil::solid_paint(context.palette.surface_background) };
+        fill.setAntiAlias(true);
+        context.canvas.drawRRect(rounded, fill);
+
+        // 탭의 그림(아이콘·이름·닫기 단추)을 그대로 옮겨 그린다. 끄는 중·hover 상태 없이 가만히 있는 모양이다.
+        luil::interaction_snapshot still { interaction };
+        still.drag.reset();
+        still.hovered = {};
+        still.pressed = {};
+        context.canvas.save();
+        context.canvas.clipRRect(rounded, true);
+        context.canvas.translate(left - box.x, 0.0f);
+        tab.draw(context, still);
+        context.canvas.restore();
+
+        SkPaint border { luil::solid_paint(luil::with_alpha(context.palette.accent, 0.65f)) };
+        border.setStyle(SkPaint::kStroke_Style);
+        border.setStrokeWidth(scale);
+        border.setAntiAlias(true);
+        context.canvas.drawRRect(rounded, border);
+        // 잡은 지점이 탭 가운데쯤이라 끌리는 탭이 대개 틈을 덮는다. 놓을 자리가 가장 중요한 표시라 그 위에 긋는다.
+        draw_caret(context);
+        context.canvas.restore();
     }
 
     void repository_tabs_element::set_tabs_name(std::u8string name)

@@ -647,8 +647,10 @@ namespace cyella {
         if (const auto* const intent { message.get<reorder_tab_intent>() }; intent != nullptr)
         {
             const std::optional<std::size_t> from { tabs_.index_of(intent->moved) };
-            const std::optional<std::size_t> to { tabs_.index_of(intent->target) };
-            if (from.has_value() && to.has_value() && tabs_.reorder(*from, *to))
+            const std::optional<std::size_t> target { tabs_.index_of(intent->target) };
+            if (from.has_value() == false || target.has_value() == false)
+                return true;
+            if (const std::optional<std::size_t> to { insertion_index(*from, *target, intent->after) }; to.has_value() && tabs_.reorder(*from, *to))
                 save_tabs();
             return true;
         }

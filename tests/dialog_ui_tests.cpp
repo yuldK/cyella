@@ -22,7 +22,9 @@
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 
+#include <chrono>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -217,7 +219,7 @@ TEST_CASE("repository tabs scroll with their add button and reveal the selected 
     CHECK(find_element(short_row, luil::ui_element_kind::scroll_area_bar, u8"tabs-scroll") == nullptr);
 }
 
-TEST_CASE("tab dragging paints the insertion edge that matches the reorder direction", "[presentation][ui][tabs][drag]")
+TEST_CASE("tab dragging marks the gap on the hovered half and places the tab there", "[presentation][ui][tabs][drag]")
 {
     tree_fixture fixture {};
     view_snapshot view { fixture.harness.build() };
@@ -225,27 +227,75 @@ TEST_CASE("tab dragging paints the insertion edge that matches the reorder direc
     view.selected_tab = 2;
     const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
     const auto* const strip { find_element(built, cyella::ui::kind_layout, u8"repository-tabs") };
+    const auto* const one { find_element(built, luil::ui_element_kind::tab, u8"tab-1") };
+    const auto* const two { find_element(built, luil::ui_element_kind::tab, u8"tab-2") };
+    const auto* const three { find_element(built, luil::ui_element_kind::tab, u8"tab-3") };
     REQUIRE(strip != nullptr);
+    REQUIRE(one != nullptr);
+    REQUIRE(two != nullptr);
+    REQUIRE(three != nullptr);
+    REQUIRE(one->drag() != nullptr);
+    REQUIRE(three->drop() != nullptr);
+
+    // 그리는 것은 이 줄이므로 트리의 기본 상자와 대상 강조는 꺼진 payload다.
+    const luil::rect_f first { one->bounds() };
+    const luil::drag_payload payload { one->drag()->make_payload({ .element = one->id(), .x = first.x + 4.0f, .y = first.y + 4.0f }) };
+    CHECK(payload.custom_visual);
+    CHECK(payload.suppress_drop_highlight);
+
     const luil::ui_color_palette palette { luil::color_palette_for(luil::color_theme::dark) };
-    for (const bool forward : { true, false })
-    {
-        const auto* const target { find_element(built, luil::ui_element_kind::tab, forward ? u8"tab-3" : u8"tab-1") };
-        REQUIRE(target != nullptr);
+    auto now { std::chrono::steady_clock::now() };
+    // 처음 뜬 표시는 옅게 시작하므로 다 짙어진 뒤의 그림을 본다.
+    const auto paint = [&](const luil::ui_element& over, const float x) {
         luil::interaction_snapshot interaction {};
-        interaction.drag = luil::drag_visual { .payload = { .dragged_owner = forward ? u8"tab-1" : u8"tab-3" }, .hovered_drop_target = target->id() };
+        interaction.drag = luil::drag_visual { .payload = payload, .x = x, .y = first.y + first.height / 2.0f, .hovered_drop_target = over.id() };
         SkBitmap bitmap {};
         bitmap.allocN32Pixels(1440, 100);
-        bitmap.eraseColor(palette.window_background);
-        SkCanvas canvas { bitmap };
-        luil::draw_context context { .canvas = canvas, .palette = palette };
-        strip->draw(context, interaction);
-        const luil::rect_f box { target->bounds() };
-        const int left { static_cast<int>(box.x) };
-        const int right { static_cast<int>(box.x + box.width) - 1 };
-        const int y { static_cast<int>(box.y) + 6 };
-        CHECK(bitmap.getColor(forward ? right : left, y) == palette.accent);
-        CHECK(bitmap.getColor(forward ? left : right, y) != palette.accent);
+        for (int frame { 0 }; frame < 2; ++frame)
+        {
+            bitmap.eraseColor(palette.window_background);
+            SkCanvas canvas { bitmap };
+            luil::draw_context context { .canvas = canvas, .palette = palette, .now = now };
+            strip->draw(context, interaction);
+            now += std::chrono::seconds { 1 };
+        }
+        return bitmap;
+    };
+    const auto placed = [&](const luil::ui_element& over, const float x) -> std::optional<reorder_tab_intent> {
+        const std::vector<luil::input_action> actions { over.drop()->on_drop(payload, { .element = over.id(), .x = x, .y = first.y }) };
+        if (actions.empty())
+            return std::nullopt;
+        const auto* const action { std::get_if<luil::app_message>(&actions.front()) };
+        REQUIRE(action != nullptr);
+        const auto* const intent { action->get<reorder_tab_intent>() };
+        REQUIRE(intent != nullptr);
+        return *intent;
+    };
+
+    const luil::rect_f box { three->bounds() };
+    const int left { static_cast<int>(box.x) };
+    const int right { static_cast<int>(box.x + box.width) - 1 };
+    const int y { static_cast<int>(box.y + box.height / 2.0f) };
+    for (const bool after : { false, true })
+    {
+        const float x { box.x + box.width * (after ? 0.75f : 0.25f) };
+        const SkBitmap bitmap { paint(*three, x) };
+        CHECK(bitmap.getColor(after ? right : left, y) == palette.accent);
+        CHECK(bitmap.getColor(after ? left : right, y) != palette.accent);
+        const std::optional<reorder_tab_intent> intent { placed(*three, x) };
+        REQUIRE(intent.has_value());
+        CHECK(intent->moved == 1);
+        CHECK(intent->target == 3);
+        CHECK(intent->after == after);
     }
+
+    // 바로 옆 탭의 가까운 반쪽은 제자리라 표시도 놓기도 없다.
+    const luil::rect_f beside { two->bounds() };
+    const float x { beside.x + beside.width * 0.25f };
+    const SkBitmap bitmap { paint(*two, x) };
+    CHECK(bitmap.getColor(static_cast<int>(beside.x), y) != palette.accent);
+    CHECK(bitmap.getColor(static_cast<int>(beside.x) - 1, y) != palette.accent);
+    CHECK_FALSE(placed(*two, x).has_value());
 }
 
 TEST_CASE("splitter capture survives a rebuilt layout and movement outside the pane until release", "[presentation][ui][resize]")

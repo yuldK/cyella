@@ -265,6 +265,40 @@ TEST_CASE("reorder moves a tab and selection follows the selected tab", "[reposi
     }
 }
 
+TEST_CASE("insertion index places a tab before or after the target", "[repository_tabs]")
+{
+    // 탭 a b c d에서 b(1)를 끈다.
+    SECTION("뒤쪽 탭의 앞뒤")
+    {
+        CHECK(insertion_index(1, 2, true) == 2u);
+        CHECK(insertion_index(1, 3, false) == 2u);
+        CHECK(insertion_index(1, 3, true) == 3u);
+    }
+
+    SECTION("앞쪽 탭의 앞뒤")
+    {
+        CHECK(insertion_index(1, 0, false) == 0u);
+        CHECK(insertion_index(2, 0, true) == 1u);
+    }
+
+    SECTION("제자리면 없다")
+    {
+        CHECK_FALSE(insertion_index(1, 0, true).has_value());
+        CHECK_FALSE(insertion_index(1, 2, false).has_value());
+        CHECK_FALSE(insertion_index(1, 1, false).has_value());
+        CHECK_FALSE(insertion_index(1, 1, true).has_value());
+    }
+
+    SECTION("구한 인덱스로 옮기면 그 자리에 선다")
+    {
+        repository_tabs tabs { three_tabs() };
+        const std::optional<std::size_t> to { insertion_index(0, 2, false) };
+        REQUIRE(to.has_value());
+        REQUIRE(tabs.reorder(0, *to));
+        CHECK(labels(tabs) == label_list { u8"b", u8"a", u8"c" });
+    }
+}
+
 TEST_CASE("tab ids are unique and never reused", "[repository_tabs]")
 {
     repository_tabs tabs {};

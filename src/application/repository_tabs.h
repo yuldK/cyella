@@ -98,4 +98,7 @@ namespace cyella {
     void capture_open_tabs(const repository_tabs& tabs, app_settings& settings);
     // 설정에서 탭 상태를 만든다. 설정이 비어 있으면 시작 탭 하나다.
     [[nodiscard]] repository_tabs restore_tabs(const app_settings& settings);
+    // `from`의 탭을 `target` 탭의 앞(`after`가 거짓)이나 뒤에 끼울 때 `repository_tabs::reorder`에 넘길 인덱스다.
+    // 끼울 자리가 지금 자리의 바로 앞이나 뒤면 순서가 그대로이므로 없다 — 끄는 동안 표시도 이것으로 가른다.
+    [[nodiscard]] std::optional<std::size_t> insertion_index(std::size_t from, std::size_t target, bool after) noexcept;
 } // namespace cyella

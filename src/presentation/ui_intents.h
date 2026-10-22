@@ -65,6 +65,8 @@ namespace cyella {
     {
         repository_tab_id moved { 0 };
         repository_tab_id target { 0 };
+        // 거짓이면 대상 탭의 앞, 참이면 뒤에 끼운다 (놓은 자리가 대상의 어느 반쪽인가).
+        bool after { false };
     };
 
     struct new_tab_intent

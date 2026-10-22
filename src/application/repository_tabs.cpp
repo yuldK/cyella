@@ -199,4 +199,14 @@ namespace cyella {
         tabs.restore(settings.open_tabs, settings.active_tab);
         return tabs;
     }
+
+    std::optional<std::size_t> insertion_index(const std::size_t from, const std::size_t target, const bool after) noexcept
+    {
+        // 탭 사이의 틈 번호다. 0이 맨 앞이고 i는 i번 탭의 바로 앞이다.
+        const std::size_t gap { after ? target + 1 : target };
+        if (gap == from || gap == from + 1)
+            return std::nullopt;
+        // 빼고 끼우므로 뒤로 옮길 때는 뺀 자리만큼 당겨진다.
+        return gap > from ? gap - 1 : gap;
+    }
 } // namespace cyella

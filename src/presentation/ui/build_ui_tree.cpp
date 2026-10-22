@@ -157,14 +157,14 @@ namespace cyella::ui {
             }
             config.select = [](const std::u8string& key) { return message(select_tab_intent { tab_id_of(key) }); };
             config.close = [](const std::u8string& key) { return message(close_tab_intent { tab_id_of(key) }); };
-            config.reorder = [](const std::u8string& moved, const std::u8string& target) { return message(reorder_tab_intent { tab_id_of(moved), tab_id_of(target) }); };
             config.context_menu = [](const std::u8string& key, const luil::ui_action_context& context) {
                 return message(open_context_menu_intent { menu_target { .kind = menu_target_kind::tab, .tab = tab_id_of(key) }, context.x, context.y });
             };
             config.scroll = [](const float delta) { return message(scroll_tabs_intent { delta }); };
             const float viewport_width { std::max(view.logical_width - tab_row_button_width * 3.0f - 4.0f, 0.0f) };
             auto add { make_icon_button(u8"new-tab", codicons::icon_add, tr(u8"tabs.new_tab"), message(new_tab_intent {})) };
-            auto tab_bar { std::make_unique<repository_tabs_element>(std::move(config), std::move(add), viewport_width, view.reveal_selected_tab) };
+            const auto place = [](const std::u8string& moved, const std::u8string& target, const bool after) { return message(reorder_tab_intent { tab_id_of(moved), tab_id_of(target), after }); };
+            auto tab_bar { std::make_unique<repository_tabs_element>(std::move(config), place, std::move(add), viewport_width, view.reveal_selected_tab) };
             sources.tabs = tab_bar.get();
             std::u8string names {};
             for (const tab_view& tab : view.tabs)
