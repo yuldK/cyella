@@ -737,6 +737,15 @@ namespace cyella::win32 {
                         return luil::input_action {};
                     return luil::make_app_action(close_font_list_intent {});
                 };
+            else if (popup.toast)
+                // 토스트는 바깥을 누르거나 창이 움직여도 남는다. Esc는 어느 popup도 삼키지 않아 앱으로 가서 토스트를 내린다.
+                shown.dismiss = {};
+            else if (popup.notifications)
+                shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
+                    if (reason == luil::win32::popup_dismiss_reason::pointer_press_outside || reason == luil::win32::popup_dismiss_reason::escape_key)
+                        return luil::make_app_action(close_notification_center_intent { .dismissed = reason == luil::win32::popup_dismiss_reason::pointer_press_outside });
+                    return luil::input_action {};
+                };
             else if (popup.selector)
                 // 거르는 칸이 있는 목록이다. 폴더 대화 상자를 열거나 다른 창을 보느라 창 활성이 바뀌어도 남는다 (luil의 검색 popup 규약).
                 shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {

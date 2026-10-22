@@ -362,9 +362,9 @@ namespace cyella {
         return view;
     }
 
-    std::vector<banner_action_view> banner_actions_for(const operation_status& status)
+    std::vector<notification_action> failure_actions_for(const operation_status& status)
     {
-        std::vector<banner_action_view> actions {};
+        std::vector<notification_action> actions {};
         if (status.state != operation_state::failed || status.failure.has_value() == false)
             return actions;
         const operation_failure& failure { *status.failure };

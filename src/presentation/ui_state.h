@@ -12,6 +12,7 @@
 #include "luil/text/text_edit.h"
 #include "luil/ui/ui_interaction.h"
 
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -129,9 +130,8 @@ namespace cyella {
         std::optional<diff_file_request> diff {};
         // 낸 커밋 operation이다. 성공하면 커밋 상자를 비운다.
         operation_id pending_commit { 0 };
-        // 배너에서 닫은 실패·입력 필요 operation이다. 그보다 새 것만 배너로 보인다.
-        operation_id dismissed_banner { 0 };
-        bool banner_expanded { false };
+        // 사용자가 다룬 입력 필요 operation이다 (체크아웃 정책을 골랐다). 그보다 새 것만 탭에 🔔를 단다.
+        operation_id dismissed_input { 0 };
         // 체크아웃 정책 대화 상자를 닫은 operation이다. 그보다 새 것만 대화 상자로 뜬다.
         operation_id dismissed_dialog { 0 };
         // 체크아웃 정책 대화 상자의 선택이다.
@@ -153,20 +153,49 @@ namespace cyella {
         std::u8string error {};
     };
 
-    // 안내 배너의 조치 단추다 (프로필 제안·커밋 전 경고). 눌리면 `banner_action_intent`가 키를 나른다.
-    struct notice_action
+    // 알림의 조치 단추다 ("Pull 후 다시 push", 프로필 적용, 커밋 전 경고). 눌리면 `notification_action_intent`가 키를 나른다.
+    struct notification_action
     {
         std::u8string key {};
         std::u8string label {};
+
+        [[nodiscard]] bool operator==(const notification_action&) const noexcept = default;
     };
 
-    // 화면에 띄운 안내 한 줄이다 (아직 없는 대화 상자의 자리).
-    struct notice_state
+    enum class notification_severity : std::uint8_t
     {
-        std::u8string text {};
-        bool warning { false };
-        std::vector<notice_action> actions {};
+        info,
+        warning,
+        error,
     };
+
+    // 알림 하나다. 오른쪽 아래 토스트로 잠깐 뜨고, 상태 줄의 종(알림 센터)에 남는다.
+    struct notification
+    {
+        std::uint64_t id { 0 };
+        notification_severity severity { notification_severity::info };
+        // 실패한 작업의 머리말이다 ("Push 실패"). 안내는 비어 있다.
+        std::u8string title {};
+        std::u8string text {};
+        // [자세히]가 펴는 줄이다. 실행한 명령줄과 git 원문이다.
+        std::vector<std::u8string> details {};
+        std::vector<notification_action> actions {};
+        // 실패 알림의 operation이다. 조치가 다시 낼 요청을 여기서 찾는다.
+        operation_id operation { 0 };
+        // 이 알림이 가리키는 저장소다. 조치는 그 저장소 탭으로 옮겨 실행한다. 비면 저장소와 무관하다.
+        std::string repository_id {};
+        std::chrono::system_clock::time_point at {};
+        // 토스트로 떠 있다. 닫히거나 시간이 지나 내려가도 알림 센터에는 남는다.
+        bool toast { true };
+        // 토스트가 저절로 내려갈 시각이다. 없으면 사용자가 닫을 때까지 남는다 (조치가 달린 알림).
+        std::optional<std::chrono::steady_clock::time_point> toast_until {};
+        bool expanded { false };
+        // 알림 센터를 연 뒤에 들어온 것만 거짓이다. 종 아이콘의 점을 정한다.
+        bool read { false };
+    };
+
+    // 알림 센터가 기억하는 개수다. 넘으면 오래된 것부터 버린다.
+    inline constexpr std::size_t notification_capacity { 100 };
 
     // diff 웹뷰가 지금 보이는 모습이다. 웹뷰를 쥔 driver가 frame마다 채우고, 머리 막대(전환 단추)와 대체 보기가 읽는다.
     struct diff_surface_state
@@ -220,9 +249,12 @@ namespace cyella {
         // narrow의 아이콘 막대에서 연 구역이다. 떠 있는 판으로 그 구역만 보인다.
         std::optional<sidebar_section> rail_section {};
         std::optional<clone_dialog_state> clone {};
-        std::optional<notice_state> notice {};
-        // 시작 페이지 배너에서 닫은 경로 검사·init 실패다.
-        operation_id dismissed_start_banner { 0 };
+        // 오래된 것이 앞이다.
+        std::vector<notification> notifications {};
+        std::uint64_t notification_serial { 0 };
+        // 상태 줄의 종을 눌러 연 알림 센터다. 열려 있는 동안 토스트는 띄우지 않는다.
+        bool notifications_open { false };
+        float notifications_scroll { 0.0f };
         // IME 조합 중인 칸의 표시 글이다. 한 번에 한 칸만 조합한다.
         std::optional<luil::text_composition_event> composition {};
         diff_surface_state diff_surface {};
@@ -239,6 +271,12 @@ namespace cyella {
         std::optional<selector_state> selector {};
         // 열린 명령 팔레트다.
         std::optional<palette_state> palette {};
+
+        // 가장 최근 알림이다. 없으면 nullptr이다.
+        [[nodiscard]] const notification* latest_notification() const noexcept
+        {
+            return notifications.empty() ? nullptr : &notifications.back();
+        }
     };
 
     [[nodiscard]] inline luil::text_input_target to_luil_target(const text_target target) noexcept

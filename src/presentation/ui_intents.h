@@ -98,27 +98,40 @@ namespace cyella {
     struct cycle_theme_intent
     {};
 
-    // 아직 없는 대화 상자 자리에 안내를 띄운다.
+    // 안내를 알림으로 띄운다 (토스트로 뜨고 알림 센터에 남는다).
     struct show_notice_intent
     {
         std::u8string text {};
         bool warning { false };
     };
 
-    struct dismiss_notice_intent
+    // 알림을 지운다 (토스트와 알림 센터에서 함께). `id`가 0이면 가장 최근 알림이다.
+    struct dismiss_notification_intent
+    {
+        std::uint64_t id { 0 };
+    };
+
+    // 알림의 [자세히]를 펴거나 접는다.
+    struct toggle_notification_details_intent
+    {
+        std::uint64_t id { 0 };
+    };
+
+    // 상태 줄의 종이다. 열면 모든 알림을 읽은 것으로 친다.
+    struct toggle_notification_center_intent
+    {};
+
+    // 알림 센터를 닫는다. `dismissed`는 popup 바깥을 눌러 닫혔다는 뜻이다 (그 누름이 종이었으면 다시 열지 않는다).
+    struct close_notification_center_intent
+    {
+        bool dismissed { false };
+    };
+
+    struct clear_notifications_intent
     {};
 
     struct toggle_operation_log_intent
     {};
-
-    // 배너의 [자세히]를 펴거나 접는다.
-    struct toggle_banner_details_intent
-    {};
-
-    struct dismiss_banner_intent
-    {
-        operation_id id { 0 };
-    };
 
     enum class toolbar_action
     {
@@ -197,6 +210,8 @@ namespace cyella {
         commit_meta,
         // 높이가 모자란 변경 파일·커밋 작성 영역 전체다. 파일 목록의 detail 스크롤과 구분한다.
         working_area,
+        // 상태 줄의 종이 연 알림 센터의 목록이다.
+        notifications,
     };
 
     // 흘리는 창의 스크롤이다. `absolute`면 `value`가 자리, 아니면 변화량이다 (논리 픽셀).

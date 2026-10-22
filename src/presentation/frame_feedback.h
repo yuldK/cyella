@@ -17,6 +17,7 @@ namespace cyella {
         std::optional<float> diff_maximum {};
         std::optional<float> start_maximum {};
         std::optional<float> log_maximum {};
+        std::optional<float> notifications_maximum {};
         std::optional<float> settings_maximum {};
         std::optional<float> form_maximum {};
         std::optional<float> palette_maximum {};

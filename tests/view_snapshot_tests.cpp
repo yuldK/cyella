@@ -145,41 +145,67 @@ TEST_CASE("a commit row selection shows a loading detail until show_commit retur
     CHECK(view.repository->graph.has_wip == false);
 }
 
-TEST_CASE("failed and needs_input operations become banners until dismissed", "[presentation][snapshot]")
+TEST_CASE("a failed operation becomes an error notification with its commands and git output", "[presentation][snapshot]")
+{
+    operation_status failed { .id = 3, .kind = operation_kind::push_execute, .state = operation_state::failed, .repository_id = "repo-1" };
+    failed.commands = { { .command_line = u8"git push --progress", .exit_code = 1 } };
+    failed.failure = operation_failure { .kind = failure_kind::rejected_non_ff, .summary = u8"원격이 거절했습니다.", .detail = u8"! [rejected]\nhint: pull first" };
+    const std::optional<notification> value { failure_notification(failed) };
+    REQUIRE(value.has_value());
+    CHECK(value->severity == notification_severity::error);
+    CHECK(value->title == u8"Push 실패");
+    CHECK(value->text == u8"원격이 거절했습니다.");
+    CHECK(value->operation == 3);
+    CHECK(value->repository_id == "repo-1");
+    REQUIRE(value->details.size() == 3);
+    CHECK(value->details[0].starts_with(u8"$ git push --progress"));
+    REQUIRE(value->actions.size() == 1);
+    CHECK(value->actions[0].key == u8"pull_then_push");
+
+    operation_status succeeded { .id = 4, .kind = operation_kind::fetch, .state = operation_state::succeeded, .repository_id = "repo-1" };
+    CHECK_FALSE(failure_notification(succeeded).has_value());
+}
+
+TEST_CASE("notifications become toasts newest first until the center is opened", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
     const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(2), 0);
-
-    operation_status failed { .id = 3, .kind = operation_kind::push_execute, .state = operation_state::failed, .repository_id = "repo-1" };
-    failed.commands = { { .command_line = u8"git push --progress", .exit_code = 1 } };
-    failed.failure = operation_failure { .kind = failure_kind::rejected_non_ff, .summary = u8"원격이 거절했습니다.", .detail = u8"! [rejected]\nhint: pull first" };
-    harness.operations.push_back(failed);
+    for (std::uint64_t id { 1 }; id <= 5; ++id)
+        harness.ui.notifications.push_back(notification { .id = id, .text = u8"안내입니다." });
+    harness.ui.notifications[1].toast = false;
+    harness.ui.notifications[4].read = true;
     view_snapshot view { harness.build() };
-    REQUIRE(view.banner.has_value());
-    CHECK(view.banner->kind == banner_kind::failure);
-    CHECK(view.banner->title == u8"Push 실패");
-    REQUIRE(view.banner->details.size() == 3);
-    CHECK(view.banner->details[0].starts_with(u8"$ git push --progress"));
-    CHECK(view.status.last_failed);
+    // 최신이 앞이고, 내려간 토스트는 건너뛰며, 세 장까지다.
+    REQUIRE(view.toasts.size() == toast_visible_limit);
+    CHECK(view.toasts[0].id == 5);
+    CHECK(view.toasts[1].id == 4);
+    CHECK(view.toasts[2].id == 3);
+    CHECK_FALSE(view.notification_center.has_value());
+    CHECK(view.status.notifications == 5);
+    CHECK(view.status.unread_notifications == 4);
 
-    harness.ui.tabs[tab].dismissed_banner = 3;
-    CHECK_FALSE(harness.build().banner.has_value());
+    // 센터가 열려 있으면 토스트는 없고 모든 알림이 최신부터 보인다.
+    harness.ui.notifications_open = true;
+    view = harness.build();
+    CHECK(view.toasts.empty());
+    REQUIRE(view.notification_center.has_value());
+    REQUIRE(view.notification_center->entries.size() == 5);
+    CHECK(view.notification_center->entries.front().id == 5);
+    CHECK(view.notification_center->entries.back().id == 1);
+    CHECK(view.status.notifications_open);
 
+    // 입력이 필요한 작업은 알림이 아니라 체크아웃 정책 대화 상자가 맡는다.
+    harness.ui.notifications.clear();
+    harness.ui.notifications_open = false;
     operation_status checkout { .id = 4, .kind = operation_kind::checkout_branch, .state = operation_state::needs_input, .repository_id = "repo-1" };
     checkout.needs_input = input_request { .kind = input_kind::dirty_worktree, .files = { "a.txt" }, .target = "feature" };
     harness.operations.push_back(checkout);
     view = harness.build();
-    // 입력이 필요한 작업은 배너가 아니라 체크아웃 정책 대화 상자가 맡는다.
-    CHECK_FALSE(view.banner.has_value());
+    CHECK(view.toasts.empty());
     REQUIRE(view.form.has_value());
     CHECK(view.form->id == u8"dirty-dialog");
-
-    // 안내는 operation 배너보다 앞선다.
-    harness.ui.notice = notice_state { u8"안내입니다.", false };
-    view = harness.build();
-    REQUIRE(view.banner.has_value());
-    CHECK(view.banner->kind == banner_kind::notice);
+    static_cast<void>(tab);
 }
 
 TEST_CASE("reads and automatic refreshes stay out of the status bar and tab markers", "[presentation][snapshot]")

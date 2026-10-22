@@ -124,35 +124,37 @@ namespace cyella {
         std::u8string identity_tooltip {};
         // 커밋하려면 손봐야 한다 (이름이나 이메일이 없다).
         bool identity_warning { false };
+        // 종 아이콘이다. 아직 보지 않은 알림이 있으면 점을 단다.
+        std::size_t notifications { 0 };
+        std::size_t unread_notifications { 0 };
+        bool notifications_open { false };
     };
 
-    enum class banner_kind
-    {
-        failure,
-        // (쓰지 않는다) 입력이 필요한 operation은 배너가 아니라 모달 입력 상자(`view_snapshot::form`)와 충돌 화면이 맡는다.
-        needs_input,
-        // 아직 없는 대화 상자의 안내다.
-        notice,
-    };
+    // 한 번에 쌓아 보일 토스트의 수다. 넘는 것은 알림 센터에서 본다.
+    inline constexpr std::size_t toast_visible_limit { 3 };
 
-    // 배너의 조치 단추다 ("Pull 후 다시 push"). 눌리면 `banner_action_intent`가 키와 operation을 나른다.
-    struct banner_action_view
+    // 토스트와 알림 센터의 한 장이다 (`ui_state::notifications`의 한 항목).
+    //  - 입력이 필요한 operation은 알림이 아니라 모달 입력 상자(`view_snapshot::form`)와 충돌 화면이 맡는다.
+    struct notification_view
     {
-        std::u8string key {};
-        std::u8string label {};
-    };
-
-    struct banner_view
-    {
-        banner_kind kind { banner_kind::failure };
-        operation_id id { 0 };
+        std::uint64_t id { 0 };
+        notification_severity severity { notification_severity::info };
         std::u8string title {};
-        std::u8string summary {};
-        // [자세히]가 보일 줄이다. 실행한 명령줄(`commands[]`)과 git 원문, 입력 필요의 파일 목록이다.
+        std::u8string text {};
         std::vector<std::u8string> details {};
         bool expanded { false };
-        bool warning { false };
-        std::vector<banner_action_view> actions {};
+        std::vector<notification_action> actions {};
+        // 조치가 다시 낼 요청의 operation이다 (`notification_action_intent::id`).
+        operation_id operation { 0 };
+        // "3분 전"과 그 툴팁의 절대 시각이다.
+        std::u8string time {};
+        std::u8string time_tooltip {};
+    };
+
+    // 상태 줄의 종이 연 목록이다. 최신이 앞이다.
+    struct notification_center_view
+    {
+        std::vector<notification_view> entries {};
     };
 
     struct log_line_view
@@ -483,7 +485,10 @@ namespace cyella {
         std::optional<repository_view> repository {};
         toolbar_view toolbar {};
         status_view status {};
-        std::optional<banner_view> banner {};
+        // 오른쪽 아래에 쌓을 토스트다. 최신이 앞이고 `toast_visible_limit`장까지다. 알림 센터가 열려 있으면 비어 있다.
+        std::vector<notification_view> toasts {};
+        std::optional<notification_center_view> notification_center {};
+        float notifications_scroll { 0.0f };
         bool log_open { false };
         std::vector<log_line_view> log {};
         float log_scroll { 0.0f };

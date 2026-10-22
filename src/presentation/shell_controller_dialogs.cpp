@@ -435,9 +435,9 @@ namespace cyella {
             open_create_branch_dialog(intent->at);
             return true;
         }
-        if (const auto* const intent { message.get<banner_action_intent>() }; intent != nullptr)
+        if (const auto* const intent { message.get<notification_action_intent>() }; intent != nullptr)
         {
-            handle_banner_action(*intent);
+            handle_notification_action(*intent);
             return true;
         }
         if (const auto* const intent { message.get<conflict_action_intent>() }; intent != nullptr)
@@ -1292,7 +1292,7 @@ namespace cyella {
             return;
         const auto dismiss = [&]() {
             tab->dismissed_dialog = std::max(tab->dismissed_dialog, status.id);
-            tab->dismissed_banner = std::max(tab->dismissed_banner, status.id);
+            tab->dismissed_input = std::max(tab->dismissed_input, status.id);
             tab->dirty.reset();
             clear_form_inputs();
         };
@@ -1421,53 +1421,54 @@ namespace cyella {
         }
     }
 
-    void shell_controller::handle_banner_action(const banner_action_intent& intent)
+    void shell_controller::handle_notification_action(const notification_action_intent& intent)
     {
-        // 프로필 제안과 커밋 전 경고의 조치는 operation이 아니라 안내 배너에 달려 있다.
-        if (handle_profile_banner_action(intent.key))
+        // 조치를 누르면 그 알림은 할 일을 다 했으므로 지운다 (토스트와 알림 센터 모두).
+        const auto matches = [&intent](const notification& value) {
+            if (intent.notification != 0)
+                return value.id == intent.notification;
+            return value.operation == intent.id && std::any_of(value.actions.begin(), value.actions.end(), [&intent](const notification_action& action) { return action.key == intent.key; });
+        };
+        std::string repository {};
+        if (const auto found { std::find_if(ui_.notifications.rbegin(), ui_.notifications.rend(), matches) }; found != ui_.notifications.rend())
+        {
+            repository = found->repository_id;
+            ui_.notifications.erase(std::next(found).base());
+        }
+        // 조치는 알림이 난 저장소에서 한다. 토스트는 탭을 옮겨도 남으므로 다른 탭을 보고 있으면 그 탭으로 간다.
+        if (repository.empty() == false && repository != selected_repository_id() && select_repository_tab(repository) == false)
+            return;
+        // 프로필 제안과 커밋 전 경고의 조치는 operation이 아니라 안내 알림에 달려 있다.
+        if (handle_profile_notification_action(intent.key))
             return;
         git_workspace* const workspace { dependencies_.workspace };
-        tab_ui_state* const tab { selected_tab_state() };
         if (workspace == nullptr)
             return;
         const git_operation* const request { workspace->request_of(intent.id) };
         if (request == nullptr)
             return;
         const git_operation original { *request };
-        const auto dismiss = [&]() {
-            if (tab != nullptr)
-            {
-                tab->dismissed_banner = std::max(tab->dismissed_banner, intent.id);
-                tab->banner_expanded = false;
-            }
-        };
         if (intent.key == u8"pull_then_push")
         {
             // rebase로 원격 커밋을 가져온 뒤 같은 push를 다시 한다. pull이 실패하면 push는 나가지 않는다.
             if (std::holds_alternative<push_execute_request>(original))
-            {
-                dismiss();
                 static_cast<void>(submit_sequence({ pull_request { pull_strategy::rebase }, original }));
-            }
         }
         else if (intent.key == u8"fetch")
         {
             fetch_request fetch {};
             if (const auto* const push { std::get_if<push_execute_request>(&original) }; push != nullptr)
                 fetch.remote = push->remote;
-            dismiss();
             static_cast<void>(submit(fetch));
         }
         else if (intent.key == u8"pull_rebase")
         {
-            dismiss();
             static_cast<void>(submit(pull_request { pull_strategy::rebase }));
         }
         else if (intent.key == u8"force_delete")
         {
             if (const auto* const deleted { std::get_if<delete_branch_request>(&original) }; deleted != nullptr)
             {
-                dismiss();
                 dialog_state dialog {};
                 dialog.title = tr(u8"shell.force_delete_branch.title");
                 dialog.lines.push_back(tr(u8"shell.force_delete_branch.description", { { u8"branch", deleted->name } }));
@@ -1479,7 +1480,6 @@ namespace cyella {
         }
         else if (intent.key == u8"remove_index_lock")
         {
-            dismiss();
             static_cast<void>(submit(remove_stale_index_lock_request {}));
         }
     }

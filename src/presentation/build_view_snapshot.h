@@ -54,6 +54,9 @@ namespace cyella {
 
     // ---------------------------------------------------------------- 조각 (test가 직접 부른다)
 
+    // 실패한 작업의 알림이다 (머리말·요약·명령줄과 git 원문·조치 단추). 실패가 아니면 빈 값이다. id·시각은 띄우는 쪽이 붙인다.
+    [[nodiscard]] std::optional<notification> failure_notification(const operation_status& status);
+
     // 탭 표시다. `operations`는 그 저장소의 operation만이다.
     [[nodiscard]] tab_marker compute_tab_marker(std::span<const operation_status* const> operations, std::uint32_t changed_file_count, bool awaiting_input) noexcept;
 

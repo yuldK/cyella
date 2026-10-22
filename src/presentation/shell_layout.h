@@ -18,7 +18,6 @@ namespace cyella {
     inline constexpr float shell_navigation_height { 34.0f };
     inline constexpr float changes_split_minimum_width { 720.0f };
     inline constexpr float shell_status_height { 24.0f };
-    inline constexpr float shell_banner_height { 32.0f };
     inline constexpr float shell_log_height { 200.0f };
     inline constexpr float shell_rail_width { 44.0f };
     inline constexpr float shell_splitter_width { 6.0f };
@@ -64,8 +63,6 @@ namespace cyella {
         float caption_height { 0.0f };
         // 저장소 탭이 선택돼 툴바와 3단 본문이 서는가. 시작 탭이면 본문 하나다.
         bool repository { false };
-        // 툴바 아래 배너(실패·입력 필요·안내)의 높이다. 0이면 배너가 없다.
-        float banner_height { 0.0f };
         bool log_open { false };
         layout_mode mode { layout_mode::wide };
         float sidebar_width { default_sidebar_width };
@@ -83,7 +80,6 @@ namespace cyella {
         shell_rect tab_row {};
         shell_rect toolbar {};
         shell_rect navigation {};
-        shell_rect banner {};
         // 사이드바·그래프·상세가 놓이는 본문 전체다. 시작 탭이면 시작 페이지가 여기에 선다.
         shell_rect body {};
         // wide·medium의 사이드바 또는 narrow의 아이콘 막대다.

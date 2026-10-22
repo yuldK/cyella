@@ -235,7 +235,7 @@ namespace cyella {
         void handle_auth_button(const operation_status& status, const std::u8string& key);
         void trust_host_once(const operation_status& status);
         void send_backend_intent(const luil::app_message& message);
-        void handle_banner_action(const banner_action_intent& intent);
+        void handle_notification_action(const notification_action_intent& intent);
         void handle_conflict_action(conflict_action action);
 
         // ---- submodule·worktree·Git LFS (shell_controller_extension.cpp)
@@ -291,8 +291,8 @@ namespace cyella {
         void apply_profile(const std::u8string& name);
         // 커밋 전 경고다. 신원이 없거나 규칙의 프로필과 다르면 안내를 띄우고 true(커밋하지 않는다)다. 저장소마다 한 번만 경고한다.
         [[nodiscard]] bool warn_before_commit();
-        // 안내 배너의 프로필 조치다. 처리했으면 true다.
-        bool handle_profile_banner_action(const std::u8string& key);
+        // 안내 알림의 프로필 조치다. 처리했으면 true다.
+        bool handle_profile_notification_action(const std::u8string& key);
         void commit_now();
         // 프로필 모드 팔레트와 상태 줄이 쓰는 값이다. 선택된 저장소의 신원을 읽었는가와 그 신원이다.
         [[nodiscard]] const git_identity* selected_identity() const;
@@ -303,6 +303,12 @@ namespace cyella {
         void handle_text_edit(const luil::text_edit_request& request);
         void maybe_load_more();
         void show_notice(std::u8string text, bool warning = false);
+        // 알림을 띄운다 (토스트로 뜨고 알림 센터에 남는다). id·시각·토스트 시간은 여기서 붙인다.
+        void notify(notification value);
+        // 새로 실패한 사용자 작업을 알리고, 같은 저장소의 뒤 작업이 성공했으면 앞 실패의 토스트를 내린다.
+        void notify_failures();
+        // 그 저장소를 연 탭을 고른다. 열린 탭이 없으면 false다.
+        bool select_repository_tab(const std::string& repository_id);
         [[nodiscard]] luil::text::text_edit_state* draft(text_target target);
         [[nodiscard]] std::shared_ptr<const std::vector<luil::virtual_list_item>> graph_items(const repository_session& session);
         [[nodiscard]] bool repository_exists(std::u8string_view path);
@@ -335,6 +341,10 @@ namespace cyella {
         hosting_controller hosting_;
         // 판 폭을 설정에 쓸 시각이다. 폭을 끄는 동안 뒤로 밀리고, 값이 없으면 쓸 것이 없다.
         std::optional<std::chrono::steady_clock::time_point> pane_widths_flush_at_ {};
+        // 이미 알린 실패 operation이다. 같은 실패를 두 번 띄우지 않는다.
+        std::set<operation_id> notified_failures_ {};
+        // 알림 센터가 바깥 누름으로 닫힌 시각이다.
+        std::optional<std::chrono::steady_clock::time_point> notifications_dismissed_at_ {};
 
         struct history_cache_entry
         {

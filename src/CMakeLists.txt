@@ -453,6 +453,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/dialogs"
     presentation/ui/conflict_ui.cpp
     presentation/ui/form_ui.cpp
     presentation/ui/overlay_ui.cpp
+    presentation/ui/notification_ui.cpp
+    presentation/ui/notification_ui.h
     presentation/ui/selector_ui.cpp
     presentation/ui/ref_chip_element.cpp
     presentation/ui/ref_chip_element.h)

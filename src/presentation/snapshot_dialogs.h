@@ -67,7 +67,8 @@ namespace cyella {
     // 충돌 해결 화면이다. 멈춘 작업이 없으면 빈 값이다.
     [[nodiscard]] std::optional<conflict_view> build_conflict_view(const repository_session& session, std::span<const operation_status* const> operations);
 
-    [[nodiscard]] std::vector<banner_action_view> banner_actions_for(const operation_status& status);
+    // 실패 알림의 조치 단추다 ("Pull 후 다시 push", "강제로 삭제"…). 실패가 아니면 비어 있다.
+    [[nodiscard]] std::vector<notification_action> failure_actions_for(const operation_status& status);
 
     [[nodiscard]] std::shared_ptr<const drop_hint_data> build_drop_hints(const repository_snapshot& snapshot, std::shared_ptr<const graph_index> index);
 } // namespace cyella

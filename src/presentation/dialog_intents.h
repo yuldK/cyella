@@ -123,12 +123,15 @@ namespace cyella {
         std::string at {};
     };
 
-    // ------------------------------------------------------------------ 배너·충돌
+    // ------------------------------------------------------------------ 알림·충돌
 
-    struct banner_action_intent
+    // 알림의 조치 단추를 눌렀다. `id`는 실패 알림의 operation이고(안내는 0), `notification`은 누른 알림이다.
+    // `notification`이 0이면 키(와 operation)가 맞는 가장 최근 알림이다.
+    struct notification_action_intent
     {
         std::u8string key {};
         operation_id id { 0 };
+        std::uint64_t notification { 0 };
     };
 
     enum class conflict_action

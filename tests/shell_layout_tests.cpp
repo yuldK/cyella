@@ -29,7 +29,6 @@ TEST_CASE("wide layout places sidebar, graph and detail side by side", "[present
 
     CHECK(rects.tab_row == shell_rect { 0.0f, 36.0f, 1440.0f, shell_tab_row_height });
     CHECK(rects.toolbar.y == 36.0f + shell_tab_row_height);
-    CHECK(rects.banner.empty());
     CHECK(rects.status == shell_rect { 0.0f, 900.0f - shell_status_height, 1440.0f, shell_status_height });
     CHECK(rects.body.y == rects.toolbar.y + shell_toolbar_height + shell_navigation_height);
     CHECK(rects.body.y + rects.body.height == rects.status.y);
@@ -82,9 +81,10 @@ TEST_CASE("graph keeps its minimum width by shrinking the side panes", "[present
 
 TEST_CASE("start tab uses the whole body and the log takes at most half of it", "[presentation][layout]")
 {
-    const shell_rects start { compute_shell_layout({ .width = 900.0f, .height = 700.0f, .caption_height = 36.0f, .banner_height = shell_banner_height, .log_open = true }) };
+    const shell_rects start { compute_shell_layout({ .width = 900.0f, .height = 700.0f, .caption_height = 36.0f, .log_open = true }) };
     CHECK(start.toolbar.empty());
-    CHECK(start.banner.y == 36.0f + shell_tab_row_height);
+    // 알림은 토스트(popup)라 본문 자리를 밀어내지 않는다. 본문은 탭 줄 바로 아래에서 시작한다.
+    CHECK(start.body.y == 36.0f + shell_tab_row_height);
     CHECK(start.sidebar.empty());
     CHECK(start.graph.empty());
     CHECK(start.log.height == shell_log_height);

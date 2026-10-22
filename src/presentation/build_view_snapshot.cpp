@@ -16,8 +16,8 @@
 
 namespace cyella {
     namespace {
-        // 실패 배너의 [자세히]가 보일 git 원문 줄 수의 상한이다. 넘치면 마지막 줄에 생략을 알린다.
-        constexpr std::size_t banner_detail_line_limit { 40 };
+        // 실패 알림의 [자세히]가 보일 git 원문 줄 수의 상한이다. 넘치면 마지막 줄에 생략을 알린다.
+        constexpr std::size_t notification_detail_line_limit { 40 };
         // 작업 로그가 보이는 operation 수다.
         constexpr std::size_t log_operation_limit { 60 };
         // HEAD 행을 찾아보는 범위다. WIP 점선은 화면 위쪽에서만 뜻이 있다.
@@ -83,7 +83,7 @@ namespace cyella {
             return to_u8(sha.substr(0, std::min<std::size_t>(sha.size(), 7)));
         }
 
-        // 상태 줄·탭 표시·배너가 보이는 작업이다. 판정은 `is_user_operation_status` 하나다.
+        // 상태 줄·탭 표시·알림이 다루는 작업이다. 판정은 `is_user_operation_status` 하나다.
         bool is_user_operation(const operation_status& status) noexcept
         {
             return is_user_operation_status(status);
@@ -183,33 +183,41 @@ namespace cyella {
             };
         }
 
-        std::optional<banner_view> operation_banner(const operation_status& status, const operation_id dismissed, const bool expanded)
+        notification_view make_notification_view(const notification& value, const std::int64_t now)
         {
-            if (status.id <= dismissed)
-                return std::nullopt;
-            banner_view banner {};
-            banner.id = status.id;
-            banner.expanded = expanded;
-            if (status.state == operation_state::failed && status.failure.has_value())
+            notification_view view {};
+            view.id = value.id;
+            view.severity = value.severity;
+            view.title = value.title;
+            view.text = value.text;
+            view.details = value.details;
+            view.expanded = value.expanded;
+            view.actions = value.actions;
+            view.operation = value.operation;
+            const std::int64_t at { std::chrono::duration_cast<std::chrono::seconds>(value.at.time_since_epoch()).count() };
+            view.time = relative_time_text(now, at);
+            view.time_tooltip = absolute_time_text(at);
+            return view;
+        }
+
+        void fill_notifications(view_snapshot& view, const ui_state& ui, const std::int64_t now)
+        {
+            status_view& status { view.status };
+            status.notifications = ui.notifications.size();
+            status.unread_notifications = static_cast<std::size_t>(std::count_if(ui.notifications.begin(), ui.notifications.end(), [](const notification& value) { return value.read == false; }));
+            status.notifications_open = ui.notifications_open;
+            if (ui.notifications_open)
             {
-                banner.kind = banner_kind::failure;
-                banner.title = tr(u8"snapshot.operation.failed", { { u8"name", operation_display_name(status.kind) } });
-                banner.summary = status.failure->summary.empty() ? std::u8string { failure_kind_message(status.failure->kind) } : status.failure->summary;
-                for (const operation_command& command : status.commands)
-                    banner.details.push_back(command_line_text(command));
-                for (std::u8string& line : split_lines(status.failure->detail))
-                {
-                    if (banner.details.size() >= banner_detail_line_limit)
-                    {
-                        banner.details.push_back(u8"…");
-                        break;
-                    }
-                    banner.details.push_back(std::move(line));
-                }
-                banner.actions = banner_actions_for(status);
-                return banner;
+                notification_center_view center {};
+                for (auto it { ui.notifications.rbegin() }; it != ui.notifications.rend(); ++it)
+                    center.entries.push_back(make_notification_view(*it, now));
+                view.notification_center = std::move(center);
+                view.notifications_scroll = ui.notifications_scroll;
+                return;
             }
-            return std::nullopt;
+            for (auto it { ui.notifications.rbegin() }; it != ui.notifications.rend() && view.toasts.size() < toast_visible_limit; ++it)
+                if (it->toast)
+                    view.toasts.push_back(make_notification_view(*it, now));
         }
 
         std::vector<log_line_view> build_log(const std::vector<const operation_status*>& operations)
@@ -653,6 +661,31 @@ namespace cyella {
         }
     } // namespace
 
+    std::optional<notification> failure_notification(const operation_status& status)
+    {
+        if (status.state != operation_state::failed || status.failure.has_value() == false)
+            return std::nullopt;
+        notification value {};
+        value.severity = notification_severity::error;
+        value.operation = status.id;
+        value.repository_id = status.repository_id;
+        value.title = tr(u8"snapshot.operation.failed", { { u8"name", operation_display_name(status.kind) } });
+        value.text = status.failure->summary.empty() ? std::u8string { failure_kind_message(status.failure->kind) } : status.failure->summary;
+        for (const operation_command& command : status.commands)
+            value.details.push_back(command_line_text(command));
+        for (std::u8string& line : split_lines(status.failure->detail))
+        {
+            if (value.details.size() >= notification_detail_line_limit)
+            {
+                value.details.push_back(u8"…");
+                break;
+            }
+            value.details.push_back(std::move(line));
+        }
+        value.actions = failure_actions_for(status);
+        return value;
+    }
+
     bool is_user_operation_status(const operation_status& status) noexcept
     {
         if (status.automatic)
@@ -1045,9 +1078,9 @@ namespace cyella {
             {
                 const std::vector<const operation_status*> mine { operations_of(inputs.operations, session->id()) };
                 const repository_summary& summary { session->snapshot().summary };
-                // 배너를 닫은 입력 요청은 탭에서도 🔔를 내린다. 대화 상자가 붙기 전에는 사용자가 할 수 있는 일이 없다.
+                // 사용자가 이미 다룬 입력 요청은 탭에서도 🔔를 내린다.
                 const auto state { ui.tabs.find(tab.id) };
-                const operation_id dismissed { state == ui.tabs.end() ? operation_id { 0 } : state->second.dismissed_banner };
+                const operation_id dismissed { state == ui.tabs.end() ? operation_id { 0 } : state->second.dismissed_input };
                 const bool awaiting { session->awaiting_input().has_value() && *session->awaiting_input() > dismissed };
                 item.marker = compute_tab_marker(mine, summary.changed_file_count, awaiting);
                 if (summary.in_progress.kind != repository_operation_state::none)
@@ -1073,8 +1106,6 @@ namespace cyella {
             view.repository = build_repository(inputs, selected, *session, tab_state, mine, now, index);
             fill_toolbar(view, *session, mine, git_usable);
             fill_status(view, mine, session, ui.operation_log_open);
-            if (const operation_status* last { latest_finished_user(mine) }; last != nullptr)
-                view.banner = operation_banner(*last, tab_state.dismissed_banner, tab_state.banner_expanded);
         }
         else
         {
@@ -1092,19 +1123,10 @@ namespace cyella {
             if (const std::optional<active_operation_view> active { active_operation(setup) }; active.has_value())
                 start.setup_progress = active->text;
             fill_status(view, setup, nullptr, ui.operation_log_open);
-            if (const operation_status* last { latest_finished_user(setup) }; last != nullptr && last->kind != operation_kind::clone)
-                view.banner = operation_banner(*last, ui.dismissed_start_banner, false);
             view.start = std::move(start);
         }
 
-        // 안내(아직 없는 대화 상자)는 operation 배너보다 앞선다. 사용자가 방금 누른 것의 답이기 때문이다.
-        if (ui.notice.has_value())
-        {
-            view.banner = banner_view { .kind = banner_kind::notice, .title = tr(u8"snapshot.banner.notice"), .summary = ui.notice->text, .warning = ui.notice->warning };
-            // 프로필 제안·커밋 전 경고는 조치 단추를 달고 온다.
-            for (const notice_action& action : ui.notice->actions)
-                view.banner->actions.push_back(banner_action_view { .key = action.key, .label = action.label });
-        }
+        fill_notifications(view, ui, now);
 
         if (ui.operation_log_open)
             view.log = build_log(inputs.operations);

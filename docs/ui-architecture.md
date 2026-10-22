@@ -35,8 +35,8 @@ cyella_driver::make_frame
 
 | 범위 | 값 |
 | --- | --- |
-| 탭마다 (`tab_ui_state`, 탭 id가 key) | 고른 커밋 SHA(WIP는 `"WIP"`), 사이드바 고른 항목, 그래프·사이드바·상세·커밋 메타·diff 스크롤, 접힌 구역, 변경 파일 트리에서 접은 폴더, 사이드바 거르기 초안, 커밋 제목·본문 초안, amend, 연 diff 요청, 낸 커밋 operation, 닫은 배너 |
-| 셸 전체 | 사이드바·상세 폭, 작업 로그 열림, 시작 페이지 검색 초안·스크롤, 서랍 열림, 아이콘 막대에서 연 구역, Clone 대화 상자 초안, 안내 한 줄, IME 조합 |
+| 탭마다 (`tab_ui_state`, 탭 id가 key) | 고른 커밋 SHA(WIP는 `"WIP"`), 사이드바 고른 항목, 그래프·사이드바·상세·커밋 메타·diff 스크롤, 접힌 구역, 변경 파일 트리에서 접은 폴더, 사이드바 거르기 초안, 커밋 제목·본문 초안, amend, 연 diff 요청, 낸 커밋 operation, 다룬 입력 요청 |
+| 셸 전체 | 사이드바·상세 폭, 작업 로그 열림, 시작 페이지 검색 초안·스크롤, 서랍 열림, 아이콘 막대에서 연 구역, Clone 대화 상자 초안, 알림 목록과 알림 센터 열림, IME 조합 |
 
 - 탭 목록의 정본은 `repository_tabs`, git 상태의 정본은 workspace·세션, 설정의 정본은 `app_settings_service`다.
 - 탭 줄은 `repository_tabs_element`가 luil 탭 막대와 끝의 추가 단추를 한 가로 띠에 담는다. 넘칠 때만 가로 스크롤 막대를 보이고,
@@ -99,6 +99,23 @@ cyella_driver::make_frame
   (`ref.remotes`가 `ls-remote` 전에는 비어 있다).
 - 사이드바의 원격 묶음 머리는 접히지 않는다.
 
+## 알림 (토스트·알림 센터, `presentation/ui/notification_ui.*`)
+
+작업 실패와 안내는 화면 위 배너가 아니라 오른쪽 아래 토스트로 뜨고, VS Code처럼 상태 줄 오른쪽 끝의 종(`status-notifications`)이 지난 알림을 모아 보인다.
+
+- **정본**: `ui_state::notifications`(오래된 것이 앞, 100개까지). 한 항목(`notification`)은 심각도(info·warning·error)·머리말·글·[자세히] 줄·조치 단추·
+  operation·저장소·시각과 토스트 상태를 든다. 띄우는 길은 `shell_controller::notify` 하나다(`show_notice`·`show_notice_intent`·프로필 제안·커밋 전 경고).
+- **실패**: `after_events`의 `notify_failures`가 새로 실패한 사용자 작업마다 한 번 `failure_notification`(명령줄·git 원문·조치)을 띄운다. clone 실패는 Clone 대화 상자가 보인다.
+  같은 저장소의 뒤 작업이 끝나면 앞 실패의 토스트는 내려가고 센터에만 남는다. 입력이 필요한 작업은 알림이 아니라 대화 상자가 맡는다.
+- **토스트**: 최신 세 장을 아래에서 위로 쌓는다(`view_snapshot::toasts`). 조치가 없는 알림은 info 6초·warning 10초·error 15초 뒤 내려가고(`next_tick`·`tick`),
+  조치가 달린 알림은 고르거나 닫을 때까지 남는다. [자세히]를 펴면 시간이 멈춘다. ×는 알림을 지우고, Esc는 떠 있는 토스트를 모두 내린다(센터에는 남는다).
+  같은 알림이 떠 있는 동안 또 오면 하나로 합친다.
+- **알림 센터**: 종을 누르면 열리고 모든 알림을 읽은 것으로 친다(아직 보지 않은 알림이 있으면 종에 점). 열려 있는 동안은 토스트를 띄우지 않는다.
+  최신이 위인 목록이고 시각("3분 전", 툴팁은 절대 시각)·[자세히]·조치·×가 있다. 머리의 [모두 지우기]·[숨기기], 바깥 누름, Esc로 닫는다.
+- **조치**: 누르면 그 알림을 지우고, 알림의 저장소가 지금 탭과 다르면 그 탭으로 옮겨 실행한다(토스트는 탭을 옮겨도 남는다). 탭을 닫으면 그 저장소 알림의 조치는 거둔다.
+- **popup**: 토스트와 센터는 `built_popup`(`toast`·`notifications`)이라 본문 배치를 밀어내지 않고 diff 웹뷰(native 창) 위에도 보인다.
+  토스트 popup은 어느 계기에도 스스로 닫히지 않고, 센터는 바깥 누름·Esc에 닫힌다. 바깥 누름이 종이었으면 `close_notification_center_intent::dismissed`로 다시 열지 않는다.
+
 ## 구성 요소가 붙는 자리
 
 - **인증**: `askpass_bridge`는 `cyella_driver`가 소유한다(백엔드 멤버들 옆, scheduler보다 앞에 선언). `answer_input_intent`·`cancel_input_intent`는
@@ -139,7 +156,7 @@ cyella_driver
 - **테마**: driver가 `luil::resolve_color_theme` + `color_palette_for`로 팔레트를 얻어 `make_diff_theme`이 뷰어의 CSS 변수(`--window-background` …)로 옮긴다.
   테마가 바뀌면 `set_theme` 메시지 하나가 간다. 시스템 모드는 `AppsUseLightTheme`를 읽는다(고대비 PC는 luil의 고대비 팔레트를 쓰지 않으므로 뷰어는 어두운 기본 색에 가깝다).
 - **복사**는 `host->post_clipboard_request(clipboard_copy_request{text})`다.
-- **외부 도구**: 결과가 `no_tool`·`launch_failed`·`extraction_failed`·`invalid_template`이면 안내 배너(`show_notice_intent`)로 알린다. 도구를 띄웠으면 짧은 확인이다.
+- **외부 도구**: 결과가 `no_tool`·`launch_failed`·`extraction_failed`·`invalid_template`이면 경고 알림(`show_notice_intent`)으로 알린다. 도구를 띄웠으면 짧은 확인이다.
 - **discard 확인**: hunk·줄 discard는 웹뷰 안의 확인("정말 버릴까요?")을 쓴다. luil 확인 대화 상자는 **파일 단위** discard에만 걸린다
   (웹뷰 안의 단추를 luil이 가로채지 못한다).
 - **접근성**: 아래 "알아 둘 것"의 웹 콘텐츠와 UI Automation 항목을 본다.
@@ -227,7 +244,7 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 | --- | --- | --- |
 | 체크아웃 정책 | `needs_input{dirty_worktree}`로 끝난 체크아웃 | operation(+`tab_ui_state::dirty`) |
 | 인증 | 끝나지 않은 `needs_input{passphrase\|host_key\|credentials}` (저장소 operation과 clone·init·ssh-keygen 같은 저장소 없는 operation 모두) | operation |
-| 새 브랜치·태그·이름 바꾸기·push·확인 | 툴바, 우클릭 메뉴, 끌어 놓기 메뉴, 배너 조치 | `ui_state::dialog` |
+| 새 브랜치·태그·이름 바꾸기·push·확인 | 툴바, 우클릭 메뉴, 끌어 놓기 메뉴, 알림 조치 | `ui_state::dialog` |
 
 - 입력 칸은 상자마다 최대 셋이고 `ui_state::form`이 든다. 상자를 가르는 열쇠(`form_inputs::identity`: `dialog:N`, `auth:<operation>:<prompt_id>`,
   `dirty:<operation>`)가 바뀌면 글을 지우고 비운다. ssh의 다음 passphrase 질문은 새 `prompt_id`라 앞 시도의 글이 남지 않는다.
@@ -284,7 +301,7 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
 ### 알아 둘 것
 
 - 확인이 필요한 조치는 `open_confirm_intent{title, lines, confirm_label, danger, operations}`를 내면 같은 확인 상자로 뜬다.
-- 배너 조치(`banner_action_intent`): push 거절(`rejected_non_ff`·`rejected_fetch_first`) → "Pull 후 다시 push"(pull(rebase) 뒤 같은 push, 앞이 성공해야 이어 낸다),
+- 실패 알림의 조치(`notification_action_intent`): push 거절(`rejected_non_ff`·`rejected_fetch_first`) → "Pull 후 다시 push"(pull(rebase) 뒤 같은 push, 앞이 성공해야 이어 낸다),
   `stale_info` → fetch, ff-only pull 실패 → "rebase로 Pull", 안 합쳐진 브랜치 삭제 실패 → 강제 삭제 확인, `index_lock` → 잠금 지우기.
 - 앞 operation이 성공해야 이어 내는 열(`submit_sequence`)은 원격 태그를 먼저 지우고 로컬을 지울 때(`delete_remote_tag` → `delete_tag`)도 쓴다.
 - upstream 설정은 `set_upstream` operation이다. 메뉴의 "upstream 설정…"은 원격과 원격 브랜치를 고르는 전용 상자이고 "upstream 해제"가 옆에 있다.
@@ -508,12 +525,12 @@ identity: shell_controller ── request_identity ─▶ driver ─ scheduler("
 - **상태 줄**: `status-identity` 단추가 "작성자: 홍길동 <hong@corp.example> · 로컬"을 보인다. 이름과 이메일이 서로 다른 파일에서 왔으면 각각 말한다(`· 이름 전역 · 이메일 includeIf`).
   이름이나 이메일이 없으면 빨간 단추다. 누르면 프로필 모드 팔레트가 열린다.
 - **적용**: `git config --local -- user.name <값>`과 `user.email`만 쓴다(`--local`을 명시하고 값이 `-`로 시작해도 옵션으로 읽히지 않게 `--`를 둔다). 전역 설정은 어디서도 쓰지 않는다.
-  성공하면 `profile_assignments`에 선택을 남기고 신원을 다시 읽는다. 적용하는 길은 환경 설정의 "현재 저장소에 적용", 팔레트의 프로필 모드, 상태 줄 단추, 제안 배너의 [적용]이다(모두 `apply_profile_intent`).
-- **제안**: 저장소를 열고 신원을 읽으면, 경로가 규칙의 폴더 아래(폴더 경계 기준, 접두가 가장 긴 규칙)이고 신원이 그 프로필과 다르면 안내 배너에 [적용] 조치를 단다. **제안만 한다 — 눌러야 쓴다.**
+  성공하면 `profile_assignments`에 선택을 남기고 신원을 다시 읽는다. 적용하는 길은 환경 설정의 "현재 저장소에 적용", 팔레트의 프로필 모드, 상태 줄 단추, 제안 알림의 [적용]이다(모두 `apply_profile_intent`).
+- **제안**: 저장소를 열고 신원을 읽으면, 경로가 규칙의 폴더 아래(폴더 경계 기준, 접두가 가장 긴 규칙)이고 신원이 그 프로필과 다르면 안내 알림에 [적용] 조치를 단다. **제안만 한다 — 눌러야 쓴다.**
   사용자가 이 저장소에 다른 프로필을 적용해 두었고 신원이 그대로 그것이면(규칙을 거스르기로 한 선택) 제안하지 않는다. 저장소마다 앱을 켜 두는 동안 한 번이다.
-- **첫 커밋 경고**: 작성자가 없거나(이름·이메일 중 하나라도) 규칙의 프로필과 다르면, 커밋 단추(또는 Ctrl+Enter)가 커밋하지 않고 안내 배너에 이유와 [프로필 적용 후 커밋]·[그대로 커밋]을 띄운다.
+- **첫 커밋 경고**: 작성자가 없거나(이름·이메일 중 하나라도) 규칙의 프로필과 다르면, 커밋 단추(또는 Ctrl+Enter)가 커밋하지 않고 경고 알림에 이유와 [프로필 적용 후 커밋]·[그대로 커밋]을 띄운다.
   저장소마다 한 번이다(다시 커밋하면 경고 없이 커밋한다). "적용 후 커밋"은 worker가 쓰기를 마쳤다고 알리면 커밋한다. 신원을 아직 읽지 못했으면 근거가 없어 막지 않는다.
-- 안내 배너의 조치는 `notice_state::actions`다. `banner_action_intent`가 operation이 없는 조치(`apply_profile:<이름>`·`commit_apply:<이름>`·`commit_anyway`)를 `shell_controller`가 먼저 가져간다.
+- 안내 알림의 조치는 `notification::actions`다. `notification_action_intent`가 operation이 없는 조치(`apply_profile:<이름>`·`commit_apply:<이름>`·`commit_anyway`)를 `shell_controller`가 먼저 가져간다.
 
 ### 알아 둘 것
 

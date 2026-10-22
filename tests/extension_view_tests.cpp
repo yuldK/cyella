@@ -735,7 +735,7 @@ TEST_CASE("opening a worktree makes a tab of its own, and the main worktree is t
     CHECK(test.controller.tabs().tabs().size() == tabs);
     test.send(activate_sidebar_item_intent { sidebar_item_kind::worktree, "C:/work/repo-old" });
     CHECK(test.controller.tabs().tabs().size() == tabs);
-    REQUIRE(test.controller.state().notice.has_value());
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
 
     test.send(activate_sidebar_item_intent { sidebar_item_kind::worktree, "C:/work/repo-feat" });
     REQUIRE(test.controller.tabs().tabs().size() == tabs + 1);
@@ -813,10 +813,10 @@ TEST_CASE("a branch used by another worktree is refused with a clear message ins
 
     test.send(activate_ref_intent { ref_kind::local, "feature/graph" });
     CHECK(test.operation_count() == before);
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->warning);
-    CHECK(test.controller.state().notice->text.find(u8"다른 worktree") != std::u8string::npos);
-    CHECK(test.controller.state().notice->text.find(u8"C:/work/repo-feat") != std::u8string::npos);
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"다른 worktree") != std::u8string::npos);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"C:/work/repo-feat") != std::u8string::npos);
 
     // 메뉴의 "그 worktree 열기"는 그 폴더를 새 탭으로 연다.
     const std::size_t tabs { test.controller.tabs().tabs().size() };

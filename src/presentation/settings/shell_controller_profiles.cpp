@@ -95,9 +95,9 @@ namespace cyella {
         const user_profile& profile { value.profiles[*wanted] };
         const std::u8string identity { describe_identity_with_source(entry.identity) };
         std::u8string text { tr(u8"profiles.rule_suggests", { { u8"prefix", value.profile_rules[*rule].path_prefix }, { u8"profile", profile.name }, { u8"identity", identity } }) };
-        notice_state notice { .text = std::move(text), .warning = false, .actions = {} };
-        notice.actions.push_back(notice_action { .key = std::u8string { apply_profile_key_prefix } + profile.name, .label = tr(u8"profiles.apply_action", { { u8"profile", profile.name } }) });
-        ui_.notice = std::move(notice);
+        notification notice { .severity = notification_severity::info, .text = std::move(text), .repository_id = id };
+        notice.actions.push_back(notification_action { .key = std::u8string { apply_profile_key_prefix } + profile.name, .label = tr(u8"profiles.apply_action", { { u8"profile", profile.name } }) });
+        notify(std::move(notice));
     }
 
     void shell_controller::apply_profile(const std::u8string& name)
@@ -157,44 +157,41 @@ namespace cyella {
             return false;
 
         commit_warned_.insert(id);
-        notice_state notice {};
-        notice.warning = true;
+        notification notice { .severity = notification_severity::warning, .repository_id = id };
         if (missing)
             notice.text = tr(u8"profiles.commit_identity_missing", { { u8"identity", describe_identity_with_source(identity) } });
         else
             notice.text = tr(u8"profiles.commit_rule_mismatch",
                 { { u8"prefix", value.profile_rules[*rule].path_prefix }, { u8"profile", wanted->name }, { u8"identity", describe_identity_with_source(identity) } });
         if (wanted != nullptr)
-            notice.actions.push_back(notice_action { .key = std::u8string { commit_apply_key_prefix } + wanted->name, .label = tr(u8"profiles.apply_and_commit", { { u8"profile", wanted->name } }) });
+            notice.actions.push_back(
+                notification_action { .key = std::u8string { commit_apply_key_prefix } + wanted->name, .label = tr(u8"profiles.apply_and_commit", { { u8"profile", wanted->name } }) });
         else
             for (std::size_t index { 0 }; index < value.profiles.size() && index < offered_profile_limit; ++index)
             {
                 const std::u8string& name { value.profiles[index].name };
-                notice.actions.push_back(notice_action { .key = std::u8string { commit_apply_key_prefix } + name, .label = tr(u8"profiles.apply_and_commit", { { u8"profile", name } }) });
+                notice.actions.push_back(notification_action { .key = std::u8string { commit_apply_key_prefix } + name, .label = tr(u8"profiles.apply_and_commit", { { u8"profile", name } }) });
             }
-        notice.actions.push_back(notice_action { .key = std::u8string { commit_anyway_key }, .label = tr(u8"profiles.commit_anyway") });
-        ui_.notice = std::move(notice);
+        notice.actions.push_back(notification_action { .key = std::u8string { commit_anyway_key }, .label = tr(u8"profiles.commit_anyway") });
+        notify(std::move(notice));
         return true;
     }
 
-    bool shell_controller::handle_profile_banner_action(const std::u8string& key)
+    bool shell_controller::handle_profile_notification_action(const std::u8string& key)
     {
         if (key.starts_with(apply_profile_key_prefix))
         {
-            ui_.notice.reset();
             apply_profile(key.substr(apply_profile_key_prefix.size()));
             return true;
         }
         if (key.starts_with(commit_apply_key_prefix))
         {
-            ui_.notice.reset();
             commit_after_apply_.insert(selected_repository_id());
             apply_profile(key.substr(commit_apply_key_prefix.size()));
             return true;
         }
         if (key == commit_anyway_key)
         {
-            ui_.notice.reset();
             commit_now();
             return true;
         }

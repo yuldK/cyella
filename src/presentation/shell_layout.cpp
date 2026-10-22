@@ -48,11 +48,6 @@ namespace cyella {
             rects.navigation = { 0.0f, top, width, shell_navigation_height };
             top += shell_navigation_height;
         }
-        if (input.banner_height > 0.0f)
-        {
-            rects.banner = { 0.0f, top, width, input.banner_height };
-            top += input.banner_height;
-        }
 
         float bottom { std::max(height - shell_status_height, top) };
         rects.status = { 0.0f, bottom, width, height - bottom };

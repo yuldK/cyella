@@ -6,6 +6,7 @@
 #include "presentation/build_view_snapshot.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/rebase/rebase_editor_model.h"
+#include "presentation/snapshot_dialogs.h"
 
 #include "infrastructure/avatar_fetcher.h"
 #include "infrastructure/ssh_tools.h"
@@ -23,6 +24,23 @@ namespace cyella {
         constexpr float assumed_graph_viewport { 800.0f };
         // 판 폭 끌기가 멈춘 뒤 설정에 쓰기까지의 간격이다.
         constexpr std::chrono::milliseconds pane_widths_save_delay { 500 };
+        // 알림 센터 바깥을 눌러 닫은 뒤 이 안에 온 종 누름은 같은 누름이다.
+        constexpr std::chrono::milliseconds notification_toggle_window { 400 };
+
+        // 조치가 없는 토스트가 저절로 내려가기까지의 시간이다. 읽을 것이 많은 실패일수록 길다.
+        std::chrono::steady_clock::duration toast_duration(const notification_severity severity) noexcept
+        {
+            switch (severity)
+            {
+            case notification_severity::warning:
+                return std::chrono::seconds { 10 };
+            case notification_severity::error:
+                return std::chrono::seconds { 15 };
+            case notification_severity::info:
+                break;
+            }
+            return std::chrono::seconds { 6 };
+        }
         // 작성자 사진을 받지 못했을 때 다시 묻기까지의 시간이다.
         constexpr std::chrono::minutes avatar_retry_delay { 5 };
 
@@ -207,7 +225,66 @@ namespace cyella {
 
     void shell_controller::show_notice(std::u8string text, const bool warning)
     {
-        ui_.notice = notice_state { std::move(text), warning };
+        notify(notification { .severity = warning ? notification_severity::warning : notification_severity::info, .text = std::move(text) });
+    }
+
+    void shell_controller::notify(notification value)
+    {
+        // 같은 알림이 떠 있는 동안 또 오면(같은 안내를 두 번 눌렀다) 앞의 것을 지우고 새로 띄운다. 센터에 같은 줄이 쌓이지 않는다.
+        std::erase_if(ui_.notifications, [&value](const notification& shown) {
+            return shown.toast && shown.severity == value.severity && shown.title == value.title && shown.text == value.text && shown.actions == value.actions;
+        });
+        value.id = ++ui_.notification_serial;
+        value.at = dependencies_.clock();
+        // 알림 센터가 열려 있으면 거기 바로 보이므로 토스트를 띄우지 않는다.
+        value.toast = ui_.notifications_open == false;
+        value.read = ui_.notifications_open;
+        // 조치가 달린 알림은 사용자가 고를 때까지 남는다. 나머지는 심각할수록 오래 머문다.
+        if (value.toast && value.actions.empty())
+            value.toast_until = std::chrono::steady_clock::now() + toast_duration(value.severity);
+        ui_.notifications.push_back(std::move(value));
+        if (ui_.notifications.size() > notification_capacity)
+            ui_.notifications.erase(ui_.notifications.begin(), ui_.notifications.begin() + static_cast<std::ptrdiff_t>(ui_.notifications.size() - notification_capacity));
+    }
+
+    void shell_controller::notify_failures()
+    {
+        git_workspace* const workspace { dependencies_.workspace };
+        if (workspace == nullptr)
+            return;
+        // 저장소마다 마지막으로 끝난 사용자 작업이다. 그보다 앞선 실패의 토스트는 내린다 (다시 해서 됐거나 다른 일로 넘어갔다).
+        std::map<std::string, operation_id> latest {};
+        for (const operation_id id : workspace->operation_order())
+        {
+            const operation_status* const status { workspace->find_operation(id) };
+            if (status == nullptr || status->finished() == false || is_user_operation_status(*status) == false)
+                continue;
+            latest[status->repository_id] = std::max(latest[status->repository_id], id);
+            // clone의 실패는 Clone 대화 상자가 보인다.
+            if (status->kind == operation_kind::clone || notified_failures_.contains(id))
+                continue;
+            if (std::optional<notification> failure { failure_notification(*status) }; failure.has_value())
+            {
+                notified_failures_.insert(id);
+                notify(std::move(*failure));
+            }
+        }
+        for (notification& value : ui_.notifications)
+            if (value.toast && value.operation != 0)
+                if (const auto found { latest.find(value.repository_id) }; found != latest.end() && found->second > value.operation)
+                    value.toast = false;
+    }
+
+    bool shell_controller::select_repository_tab(const std::string& repository_id)
+    {
+        for (const auto& [tab, repository] : tab_repositories_)
+            if (repository == repository_id)
+                if (const std::optional<std::size_t> index { tabs_.index_of(tab) }; index.has_value())
+                {
+                    select_tab_index(*index);
+                    return true;
+                }
+        return false;
     }
 
     void shell_controller::open_repository(const std::u8string& path)
@@ -235,7 +312,6 @@ namespace cyella {
             touch_recent_repository(value, opened_path, opened_at);
             capture_open_tabs(tabs_, value);
         });
-        ui_.notice.reset();
         ui_.rail_section.reset();
         ui_.drawer_open = false;
         ui_.ref_list.reset();
@@ -274,7 +350,14 @@ namespace cyella {
             history_cache_.erase(repository);
         }
         save_tabs();
-        ui_.notice.reset();
+        // 닫은 저장소의 알림은 센터에 남기되 조치는 거둔다. 누를 저장소가 없다.
+        if (still_open == false)
+            for (notification& value : ui_.notifications)
+                if (value.repository_id == repository && repository.empty() == false)
+                {
+                    value.actions.clear();
+                    value.toast = false;
+                }
         exists_cache_.clear();
     }
 
@@ -283,7 +366,6 @@ namespace cyella {
         if (tabs_.select(index) == false)
             return;
         save_tabs();
-        ui_.notice.reset();
         ui_.rail_section.reset();
         ui_.drawer_open = false;
         ui_.selector.reset();
@@ -470,6 +552,10 @@ namespace cyella {
         case scroll_target::operation_log:
             value = &ui_.log_scroll;
             maximum = feedback_.log_maximum;
+            break;
+        case scroll_target::notifications:
+            value = &ui_.notifications_scroll;
+            maximum = feedback_.notifications_maximum;
             break;
         }
         if (value == nullptr)
@@ -659,7 +745,6 @@ namespace cyella {
             ui_.ref_list.reset();
             static_cast<void>(tabs_.new_tab());
             save_tabs();
-            ui_.notice.reset();
             exists_cache_.clear();
             return true;
         }
@@ -709,31 +794,62 @@ namespace cyella {
             show_notice(intent->text, intent->warning);
             return true;
         }
-        if (message.get<dismiss_notice_intent>() != nullptr)
+        if (const auto* const intent { message.get<dismiss_notification_intent>() }; intent != nullptr)
         {
-            ui_.notice.reset();
+            if (intent->id == 0)
+            {
+                if (ui_.notifications.empty() == false)
+                    ui_.notifications.pop_back();
+            }
+            else
+                std::erase_if(ui_.notifications, [id = intent->id](const notification& value) { return value.id == id; });
+            return true;
+        }
+        if (const auto* const intent { message.get<toggle_notification_details_intent>() }; intent != nullptr)
+        {
+            for (notification& value : ui_.notifications)
+                if (value.id == intent->id)
+                {
+                    value.expanded = value.expanded == false;
+                    // 펴 놓고 읽는 동안 저절로 내려가지 않는다.
+                    value.toast_until.reset();
+                }
+            return true;
+        }
+        if (message.get<toggle_notification_center_intent>() != nullptr)
+        {
+            // 열린 센터 바깥(종)을 눌러 방금 닫혔다면 그 누름은 닫기였다. 다시 열지 않는다.
+            if (ui_.notifications_open == false && notifications_dismissed_at_.has_value() && std::chrono::steady_clock::now() - *notifications_dismissed_at_ < notification_toggle_window)
+            {
+                notifications_dismissed_at_.reset();
+                return true;
+            }
+            notifications_dismissed_at_.reset();
+            ui_.notifications_open = ui_.notifications_open == false;
+            ui_.notifications_scroll = 0.0f;
+            if (ui_.notifications_open)
+                for (notification& value : ui_.notifications)
+                {
+                    value.read = true;
+                    value.toast = false;
+                }
+            return true;
+        }
+        if (const auto* const intent { message.get<close_notification_center_intent>() }; intent != nullptr)
+        {
+            if (intent->dismissed && ui_.notifications_open)
+                notifications_dismissed_at_ = std::chrono::steady_clock::now();
+            ui_.notifications_open = false;
+            return true;
+        }
+        if (message.get<clear_notifications_intent>() != nullptr)
+        {
+            ui_.notifications.clear();
             return true;
         }
         if (message.get<toggle_operation_log_intent>() != nullptr)
         {
             ui_.operation_log_open = ui_.operation_log_open == false;
-            return true;
-        }
-        if (message.get<toggle_banner_details_intent>() != nullptr)
-        {
-            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
-                tab->banner_expanded = tab->banner_expanded == false;
-            return true;
-        }
-        if (const auto* const intent { message.get<dismiss_banner_intent>() }; intent != nullptr)
-        {
-            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
-            {
-                tab->dismissed_banner = std::max(tab->dismissed_banner, intent->id);
-                tab->banner_expanded = false;
-            }
-            else
-                ui_.dismissed_start_banner = std::max(ui_.dismissed_start_banner, intent->id);
             return true;
         }
         if (const auto* const intent { message.get<toolbar_intent>() }; intent != nullptr)
@@ -767,7 +883,9 @@ namespace cyella {
         {
             // Esc는 가장 위에 떠 있는 것 하나만 닫는다.
             tab_ui_state* const tab { selected_tab_state() };
-            if (ui_.palette.has_value())
+            if (ui_.notifications_open)
+                ui_.notifications_open = false;
+            else if (ui_.palette.has_value())
                 ui_.palette.reset();
             else if (ui_.ref_list.has_value())
                 ui_.ref_list.reset();
@@ -780,7 +898,11 @@ namespace cyella {
             else if (tab != nullptr && tab->diff.has_value())
                 tab->diff.reset();
             else
-                ui_.notice.reset();
+            {
+                // 남은 Esc는 떠 있는 토스트를 모두 내린다. 알림 센터에는 남는다.
+                for (notification& value : ui_.notifications)
+                    value.toast = false;
+            }
             return true;
         }
         if (const auto* const intent { message.get<open_recent_intent>() }; intent != nullptr)
@@ -1159,6 +1281,7 @@ namespace cyella {
             }
             tab.pending_commit = 0;
         }
+        notify_failures();
         settings_.after_events();
         rebase_.after_events();
         process_chains();
@@ -1375,13 +1498,23 @@ namespace cyella {
 
     std::optional<std::chrono::steady_clock::time_point> shell_controller::next_tick() const noexcept
     {
-        return pane_widths_flush_at_;
+        std::optional<std::chrono::steady_clock::time_point> next { pane_widths_flush_at_ };
+        for (const notification& value : ui_.notifications)
+            if (value.toast && value.toast_until.has_value() && (next.has_value() == false || *value.toast_until < *next))
+                next = value.toast_until;
+        return next;
     }
 
     void shell_controller::tick(const std::chrono::steady_clock::time_point now)
     {
         if (pane_widths_flush_at_.has_value() && now >= *pane_widths_flush_at_)
             flush();
+        for (notification& value : ui_.notifications)
+            if (value.toast && value.toast_until.has_value() && now >= *value.toast_until)
+            {
+                value.toast = false;
+                value.toast_until.reset();
+            }
     }
 
     void shell_controller::flush()

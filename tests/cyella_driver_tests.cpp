@@ -76,9 +76,9 @@ TEST_CASE("cyella_driver reports why askpass is unavailable and wipes answers it
         CHECK(driver.askpass_diagnostic()->code == cyella::diagnostic_code::askpass_helper_missing);
         // 화면은 그 진단을 안내로 한 번 보인다.
         REQUIRE(driver.controller() != nullptr);
-        REQUIRE(driver.controller()->state().notice.has_value());
-        CHECK(driver.controller()->state().notice->text == driver.askpass_diagnostic()->message);
-        CHECK(driver.controller()->state().notice->warning);
+        REQUIRE(driver.controller()->state().latest_notification() != nullptr);
+        CHECK(driver.controller()->state().latest_notification()->text == driver.askpass_diagnostic()->message);
+        CHECK(driver.controller()->state().latest_notification()->severity == cyella::notification_severity::warning);
     }
 
     // 모르는 operation에 대한 답은 아무 일도 하지 않지만, 메시지가 쥔 비밀은 지운다.
@@ -228,11 +228,14 @@ TEST_CASE("cyella_driver tells once that a vanished folder is no longer watched 
     driver.start();
     REQUIRE(pump_until(driver, [&] { return only_session(driver) != nullptr && only_session(driver)->loaded() && only_session(driver)->log_page_loading() == false; }));
     REQUIRE(driver.controller() != nullptr);
-    // 시작할 때의 안내(예: 인증 도우미 없음)는 남아 있을 수 있다. 감시 끊김 안내만 본다.
-    const auto lost_notice = [&driver] {
-        const auto& notice { driver.controller()->state().notice };
-        return notice.has_value() && notice->text.find(u8"감시가 끊겨") != std::u8string::npos;
+    // 시작할 때의 안내(예: 인증 도우미 없음)도 알림 목록에 있을 수 있다. 감시 끊김 안내만 찾는다.
+    const auto lost = [&driver]() -> const cyella::notification* {
+        for (const cyella::notification& value : driver.controller()->state().notifications)
+            if (value.text.find(u8"감시가 끊겨") != std::u8string::npos)
+                return &value;
+        return nullptr;
     };
+    const auto lost_notice = [&lost] { return lost() != nullptr; };
     CHECK_FALSE(lost_notice());
 
     // 불러온 뒤 이어지는 자동 작업(서명 확인 등)이 끝나기를 기다린다. git이 이 폴더를 현재 디렉터리로 쥐고 있으면
@@ -244,9 +247,8 @@ TEST_CASE("cyella_driver tells once that a vanished folder is no longer watched 
     INFO("remove_all: " << removed.value() << " " << removed.message());
     REQUIRE_FALSE(std::filesystem::exists(repo));
     REQUIRE(pump_until(driver, lost_notice, 5s));
-    CHECK(driver.controller()->state().notice->warning);
-    CHECK(driver.controller()->state().notice->text.find(u8"감시가 끊겨") != std::u8string::npos);
-    CHECK(driver.controller()->state().notice->text.find(u8"창을 다시 누를 때") != std::u8string::npos);
+    CHECK(lost()->severity == cyella::notification_severity::warning);
+    CHECK(lost()->text.find(u8"창을 다시 누를 때") != std::u8string::npos);
 
     // 포기한 뒤에는 창 초점이 전체를 다시 읽게 한다 (폴더가 사라졌으니 읽기는 실패하지만 시도는 한다).
     const std::size_t refreshes { operation_count_of(driver, cyella::operation_kind::refresh) };

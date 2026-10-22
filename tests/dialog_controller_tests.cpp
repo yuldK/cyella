@@ -661,7 +661,7 @@ TEST_CASE("checkout blocked by the worktree opens the policy dialog and resubmit
     view_snapshot view { test.view() };
     REQUIRE(view.form.has_value());
     CHECK(view.form->id == u8"dirty-dialog");
-    CHECK_FALSE(view.banner.has_value());
+    CHECK(view.toasts.empty());
     // 파일은 5개까지 보이고 나머지는 "외 N개"다.
     std::size_t listed { 0 };
     bool more { false };
@@ -715,7 +715,7 @@ TEST_CASE("cancelling the policy dialog leaves the checkout undone and closes th
     CHECK(test.operation_count() == before);
     const view_snapshot view { test.view() };
     CHECK_FALSE(view.form.has_value());
-    CHECK_FALSE(view.banner.has_value());
+    CHECK(view.toasts.empty());
 }
 
 TEST_CASE("a password prompt is answered from the masked field and the input is wiped", "[presentation][dialogs][auth]")
@@ -974,18 +974,18 @@ TEST_CASE("push rejections become action buttons that run the follow-up chain", 
     test.start(pushing);
     test.finish(pushing, operation_state::failed, operation_failure { failure_kind::rejected_non_ff, u8"원격이 앞서 있습니다.", u8"! [rejected]" });
     view_snapshot view { test.view() };
-    REQUIRE(view.banner.has_value());
-    REQUIRE(view.banner->actions.size() == 1);
-    CHECK(view.banner->actions[0].key == u8"pull_then_push");
+    REQUIRE(view.toasts.empty() == false);
+    REQUIRE(view.toasts.front().actions.size() == 1);
+    CHECK(view.toasts.front().actions[0].key == u8"pull_then_push");
 
     const std::size_t before { test.operation_count() };
-    test.send(banner_action_intent { u8"pull_then_push", pushing });
+    test.send(notification_action_intent { u8"pull_then_push", pushing });
     REQUIRE(test.operation_count() == before + 1);
     const auto* const pull { test.last_request<pull_request>() };
     REQUIRE(pull != nullptr);
     CHECK(pull->strategy == pull_strategy::rebase);
     // 배너는 닫히고, pull이 끝나야 push가 다시 나간다.
-    CHECK_FALSE(test.view().banner.has_value());
+    CHECK(test.view().toasts.empty());
     const operation_id pulling { test.last_operation() };
     test.start(pulling);
     test.finish(pulling, operation_state::succeeded);
@@ -1000,9 +1000,38 @@ TEST_CASE("push rejections become action buttons that run the follow-up chain", 
     test.start(forced);
     test.finish(forced, operation_state::failed, operation_failure { failure_kind::stale_info, u8"stale", {} });
     view = test.view();
-    REQUIRE(view.banner.has_value());
-    REQUIRE(view.banner->actions.size() == 1);
-    CHECK(view.banner->actions[0].key == u8"fetch");
+    REQUIRE(view.toasts.empty() == false);
+    REQUIRE(view.toasts.front().actions.size() == 1);
+    CHECK(view.toasts.front().actions[0].key == u8"fetch");
+}
+
+TEST_CASE("a failure is notified once, stays until handled and its toast goes down after a later success", "[presentation][dialogs][notifications]")
+{
+    harness test {};
+    test.load();
+    const operation_id pushing { test.workspace.submit(test.repository, push_execute_request { .remote = "origin", .branch = "main", .remote_branch = "main" }) };
+    test.start(pushing);
+    test.finish(pushing, operation_state::failed, operation_failure { failure_kind::rejected_non_ff, u8"원격이 앞서 있습니다.", u8"! [rejected]" });
+    const auto failures = [&test, pushing] {
+        return std::count_if(test.controller.state().notifications.begin(), test.controller.state().notifications.end(), [pushing](const notification& value) { return value.operation == pushing; });
+    };
+    REQUIRE(failures() == 1);
+    const notification& failure { *test.controller.state().latest_notification() };
+    CHECK(failure.severity == notification_severity::error);
+    CHECK(failure.repository_id == test.repository);
+    CHECK(failure.toast);
+    // 조치가 달린 실패는 사용자가 고를 때까지 저절로 내려가지 않는다.
+    CHECK_FALSE(failure.toast_until.has_value());
+    test.controller.after_events();
+    CHECK(failures() == 1);
+
+    // 같은 저장소의 뒤 작업이 성공하면 앞 실패의 토스트는 내려가고 센터에는 남는다.
+    const operation_id fetching { test.workspace.submit(test.repository, fetch_request {}) };
+    test.start(fetching);
+    test.finish(fetching, operation_state::succeeded);
+    REQUIRE(failures() == 1);
+    CHECK(test.view().toasts.empty());
+    CHECK(test.view().status.notifications == 1);
 }
 
 TEST_CASE("a pull that cannot fast-forward offers a rebase pull and deleting an unmerged branch offers force", "[presentation][dialogs]")
@@ -1013,10 +1042,10 @@ TEST_CASE("a pull that cannot fast-forward offers a rebase pull and deleting an 
     test.start(pulling);
     test.finish(pulling, operation_state::failed, operation_failure { failure_kind::not_possible_to_fast_forward, u8"fast-forward할 수 없습니다.", {} });
     view_snapshot view { test.view() };
-    REQUIRE(view.banner.has_value());
-    REQUIRE(view.banner->actions.size() == 1);
-    CHECK(view.banner->actions[0].key == u8"pull_rebase");
-    test.send(banner_action_intent { u8"pull_rebase", pulling });
+    REQUIRE(view.toasts.empty() == false);
+    REQUIRE(view.toasts.front().actions.size() == 1);
+    CHECK(view.toasts.front().actions[0].key == u8"pull_rebase");
+    test.send(notification_action_intent { u8"pull_rebase", pulling });
     const auto* const rebased { test.last_request<pull_request>() };
     REQUIRE(rebased != nullptr);
     CHECK(rebased->strategy == pull_strategy::rebase);
@@ -1025,10 +1054,10 @@ TEST_CASE("a pull that cannot fast-forward offers a rebase pull and deleting an 
     test.start(deleting);
     test.finish(deleting, operation_state::failed, operation_failure { failure_kind::other, u8"삭제하지 못했습니다.", u8"error: the branch 'topic' is not fully merged." });
     view = test.view();
-    REQUIRE(view.banner.has_value());
-    REQUIRE(view.banner->actions.size() == 1);
-    CHECK(view.banner->actions[0].key == u8"force_delete");
-    test.send(banner_action_intent { u8"force_delete", deleting });
+    REQUIRE(view.toasts.empty() == false);
+    REQUIRE(view.toasts.front().actions.size() == 1);
+    CHECK(view.toasts.front().actions[0].key == u8"force_delete");
+    test.send(notification_action_intent { u8"force_delete", deleting });
     REQUIRE(test.controller.state().dialog.has_value());
     test.press(u8"submit");
     const auto* const forced { test.last_request<delete_branch_request>() };
@@ -1436,9 +1465,9 @@ TEST_CASE("locating a missing recent repository replaces its path once the chose
     REQUIRE(test.controller.settings().recent_repositories.empty() == false);
     CHECK(test.controller.settings().recent_repositories.front().path == u8"C:\\moved\\place");
     CHECK(test.controller.settings().recent_repositories.front().display_name == u8"place");
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK_FALSE(test.controller.state().notice->warning);
-    CHECK(test.controller.state().notice->text.find(u8"위치를 바꿨습니다") != std::u8string::npos);
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK_FALSE(test.controller.state().latest_notification()->severity == notification_severity::warning);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"위치를 바꿨습니다") != std::u8string::npos);
 }
 
 TEST_CASE("locating to a folder that is not a repository changes nothing and says so", "[presentation][locate]")
@@ -1453,9 +1482,9 @@ TEST_CASE("locating to a folder that is not a repository changes nothing and say
 
     REQUIRE(test.controller.settings().recent_repositories.empty() == false);
     CHECK(test.controller.settings().recent_repositories.front().path == old_path);
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->warning);
-    CHECK(test.controller.state().notice->text.find(u8"Git 저장소가 아니라서") != std::u8string::npos);
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"Git 저장소가 아니라서") != std::u8string::npos);
 }
 
 TEST_CASE("the open button lists apps for the repository folder and opens the picked one", "[presentation][selector]")

@@ -5,12 +5,15 @@
 #include "presentation/dialog_intents.h"
 #include "presentation/shell_controller.h"
 #include "presentation/ui/build_ui_tree.h"
+#include "presentation/ui/element_kinds.h"
+#include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
 #include "fake_git_runner.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <string>
@@ -311,10 +314,96 @@ TEST_CASE("toolbar actions without a dialog submit operations and the rest show 
     // upstream이 없는 Push는 대화 상자가 필요하다. 이 저장소는 원격이 없어 안내가 뜬다.
     REQUIRE(test.send(toolbar_intent { toolbar_action::push }));
     CHECK(test.dispatcher.pending() == before + 1);
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->text.find(u8"원격이 없어") != std::u8string::npos);
-    REQUIRE(test.send(dismiss_notice_intent {}));
-    CHECK_FALSE(test.controller.state().notice.has_value());
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"원격이 없어") != std::u8string::npos);
+    REQUIRE(test.send(dismiss_notification_intent {}));
+    CHECK(test.controller.state().latest_notification() == nullptr);
+}
+
+TEST_CASE("notices are toasts that time out but stay in the notification center", "[presentation][controller][notifications]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(show_notice_intent { u8"첫 안내", false }));
+    const notification* first { test.controller.state().latest_notification() };
+    REQUIRE(first != nullptr);
+    CHECK(first->severity == notification_severity::info);
+    CHECK(first->toast);
+    REQUIRE(first->toast_until.has_value());
+    const auto expires { *first->toast_until };
+    // 토스트가 내려갈 시각에 driver가 tick을 부르도록 예고한다.
+    REQUIRE(test.controller.next_tick().has_value());
+    CHECK(*test.controller.next_tick() == expires);
+    CHECK(test.controller.make_view(1440.0f, 900.0f, 1.0f).toasts.size() == 1);
+
+    test.controller.tick(expires);
+    CHECK_FALSE(test.controller.state().latest_notification()->toast);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+    view_snapshot view { test.controller.make_view(1440.0f, 900.0f, 1.0f) };
+    CHECK(view.toasts.empty());
+    CHECK(view.status.notifications == 1);
+    CHECK(view.status.unread_notifications == 1);
+
+    // 떠 있는 동안 같은 안내가 또 오면 하나로 합친다. 내려간 것은 센터에 그대로 남는다.
+    REQUIRE(test.send(show_notice_intent { u8"첫 안내", false }));
+    REQUIRE(test.send(show_notice_intent { u8"첫 안내", false }));
+    CHECK(test.controller.state().notifications.size() == 2);
+
+    // 종을 누르면 센터가 열리고 모두 읽은 것이 되며 토스트는 내려간다.
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    view = test.controller.make_view(1440.0f, 900.0f, 1.0f);
+    CHECK(view.toasts.empty());
+    REQUIRE(view.notification_center.has_value());
+    CHECK(view.notification_center->entries.size() == 2);
+    CHECK(view.status.unread_notifications == 0);
+    const ui::built_tree built { ui::build_ui_tree(view) };
+    CHECK(std::any_of(built.popups.begin(), built.popups.end(), [](const ui::built_popup& popup) { return popup.notifications; }));
+    // 센터가 열려 있는 동안 온 알림은 토스트로 뜨지 않고 센터에 바로 보인다.
+    REQUIRE(test.send(show_notice_intent { u8"새 안내", true }));
+    CHECK_FALSE(test.controller.state().latest_notification()->toast);
+    CHECK(test.controller.state().latest_notification()->read);
+
+    // Esc는 센터를 먼저 닫는다. 바깥 누름으로 닫힌 바로 뒤의 종 누름은 그 누름이라 다시 열지 않는다.
+    REQUIRE(test.send(close_overlays_intent {}));
+    CHECK_FALSE(test.controller.state().notifications_open);
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    REQUIRE(test.send(close_notification_center_intent { .dismissed = true }));
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    CHECK_FALSE(test.controller.state().notifications_open);
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    CHECK(test.controller.state().notifications_open);
+
+    REQUIRE(test.send(dismiss_notification_intent { test.controller.state().notifications.front().id }));
+    CHECK(test.controller.state().notifications.size() == 2);
+    REQUIRE(test.send(clear_notifications_intent {}));
+    CHECK(test.controller.state().notifications.empty());
+}
+
+TEST_CASE("toasts are popups above the body and the status bar bell shows unread notifications", "[presentation][controller][notifications]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    ui::built_tree built { ui::build_ui_tree(test.controller.make_view(1440.0f, 900.0f, 1.0f)) };
+    const luil::ui_element* bell { built.tree->find({ ui::kind_button, u8"status-notifications" }) };
+    REQUIRE(bell != nullptr);
+    CHECK(built.popups.empty());
+
+    REQUIRE(test.send(show_notice_intent { u8"안내입니다.", true }));
+    REQUIRE(test.send(show_notice_intent { u8"두 번째 안내입니다.", false }));
+    const view_snapshot view { test.controller.make_view(1440.0f, 900.0f, 1.0f) };
+    built = ui::build_ui_tree(view);
+    std::vector<const ui::built_popup*> toasts {};
+    for (const ui::built_popup& popup : built.popups)
+        if (popup.toast)
+            toasts.push_back(&popup);
+    REQUIRE(toasts.size() == 2);
+    // 최신이 상태 줄 가까이(아래)에 오고 앞의 것이 그 위에 쌓인다. 둘 다 오른쪽 끝에 붙는다.
+    CHECK(toasts[0]->y > toasts[1]->y);
+    CHECK(toasts[0]->y + toasts[0]->height <= 900.0f - shell_status_height);
+    CHECK(toasts[0]->x + toasts[0]->width <= 1440.0f);
+    CHECK(toasts[0]->x > 720.0f);
+    REQUIRE(toasts[0]->tree != nullptr);
+    CHECK(toasts[0]->tree->find({ ui::kind_button, u8"toast-" + ui::number_text(view.toasts[0].id) + u8"-close" }) != nullptr);
+    CHECK(built.tree->find({ ui::kind_button, u8"status-notifications" })->tooltip().find(u8"2") != std::u8string::npos);
 }
 
 TEST_CASE("pane resizing is clamped", "[presentation][controller]")

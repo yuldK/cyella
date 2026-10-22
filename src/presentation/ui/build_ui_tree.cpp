@@ -11,6 +11,7 @@
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
+#include "presentation/ui/notification_ui.h"
 #include "presentation/ui/palette_ui.h"
 #include "presentation/ui/rebase/rebase_editor_ui.h"
 #include "presentation/ui/ref_chip_element.h"
@@ -46,8 +47,6 @@
 namespace cyella::ui {
     namespace {
         // 배너가 펼쳤을 때 보이는 [자세히] 줄 수와 한 줄 높이다 (논리 픽셀).
-        constexpr std::size_t banner_visible_lines { 8 };
-        constexpr float banner_line_height { 18.0f };
         constexpr float tab_width { 180.0f };
         constexpr float tab_row_button_width { 32.0f };
         constexpr float tool_button_width { 80.0f };
@@ -361,63 +360,6 @@ namespace cyella::ui {
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"workspace-navigation-bar" }, bar_style { .divider_bottom = true }, std::move(row));
         }
 
-        float banner_height(const std::optional<banner_view>& banner) noexcept
-        {
-            if (banner.has_value() == false)
-                return 0.0f;
-            if (banner->expanded == false || banner->details.empty())
-                return shell_banner_height;
-            const std::size_t lines { std::min(banner->details.size(), banner_visible_lines) + (banner->details.size() > banner_visible_lines ? 1u : 0u) };
-            return shell_banner_height + static_cast<float>(lines) * banner_line_height + 8.0f;
-        }
-
-        std::unique_ptr<luil::ui_element> build_banner(const banner_view& banner)
-        {
-            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"banner-column" }, luil::stack_config {}) };
-            auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"banner-row" },
-                luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 10.0f, 0.0f, 6.0f, 0.0f } });
-            const bool error { banner.kind == banner_kind::failure };
-            const bool warning { banner.warning };
-            const char32_t glyph { error ? codicons::icon_error : warning ? codicons::icon_warning : codicons::icon_info };
-            const color_selector tone { [error, warning](const luil::ui_color_palette& palette) { return error ? palette.error_accent : warning ? palette.warning_accent : palette.accent; } };
-            row->add(std::make_unique<icon_element>(luil::ui_element_id { kind_label, u8"banner-icon" }, glyph, tone), 20.0f);
-            row->add(make_text(u8"banner-title", banner.title, text_style { .size = 12.0f, .color = tone, .bold = true }), text_button_width(banner.title) + 8.0f);
-            row->add_flexible(make_text(u8"banner-summary", banner.summary, text_style { .size = 12.0f }));
-            for (const banner_action_view& action : banner.actions)
-                row->add(make_text_button(u8"banner-action-" + action.key, action.label, luil::text_button_visual::accent, message(banner_action_intent { action.key, banner.id })),
-                    text_button_width(action.label) + 24.0f);
-            if (banner.details.empty() == false)
-                row->add(make_text_button(u8"banner-details", banner.expanded ? tr(u8"tree.banner.collapse") : tr(u8"tree.banner.details"), luil::text_button_visual::normal,
-                             message(toggle_banner_details_intent {})),
-                    64.0f);
-            const luil::input_action close { banner.kind == banner_kind::notice ? message(dismiss_notice_intent {}) : message(dismiss_banner_intent { banner.id }) };
-            row->add(make_icon_button(u8"banner-close", codicons::icon_close, tr(u8"tree.banner.close"), close), 28.0f);
-            column->add(std::move(row), shell_banner_height);
-            if (banner.expanded)
-            {
-                auto details = std::make_unique<luil::stack_element>(
-                    luil::ui_element_id { kind_layout, u8"banner-details-list" }, luil::stack_config { .padding = luil::edge_insets { 36.0f, 0.0f, 12.0f, 8.0f } });
-                const std::size_t shown { std::min(banner.details.size(), banner_visible_lines) };
-                for (std::size_t index { 0 }; index < shown; ++index)
-                    details->add(make_text(u8"banner-detail-" + number_text(index), banner.details[index],
-                                     text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; }, .code = true }),
-                        banner_line_height);
-                if (banner.details.size() > shown)
-                    details->add(make_text(u8"banner-detail-more", tr(u8"tree.banner.more_lines", { { u8"count", banner.details.size() - shown } }),
-                                     text_style { .size = 11.0f, .color = [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } }),
-                        banner_line_height);
-                column->add_flexible(std::move(details));
-            }
-            bar_style style {};
-            style.background = [error, warning](const luil::ui_color_palette& palette) {
-                if (error)
-                    return palette.notice_background;
-                return luil::with_alpha(warning ? palette.warning_accent : palette.accent, 0.14f);
-            };
-            style.divider_bottom = true;
-            return std::make_unique<bar_element>(luil::ui_element_id { kind_banner, u8"banner" }, std::move(style), std::move(column));
-        }
-
         // ---------------------------------------------------------------- 상태 줄
 
         std::unique_ptr<luil::ui_element> build_status(const view_snapshot& view)
@@ -476,6 +418,15 @@ namespace cyella::ui {
             row->add(make_text_button(u8"operation-log-toggle", tr(u8"tree.log.title"), status.log_open ? luil::text_button_visual::accent : luil::text_button_visual::normal,
                          message(toggle_operation_log_intent {}), true, codicons::icon_output),
                 { .length = 92.0f, .cross_length = 20.0f });
+            // VS Code처럼 오른쪽 끝의 종이 지난 알림을 연다. 아직 보지 않은 알림이 있으면 점이 달린다.
+            std::u8string bell_tooltip { tr(u8"tree.notification.none") };
+            if (status.unread_notifications > 0)
+                bell_tooltip = tr(u8"tree.notification.unread", { { u8"count", status.unread_notifications } });
+            else if (status.notifications > 0)
+                bell_tooltip = tr(u8"tree.notification.count", { { u8"count", status.notifications } });
+            row->add(make_icon_button(u8"status-notifications", status.unread_notifications > 0 ? codicons::icon_bell_dot : codicons::icon_bell, std::move(bell_tooltip),
+                         message(toggle_notification_center_intent {}), true, status.notifications_open),
+                { .length = 24.0f, .cross_length = 20.0f });
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"status-bar" },
                 bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; }, .divider_top = true }, std::move(row));
         }
@@ -612,7 +563,6 @@ namespace cyella::ui {
             .height = view.logical_height,
             .caption_height = caption_height,
             .repository = view.repository.has_value(),
-            .banner_height = banner_height(view.banner),
             .log_open = view.log_open,
             .mode = view.mode,
             .sidebar_width = view.sidebar_width,
@@ -657,8 +607,6 @@ namespace cyella::ui {
         else if (view.start.has_value())
             root->place(build_start_page(view, *view.start, sources), rects.body);
 
-        if (view.banner.has_value())
-            root->place(build_banner(*view.banner), rects.banner);
         if (view.log_open)
             root->place(build_log(view, sources), rects.log);
         root->place(build_status(view), rects.status);
@@ -710,6 +658,12 @@ namespace cyella::ui {
             built.popups.push_back(build_selector_popup(*view.selector, scale));
         if (view.settings.has_value() && view.settings->font_list.has_value())
             built.popups.push_back(build_font_popup(*view.settings, scale));
+        // 알림은 본문 위에 떠야 하므로 popup이다. 본문 자리를 밀어내지 않고 diff 웹뷰에도 가리지 않는다.
+        for (built_popup& toast : build_toast_popups(view, rects.body.y + rects.body.height, scale))
+            built.popups.push_back(std::move(toast));
+        const luil::virtual_list_element* notification_list { nullptr };
+        if (view.notification_center.has_value())
+            built.popups.push_back(build_notification_center_popup(*view.notification_center, view, rects.status.y, scale, &notification_list));
         built.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(root), { 0.0f, 0.0f, view.width, view.height }, scale));
         if (sources.graph != nullptr)
         {
@@ -737,6 +691,8 @@ namespace cyella::ui {
             built.feedback.diff_maximum = sources.diff->metrics().maximum_scroll;
         if (sources.log != nullptr)
             built.feedback.log_maximum = sources.log->metrics().maximum_scroll;
+        if (notification_list != nullptr)
+            built.feedback.notifications_maximum = notification_list->metrics().maximum_scroll;
         if (sources.start != nullptr)
             built.feedback.start_maximum = sources.start->metrics().maximum_scroll;
         if (sources.settings != nullptr)

@@ -402,8 +402,8 @@ TEST_CASE("the create dialog pushes the branch first and creates only after the 
     REQUIRE(built.repository->hosting->detail.has_value());
     CHECK(built.repository->hosting->detail->number == 4);
     CHECK(built.repository->hosting->detail->just_created);
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->text.find(u8"https://github.com/octo/hello/pull/4") != std::u8string::npos);
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"https://github.com/octo/hello/pull/4") != std::u8string::npos);
 }
 
 TEST_CASE("the create dialog is refused while signed out or on a detached HEAD", "[hosting][shell]")
@@ -411,8 +411,8 @@ TEST_CASE("the create dialog is refused while signed out or on a detached HEAD",
     harness test {};
     test.activate(hosting_row_create);
     CHECK(test.view().form.has_value() == false);
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->warning);
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
 }
 
 TEST_CASE("checking out a pull request fetches pull/N/head into pr/N then switches to it", "[hosting][shell]")

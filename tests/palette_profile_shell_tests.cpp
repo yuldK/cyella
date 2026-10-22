@@ -747,8 +747,8 @@ TEST_CASE("a matching rule only proposes a profile; nothing is written until it 
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
 
-    REQUIRE(test.controller.state().notice.has_value());
-    const notice_state& notice { *test.controller.state().notice };
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    const notification& notice { *test.controller.state().latest_notification() };
     CHECK(notice.text.find(u8"회사") != std::u8string::npos);
     CHECK(notice.text.find(u8"전역") != std::u8string::npos);
     REQUIRE(notice.actions.size() == 1);
@@ -757,17 +757,17 @@ TEST_CASE("a matching rule only proposes a profile; nothing is written until it 
     CHECK(test.writes.empty());
     CHECK(test.controller.settings().profile_assignments.empty());
     const view_snapshot view { test.view() };
-    REQUIRE(view.banner.has_value());
-    REQUIRE(view.banner->actions.size() == 1);
-    CHECK(view.banner->actions[0].key == u8"apply_profile:회사");
+    REQUIRE(view.toasts.empty() == false);
+    REQUIRE(view.toasts.front().actions.size() == 1);
+    CHECK(view.toasts.front().actions[0].key == u8"apply_profile:회사");
 
     // 같은 저장소에는 한 번만 제안한다.
-    test.send(dismiss_notice_intent {});
+    test.send(dismiss_notification_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
-    CHECK_FALSE(test.controller.state().notice.has_value());
+    CHECK(test.controller.state().latest_notification() == nullptr);
 
     // [적용]을 누르면 로컬 설정에 쓰라고 worker에게 시킨다.
-    test.send(banner_action_intent { u8"apply_profile:회사", 0 });
+    test.send(notification_action_intent { u8"apply_profile:회사", 0 });
     REQUIRE(test.writes.size() == 1);
     CHECK(test.writes[0].repository_id == test.repository);
     CHECK(test.writes[0].path == u8"E:\\work\\repo");
@@ -779,8 +779,18 @@ TEST_CASE("a matching rule only proposes a profile; nothing is written until it 
     REQUIRE(test.controller.settings().profile_assignments.size() == 1);
     CHECK(test.controller.settings().profile_assignments[0].profile == u8"회사");
     CHECK(test.reads.size() == reads_before + 1);
-    CHECK(test.controller.state().notice->text.find(u8"적용했습니다") != std::u8string::npos);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"적용했습니다") != std::u8string::npos);
 }
+
+namespace {
+    // 프로필을 제안하는 알림(조치 단추가 달린 안내)이 떠 있는가.
+    bool proposed(const ui_state& state)
+    {
+        return std::any_of(state.notifications.begin(), state.notifications.end(), [](const notification& value) {
+            return std::any_of(value.actions.begin(), value.actions.end(), [](const notification_action& action) { return action.key.starts_with(u8"apply_profile:"); });
+        });
+    }
+} // namespace
 
 TEST_CASE("no proposal when the identity already matches the rule's profile or a chosen profile", "[profiles][controller]")
 {
@@ -790,7 +800,7 @@ TEST_CASE("no proposal when the identity already matches the rule's profile or a
         test.add_rule(u8"E:\\work", u8"회사");
         test.send(close_settings_intent {});
         test.identity_is(u8"홍길동", u8"hong@corp.example", identity_origin::local);
-        CHECK_FALSE(test.controller.state().notice.has_value());
+        CHECK_FALSE(proposed(test.controller.state()));
     }
     {
         // 규칙은 회사를 권하지만 사용자가 개인 프로필을 골라 두었고 신원이 그대로 개인이다.
@@ -801,9 +811,9 @@ TEST_CASE("no proposal when the identity already matches the rule's profile or a
         test.send(close_settings_intent {});
         test.send(apply_profile_intent { u8"개인" });
         test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = {} });
-        test.send(dismiss_notice_intent {});
         test.identity_is(u8"길동", u8"me@example.com", identity_origin::local);
-        CHECK_FALSE(test.controller.state().notice.has_value());
+        // "적용했습니다" 같은 안내는 알림 센터에 남는다. 제안(조치가 달린 알림)만 없어야 한다.
+        CHECK_FALSE(proposed(test.controller.state()));
     }
 }
 
@@ -814,18 +824,18 @@ TEST_CASE("the first commit warns when the identity is missing or differs from t
     test.add_rule(u8"E:\\work", u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
-    test.send(dismiss_notice_intent {});
+    test.send(dismiss_notification_intent {});
     test.type(text_target::commit_subject, u8"작업 내용");
     const std::size_t before { test.dispatcher.pending() };
 
     test.send(commit_intent {});
     // 커밋하지 않고 경고했다.
     CHECK(test.dispatcher.pending() == before);
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->warning);
-    REQUIRE(test.controller.state().notice->actions.size() == 2);
-    CHECK(test.controller.state().notice->actions[0].key == u8"commit_apply:회사");
-    CHECK(test.controller.state().notice->actions[1].key == u8"commit_anyway");
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
+    REQUIRE(test.controller.state().latest_notification()->actions.size() == 2);
+    CHECK(test.controller.state().latest_notification()->actions[0].key == u8"commit_apply:회사");
+    CHECK(test.controller.state().latest_notification()->actions[1].key == u8"commit_anyway");
 
     // 두 번째 시도는 경고 없이 커밋한다.
     test.send(commit_intent {});
@@ -840,12 +850,12 @@ TEST_CASE("the warning's apply-and-commit applies the profile first and commits 
     test.add_rule(u8"E:\\work", u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
-    test.send(dismiss_notice_intent {});
+    test.send(dismiss_notification_intent {});
     test.type(text_target::commit_subject, u8"작업 내용");
     test.send(commit_intent {});
     const std::size_t before { test.dispatcher.pending() };
 
-    test.send(banner_action_intent { u8"commit_apply:회사", 0 });
+    test.send(notification_action_intent { u8"commit_apply:회사", 0 });
     REQUIRE(test.writes.size() == 1);
     // 적용이 끝나기 전에는 커밋하지 않는다.
     CHECK(test.dispatcher.pending() == before);
@@ -864,9 +874,9 @@ TEST_CASE("a failed apply neither records the profile nor commits", "[profiles][
     test.send(apply_profile_intent { u8"회사" });
     test.send(identity_applied_intent { .repository_id = test.repository, .ok = false, .message = u8"lock 파일이 있습니다" });
     CHECK(test.controller.settings().profile_assignments.empty());
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->warning);
-    CHECK(test.controller.state().notice->text.find(u8"lock 파일") != std::u8string::npos);
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"lock 파일") != std::u8string::npos);
 }
 
 TEST_CASE("commit anyway skips the warning and commits", "[profiles][controller]")
@@ -877,11 +887,11 @@ TEST_CASE("commit anyway skips the warning and commits", "[profiles][controller]
     const std::size_t before { test.dispatcher.pending() };
     test.send(commit_intent {});
     CHECK(test.dispatcher.pending() == before);
-    REQUIRE(test.controller.state().notice.has_value());
-    CHECK(test.controller.state().notice->text.find(u8"작성자 설정이 없어") != std::u8string::npos);
-    test.send(banner_action_intent { u8"commit_anyway", 0 });
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->text.find(u8"작성자 설정이 없어") != std::u8string::npos);
+    test.send(notification_action_intent { u8"commit_anyway", 0 });
     CHECK(test.dispatcher.pending() == before + 1);
-    CHECK_FALSE(test.controller.state().notice.has_value());
+    CHECK(test.controller.state().latest_notification() == nullptr);
 }
 
 TEST_CASE("profile mode of the palette applies the picked profile", "[profiles][palette][controller]")
@@ -912,14 +922,14 @@ TEST_CASE("applying with no repository or no worker says why", "[profiles][contr
         p6_harness test { false };
         test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
         test.send(apply_profile_intent { u8"회사" });
-        REQUIRE(test.controller.state().notice.has_value());
-        CHECK(test.controller.state().notice->warning);
+        REQUIRE(test.controller.state().latest_notification() != nullptr);
+        CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
     }
     {
         p6_harness test {};
         test.send(apply_profile_intent { u8"없는 프로필" });
-        REQUIRE(test.controller.state().notice.has_value());
-        CHECK(test.controller.state().notice->warning);
+        REQUIRE(test.controller.state().latest_notification() != nullptr);
+        CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
         CHECK(test.writes.empty());
     }
 }
