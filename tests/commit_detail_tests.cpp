@@ -3,11 +3,14 @@
 #include "presentation/file_tree.h"
 #include "presentation/text_wrap.h"
 #include "presentation/ui/build_ui_tree.h"
+#include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui_intents.h"
 
 #include "git_test_support.h"
 #include "view_snapshot_support.h"
 
+#include "luil/ui/ui_interaction.h"
 #include "luil/ui/ui_tree.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -212,17 +215,24 @@ TEST_CASE("commit detail tree shows wrapped text, label columns, folder rows and
     CHECK(rebase->enabled());
     CHECK(find(ui::kind_file_row, u8"folder-d:src/presentation") != nullptr);
     // 파일 행을 마우스로 누르면 diff가 열린다. 행 가운데의 hit는 경로 툴팁을 단 파일 행 element가 받으므로, 그 element가
-    // 고르기(diff 열기)를 직접 내야 한다. 내지 않으면 누름이 삼켜져 키보드로만 열렸다.
+    // 고르기(diff 열기)를 직접 내야 한다. 내지 않으면 누름이 삼켜져 키보드로만 열렸다. 고르기는 누른 순간이고 뗀 순간에는 다시 고르지 않는다.
     const luil::ui_element* const file_row { find(ui::kind_file_row, u8"file-f:src/presentation/file_tree.cpp") };
     REQUIRE(file_row != nullptr);
     const luil::rect_f box { file_row->bounds() };
     const luil::ui_element* const hit { built.tree->hit_test(box.x + box.width / 3.0f, box.y + box.height / 2.0f) };
     REQUIRE(hit != nullptr);
     CHECK(hit->id() == file_row->id());
-    const auto* const click { hit->action(luil::ui_trigger::left_click) };
-    REQUIRE(click != nullptr);
-    const std::vector<luil::input_action> actions { (*click)(luil::ui_action_context {}) };
+    ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(built.tree);
+    const float x { box.x + box.width / 3.0f };
+    const float y { box.y + box.height / 2.0f };
+    const std::vector<luil::input_action> actions { interaction.process(luil::pointer_pressed_event { .x = x, .y = y }) };
     REQUIRE(actions.size() == 1);
+    const auto* const chosen { std::get<luil::app_message>(actions.front()).get<select_file_intent>() };
+    REQUIRE(chosen != nullptr);
+    CHECK(chosen->request.path == "src/presentation/file_tree.cpp");
+    CHECK(interaction.process(luil::pointer_released_event { .x = x, .y = y }).empty());
     // 우클릭은 커밋 파일 메뉴를 연다.
     CHECK(hit->action(luil::ui_trigger::right_click) != nullptr);
     const luil::ui_element* const tree_button { built.tree->find(luil::ui_element_id { ui::kind_segment, u8"detail-files-tree" }) };

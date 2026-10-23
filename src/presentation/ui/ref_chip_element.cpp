@@ -218,8 +218,8 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- ref_chip_element
 
-    ref_chip_element::ref_chip_element(ref_label label, std::u8string row_key, std::string commit_sha, const std::uint8_t lane_color)
-        : ui_element { luil::ui_element_id { kind_ref_chip, std::u8string { ref_label_owner_prefix } + ref_label_key(label) } }
+    ref_chip_element::ref_chip_element(ref_label label, std::u8string row_key, std::string commit_sha, const std::uint8_t lane_color, const bool row_selected)
+        : press_row_element { luil::ui_element_id { kind_ref_chip, std::u8string { ref_label_owner_prefix } + ref_label_key(label) } }
         , label_ { std::move(label) }
         , lane_color_ { lane_color }
     {
@@ -229,9 +229,14 @@ namespace cyella::ui {
             set_tooltip(tooltip() + tr(u8"ref_chip.checked_out_in_worktree_suffix", { { u8"path", std::u8string { label_.worktree_path.begin(), label_.worktree_path.end() } } }));
         access_name_ = label_.text + (label_.local_only ? tr(u8"ref_chip.not_on_remote_suffix") : std::u8string {})
             + (label_.worktree_path.empty() ? std::u8string {} : tr(u8"ref_chip.in_other_worktree_suffix"));
-        // 칩을 눌러도 행을 누른 것과 같다 (Ctrl·Shift는 여러 커밋 고르기).
-        set_action(luil::ui_trigger::left_click, [row_key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+        // 칩을 눌러도 행을 누른 것과 같다 (Ctrl·Shift는 여러 커밋 고르기). 보조 기술의 "실행"은 그냥 누름이다.
+        set_press([row_key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
             return { message(select_commit_intent { .key = row_key, .control = context.control, .shift = context.shift }) };
+        });
+        set_access_handler([row_key](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
+            if (request.command != luil::access_command::invoke)
+                return std::nullopt;
+            return std::vector<luil::input_action> { message(select_commit_intent { .key = row_key }) };
         });
 
         switch (label_.kind)
@@ -246,9 +251,15 @@ namespace cyella::ui {
             break;
         }
 
+        // 고르지 않은 행의 라벨을 우클릭하면 그 행을 먼저 고른다. 메뉴는 라벨(브랜치·태그)의 것이다.
         if (const std::optional<menu_target> target { menu_target_of(label_, commit_sha) }; target.has_value())
-            set_action(luil::ui_trigger::right_click,
-                [menu = *target](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { menu, context.x, context.y }) }; });
+            set_action(luil::ui_trigger::right_click, [menu = *target, row_key, row_selected](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                std::vector<luil::input_action> actions {};
+                if (row_selected == false)
+                    actions.push_back(message(select_commit_intent { .key = row_key }));
+                actions.push_back(message(open_context_menu_intent { menu, context.x, context.y }));
+                return actions;
+            });
 
         const std::optional<drop_party> party { drop_party_of(label_, commit_sha) };
         if (party.has_value())

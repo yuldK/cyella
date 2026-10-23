@@ -9,6 +9,7 @@
 #include "presentation/settings/signing_intents.h"
 #include "presentation/ui/command_elements.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/press_row.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 #include "presentation/ui_state.h"
@@ -260,5 +261,13 @@ namespace cyella::ui {
             break;
         }
         return {};
+    }
+
+    std::vector<luil::input_action> cyella_policy::on_press(const luil::ui_tree&, const luil::ui_element& element, const luil::pointer_pressed_event& event)
+    {
+        const auto* const row { dynamic_cast<const press_row_element*>(&element) };
+        if (row == nullptr)
+            return {};
+        return row->press(luil::ui_action_context { .element = row->id(), .x = event.x, .y = event.y, .control = event.control, .shift = event.shift, .alt = event.alt });
     }
 } // namespace cyella::ui

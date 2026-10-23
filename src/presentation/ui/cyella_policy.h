@@ -23,6 +23,8 @@ namespace cyella::ui {
         [[nodiscard]] std::vector<luil::input_action> on_wheel(const luil::ui_tree& tree, const luil::mouse_wheel_event& event, float scroll_delta) override;
         [[nodiscard]] std::vector<luil::input_action> on_focus_moved(const luil::ui_tree& tree, const luil::ui_element_id& focused) override;
         [[nodiscard]] std::vector<luil::input_action> on_key(const luil::ui_tree* tree, const luil::key_pressed_event& event, const luil::interaction_snapshot& snapshot) override;
+        // 목록 행(`press_row_element`)을 누른 순간 그 행을 고른다. luil의 클릭은 뗀 순간이라 행의 고르기를 여기로 당긴다.
+        [[nodiscard]] std::vector<luil::input_action> on_press(const luil::ui_tree& tree, const luil::ui_element& element, const luil::pointer_pressed_event& event) override;
 
     private:
         // 인터랙티브 rebase 편집기의 키다. 편집기의 키가 아니면 값이 없다.

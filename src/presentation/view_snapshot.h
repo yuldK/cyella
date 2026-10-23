@@ -377,6 +377,8 @@ namespace cyella {
         std::vector<file_row_view> conflicts {};
         std::vector<file_row_view> unstaged {};
         std::vector<file_row_view> staged {};
+        // 함께 고른 파일의 행 키다 (한 묶음 안). 비면 diff를 연 파일 하나(`file_row_view::selected`)다.
+        std::vector<std::u8string> selection_keys {};
         luil::text_input_view subject {};
         luil::text_input_view body {};
         std::size_t subject_length { 0 };

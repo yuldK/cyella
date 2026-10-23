@@ -5,6 +5,7 @@
 #include "domain/credential_prompt.h"
 #include "infrastructure/git_operation_runner.h"
 #include "presentation/commands/command_intents.h"
+#include "presentation/graph_geometry.h"
 #include "presentation/shell_controller.h"
 
 #include "fake_git_runner.h"
@@ -544,7 +545,7 @@ TEST_CASE("an untracked file goes to the recycle bin after a confirmation that s
 {
     harness test {};
     test.load();
-    test.send(discard_files_intent { { "new.txt" }, true });
+    test.send(discard_files_intent { .paths = {}, .untracked = { "new.txt" } });
     view_snapshot view { test.view() };
     REQUIRE(view.form.has_value());
     CHECK(view.form->title == u8"파일을 휴지통으로 보낼까요?");
@@ -559,7 +560,7 @@ TEST_CASE("an untracked file goes to the recycle bin after a confirmation that s
     CHECK(request->paths == std::vector<std::string> { "new.txt" });
 
     // 추적 중인 파일은 그대로 restore다.
-    test.send(discard_files_intent { { "tracked.txt" }, false });
+    test.send(discard_files_intent { .paths = { "tracked.txt" }, .untracked = {} });
     view = test.view();
     CHECK(view.form->title == u8"변경을 버릴까요?");
     test.press(u8"submit");
@@ -1557,4 +1558,129 @@ TEST_CASE("right-clicking a tab opens its menu even on the start page and runs t
     test.send(menu_select_intent { u8"close_right" });
     REQUIRE(test.controller.tabs().tabs().size() == 1);
     CHECK(test.controller.tabs().tabs()[0].id == first);
+}
+
+namespace {
+    // 작업 영역에 스테이징 전 파일 넷(추적하지 않는 new.txt 포함)과 커밋에 포함된 파일 하나를 둔 저장소를 읽고 WIP를 고른다.
+    void load_working_changes(harness& test)
+    {
+        repository_session& session { test.load(5, 0) };
+        repository_snapshot snapshot { snap::make_snapshot(snap::sha_of(4), 5) };
+        snapshot.unstaged = {
+            { .path = "src/a.cpp", .status = 'M', .side = change_side::unstaged },
+            { .path = "src/b.cpp", .status = 'M', .side = change_side::unstaged },
+            { .path = "src/c.cpp", .status = 'M', .side = change_side::unstaged },
+            { .path = "src/new.txt", .status = '?', .side = change_side::unstaged },
+        };
+        snapshot.staged = { { .path = "README.md", .status = 'A', .side = change_side::staged } };
+        const std::uint64_t generation { session.begin_refresh() };
+        REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
+        REQUIRE(session.apply(commits_loaded { .generation = generation, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
+        test.send(select_commit_intent { graph_item_key(std::string { graph_wip_sha }) });
+    }
+
+    select_file_intent pick_file(const std::string& path, const bool control = false, const bool shift = false, const diff_view view = diff_view::unstaged)
+    {
+        const std::u8string prefix { view == diff_view::staged ? u8"s:" : u8"u:" };
+        return select_file_intent {
+            .request = diff_file_request { .path = path, .view = view, .sha = {}, .untracked = path.ends_with(".txt") },
+            .key = prefix + std::u8string { path.begin(), path.end() },
+            .control = control,
+            .shift = shift,
+        };
+    }
+
+    // WIP를 고른 저장소 탭이 연 diff다.
+    const std::optional<diff_file_request>& shown_diff(harness& test)
+    {
+        for (const auto& [id, tab] : test.controller.state().tabs)
+            if (tab.selected_sha == graph_wip_sha)
+                return tab.diff;
+        static const std::optional<diff_file_request> none {};
+        return none;
+    }
+
+    std::vector<std::u8string> working_selection(harness& test)
+    {
+        const view_snapshot view { test.view() };
+        REQUIRE(view.repository.has_value());
+        REQUIRE(view.repository->working.has_value());
+        return view.repository->working->selection_keys;
+    }
+} // namespace
+
+TEST_CASE("working files are picked one by one with Ctrl and as a range with Shift", "[presentation][working]")
+{
+    harness test {};
+    load_working_changes(test);
+    test.send(pick_file("src/a.cpp"));
+    CHECK(working_selection(test) == std::vector<std::u8string> { u8"u:src/a.cpp" });
+
+    // Ctrl은 하나 더하고 그 파일의 diff를 연다.
+    test.send(pick_file("src/c.cpp", true));
+    CHECK(working_selection(test) == std::vector<std::u8string> { u8"u:src/a.cpp", u8"u:src/c.cpp" });
+    REQUIRE(shown_diff(test).has_value());
+    CHECK(shown_diff(test)->path == "src/c.cpp");
+
+    // Shift는 기준(마지막 Ctrl+클릭한 c)부터 누른 b까지다. Ctrl+Shift는 그 범위를 더한다.
+    test.send(pick_file("src/b.cpp", false, true));
+    CHECK(working_selection(test) == std::vector<std::u8string> { u8"u:src/b.cpp", u8"u:src/c.cpp" });
+    test.send(pick_file("src/new.txt", true, true));
+    CHECK(working_selection(test) == std::vector<std::u8string> { u8"u:src/b.cpp", u8"u:src/c.cpp", u8"u:src/new.txt" });
+
+    // 보이던 파일(new.txt)을 Ctrl로 빼면 남은 것 중 마지막에 고른 파일이 보인다.
+    test.send(pick_file("src/new.txt", true));
+    CHECK(working_selection(test) == std::vector<std::u8string> { u8"u:src/b.cpp", u8"u:src/c.cpp" });
+    CHECK(shown_diff(test)->path == "src/c.cpp");
+
+    // 다른 묶음의 파일은 함께 고르지 않는다. 그 파일 하나로 다시 시작한다.
+    test.send(pick_file("README.md", true, false, diff_view::staged));
+    CHECK(working_selection(test) == std::vector<std::u8string> { u8"s:README.md" });
+
+    // 키 없는 고르기(다른 길로 연 diff)는 여러 파일 선택을 푼다. 다음 Ctrl+클릭은 보이는 파일부터 잇는다.
+    test.send(select_file_intent { .request = diff_file_request { .path = "src/a.cpp", .view = diff_view::unstaged } });
+    CHECK(working_selection(test).empty());
+    test.send(pick_file("src/b.cpp", true));
+    CHECK(working_selection(test) == std::vector<std::u8string> { u8"u:src/a.cpp", u8"u:src/b.cpp" });
+
+    // 마지막 하나까지 빼면 diff도 닫힌다.
+    test.send(pick_file("src/a.cpp", true));
+    test.send(pick_file("src/b.cpp", true));
+    CHECK_FALSE(shown_diff(test).has_value());
+    CHECK(working_selection(test).empty());
+}
+
+TEST_CASE("the menu of a multi-file selection stages and discards every chosen file", "[presentation][working]")
+{
+    harness test {};
+    load_working_changes(test);
+    test.send(pick_file("src/a.cpp"));
+    test.send(pick_file("src/new.txt", true));
+    const menu_target clicked { .kind = menu_target_kind::file, .name = "src/a.cpp", .side = change_side::unstaged };
+    test.send(open_context_menu_intent { clicked, 0.0f, 0.0f });
+    view_snapshot view { test.view() };
+    REQUIRE(view.menu.has_value());
+    CHECK(view.menu->title == u8"파일 2개");
+    test.send(menu_select_intent { u8"stage" });
+    const auto* const stage { test.last_request<stage_files_request>() };
+    REQUIRE(stage != nullptr);
+    CHECK(stage->paths == std::vector<std::string> { "src/a.cpp", "src/new.txt" });
+
+    // 버리기는 추적 중인 파일의 restore와 추적하지 않는 파일의 휴지통을 한 확인 상자로 묻는다.
+    test.send(open_context_menu_intent { clicked, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"discard" });
+    view = test.view();
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->title == u8"변경 2개를 버릴까요?");
+    const dialog_state& dialog { *test.controller.state().dialog };
+    REQUIRE(dialog.plan.primary.size() == 2);
+    CHECK(std::get<discard_files_request>(dialog.plan.primary[0]).paths == std::vector<std::string> { "src/a.cpp" });
+    CHECK(std::get<trash_files_request>(dialog.plan.primary[1]).paths == std::vector<std::string> { "src/new.txt" });
+
+    // 선택 밖의 파일을 우클릭한 메뉴는 그 파일 하나의 것이다.
+    test.press(u8"cancel");
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::file, .name = "src/b.cpp", .side = change_side::unstaged }, 0.0f, 0.0f });
+    view = test.view();
+    REQUIRE(view.menu.has_value());
+    CHECK(view.menu->title == u8"src/b.cpp");
 }

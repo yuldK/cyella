@@ -216,8 +216,30 @@ namespace cyella {
             return model;
         }
 
+        // 여러 파일을 고른 채 연 메뉴다. 고른 파일 전부에 가는 동작만 둔다 (무시 목록·외부 diff·LFS는 파일 하나의 것이다).
+        menu_model files_menu(const menu_target& target)
+        {
+            menu_model model {};
+            model.title = tr(u8"menu.files_title", { { u8"count", target.paths.size() } });
+            if (target.conflicted == false)
+            {
+                if (target.side == change_side::staged)
+                    add_group(model.entries, { make_entry(u8"unstage", u8"Unstage", icons::icon_remove) });
+                else
+                {
+                    add_group(model.entries, { make_entry(u8"stage", u8"Stage", icons::icon_add) });
+                    const std::u8string label { target.untracked ? tr(u8"menu.move_to_recycle_bin") : tr(u8"menu.discard_changes") };
+                    add_group(model.entries, { make_entry(u8"discard", label, target.untracked ? icons::icon_trash : icons::icon_discard, true, true) });
+                }
+            }
+            add_group(model.entries, { make_entry(u8"copy_path", tr(u8"menu.copy_paths"), icons::icon_copy) });
+            return model;
+        }
+
         menu_model file_menu(const menu_target& target)
         {
+            if (target.paths.size() > 1)
+                return files_menu(target);
             menu_model model {};
             model.title = to_u8(target.name);
             if (target.conflicted)

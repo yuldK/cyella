@@ -3,6 +3,7 @@
 #include "domain/commit_graph_layout.h"
 #include "domain/commit_signature.h"
 #include "presentation/graph_geometry.h"
+#include "presentation/ui/press_row.h"
 
 #include "luil/ui/ui_element.h"
 
@@ -60,14 +61,16 @@ namespace cyella::ui {
         // 세션이 읽어 둔 서명이다. 읽지 않았거나 서명이 없으면 표지를 달지 않는다.
         bool signature_known { false };
         signature_status signature { signature_status::none };
+        // 목록이 고른 행으로 그리는 행이다 (여러 커밋 비교 포함). 고르지 않은 행의 우클릭은 메뉴를 열기 전에 그 행만 고른다.
+        bool selected { false };
     };
 
     class ref_chip_element;
 
     // 커밋 그래프의 행 내용이다 (라벨 | 그래프 | 메시지 | 작성자 | 날짜). hover 표시는 목록의 행이 그린다.
-    // 이 element는 눌림을 직접 받으므로 (한 번 = 고르기, 두 번 = 체크아웃, 우클릭 = 메뉴, 놓기 = 브랜치 메뉴) 목록 행의
+    // 이 element는 눌림을 직접 받으므로 (누름 = 고르기, 두 번 = 체크아웃, 우클릭 = 메뉴, 놓기 = 브랜치 메뉴) 목록 행의
     // 고르기와 같은 메시지를 다시 낸다. 라벨은 자식 칩이라 칩마다 따로 눌리고 끌린다.
-    class graph_row_element final : public luil::ui_element
+    class graph_row_element final : public press_row_element
     {
     public:
         graph_row_element(std::u8string owner, graph_row_data data, graph_columns columns);

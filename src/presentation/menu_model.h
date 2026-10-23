@@ -78,6 +78,9 @@ namespace cyella {
         drop_party destination {};
         // commit_file: 여러 커밋 비교의 왼쪽 리비전이다. 있으면 "변경 내용 보기"가 `sha`와의 비교(range diff)를 연다.
         std::string base {};
+        // file: 여러 파일을 고른 채 그중 하나를 우클릭했다. 메뉴의 동작이 이 경로 전부에 간다 (고른 순서). 비어 있으면 `name` 하나다.
+        //  - `untracked`는 이 파일이 모두 추적하지 않는 파일이라는 뜻이다.
+        std::vector<std::string> paths {};
 
         [[nodiscard]] bool operator==(const menu_target&) const noexcept = default;
     };

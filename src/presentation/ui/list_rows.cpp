@@ -103,8 +103,9 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- sidebar_row_element
 
-    sidebar_row_element::sidebar_row_element(sidebar_row_view row, std::optional<luil::input_action> select, std::optional<luil::input_action> activate, std::optional<menu_target> menu)
-        : ui_element { luil::ui_element_id { kind_sidebar_row, std::u8string { sidebar_row_owner_prefix } + row.key } }
+    sidebar_row_element::sidebar_row_element(
+        sidebar_row_view row, std::optional<luil::input_action> select, std::optional<luil::input_action> activate, std::optional<menu_target> menu, const bool selected)
+        : press_row_element { luil::ui_element_id { kind_sidebar_row, std::u8string { sidebar_row_owner_prefix } + row.key } }
         , row_ { std::move(row) }
     {
         if (row_.tooltip.empty() == false)
@@ -115,8 +116,11 @@ namespace cyella::ui {
             return;
         }
         set_tab_stop(false);
-        if (select.has_value())
-            set_action(luil::ui_trigger::left_click, action_of(std::move(*select)));
+        // 머리 줄의 누름은 고르기가 아니라 접고 펴기라 평소의 클릭(뗀 순간)이다. 항목은 누른 순간 고른다.
+        if (select.has_value() && row_.header)
+            set_action(luil::ui_trigger::left_click, action_of(*select));
+        else if (select.has_value())
+            set_press(action_of(*select));
         if (activate.has_value())
         {
             // 보조 기술의 "실행"은 두 번 누름과 같은 체크아웃이다. 고르기는 목록 항목의 SelectionItem이 맡는다.
@@ -127,9 +131,16 @@ namespace cyella::ui {
             });
             set_action(luil::ui_trigger::double_click, action_of(std::move(*activate)));
         }
+        // 고르지 않은 항목을 우클릭하면 그 항목을 먼저 고른다 (메뉴 대상과 고른 항목이 같아야 한다).
         if (menu.has_value())
             set_action(luil::ui_trigger::right_click,
-                [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { target, context.x, context.y }) }; });
+                [target = *menu, select = row_.header || selected ? std::optional<luil::input_action> {} : select](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                    std::vector<luil::input_action> actions {};
+                    if (select.has_value())
+                        actions.push_back(*select);
+                    actions.push_back(message(open_context_menu_intent { target, context.x, context.y }));
+                    return actions;
+                });
 
         // 로컬·원격 브랜치 행은 끌 수 있고 다른 브랜치가 놓일 수 있다. submodule·worktree·LFS 행은 브랜치가 아니다.
         if (row_.header || row_.group || row_.item != sidebar_item_kind::ref || (row_.kind != ref_kind::local && row_.kind != ref_kind::remote))
@@ -258,30 +269,41 @@ namespace cyella::ui {
     // ---------------------------------------------------------------- file_row_element
 
     file_row_element::file_row_element(
-        file_row_view row, std::vector<file_row_button> buttons, std::optional<luil::input_action> select, std::optional<menu_target> menu, const std::optional<std::size_t> tree_depth)
-        : ui_element { luil::ui_element_id { kind_file_row, u8"file-" + row.key } }
+        file_row_view row, std::vector<file_row_button> buttons, luil::ui_action select, std::optional<menu_target> menu, const std::optional<std::size_t> tree_depth, const bool selected)
+        : press_row_element { luil::ui_element_id { kind_file_row, u8"file-" + row.key } }
         , row_ { std::move(row) }
         , button_count_ { buttons.size() }
         , tree_depth_ { tree_depth }
     {
-        if (select.has_value() == false && menu.has_value() == false)
+        if (select == nullptr && menu.has_value() == false)
             set_hit_opaque(false);
         else
         {
             set_tab_stop(false);
-            if (select.has_value())
+            if (select != nullptr)
             {
-                // 보조 기술의 "실행"은 줄을 눌러 diff를 여는 것과 같다 (UI Automation으로 파일을 고를 수 있다).
-                set_access_handler([select = *select](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
+                // 보조 기술의 "실행"은 줄을 눌러 diff를 여는 것과 같다 (UI Automation으로 파일을 고를 수 있다). 수식 키 없는 누름이다.
+                set_access_handler([select, id = id()](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
                     if (request.command != luil::access_command::invoke)
                         return std::nullopt;
-                    return std::vector<luil::input_action> { select };
+                    return select(luil::ui_action_context { id });
                 });
-                set_action(luil::ui_trigger::left_click, action_of(std::move(*select)));
+                set_press(select);
             }
+            // 고르지 않은 파일을 우클릭하면 그 파일만 고른 뒤 메뉴를 연다. 고른 파일이면 여러 파일 선택을 둔 채 연다.
             if (menu.has_value())
-                set_action(luil::ui_trigger::right_click,
-                    [target = *menu](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { target, context.x, context.y }) }; });
+                set_action(luil::ui_trigger::right_click, [target = *menu, select = selected ? luil::ui_action {} : select](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                    std::vector<luil::input_action> actions {};
+                    if (select != nullptr)
+                    {
+                        luil::ui_action_context plain { context };
+                        plain.control = false;
+                        plain.shift = false;
+                        actions = select(plain);
+                    }
+                    actions.push_back(message(open_context_menu_intent { target, context.x, context.y }));
+                    return actions;
+                });
         }
         set_tooltip(to_u8(row_.path));
         for (file_row_button& button : buttons)
@@ -315,7 +337,7 @@ namespace cyella::ui {
             name += tr(u8"list.submodule_suffix");
         if (row_.lfs)
             name += u8" (LFS)";
-        return { .role = action(luil::ui_trigger::left_click) != nullptr ? luil::access_role::button : luil::access_role::static_text, .name = std::move(name) };
+        return { .role = pressable() ? luil::access_role::button : luil::access_role::static_text, .name = std::move(name) };
     }
 
     void file_row_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
@@ -432,7 +454,7 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- file_group_element
 
-    file_group_element::file_group_element(std::u8string owner, std::u8string title, const std::size_t count, std::optional<file_row_button> button)
+    file_group_element::file_group_element(std::u8string owner, std::u8string title, const std::size_t count, std::optional<file_row_button> button, std::optional<file_row_button> icon)
         : ui_element { luil::ui_element_id { kind_file_row, std::move(owner) } }
         , title_ { std::move(title) }
         , count_ { count }
@@ -446,6 +468,13 @@ namespace cyella::ui {
             button_ = element.get();
             add_child(std::move(element));
         }
+        if (icon.has_value())
+        {
+            auto element { make_icon_button(std::move(icon->owner), icon->glyph, std::move(icon->tooltip), std::move(icon->action), icon->enabled, false, 13.0f) };
+            element->set_tab_stop(false);
+            icon_ = element.get();
+            add_child(std::move(element));
+        }
     }
 
     void file_group_element::arrange(const luil::arrange_context& context)
@@ -456,6 +485,12 @@ namespace cyella::ui {
             const float width { std::min(button_width_ * context.scale, std::max(context.slot.width - 144.0f * context.scale, 0.0f)) };
             const float height { 20.0f * context.scale };
             button_->arrange(context.for_child({ context.slot.x + context.slot.width - width - 6.0f * context.scale, context.slot.y + (context.slot.height - height) / 2.0f, width, height }));
+        }
+        if (icon_ != nullptr)
+        {
+            const float size { row_button_size * context.scale };
+            const float right { button_ != nullptr ? button_->bounds().x - 4.0f * context.scale : context.slot.x + context.slot.width - 6.0f * context.scale };
+            icon_->arrange(context.for_child({ right - size, context.slot.y + (context.slot.height - size) / 2.0f, size, size }));
         }
     }
 
@@ -471,7 +506,8 @@ namespace cyella::ui {
         context.canvas.drawRect(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), luil::solid_paint(luil::with_alpha(context.palette.primary_foreground, 0.035f)));
         float x { box.x + row_padding * scale };
         const SkFont font { ui_font(context, 12.0f, true) };
-        const float title_width { std::max(box.width - (button_ != nullptr ? button_->bounds().width : 0.0f) - 48.0f * scale, 0.0f) };
+        const float buttons_width { (button_ != nullptr ? button_->bounds().width : 0.0f) + (icon_ != nullptr ? icon_->bounds().width + 4.0f * scale : 0.0f) };
+        const float title_width { std::max(box.width - buttons_width - 48.0f * scale, 0.0f) };
         const float drawn
             = luil::draw_text_within(context.canvas, title_, x, box.y + luil::centered_text_baseline(font, box.height), title_width, font, luil::solid_paint(context.palette.primary_foreground));
         x += drawn + 8.0f * scale;

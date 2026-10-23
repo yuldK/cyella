@@ -319,6 +319,11 @@ namespace cyella {
                 view.staged.push_back(make_file_row(change, u8"s:"));
             mark_selected(view.unstaged, tab.diff, diff_view::unstaged, {});
             mark_selected(view.staged, tab.diff, diff_view::staged, {});
+            // 여러 파일 선택은 지금 묶음에 남은 파일만 보인다. 새로 고침으로 stage된 파일은 다른 묶음의 다른 키라 빠진다.
+            for (const std::u8string& key : tab.active_working_selection())
+                for (const std::vector<file_row_view>* rows : { &view.conflicts, &view.unstaged, &view.staged })
+                    if (std::any_of(rows->begin(), rows->end(), [&key](const file_row_view& row) { return row.key == key; }))
+                        view.selection_keys.push_back(key);
 
             view.subject = luil::make_text_input_view(tab.commit_subject, composition, to_luil_target(text_target::commit_subject));
             view.body = luil::make_text_input_view(tab.commit_body, composition, to_luil_target(text_target::commit_body));

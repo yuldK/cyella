@@ -182,6 +182,15 @@ namespace cyella {
         void clear_compare(tab_ui_state& tab);
         // relay를 비운 뒤다. 조상 답을 기다리던 비교를 정하고, 새로 고침으로 고른 커밋이 사라진 비교를 푼다.
         void sync_compares();
+        // ---- 작업 영역의 여러 파일 고르기 (shell_controller_working.cpp)
+        // 파일 행을 눌렀다. 키가 있으면 Ctrl·Shift로 여러 파일을 고르고, 없으면 선택을 풀고 그 diff 하나를 연다.
+        void handle_select_file(const select_file_intent& intent);
+        // 그 파일의 diff를 그래프 자리에 연다.
+        void open_file_diff(tab_ui_state& tab, diff_file_request request);
+        // 우클릭한 작업 영역 파일이 여러 파일 선택 안에 있으면 그 선택의 경로들이다 (고른 순서). 아니면 비어 있다.
+        [[nodiscard]] std::vector<std::string> working_menu_paths(const tab_ui_state& tab, const menu_target& target) const;
+        // 메뉴의 "버리기"가 낼 확인 요청이다. 여러 파일이면 작업 영역에서 추적하지 않는 파일(휴지통)과 추적 중인 파일(restore)로 가른다.
+        [[nodiscard]] discard_files_intent discard_intent_for(const std::vector<std::string>& paths, const menu_target& target);
         void handle_activate_ref(const activate_ref_intent& intent);
         void handle_commit();
         void handle_folder(const folder_chosen_intent& intent);

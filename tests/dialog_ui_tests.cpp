@@ -10,6 +10,7 @@
 #include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
+#include "presentation/ui/press_row.h"
 #include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/repository_tabs_element.h"
 #include "presentation/ui/ui_helpers.h"
@@ -445,7 +446,9 @@ TEST_CASE("graph labels are separate elements that can be dragged and dropped on
         CHECK(chip->bounds().height > 0.0f);
         CHECK(chip->drag() != nullptr);
         CHECK(chip->drop() != nullptr);
-        CHECK(chip->action(luil::ui_trigger::left_click) != nullptr);
+        // 칩을 누르면 누른 순간 그 커밋을 고른다 (`press_row_element`). 뗀 순간의 클릭은 없다.
+        CHECK(dynamic_cast<const cyella::ui::press_row_element*>(chip)->pressable());
+        CHECK(chip->action(luil::ui_trigger::left_click) == nullptr);
         CHECK(chip->action(luil::ui_trigger::double_click) != nullptr);
         CHECK(chip->action(luil::ui_trigger::right_click) != nullptr);
         CHECK_FALSE(chip->tab_stop());
@@ -532,7 +535,7 @@ TEST_CASE("the WIP row has no menu and refuses drops", "[presentation][ui][drag]
     REQUIRE(row != nullptr);
     CHECK(row->drop() == nullptr);
     CHECK(row->action(luil::ui_trigger::right_click) == nullptr);
-    CHECK(row->action(luil::ui_trigger::left_click) != nullptr);
+    CHECK(dynamic_cast<const cyella::ui::press_row_element*>(row)->pressable());
 }
 
 TEST_CASE("long forms keep captions and actions visible while content scrolls", "[presentation][ui][dialogs]")
@@ -985,4 +988,131 @@ TEST_CASE("the all-tabs list checks the current tab and selects the chosen one",
     CHECK_FALSE(tab_list_entry_id(u8"close").has_value());
     CHECK_FALSE(tab_list_entry_id(u8"tab-").has_value());
     CHECK_FALSE(tab_list_entry_id(u8"tab-3x").has_value());
+}
+
+namespace {
+    // 누른 순간과 뗀 순간에 나온 메시지다. 행은 누른 순간 고르고 뗀 순간에는 다시 고르지 않는다.
+    struct press_result
+    {
+        std::vector<luil::input_action> pressed {};
+        std::vector<luil::input_action> released {};
+    };
+
+    press_result press_at(const cyella::ui::built_tree& built, const luil::ui_element& element, const bool control = false)
+    {
+        cyella::ui::cyella_policy policy {};
+        luil::interaction_controller interaction { &policy };
+        interaction.set_tree(built.tree);
+        const luil::rect_f box { element.bounds() };
+        const float x { box.x + box.width / 2.0f };
+        const float y { box.y + box.height / 2.0f };
+        press_result result {};
+        result.pressed = interaction.process(luil::pointer_pressed_event { .x = x, .y = y, .control = control });
+        result.released = interaction.process(luil::pointer_released_event { .x = x, .y = y });
+        return result;
+    }
+
+    template<typename intent_type>
+    const intent_type* intent_at(const std::vector<luil::input_action>& actions, const std::size_t index)
+    {
+        if (index >= actions.size())
+            return nullptr;
+        const auto* const message { std::get_if<luil::app_message>(&actions[index]) };
+        return message == nullptr ? nullptr : message->get<intent_type>();
+    }
+} // namespace
+
+TEST_CASE("graph and sidebar rows select when pressed and right-click selects an unselected row first", "[presentation][ui][select]")
+{
+    tree_fixture fixture {};
+    const cyella::ui::built_tree built { fixture.build() };
+    const std::u8string newest { graph_item_key(sha_of(5)) };
+    const std::u8string oldest { graph_item_key(sha_of(0)) };
+    const luil::ui_element* const row { find_element(built, cyella::ui::kind_graph_row, u8"commit-" + oldest) };
+    REQUIRE(row != nullptr);
+    CHECK(row->action(luil::ui_trigger::left_click) == nullptr);
+
+    // Ctrl을 누른 채 누르면 누른 순간 Ctrl+고르기다 (여러 커밋 비교).
+    const press_result pressed { press_at(built, *row, true) };
+    REQUIRE(pressed.pressed.size() == 1);
+    const auto* const chosen { intent_at<select_commit_intent>(pressed.pressed, 0) };
+    REQUIRE(chosen != nullptr);
+    CHECK(chosen->key == oldest);
+    CHECK(chosen->control);
+    CHECK(pressed.released.empty());
+
+    // 고르지 않은 행의 우클릭은 그 행을 먼저 고르고 메뉴를 연다. 고른 행(가장 새 커밋)은 메뉴만이다.
+    const std::vector<luil::input_action> other { (*row->action(luil::ui_trigger::right_click))(luil::ui_action_context { row->id() }) };
+    REQUIRE(other.size() == 2);
+    REQUIRE(intent_at<select_commit_intent>(other, 0) != nullptr);
+    CHECK(intent_at<select_commit_intent>(other, 0)->key == oldest);
+    CHECK(intent_at<open_context_menu_intent>(other, 1) != nullptr);
+    fixture.harness.ui.tabs[fixture.tab].selected_sha = sha_of(5);
+    const cyella::ui::built_tree selected { fixture.build() };
+    const luil::ui_element* const head { find_element(selected, cyella::ui::kind_graph_row, u8"commit-" + newest) };
+    REQUIRE(head != nullptr);
+    const std::vector<luil::input_action> same { (*head->action(luil::ui_trigger::right_click))(luil::ui_action_context { head->id() }) };
+    REQUIRE(same.size() == 1);
+    CHECK(intent_at<open_context_menu_intent>(same, 0) != nullptr);
+
+    // 사이드바의 브랜치 행도 누른 순간 고른다.
+    const luil::ui_element* const branch { find_element(built, cyella::ui::kind_sidebar_row, u8"row-l:feature/graph") };
+    REQUIRE(branch != nullptr);
+    const press_result sidebar { press_at(built, *branch) };
+    REQUIRE(sidebar.pressed.size() == 1);
+    REQUIRE(intent_at<select_sidebar_item_intent>(sidebar.pressed, 0) != nullptr);
+    CHECK(intent_at<select_sidebar_item_intent>(sidebar.pressed, 0)->key == u8"l:feature/graph");
+    CHECK(sidebar.released.empty());
+}
+
+TEST_CASE("working files pick with modifiers on press and the unstaged header discards everything", "[presentation][ui][working]")
+{
+    tree_fixture fixture {};
+    view_snapshot view { fixture.harness.build() };
+    REQUIRE(view.repository.has_value());
+    working_area_view working {};
+    working.unstaged.push_back({ .key = u8"u:src/a.cpp", .path = "src/a.cpp", .name = u8"a.cpp", .status = 'M', .selected = true });
+    working.unstaged.push_back({ .key = u8"u:src/b.cpp", .path = "src/b.cpp", .name = u8"b.cpp", .status = 'M' });
+    working.unstaged.push_back({ .key = u8"u:new.txt", .path = "new.txt", .name = u8"new.txt", .status = '?', .untracked = true });
+    working.selection_keys = { u8"u:src/a.cpp" };
+    view.repository->detail = detail_mode::working;
+    view.repository->working = working;
+    const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
+    CHECK(built.tree->duplicate_ids().empty());
+
+    const luil::ui_element* const other { find_element(built, cyella::ui::kind_file_row, u8"file-u:src/b.cpp") };
+    REQUIRE(other != nullptr);
+    const press_result pressed { press_at(built, *other, true) };
+    REQUIRE(pressed.pressed.size() == 1);
+    const auto* const chosen { intent_at<select_file_intent>(pressed.pressed, 0) };
+    REQUIRE(chosen != nullptr);
+    CHECK(chosen->key == u8"u:src/b.cpp");
+    CHECK(chosen->control);
+    CHECK(chosen->request.path == "src/b.cpp");
+    CHECK(pressed.released.empty());
+
+    // 고른 파일의 우클릭은 선택을 둔 채 메뉴만 열고, 고르지 않은 파일은 그 파일만 고른 뒤 연다.
+    const luil::ui_element* const picked { find_element(built, cyella::ui::kind_file_row, u8"file-u:src/a.cpp") };
+    REQUIRE(picked != nullptr);
+    const std::vector<luil::input_action> kept { (*picked->action(luil::ui_trigger::right_click))(luil::ui_action_context { picked->id() }) };
+    REQUIRE(kept.size() == 1);
+    CHECK(intent_at<open_context_menu_intent>(kept, 0) != nullptr);
+    luil::ui_action_context with_control { other->id() };
+    with_control.control = true;
+    const std::vector<luil::input_action> moved { (*other->action(luil::ui_trigger::right_click))(with_control) };
+    REQUIRE(moved.size() == 2);
+    REQUIRE(intent_at<select_file_intent>(moved, 0) != nullptr);
+    CHECK_FALSE(intent_at<select_file_intent>(moved, 0)->control);
+    CHECK(intent_at<open_context_menu_intent>(moved, 1) != nullptr);
+
+    // 스테이징 전 머리의 모두 버리기는 추적 중인 파일과 추적하지 않는 파일을 갈라 한 확인 요청으로 낸다.
+    const luil::ui_element* const discard_all { find_element(built, cyella::ui::kind_button, u8"discard-all") };
+    REQUIRE(discard_all != nullptr);
+    CHECK(discard_all->enabled());
+    REQUIRE(discard_all->action(luil::ui_trigger::left_click) != nullptr);
+    const std::vector<luil::input_action> discard { (*discard_all->action(luil::ui_trigger::left_click))(luil::ui_action_context { discard_all->id() }) };
+    const auto* const intent { intent_at<discard_files_intent>(discard, 0) };
+    REQUIRE(intent != nullptr);
+    CHECK(intent->paths == std::vector<std::string> { "src/a.cpp", "src/b.cpp" });
+    CHECK(intent->untracked == std::vector<std::string> { "new.txt" });
 }

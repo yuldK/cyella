@@ -1064,19 +1064,7 @@ namespace cyella {
         }
         if (const auto* const intent { message.get<select_file_intent>() }; intent != nullptr)
         {
-            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
-            {
-                // 문맥 줄 수는 환경 설정이 정한다. 행이 만든 요청에는 기본값이 들어 있다.
-                diff_file_request request { intent->request };
-                request.context_lines = settings().diff.context_lines;
-                tab->diff = request;
-                tab->diff_scroll = 0.0f;
-                static_cast<void>(submit(std::move(request)));
-                // medium·narrow에서는 상세가 그래프 자리 위에 뜬 서랍이라, 그대로 두면 방금 연 diff를 서랍이 덮는다.
-                // diff를 가리지 않게 서랍을 닫는다. 파일 목록은 툴바의 "상세 패널" 단추로 다시 연다.
-                if (last_mode_ != layout_mode::wide)
-                    ui_.drawer_open = false;
-            }
+            handle_select_file(*intent);
             return true;
         }
         if (message.get<close_diff_intent>() != nullptr)

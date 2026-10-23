@@ -406,27 +406,35 @@ namespace cyella {
         }
         if (const auto* const intent { message.get<discard_files_intent>() }; intent != nullptr)
         {
-            if (intent->paths.empty())
+            if (intent->paths.empty() && intent->untracked.empty())
                 return true;
-            if (intent->untracked)
+            if (intent->paths.empty())
             {
                 dialog_state trash {};
-                trash.title = intent->paths.size() == 1 ? tr(u8"shell.trash.title_one") : tr(u8"shell.trash.title", { { u8"count", intent->paths.size() } });
+                trash.title = intent->untracked.size() == 1 ? tr(u8"shell.trash.title_one") : tr(u8"shell.trash.title", { { u8"count", intent->untracked.size() } });
                 trash.lines.push_back(tr(u8"shell.trash.description"));
-                list_paths(intent->paths, trash.lines);
+                list_paths(intent->untracked, trash.lines);
                 trash.confirm_label = tr(u8"shell.trash.confirm");
                 trash.danger = true;
-                trash.plan.primary.push_back(trash_files_request { intent->paths });
+                trash.plan.primary.push_back(trash_files_request { intent->untracked });
                 open_confirm(std::move(trash));
                 return true;
             }
             dialog_state dialog {};
-            dialog.title = intent->paths.size() == 1 ? tr(u8"shell.discard.title_one") : tr(u8"shell.discard.title", { { u8"count", intent->paths.size() } });
+            const std::size_t count { intent->paths.size() + intent->untracked.size() };
+            dialog.title = count == 1 ? tr(u8"shell.discard.title_one") : tr(u8"shell.discard.title", { { u8"count", count } });
             dialog.lines.push_back(tr(u8"shell.discard.description"));
             list_paths(intent->paths, dialog.lines);
             dialog.confirm_label = tr(u8"shell.discard.confirm");
             dialog.danger = true;
             dialog.plan.primary.push_back(discard_files_request { intent->paths });
+            // 추적하지 않는 파일이 섞였으면(모두 버리기) 그 파일은 휴지통으로 보낸다고 따로 말한다.
+            if (intent->untracked.empty() == false)
+            {
+                dialog.lines.push_back(tr(u8"shell.discard.untracked_description", { { u8"count", intent->untracked.size() } }));
+                list_paths(intent->untracked, dialog.lines);
+                dialog.plan.primary.push_back(trash_files_request { intent->untracked });
+            }
             open_confirm(std::move(dialog));
             return true;
         }
@@ -659,6 +667,16 @@ namespace cyella {
             return;
         ui_.selector.reset();
         ui_.ref_list.reset();
+        // 여러 파일을 고른 채 그중 하나를 우클릭했으면 메뉴가 고른 파일 전부의 것이다.
+        if (const tab_ui_state* const tab { selected_tab_state() }; tab != nullptr && target.kind == menu_target_kind::file)
+        {
+            target.paths = working_menu_paths(*tab, target);
+            if (target.paths.empty() == false)
+            {
+                const discard_files_intent split { discard_intent_for(target.paths, target) };
+                target.untracked = split.paths.empty();
+            }
+        }
         ui_.menu = menu_state { .target = std::move(target), .x = x, .y = y, .asked_facts = false };
         if (ui_.menu->target.kind == menu_target_kind::drop)
             request_drop_facts();
@@ -1012,17 +1030,24 @@ namespace cyella {
             else if (key == u8"create_tag_head")
                 open_create_tag_dialog(context.head_sha);
             return;
-        case menu_target_kind::file:
+        case menu_target_kind::file: {
+            // 여러 파일을 고른 채 연 메뉴면 동작이 그 파일 전부에 간다.
+            const std::vector<std::string> paths { target.paths.empty() ? std::vector<std::string> { target.name } : target.paths };
             if (key == u8"stage")
-                static_cast<void>(submit(stage_files_request { { target.name } }));
+                static_cast<void>(submit(stage_files_request { paths }));
             else if (key == u8"unstage")
-                static_cast<void>(submit(unstage_files_request { { target.name } }));
+                static_cast<void>(submit(unstage_files_request { paths }));
             else if (key == u8"discard")
-                handle_dialog_message(luil::app_message { discard_files_intent { { target.name }, target.untracked } });
+                handle_dialog_message(luil::app_message { discard_intent_for(paths, target) });
             else if (key == u8"ignore")
                 static_cast<void>(submit(ignore_path_request { "/" + target.name }));
             else if (key == u8"copy_path")
-                copy_text(to_u8(target.name));
+            {
+                std::u8string text {};
+                for (const std::string& path : paths)
+                    text += (text.empty() ? u8"" : u8"\n") + to_u8(path);
+                copy_text(text);
+            }
             else if (key == u8"open_external_diff")
                 show_notice(tr(u8"shell.external_diff.unavailable"));
             else if (key == u8"lfs_track")
@@ -1030,6 +1055,7 @@ namespace cyella {
             else if (key == u8"lfs_pull")
                 static_cast<void>(submit(lfs_pull_request {}));
             return;
+        }
         case menu_target_kind::tab:
             run_tab_menu_action(target, key);
             return;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "presentation/graph_geometry.h"
+#include "presentation/ui/press_row.h"
 
 #include "luil/ui/ui_element.h"
 
@@ -25,13 +26,14 @@ namespace cyella::ui {
     // 유일하다.
     [[nodiscard]] std::u8string ref_label_key(const ref_label& label);
 
-    // 그래프 행 안의 ref 라벨 하나다. 행의 고르기와 따로 눌리고(한 번 = 이 커밋 고르기, 두 번 = 체크아웃, 우클릭 =
+    // 그래프 행 안의 ref 라벨 하나다. 행의 고르기와 따로 눌리고(누름 = 이 커밋 고르기, 두 번 = 체크아웃, 우클릭 =
     // 메뉴), 브랜치 라벨은 끌어서 다른 라벨·커밋·사이드바 항목에 놓을 수 있다.
-    class ref_chip_element final : public luil::ui_element
+    class ref_chip_element final : public press_row_element
     {
     public:
         // `row_key`는 그 행의 항목 키다 (`select_commit_intent`). `commit_sha`는 라벨이 붙은 커밋이다.
-        ref_chip_element(ref_label label, std::u8string row_key, std::string commit_sha, std::uint8_t lane_color);
+        // `row_selected`는 그 행이 골라져 있다는 뜻이다. 아니면 우클릭이 메뉴를 열기 전에 그 행을 고른다.
+        ref_chip_element(ref_label label, std::u8string row_key, std::string commit_sha, std::uint8_t lane_color, bool row_selected = false);
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;

@@ -260,6 +260,11 @@ namespace cyella {
     struct select_file_intent
     {
         diff_file_request request {};
+        // 작업 영역 파일 행의 키다 (`u:경로`처럼 묶음 접두가 붙는다). 있으면 Ctrl+클릭은 하나 더하기·빼기, Shift+클릭은 기준 행부터의
+        // 범위 고르기다. 비어 있으면 여러 파일 선택을 풀고 이 diff 하나를 연다.
+        std::u8string key {};
+        bool control { false };
+        bool shift { false };
     };
 
     struct close_diff_intent

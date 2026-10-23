@@ -161,10 +161,24 @@ namespace cyella {
         std::optional<dirty_checkout_state> dirty {};
         // 여러 커밋을 고른 비교다. 그냥 클릭·WIP·Esc로 풀린다. `selected_sha`는 그동안에도 마지막에 누른 커밋이다.
         std::optional<commit_compare_state> compare {};
+        // 작업 영역에서 함께 고른 파일의 행 키다 (`c:`·`u:`·`s:` + 경로). 한 묶음(충돌·스테이징 전·커밋에 포함) 안에서만 고르고,
+        // 보이는 diff는 마지막에 누른 파일이다. 작업 영역의 diff가 열려 있을 때만 뜻이 있다 (`active_working_selection`).
+        std::vector<std::u8string> working_selection {};
+        // Shift+클릭 범위의 기준 행 키다. 그냥 클릭과 Ctrl+클릭이 옮기고, Shift+클릭은 그대로 둔다.
+        std::u8string working_anchor {};
 
         [[nodiscard]] bool section_collapsed(const sidebar_section section) const noexcept
         {
             return (collapsed_sections & (1u << static_cast<unsigned>(section))) != 0;
+        }
+
+        // 지금 살아 있는 작업 영역의 여러 파일 선택이다. 작업 영역의 diff가 닫혔거나 커밋 파일을 보고 있으면 비어 있다 — 그때 남은
+        // 키는 다음 고르기가 새로 정한다.
+        [[nodiscard]] std::vector<std::u8string> active_working_selection() const
+        {
+            if (diff.has_value() == false || (diff->view != diff_view::unstaged && diff->view != diff_view::staged))
+                return {};
+            return working_selection;
         }
     };
 

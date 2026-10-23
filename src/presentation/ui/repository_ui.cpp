@@ -179,7 +179,7 @@ namespace cyella::ui {
             config.cursor = selected;
             config.row_height = sidebar_row_height;
             config.scroll_offset = scroll;
-            config.build_row = [index](const luil::virtual_list_item& item, std::size_t, bool) -> std::unique_ptr<luil::ui_element> {
+            config.build_row = [index](const luil::virtual_list_item& item, std::size_t, const bool selected) -> std::unique_ptr<luil::ui_element> {
                 const auto found { index->rows.find(item.key) };
                 if (found == index->rows.end())
                     return nullptr;
@@ -205,7 +205,12 @@ namespace cyella::ui {
                     activate = row.item == sidebar_item_kind::ref ? message(activate_ref_intent { row.kind, row.ref_name }) : message(activate_sidebar_item_intent { row.item, row.path });
                     menu = sidebar_menu_target(row);
                 }
-                return std::make_unique<sidebar_row_element>(row, std::move(select), std::move(activate), std::move(menu));
+                else
+                {
+                    // 원격 묶음 행도 누른 순간 고른다 (목록 행의 클릭은 뗀 순간이라 다른 행과 어긋난다).
+                    select = sidebar_select_action(row);
+                }
+                return std::make_unique<sidebar_row_element>(row, std::move(select), std::move(activate), std::move(menu), selected);
             };
             config.select = [index](const std::u8string& key) {
                 const auto found { index->rows.find(key) };
@@ -548,25 +553,39 @@ namespace cyella::ui {
 
         std::unique_ptr<luil::ui_element> make_file_list(std::u8string owner, std::vector<luil::virtual_list_item> items,
             std::shared_ptr<std::map<std::u8string, std::function<std::unique_ptr<luil::ui_element>()>>> builders, std::shared_ptr<std::map<std::u8string, diff_file_request>> requests,
-            std::u8string selected, const float scroll, feedback_sources& sources)
+            std::u8string selected, const float scroll, feedback_sources& sources, const std::optional<std::vector<std::u8string>>& selection = std::nullopt)
         {
             luil::virtual_list_config config {};
             config.owner = std::move(owner);
             config.items = std::move(items);
             config.selected = selected;
             config.cursor = selected;
+            // 작업 영역은 여러 파일을 함께 고른다 (Ctrl·Shift+클릭). 고른 행은 목록이 함께 칠하고 보조 기술은 다중 선택 목록으로 읽는다.
+            const bool multiple { selection.has_value() };
+            if (multiple)
+            {
+                config.multiple_selection = true;
+                config.selection = *selection;
+            }
             config.row_height = file_row_height;
             config.scroll_offset = scroll;
             config.build_row = [builders](const luil::virtual_list_item& item, std::size_t, bool) -> std::unique_ptr<luil::ui_element> {
                 const auto found { builders->find(item.key) };
                 return found == builders->end() ? nullptr : found->second();
             };
-            const auto select = [requests](const std::u8string& key) {
+            // 행의 누름은 행 element가 낸다. 이것은 키보드·보조 기술과 행 밖의 누름이 지나는 길이다.
+            const auto select = [requests, multiple](const std::u8string& key) {
                 const auto found { requests->find(key) };
-                return found == requests->end() ? luil::input_action {} : message(select_file_intent { found->second });
+                return found == requests->end() ? luil::input_action {} : message(select_file_intent { .request = found->second, .key = multiple ? key : std::u8string {} });
             };
             config.select = select;
             config.move = select;
+            // 보조 기술의 더하기·빼기는 Ctrl+누름과 같다.
+            if (multiple)
+                config.pick = [requests](const std::u8string& key, const luil::ui_action_context& context) {
+                    const auto found { requests->find(key) };
+                    return found == requests->end() ? luil::input_action {} : message(select_file_intent { .request = found->second, .key = key, .control = context.control, .shift = context.shift });
+                };
             config.scroll = [](const float delta) { return message(scroll_intent { .target = scroll_target::detail, .value = delta }); };
             config.scroll_to = [](const float offset) { return message(scroll_intent { .target = scroll_target::detail, .value = offset, .absolute = true }); };
             config.edges = luil::scroll_edges { .shadows = true };
@@ -652,7 +671,8 @@ namespace cyella::ui {
                 // 트리에서는 폴더가 이미 보이므로 이름 바꾸기(← 옛 경로)만 남긴다.
                 if (depth.has_value() && shown.original_path.empty())
                     shown.folder.clear();
-                (*builders)[row.key] = [shown, select, target, depth] { return std::make_unique<file_row_element>(shown, std::vector<file_row_button> {}, select, target, depth); };
+                (*builders)[row.key]
+                    = [shown, select, target, depth] { return std::make_unique<file_row_element>(shown, std::vector<file_row_button> {}, action_of(select), target, depth, shown.selected); };
                 (*requests)[row.key] = request;
                 if (row.selected)
                     selected = row.key;
@@ -714,10 +734,14 @@ namespace cyella::ui {
             std::vector<luil::virtual_list_item> items {};
             std::u8string selected {};
 
-            const auto add_group = [&](std::u8string key, std::u8string title, const std::vector<file_row_view>& rows, std::optional<file_row_button> button) {
-                items.push_back({ .key = key, .label = title, .height = 28.0f, .enabled = false });
-                (*builders)[key] = [key, title, count = rows.size(), button]() mutable { return std::make_unique<file_group_element>(u8"group-" + key, title, count, std::move(button)); };
-            };
+            const auto add_group
+                = [&](std::u8string key, std::u8string title, const std::vector<file_row_view>& rows, std::optional<file_row_button> button, std::optional<file_row_button> icon = std::nullopt) {
+                      items.push_back({ .key = key, .label = title, .height = 28.0f, .enabled = false });
+                      (*builders)[key] = [key, title, count = rows.size(), button, icon]() mutable {
+                          return std::make_unique<file_group_element>(u8"group-" + key, title, count, std::move(button), std::move(icon));
+                      };
+                  };
+            const std::vector<std::u8string>& chosen { working.selection_keys };
             const auto add_rows = [&](const std::vector<file_row_view>& rows, const diff_view view) {
                 const auto add_file = [&](const file_row_view& row, const std::optional<std::size_t> depth) {
                     items.push_back({ .key = row.key, .label = row.name });
@@ -727,8 +751,9 @@ namespace cyella::ui {
                         buttons.push_back(make_row_button(u8"stage:" + to_u8(row.path), codicons::icon_add, tr(u8"repo.working.stage"), submit(repo, stage_files_request { { row.path } })));
                         // 버리기는 확인 대화 상자를 거친다. 추적하지 않는 파일은 휴지통으로 보낸다.
                         std::u8string tooltip { row.untracked ? tr(u8"repo.working.move_to_trash") : tr(u8"repo.working.discard") };
-                        buttons.push_back(make_row_button(u8"discard:" + to_u8(row.path), row.untracked ? codicons::icon_trash : codicons::icon_discard, std::move(tooltip),
-                            message(discard_files_intent { { row.path }, row.untracked }), true));
+                        discard_files_intent discard {};
+                        (row.untracked ? discard.untracked : discard.paths).push_back(row.path);
+                        buttons.push_back(make_row_button(u8"discard:" + to_u8(row.path), row.untracked ? codicons::icon_trash : codicons::icon_discard, std::move(tooltip), message(discard), true));
                     }
                     if (view == diff_view::staged)
                         buttons.push_back(make_row_button(u8"unstage:" + to_u8(row.path), codicons::icon_remove, tr(u8"repo.working.unstage"), submit(repo, unstage_files_request { { row.path } })));
@@ -743,8 +768,12 @@ namespace cyella::ui {
                     file_row_view shown { row };
                     if (depth.has_value() && shown.original_path.empty())
                         shown.folder.clear();
-                    (*builders)[row.key]
-                        = [shown, buttons, request, target, depth] { return std::make_unique<file_row_element>(shown, buttons, message(select_file_intent { request }), target, depth); };
+                    // 누름은 수식 키와 함께 여러 파일 고르기다 (Ctrl 하나 더하기·빼기, Shift 범위).
+                    const auto select = [request, key = row.key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                        return { message(select_file_intent { .request = request, .key = key, .control = context.control, .shift = context.shift }) };
+                    };
+                    const bool picked { row.selected || std::find(chosen.begin(), chosen.end(), row.key) != chosen.end() };
+                    (*builders)[row.key] = [shown, buttons, select, target, depth, picked] { return std::make_unique<file_row_element>(shown, buttons, select, target, depth, picked); };
                     (*requests)[row.key] = request;
                     if (row.selected)
                         selected = row.key;
@@ -789,14 +818,21 @@ namespace cyella::ui {
             for (const file_row_view& row : working.staged)
                 staged_paths.push_back(row.path);
             const bool any_unstaged { working.unstaged.empty() == false };
+            // 모두 버리기는 추적 중인 파일의 restore와 추적하지 않는 파일의 휴지통을 한 확인 상자로 묻는다. 충돌 파일은 빠진다.
+            discard_files_intent discard_all {};
+            for (const file_row_view& row : working.unstaged)
+                if (row.conflicted == false)
+                    (row.untracked ? discard_all.untracked : discard_all.paths).push_back(row.path);
+            const bool any_discard { discard_all.paths.empty() == false || discard_all.untracked.empty() == false };
             add_group(u8"g:unstaged", tr(u8"repo.working.unstaged"), working.unstaged,
-                make_row_button(u8"stage-all", codicons::icon_add, tr(u8"repo.working.stage_all"), submit(repo, stage_files_request { unstaged_paths }), any_unstaged));
+                make_row_button(u8"stage-all", codicons::icon_add, tr(u8"repo.working.stage_all"), submit(repo, stage_files_request { unstaged_paths }), any_unstaged),
+                make_row_button(u8"discard-all", codicons::icon_discard, tr(u8"repo.working.discard_all"), message(std::move(discard_all)), any_discard));
             add_rows(working.unstaged, diff_view::unstaged);
             const bool any_staged { working.staged.empty() == false };
             add_group(u8"g:staged", tr(u8"repo.working.staged"), working.staged,
                 make_row_button(u8"unstage-all", codicons::icon_remove, tr(u8"repo.working.unstage_all"), submit(repo, unstage_files_request { staged_paths }), any_staged));
             add_rows(working.staged, diff_view::staged);
-            column->add_flexible(make_file_list(u8"working-files", std::move(items), std::move(builders), std::move(requests), std::move(selected), repository.detail_scroll, sources));
+            column->add_flexible(make_file_list(u8"working-files", std::move(items), std::move(builders), std::move(requests), std::move(selected), repository.detail_scroll, sources, chosen));
 
             // 커밋 상자 (아래 고정)
             auto box { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-box" }, luil::stack_config { .spacing = 8.0f, .padding = luil::edge_insets::all(12.0f) }) };
@@ -986,7 +1022,8 @@ namespace cyella::ui {
         const std::shared_ptr<const ref_label_map> labels { graph.labels };
         const std::uint16_t wip_lane { graph.has_wip && rows->empty() == false ? rows->front().lane : std::uint16_t { 0 } };
         // 세션의 행을 가리키는 포인터는 이 tree를 짓는 동안(`make_arranged_tree`)만 쓰인다. 행 element는 값을 복사해 간다.
-        config.build_row = [rows, commits, labels, columns, wip_lane, graph_state = graph](const luil::virtual_list_item&, const std::size_t index, bool) -> std::unique_ptr<luil::ui_element> {
+        config.build_row
+            = [rows, commits, labels, columns, wip_lane, graph_state = graph](const luil::virtual_list_item&, const std::size_t index, const bool selected) -> std::unique_ptr<luil::ui_element> {
             if (index >= rows->size() || index >= commits->size())
                 return nullptr;
             const commit_info& commit { (*commits)[index] };
@@ -1001,6 +1038,7 @@ namespace cyella::ui {
             data.head = commit.sha == graph_state.head_sha;
             data.row_key = graph_item_key(commit.sha);
             data.sha = commit.sha;
+            data.selected = selected;
             if (graph_state.signatures != nullptr)
                 if (const auto signature { graph_state.signatures->find(commit.sha) }; signature != graph_state.signatures->end())
                 {

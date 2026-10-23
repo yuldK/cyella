@@ -213,7 +213,7 @@ namespace cyella::ui {
     // ---------------------------------------------------------------- graph_row_element
 
     graph_row_element::graph_row_element(std::u8string owner, graph_row_data data, graph_columns columns)
-        : ui_element { luil::ui_element_id { kind_graph_row, std::move(owner) } }
+        : press_row_element { luil::ui_element_id { kind_graph_row, std::move(owner) } }
         , data_ { std::move(data) }
         , columns_ { columns }
     {
@@ -227,9 +227,9 @@ namespace cyella::ui {
             access_name_ += u8" [" + names + u8"]";
         }
         set_tab_stop(false);
-        // 목록 행의 고르기를 가로채지 않도록 같은 고르기 메시지를 낸다 (사이드바 행과 같은 이유).
+        // 목록 행의 고르기를 가로채지 않도록 같은 고르기 메시지를 누른 순간 낸다 (`press_row_element`).
         // Ctrl·Shift는 여러 커밋 고르기다. 목록의 `pick`이 받는 수식 키를 이 element가 대신 싣는다.
-        set_action(luil::ui_trigger::left_click, [key = data_.row_key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+        set_press([key = data_.row_key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
             return { message(select_commit_intent { .key = key, .control = context.control, .shift = context.shift }) };
         });
         if (data_.wip)
@@ -239,8 +239,14 @@ namespace cyella::ui {
         menu_target target {};
         target.kind = menu_target_kind::commit;
         target.sha = data_.sha;
-        set_action(luil::ui_trigger::right_click,
-            [target](const luil::ui_action_context& context) -> std::vector<luil::input_action> { return { message(open_context_menu_intent { target, context.x, context.y }) }; });
+        // 고르지 않은 행을 우클릭하면 그 행만 고른 뒤 메뉴를 연다. 고른 행(비교 중인 커밋 포함)이면 선택을 둔다.
+        set_action(luil::ui_trigger::right_click, [target, key = data_.row_key, selected = data_.selected](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+            std::vector<luil::input_action> actions {};
+            if (selected == false)
+                actions.push_back(message(select_commit_intent { .key = key }));
+            actions.push_back(message(open_context_menu_intent { target, context.x, context.y }));
+            return actions;
+        });
 
         // 커밋 행은 브랜치를 놓을 자리다 ("이 커밋에서 브랜치 만들기", 현재 브랜치면 reset).
         luil::drop_target drop {};
@@ -257,7 +263,7 @@ namespace cyella::ui {
         set_drop_target(std::move(drop));
 
         for (const ref_label& label : data_.labels)
-            chips_.push_back(static_cast<ref_chip_element*>(add_chip(std::make_unique<ref_chip_element>(label, data_.row_key, data_.sha, data_.row.color))));
+            chips_.push_back(static_cast<ref_chip_element*>(add_chip(std::make_unique<ref_chip_element>(label, data_.row_key, data_.sha, data_.row.color, data_.selected))));
     }
 
     luil::ui_element* graph_row_element::add_chip(std::unique_ptr<luil::ui_element> chip)

@@ -109,11 +109,13 @@ namespace cyella {
         std::vector<git_operation> operations {};
     };
 
+    // 작업 트리의 변경을 버린다. 확인 상자를 먼저 연다.
     struct discard_files_intent
     {
+        // 추적 중인 파일이다. 작업 트리 변경을 index로 되돌린다 (`discard_files_request`).
         std::vector<std::string> paths {};
-        // 추적하지 않는 파일이다. 확인 상자가 "휴지통으로 보냅니다"를 말하고 `trash_files_request`를 낸다.
-        bool untracked { false };
+        // 추적하지 않는 파일이다. git으로는 되돌릴 수 없어 확인 상자가 "휴지통으로 보냅니다"를 말하고 `trash_files_request`를 낸다.
+        std::vector<std::string> untracked {};
     };
 
     // 툴바와 메뉴가 여는 대화 상자다.
