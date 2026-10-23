@@ -202,6 +202,20 @@ namespace cyella {
             return view;
         }
 
+        bool notification_passes(const notification& value, const notification_filter filter) noexcept
+        {
+            switch (filter)
+            {
+            case notification_filter::warning:
+                return value.severity == notification_severity::warning;
+            case notification_filter::error:
+                return value.severity == notification_severity::error;
+            case notification_filter::all:
+                break;
+            }
+            return true;
+        }
+
         void fill_notifications(view_snapshot& view, const ui_state& ui, const std::int64_t now, const std::chrono::steady_clock::time_point steady_now)
         {
             status_view& status { view.status };
@@ -211,8 +225,25 @@ namespace cyella {
             if (ui.notifications_open)
             {
                 notification_center_view center {};
+                center.filter = ui.notifications_filter;
+                center.total = ui.notifications.size();
+                std::u8string first_day {};
                 for (auto it { ui.notifications.rbegin() }; it != ui.notifications.rend(); ++it)
-                    center.entries.push_back(make_notification_view(*it, now));
+                {
+                    const std::int64_t at { std::chrono::duration_cast<std::chrono::seconds>(it->at.time_since_epoch()).count() };
+                    std::u8string day { day_text(now, at) };
+                    if (it == ui.notifications.rbegin())
+                        first_day = day;
+                    else if (day != first_day)
+                        center.show_days = true;
+                    center.warnings += it->severity == notification_severity::warning ? 1u : 0u;
+                    center.errors += it->severity == notification_severity::error ? 1u : 0u;
+                    if (notification_passes(*it, ui.notifications_filter) == false)
+                        continue;
+                    notification_view entry { make_notification_view(*it, now) };
+                    entry.day = std::move(day);
+                    center.entries.push_back(std::move(entry));
+                }
                 view.notification_center = std::move(center);
                 view.notifications_scroll = ui.notifications_scroll;
                 return;
@@ -1020,6 +1051,30 @@ namespace cyella {
         if (zone == nullptr)
             return to_u8(std::format("{:%Y-%m-%d %H:%M} UTC", point));
         return to_u8(std::format("{:%Y-%m-%d %H:%M}", std::chrono::zoned_time { zone, point }));
+    }
+
+    std::u8string day_text(const std::int64_t now_seconds, const std::int64_t then_seconds)
+    {
+        static const std::chrono::time_zone* const zone { local_time_zone() };
+        const auto local_day = [](const std::int64_t seconds) {
+            const std::chrono::sys_seconds point { std::chrono::seconds { seconds } };
+            if (zone == nullptr)
+                return std::chrono::local_days { std::chrono::floor<std::chrono::days>(point).time_since_epoch() };
+            return std::chrono::floor<std::chrono::days>(zone->to_local(point));
+        };
+        const std::chrono::local_days today { local_day(now_seconds) };
+        const std::chrono::local_days then { local_day(then_seconds) };
+        if (then >= today)
+            return tr(u8"snapshot.day.today");
+        if (then + std::chrono::days { 1 } == today)
+            return tr(u8"snapshot.day.yesterday");
+        const std::chrono::year_month_day date { then };
+        const std::chrono::year_month_day current { today };
+        const auto month { static_cast<unsigned>(date.month()) };
+        const auto day { static_cast<unsigned>(date.day()) };
+        if (date.year() == current.year())
+            return tr(u8"snapshot.day.date", { { u8"month", month }, { u8"day", day } });
+        return tr(u8"snapshot.day.date_year", { { u8"year", static_cast<int>(date.year()) }, { u8"month", month }, { u8"day", day } });
     }
 
     std::u8string operation_display_name(const operation_kind kind)

@@ -615,6 +615,26 @@ TEST_CASE("notices rise as toasts, leave smoothly when they time out and stay in
     REQUIRE(test.send(toggle_notification_center_intent {}));
     CHECK(test.controller.state().notifications_open);
 
+    // 센터는 카드마다 심각도 원과 [×]를 가진 카드를 쌓고, 머리에서 종류를 거른다. 다시 열면 거르기는 전체로 돌아간다.
+    {
+        const ui::built_tree center_tree { ui::build_ui_tree(test.controller.make_view(1440.0f, 900.0f, 1.0f)) };
+        const auto popup { std::find_if(center_tree.popups.begin(), center_tree.popups.end(), [](const ui::built_popup& value) { return value.notifications; }) };
+        REQUIRE(popup != center_tree.popups.end());
+        CHECK_FALSE(popup->border);
+        const std::u8string card { u8"notification-" + ui::number_text(test.controller.state().notifications.back().id) };
+        CHECK(popup->tree->find({ ui::kind_panel, card }) != nullptr);
+        CHECK(popup->tree->find({ ui::kind_button, card + u8"-close" }) != nullptr);
+        CHECK(popup->tree->find({ ui::kind_segmented, u8"notification-filter" }) != nullptr);
+    }
+    REQUIRE(test.send(filter_notifications_intent { notification_filter::warning }));
+    view = test.controller.make_view(1440.0f, 900.0f, 1.0f);
+    REQUIRE(view.notification_center.has_value());
+    REQUIRE(view.notification_center->entries.size() == 1);
+    CHECK(view.notification_center->entries.front().severity == notification_severity::warning);
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    CHECK(test.controller.state().notifications_filter == notification_filter::all);
+
     // 센터의 항목은 ×로 바로 지운다.
     REQUIRE(test.send(dismiss_notification_intent { test.controller.state().notifications.front().id }));
     CHECK(test.controller.state().notifications.size() == 2);

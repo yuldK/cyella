@@ -195,6 +195,35 @@ TEST_CASE("notifications become toasts newest first until the center is opened",
     CHECK(view.notification_center->entries.back().id == 1);
     CHECK(view.status.notifications_open);
 
+    // 거르기는 그 심각도만 남기고, 머리의 개수는 거르기 전의 것이다. 모두 같은 날이면 날 머리글을 세우지 않는다.
+    harness.ui.notifications[1].severity = notification_severity::warning;
+    harness.ui.notifications[3].severity = notification_severity::error;
+    harness.ui.notifications_filter = notification_filter::error;
+    view = harness.build();
+    REQUIRE(view.notification_center.has_value());
+    REQUIRE(view.notification_center->entries.size() == 1);
+    CHECK(view.notification_center->entries.front().id == 4);
+    CHECK(view.notification_center->filter == notification_filter::error);
+    CHECK(view.notification_center->total == 5);
+    CHECK(view.notification_center->warnings == 1);
+    CHECK(view.notification_center->errors == 1);
+    CHECK_FALSE(view.notification_center->show_days);
+    harness.ui.notifications_filter = notification_filter::all;
+
+    // 알림이 두 날에 걸치면 날마다 머리글을 세운다.
+    const auto now { std::chrono::system_clock::time_point { std::chrono::seconds { 1700000000 + 3600 } } };
+    for (notification& value : harness.ui.notifications)
+        value.at = now;
+    harness.ui.notifications.front().at = now - std::chrono::days { 1 };
+    view = harness.build();
+    REQUIRE(view.notification_center.has_value());
+    CHECK(view.notification_center->show_days);
+    CHECK(view.notification_center->entries.front().day == tr(u8"snapshot.day.today"));
+    CHECK(view.notification_center->entries.back().day == tr(u8"snapshot.day.yesterday"));
+    const std::int64_t seconds { 1700000000 + 3600 };
+    CHECK(day_text(seconds, seconds - 5 * 86400).find(u8"11") != std::u8string::npos);
+    CHECK(day_text(seconds, seconds - 400 * 86400).find(u8"2022") != std::u8string::npos);
+
     // 입력이 필요한 작업은 알림이 아니라 체크아웃 정책 대화 상자가 맡는다.
     harness.ui.notifications.clear();
     harness.ui.notifications_open = false;

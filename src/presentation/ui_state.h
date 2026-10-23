@@ -194,6 +194,14 @@ namespace cyella {
         error,
     };
 
+    // 알림 센터가 보이는 알림의 종류다. 경고·오류는 그 심각도만 남긴다.
+    enum class notification_filter : std::uint8_t
+    {
+        all,
+        warning,
+        error,
+    };
+
     // 알림 하나다. 오른쪽 아래 토스트로 잠깐 뜨고, 상태 줄의 종(알림 센터)에 남는다.
     struct notification
     {
@@ -289,6 +297,8 @@ namespace cyella {
         // 상태 줄의 종을 눌러 연 알림 센터다. 열려 있는 동안 토스트는 띄우지 않는다.
         bool notifications_open { false };
         float notifications_scroll { 0.0f };
+        // 알림 센터 머리의 거르기다. 센터를 열 때마다 전체로 돌아간다.
+        notification_filter notifications_filter { notification_filter::all };
         // IME 조합 중인 칸의 표시 글이다. 한 번에 한 칸만 조합한다.
         std::optional<luil::text_composition_event> composition {};
         diff_surface_state diff_surface {};

@@ -151,12 +151,22 @@ namespace cyella {
         std::u8string time_tooltip {};
         // 토스트가 나와 있는 정도다 [0, 1] (`toast_presence`). 센터의 항목은 늘 1이다.
         float presence { 1.0f };
+        // 센터에서 이 알림이 묶이는 날이다 ("오늘"·"어제"·"10월 22일"). 토스트는 비어 있다.
+        std::u8string day {};
     };
 
     // 상태 줄의 종이 연 목록이다. 최신이 앞이다.
     struct notification_center_view
     {
+        // 거르기를 지난 알림이다.
         std::vector<notification_view> entries {};
+        notification_filter filter { notification_filter::all };
+        // 거르기 전의 개수다. 머리의 거르기 단추가 센다.
+        std::size_t total { 0 };
+        std::size_t warnings { 0 };
+        std::size_t errors { 0 };
+        // 알림이 두 날 이상에 걸쳐 있다. 그때만 날마다 머리글을 세운다 — 모두 오늘이면 "오늘"은 군말이다.
+        bool show_days { false };
     };
 
     struct log_line_view

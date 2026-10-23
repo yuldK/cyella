@@ -25,6 +25,8 @@ namespace cyella::ui {
         bool ref_list { false };
         // 알림 센터다. 바깥 누름과 Esc에 닫힌다.
         bool notifications { false };
+        // 표면 둘레의 1px 사각 테두리다 (luil `ui_popup::border`). 둥근 테두리를 직접 긋는 판은 끈다 — 두 선이 겹치면 사각 틀 안에 둥근 판이 갇혀 보인다.
+        bool border { true };
     };
 
     struct built_tree

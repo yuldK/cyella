@@ -130,6 +130,12 @@ namespace cyella {
     struct clear_notifications_intent
     {};
 
+    // 알림 센터 머리에서 보일 종류를 고른다.
+    struct filter_notifications_intent
+    {
+        notification_filter filter { notification_filter::all };
+    };
+
     struct toggle_operation_log_intent
     {};
 

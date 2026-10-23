@@ -858,6 +858,7 @@ namespace cyella {
             notifications_dismissed_at_.reset();
             ui_.notifications_open = ui_.notifications_open == false;
             ui_.notifications_scroll = 0.0f;
+            ui_.notifications_filter = notification_filter::all;
             if (ui_.notifications_open)
                 for (notification& value : ui_.notifications)
                 {
@@ -879,6 +880,12 @@ namespace cyella {
         if (message.get<clear_notifications_intent>() != nullptr)
         {
             ui_.notifications.clear();
+            return true;
+        }
+        if (const auto* const intent { message.get<filter_notifications_intent>() }; intent != nullptr)
+        {
+            ui_.notifications_filter = intent->filter;
+            ui_.notifications_scroll = 0.0f;
             return true;
         }
         if (message.get<toggle_operation_log_intent>() != nullptr)

@@ -81,6 +81,8 @@ namespace cyella {
     [[nodiscard]] std::u8string relative_time_text(std::int64_t now_seconds, std::int64_t then_seconds);
     // 이 컴퓨터 시간대의 "2026-10-20 14:03"이다. 시간대를 읽지 못하면 UTC로 쓰고 " UTC"를 붙인다.
     [[nodiscard]] std::u8string absolute_time_text(std::int64_t seconds);
+    // 이 컴퓨터의 시간대로 본 그 시각의 날이다 ("오늘"·"어제"·"10월 22일", 다른 해면 해까지).
+    [[nodiscard]] std::u8string day_text(std::int64_t now_seconds, std::int64_t then_seconds);
 
     // 상태 줄·로그가 쓰는 작업 이름이다 ("Fetch", "커밋").
     [[nodiscard]] std::u8string operation_display_name(operation_kind kind);
