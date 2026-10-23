@@ -42,6 +42,11 @@ namespace cyella {
         // `git rev-list --count from..to`다. `to`에서 닿고 `from`에서 닿지 않는 커밋 수이며, 둘 다 읽혀 있을 때만
         // 값이 있다.
         [[nodiscard]] std::optional<std::uint32_t> count(std::string_view from, std::string_view to) const;
+        // `git rev-list from..to`가 내는 커밋의 색인이다 (오름차순). 그래프에서 고른 범위의 행을 강조하는 데 쓴다.
+        //  - `to`가 읽혀 있지 않으면 비어 있다.
+        //  - `from`이 비었거나 읽혀 있지 않으면 읽은 것 중 `to`에서 닿는 모든 커밋이다. 읽지 않은 커밋의 조상도 읽지
+        //    않았으므로(위의 접두 성질) 빠뜨리는 것이 없다.
+        [[nodiscard]] std::vector<std::size_t> range(std::string_view from, std::string_view to) const;
 
         // 항목 키의 길이다 (`graph_item_key`).
         static constexpr std::size_t key_length { 15 };

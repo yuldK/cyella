@@ -310,6 +310,64 @@ namespace cyella {
             return operation_outcome::succeeded();
         }
 
+        // 비교의 왼쪽 리비전이다. 비었으면(루트 커밋부터의 범위) 이 저장소 객체 형식의 빈 트리 해시를 git에게 묻는다.
+        // sha1과 sha256 저장소의 빈 트리 해시가 달라 상수로 둘 수 없다.
+        bool resolve_base_revision(git_operation_context& context, const std::string& base, std::string& resolved, std::optional<operation_outcome>& stop)
+        {
+            if (base.empty() == false)
+            {
+                resolved = base;
+                return true;
+            }
+            git_command_spec spec {};
+            spec.arguments = make_git_empty_tree_args();
+            git_command_outcome outcome {};
+            if (context.run_required(std::move(spec), outcome, stop) == false)
+                return false;
+            resolved = trim_line(outcome.standard_output);
+            if (resolved.empty())
+            {
+                stop = operation_outcome::failed(failure_kind::other, tr(u8"git.empty_tree_failed"), to_utf8(outcome.standard_output));
+                return false;
+            }
+            return true;
+        }
+
+        operation_outcome show_range(git_operation_context& context, const show_range_request& request)
+        {
+            git_command_outcome outcome {};
+            std::optional<operation_outcome> stop {};
+            range_detail detail {};
+            detail.request = request;
+            if (resolve_base_revision(context, request.base, detail.base, stop) == false)
+                return *stop;
+
+            git_command_spec names {};
+            names.arguments = make_git_diff_revisions_name_status_args(detail.base, request.tip);
+            if (context.run_required(std::move(names), outcome, stop) == false)
+                return *stop;
+            detail.files = parse_git_name_status(outcome.standard_output);
+
+            git_command_spec numstat {};
+            numstat.arguments = make_git_diff_revisions_numstat_args(detail.base, request.tip);
+            if (context.run_required(std::move(numstat), outcome, stop) == false)
+                return *stop;
+            apply_numstat(detail.files, parse_git_numstat(outcome.standard_output));
+            if (repository_uses_lfs(context))
+                mark_lfs_changes(context, detail.files);
+
+            if (request.range)
+            {
+                git_command_spec count {};
+                count.arguments = request.base.empty() ? make_git_count_reachable_args(request.tip) : make_git_count_commits_args(request.base, request.tip);
+                if (context.run_required(std::move(count), outcome, stop) == false)
+                    return *stop;
+                detail.commit_count = git_text::parse_integer<std::uint32_t>(trim_line(outcome.standard_output));
+            }
+            context.emit(range_detail_loaded { std::move(detail) });
+            return operation_outcome::succeeded();
+        }
+
         // `.gitattributes`가 이 파일에 textconv가 있는 diff 드라이버를 지정했으면 그 이름이다. 알아내지 못하면(git 실패 등) 빈 값이다.
         // 배지를 위한 부가 정보라 실패해도 diff를 막지 않는다.
         std::string detect_textconv_driver(git_operation_context& context, const std::string& path)
@@ -347,6 +405,14 @@ namespace cyella {
                 const std::vector<commit_info> commits { parse_git_log(info.standard_output, true) };
                 const bool is_merge { commits.empty() == false && commits.front().parents.size() > 1 };
                 spec.arguments = make_git_show_file_args(request.sha, request.path, is_merge, request.context_lines);
+            }
+            else if (request.view == diff_view::range)
+            {
+                std::string base {};
+                std::optional<operation_outcome> stop {};
+                if (resolve_base_revision(context, request.base, base, stop) == false)
+                    return *stop;
+                spec.arguments = make_git_diff_revisions_file_args(base, request.sha, request.path, request.context_lines);
             }
             else if (request.untracked)
             {
@@ -419,6 +485,8 @@ namespace cyella {
                     return show_commit(context, request);
                 else if constexpr (std::is_same_v<request_type, diff_file_request>)
                     return load_file_diff(context, request);
+                else if constexpr (std::is_same_v<request_type, show_range_request>)
+                    return show_range(context, request);
                 else if constexpr (std::is_same_v<request_type, is_ancestor_request>)
                     return is_ancestor(context, request);
                 else if constexpr (std::is_same_v<request_type, count_commits_request>)

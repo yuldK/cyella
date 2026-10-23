@@ -183,6 +183,23 @@ TEST_CASE("resolve_diff_sides picks the two sides of each view", "[diff][externa
         CHECK(pair.right == diff_side_spec { diff_side_kind::revision, "abc123", "src/a.cpp" });
     }
 
+    SECTION("a range compares its base with its tip")
+    {
+        plan.view = diff_view::range;
+        plan.base = "def456";
+        const diff_side_pair pair { resolve_diff_sides(plan) };
+        CHECK(pair.left == diff_side_spec { diff_side_kind::revision, "def456", "src/a.cpp" });
+        CHECK(pair.right == diff_side_spec { diff_side_kind::revision, "abc123", "src/a.cpp" });
+
+        // 이름이 바뀐 파일의 왼쪽은 옛 경로이고, 추가된 파일은 왼쪽이 없다 (루트부터의 범위는 모두 추가다).
+        plan.old_path = "src/old.cpp";
+        plan.status = 'R';
+        CHECK(resolve_diff_sides(plan).left == diff_side_spec { diff_side_kind::revision, "def456", "src/old.cpp" });
+        plan.old_path.clear();
+        plan.status = 'A';
+        CHECK(resolve_diff_sides(plan).left.kind == diff_side_kind::none);
+    }
+
     SECTION("an added file has no left side and a deleted file has no right side")
     {
         plan.status = 'A';
@@ -308,6 +325,15 @@ TEST_CASE("without a table entry diff.tool is handed to git difftool", "[diff][e
         request.plan.view = diff_view::commit;
         CHECK(opener.open(request).status == external_open_status::launched_difftool);
         const std::vector<std::u8string> expected { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt", u8"abc123^", u8"abc123", u8"--", u8"bin/data.bin" };
+        CHECK(launcher.requests.front().arguments == expected);
+    }
+
+    SECTION("range")
+    {
+        request.plan.view = diff_view::range;
+        request.plan.base = "def456";
+        CHECK(opener.open(request).status == external_open_status::launched_difftool);
+        const std::vector<std::u8string> expected { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt", u8"def456", u8"abc123", u8"--", u8"bin/data.bin" };
         CHECK(launcher.requests.front().arguments == expected);
     }
 }

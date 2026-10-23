@@ -105,6 +105,8 @@ namespace cyella {
         trash_files,
         // 커밋 서명을 검증한다(읽기 lane). 결과는 `signatures_verified` 사건이다.
         verify_signatures,
+        // 여러 커밋을 고른 비교의 변경 파일을 읽는다(읽기 lane). 결과는 `range_detail_loaded` 사건이다.
+        show_range,
     };
 
     enum class operation_state

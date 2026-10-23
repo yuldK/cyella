@@ -58,6 +58,11 @@ namespace cyella {
         expected_status_ = id;
     }
 
+    void repository_session::expect_range_detail(const operation_id id) noexcept
+    {
+        expected_range_ = id;
+    }
+
     void repository_session::set_awaiting_input(const std::optional<operation_id> id) noexcept
     {
         awaiting_input_ = id;
@@ -189,6 +194,16 @@ namespace cyella {
         if (id != expected_diff_)
             return false;
         file_diff_ = event.diff;
+        ++revision_;
+        return true;
+    }
+
+    bool repository_session::apply(const operation_id id, const range_detail_loaded& event)
+    {
+        // 사용자가 다른 커밋들을 이미 골랐으면 앞선 선택의 결과를 버린다.
+        if (id != expected_range_)
+            return false;
+        range_detail_ = event.detail;
         ++revision_;
         return true;
     }

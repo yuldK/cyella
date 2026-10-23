@@ -245,6 +245,9 @@ namespace cyella {
     {
         // 그래프 항목 키(SHA 앞 15자)다. 모델에서 SHA로 되찾는다.
         std::u8string key {};
+        // Ctrl+클릭은 앞서 고른 커밋과 두 커밋 비교, Shift+클릭은 그 사이 범위다. 둘 다 거짓이면 커밋 하나를 고른다.
+        bool control { false };
+        bool shift { false };
     };
 
     // 상세 패널의 파일을 골랐다. diff를 읽어 그래프 자리에 보인다.

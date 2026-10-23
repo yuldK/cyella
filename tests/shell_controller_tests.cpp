@@ -79,6 +79,35 @@ namespace {
         std::snprintf(buffer, sizeof(buffer), "%08x%032x", index, index);
         return buffer;
     }
+
+    // 갈래가 있는 이력이다 (자식이 앞): 5 → 3 → 2 → 1(루트)과, 2에서 갈라진 옆 갈래 4.
+    std::vector<commit_info> branching_history()
+    {
+        return {
+            { .sha = sha_of(5), .parents = { sha_of(3) }, .subject = "five" },
+            { .sha = sha_of(4), .parents = { sha_of(2) }, .subject = "four" },
+            { .sha = sha_of(3), .parents = { sha_of(2) }, .subject = "three" },
+            { .sha = sha_of(2), .parents = { sha_of(1) }, .subject = "two" },
+            { .sha = sha_of(1), .subject = "one" },
+        };
+    }
+
+    // 새로 고침 하나를 끝까지 넣는다. `wip`이면 작업 트리 변경이 있어 세션이 맨 앞에 WIP 행을 둔다.
+    void load_history(repository_session& session, std::vector<commit_info> commits, const bool wip = false)
+    {
+        const std::uint64_t generation { session.begin_refresh() };
+        repository_snapshot snapshot {};
+        snapshot.summary.head_sha = commits.front().sha;
+        snapshot.summary.changed_file_count = wip ? 1 : 0;
+        REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+        REQUIRE(session.apply(commits_loaded { .generation = generation, .commits = std::move(commits), .page_complete = true, .history_complete = true }));
+    }
+
+    // 낸 operation 가운데 그 종류의 수다.
+    std::size_t count_operations(const git_workspace& workspace, const operation_kind kind)
+    {
+        return static_cast<std::size_t>(std::ranges::count_if(workspace.operation_order(), [&](const operation_id id) { return workspace.find_operation(id)->kind == kind; }));
+    }
 } // namespace
 
 TEST_CASE("resizing reveals the selected tab while manual scrolling keeps its position", "[presentation][controller][tabs]")
@@ -262,6 +291,185 @@ TEST_CASE("the commit file menu opens the diff and copies the path forms", "[pre
     CHECK(copied(u8"copy_name") == u8"a.cpp");
     const std::string prefix { sha_of(1).substr(0, 7) };
     CHECK(copied(u8"copy_revision_path") == std::u8string { prefix.begin(), prefix.end() } + u8":src/app/a.cpp");
+}
+
+TEST_CASE("ctrl+click compares the anchor with the clicked commit, older on the left", "[presentation][controller][compare]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, branching_history());
+    const auto tab = [&test]() -> const tab_ui_state& { return test.controller.state().tabs.at(test.controller.tabs().selected().id); };
+
+    // 앞서 고른 커밋이 없으면 Ctrl+클릭도 그냥 고르기다.
+    REQUIRE(test.send(select_commit_intent { .key = graph_item_key(sha_of(3)), .control = true }));
+    CHECK(tab().selected_sha == sha_of(3));
+    CHECK_FALSE(tab().compare.has_value());
+
+    // 다른 갈래의 4를 Ctrl+클릭한다. 그래프 뒤쪽의 3이 오래된 쪽이라 왼쪽이다.
+    const std::size_t ranges_before { count_operations(test.workspace, operation_kind::show_range) };
+    REQUIRE(test.send(select_commit_intent { .key = graph_item_key(sha_of(4)), .control = true }));
+    REQUIRE(tab().compare.has_value());
+    CHECK(tab().compare->anchor == sha_of(3));
+    CHECK(tab().compare->kind == commit_compare_kind::pair);
+    CHECK(tab().compare->request == show_range_request { .base = sha_of(3), .tip = sha_of(4), .range = false });
+    CHECK(tab().selected_sha == sha_of(4));
+    CHECK(count_operations(test.workspace, operation_kind::show_range) == ranges_before + 1);
+
+    // 거듭 누르면 기준은 그대로이고 마지막 커밋만 바뀐다. 기준보다 새 커밋이면 기준이 왼쪽이다.
+    REQUIRE(test.send(select_commit_intent { .key = graph_item_key(sha_of(1)), .control = true }));
+    REQUIRE(tab().compare.has_value());
+    CHECK(tab().compare->anchor == sha_of(3));
+    CHECK(tab().compare->request == show_range_request { .base = sha_of(1), .tip = sha_of(3), .range = false });
+
+    // 그래프는 고른 두 행을 함께 칠하고, 상세 패널은 결과가 오기 전까지 읽는 중이다.
+    view_snapshot view { test.controller.make_view(1440.0f, 900.0f, 1.0f) };
+    REQUIRE(view.repository.has_value());
+    CHECK(view.repository->graph.selection_keys == std::vector<std::u8string> { graph_item_key(sha_of(3)), graph_item_key(sha_of(1)) });
+    REQUIRE(view.repository->commit.has_value());
+    REQUIRE(view.repository->commit->compare.has_value());
+    CHECK_FALSE(view.repository->commit->compare->range);
+    CHECK(view.repository->commit->compare->older_subject == u8"one");
+    CHECK(view.repository->commit->compare->newer_subject == u8"three");
+    CHECK(view.repository->commit->loading);
+
+    // 결과가 오면 변경 파일이 보이고, 파일을 고르면 비교의 diff를 연다.
+    range_detail detail { .request = tab().compare->request, .base = sha_of(1), .files = { file_change { .path = "a.txt", .status = 'M' } }, .commit_count = std::nullopt };
+    operation_id last_range { 0 };
+    for (const operation_id id : test.workspace.operation_order())
+        if (test.workspace.find_operation(id)->kind == operation_kind::show_range)
+            last_range = id;
+    REQUIRE(session->apply(last_range, range_detail_loaded { detail }));
+    view = test.controller.make_view(1440.0f, 900.0f, 1.0f);
+    REQUIRE(view.repository->commit.has_value());
+    CHECK_FALSE(view.repository->commit->loading);
+    CHECK(view.repository->commit->sha == sha_of(3));
+    REQUIRE(view.repository->commit->files.size() == 1);
+    CHECK(view.repository->commit->compare->base == sha_of(1));
+}
+
+TEST_CASE("shift+click takes the range between an ancestor and its descendant", "[presentation][controller][compare]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, branching_history());
+    const auto tab = [&test]() -> const tab_ui_state& { return test.controller.state().tabs.at(test.controller.tabs().selected().id); };
+
+    REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(2)) }));
+    REQUIRE(test.send(select_commit_intent { .key = graph_item_key(sha_of(5)), .shift = true }));
+    REQUIRE(tab().compare.has_value());
+    CHECK(tab().compare->kind == commit_compare_kind::range);
+    // 범위의 왼쪽은 가장 오래된 커밋의 첫 부모다.
+    CHECK(tab().compare->request == show_range_request { .base = sha_of(1), .tip = sha_of(5), .range = true });
+    // 그래프의 강조는 `1..5`의 커밋이다. 옆 갈래 4는 범위에 없다.
+    const view_snapshot view { test.controller.make_view(1440.0f, 900.0f, 1.0f) };
+    REQUIRE(view.repository.has_value());
+    CHECK(view.repository->graph.selection_keys == std::vector<std::u8string> { graph_item_key(sha_of(5)), graph_item_key(sha_of(3)), graph_item_key(sha_of(2)) });
+    REQUIRE(view.repository->commit.has_value());
+    REQUIRE(view.repository->commit->compare.has_value());
+    CHECK(view.repository->commit->compare->range);
+    CHECK(view.repository->commit->compare->count == 3);
+
+    SECTION("a range from the root commit compares with the empty tree")
+    {
+        REQUIRE(test.send(select_commit_intent { .key = graph_item_key(sha_of(1)), .shift = true }));
+        REQUIRE(tab().compare.has_value());
+        CHECK(tab().compare->anchor == sha_of(2));
+        CHECK(tab().compare->kind == commit_compare_kind::range);
+        CHECK(tab().compare->request == show_range_request { .base = {}, .tip = sha_of(2), .range = true });
+    }
+
+    SECTION("shift+click on another branch falls back to comparing two commits")
+    {
+        REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(3)) }));
+        REQUIRE(test.send(select_commit_intent { .key = graph_item_key(sha_of(4)), .shift = true }));
+        REQUIRE(tab().compare.has_value());
+        CHECK(tab().compare->kind == commit_compare_kind::pair);
+        CHECK(tab().compare->request == show_range_request { .base = sha_of(3), .tip = sha_of(4), .range = false });
+    }
+}
+
+TEST_CASE("a plain click, Esc, WIP and a refresh that drops a commit end the comparison", "[presentation][controller][compare]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, branching_history(), true);
+    const auto tab = [&test]() -> const tab_ui_state& { return test.controller.state().tabs.at(test.controller.tabs().selected().id); };
+    const auto compare_three_and_five = [&test] {
+        REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(3)) }));
+        REQUIRE(test.send(select_commit_intent { .key = graph_item_key(sha_of(5)), .control = true }));
+    };
+
+    SECTION("a plain click selects one commit")
+    {
+        compare_three_and_five();
+        REQUIRE(tab().compare.has_value());
+        // 마지막에 누른 커밋을 그냥 눌러도 비교가 풀리고 그 커밋 하나가 남는다.
+        REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(5)) }));
+        CHECK_FALSE(tab().compare.has_value());
+        CHECK(tab().selected_sha == sha_of(5));
+        const view_snapshot view { test.controller.make_view(1440.0f, 900.0f, 1.0f) };
+        CHECK(view.repository->graph.selection_keys.empty());
+        REQUIRE(view.repository->commit.has_value());
+        CHECK_FALSE(view.repository->commit->compare.has_value());
+    }
+
+    SECTION("Esc closes the comparison diff first and then the comparison")
+    {
+        compare_three_and_five();
+        REQUIRE(test.send(select_file_intent { diff_file_request { .path = "a.txt", .view = diff_view::range, .sha = sha_of(5), .base = sha_of(3) } }));
+        REQUIRE(test.send(close_overlays_intent {}));
+        CHECK_FALSE(tab().diff.has_value());
+        CHECK(tab().compare.has_value());
+        REQUIRE(test.send(close_overlays_intent {}));
+        CHECK_FALSE(tab().compare.has_value());
+        CHECK(tab().selected_sha == sha_of(5));
+    }
+
+    SECTION("WIP is never part of a comparison")
+    {
+        compare_three_and_five();
+        REQUIRE(test.send(select_commit_intent { .key = u8"WIP", .control = true }));
+        CHECK_FALSE(tab().compare.has_value());
+        CHECK(tab().selected_sha == "WIP");
+        // WIP에서 Ctrl+클릭해도 비교가 서지 않는다.
+        REQUIRE(test.send(select_commit_intent { .key = graph_item_key(sha_of(2)), .control = true }));
+        CHECK_FALSE(tab().compare.has_value());
+        CHECK(tab().selected_sha == sha_of(2));
+    }
+
+    SECTION("a refresh without the chosen commit ends it, one that keeps both does not")
+    {
+        compare_three_and_five();
+        load_history(*session, branching_history());
+        test.controller.after_events();
+        CHECK(tab().compare.has_value());
+
+        std::vector<commit_info> rewritten { branching_history() };
+        rewritten.erase(rewritten.begin());
+        load_history(*session, rewritten);
+        test.controller.after_events();
+        CHECK_FALSE(tab().compare.has_value());
+    }
+}
+
+TEST_CASE("the commit file menu of a comparison opens the range diff", "[presentation][controller][compare]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    const menu_target target { .kind = menu_target_kind::commit_file, .name = "a.txt", .sha = sha_of(5), .base = sha_of(3) };
+    REQUIRE(test.send(open_context_menu_intent { target, 0.0f, 0.0f }));
+    REQUIRE(test.send(menu_select_intent { u8"open_diff" }));
+    const auto& diff { test.controller.state().tabs.at(test.controller.tabs().selected().id).diff };
+    REQUIRE(diff.has_value());
+    CHECK(diff->view == diff_view::range);
+    CHECK(diff->sha == sha_of(5));
+    CHECK(diff->base == sha_of(3));
 }
 
 TEST_CASE("scroll is clamped to the last arranged maximum", "[presentation][controller]")

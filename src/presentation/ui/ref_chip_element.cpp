@@ -229,7 +229,10 @@ namespace cyella::ui {
             set_tooltip(tooltip() + tr(u8"ref_chip.checked_out_in_worktree_suffix", { { u8"path", std::u8string { label_.worktree_path.begin(), label_.worktree_path.end() } } }));
         access_name_ = label_.text + (label_.local_only ? tr(u8"ref_chip.not_on_remote_suffix") : std::u8string {})
             + (label_.worktree_path.empty() ? std::u8string {} : tr(u8"ref_chip.in_other_worktree_suffix"));
-        set_action(luil::ui_trigger::left_click, action_of(message(select_commit_intent { row_key })));
+        // 칩을 눌러도 행을 누른 것과 같다 (Ctrl·Shift는 여러 커밋 고르기).
+        set_action(luil::ui_trigger::left_click, [row_key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+            return { message(select_commit_intent { .key = row_key, .control = context.control, .shift = context.shift }) };
+        });
 
         switch (label_.kind)
         {

@@ -98,4 +98,30 @@ namespace cyella {
         }
         return counted;
     }
+
+    std::vector<std::size_t> graph_index::range(const std::string_view from, const std::string_view to) const
+    {
+        const std::optional<std::size_t> included { find(to) };
+        if (included.has_value() == false)
+            return {};
+        const std::optional<std::size_t> excluded { find(from) };
+        // `count`와 같은 표지 물려주기다. `from`을 모르면 2를 받는 행이 없다.
+        const std::size_t first { excluded.has_value() ? std::min(*excluded, *included) : *included };
+        std::vector<std::uint8_t> marks(shas_.size() - first, 0);
+        marks[*included - first] |= 1;
+        if (excluded.has_value())
+            marks[*excluded - first] |= 2;
+        std::vector<std::size_t> rows {};
+        for (std::size_t node { first }; node < shas_.size(); ++node)
+        {
+            const std::uint8_t mark { marks[node - first] };
+            if (mark == 0)
+                continue;
+            if (mark == 1)
+                rows.push_back(node);
+            for (std::uint32_t at { parents_begin_[node] }; at < parents_begin_[node + 1]; ++at)
+                marks[parent_indices_[at] - first] |= mark;
+        }
+        return rows;
+    }
 } // namespace cyella

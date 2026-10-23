@@ -32,6 +32,8 @@ namespace cyella {
         unstaged,
         staged,
         commit,
+        // 두 리비전(`base`와 `sha`)의 비교다. 그래프에서 여러 커밋을 골랐을 때 상세 패널의 파일이다.
+        range,
     };
 
     enum class pull_strategy
@@ -88,14 +90,29 @@ namespace cyella {
     {
         std::string path {};
         diff_view view { diff_view::unstaged };
-        // view가 commit일 때의 커밋이다.
+        // view가 commit일 때의 커밋, range일 때의 오른쪽 리비전이다.
         std::string sha {};
+        // view가 range일 때의 왼쪽 리비전이다. 비우면 빈 트리다 (루트 커밋부터의 범위).
+        std::string base {};
         // 추적하지 않는 파일이다. `/dev/null`과 비교한다.
         bool untracked { false };
         // hunk 둘레의 문맥 줄 수(`git diff -U<n>`)다. 환경 설정의 diff 문맥 줄 수를 UI가 채운다.
         std::uint32_t context_lines { 3 };
 
         [[nodiscard]] bool operator==(const diff_file_request&) const noexcept = default;
+    };
+
+    // 두 리비전의 트리를 비교한 변경 파일이다 (`git diff base tip`). 그래프에서 여러 커밋을 골랐을 때 읽는다.
+    struct show_range_request
+    {
+        // 왼쪽 리비전이다. 비우면 빈 트리다 (루트 커밋부터의 범위). 빈 트리의 해시는 저장소의 객체 형식(sha1·sha256)을
+        // 따르므로 실행기가 구한다.
+        std::string base {};
+        std::string tip {};
+        // 범위(`base..tip`)다. 결과에 커밋 수를 싣는다. 거짓이면 두 커밋 비교다.
+        bool range { false };
+
+        [[nodiscard]] bool operator==(const show_range_request&) const noexcept = default;
     };
 
     // `merge-base --is-ancestor ancestor descendant`. 그래프를 다 읽지 않아 UI가 조상 관계를
@@ -540,7 +557,7 @@ namespace cyella {
         push_tags_request, delete_tag_request, delete_remote_tag_request, sequence_control_request, resolve_file_request, mark_resolved_request, remove_stale_index_lock_request, clone_request,
         init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
         worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request, refresh_status_request, set_upstream_request,
-        unset_upstream_request, trash_files_request, verify_signatures_request>;
+        unset_upstream_request, trash_files_request, verify_signatures_request, show_range_request>;
 
     // 실행 lane이다.
     enum class operation_lane

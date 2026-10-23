@@ -40,8 +40,10 @@ namespace cyella {
     {
         std::u8string repository_path {};
         diff_view view { diff_view::unstaged };
-        // view가 commit일 때의 커밋이다.
+        // view가 commit일 때의 커밋, range일 때의 오른쪽 리비전이다.
         std::string sha {};
+        // view가 range일 때의 왼쪽 리비전이다 (루트 커밋부터의 범위면 빈 트리의 해시).
+        std::string base {};
         // diff_file의 옛·새 경로다. 추가된 파일의 old_path, 삭제된 파일의 new_path는 비어 있다.
         std::string old_path {};
         std::string new_path {};
@@ -71,6 +73,7 @@ namespace cyella {
     //  - unstaged: index(왼쪽)와 작업 트리(오른쪽)
     //  - staged: HEAD(왼쪽)와 index(오른쪽)
     //  - commit: 첫 부모(`<sha>^`, 왼쪽)와 그 커밋(오른쪽)
+    //  - range: `base`(왼쪽)와 `sha`(오른쪽)
     // 추가된 파일은 왼쪽이, 삭제된 파일은 오른쪽이 없다. 이름이 바뀌었으면 왼쪽은 옛 경로다.
     [[nodiscard]] diff_side_pair resolve_diff_sides(const diff_side_plan& plan);
 

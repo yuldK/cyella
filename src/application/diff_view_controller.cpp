@@ -67,6 +67,7 @@ namespace cyella {
         plan.repository_path = repository_path_;
         plan.view = view_;
         plan.sha = sha_;
+        plan.base = base_;
         plan.old_path = file_.old_path;
         plan.new_path = file_.new_path;
         plan.status = file_.status;
@@ -92,11 +93,12 @@ namespace cyella {
             // 변경이 없다. 요청한 경로만 가진 빈 diff를 보인다.
             next.old_path = next.new_path = diff.request.path;
         }
-        const bool same_file { kind_ != content_kind::empty && view_ == diff.request.view && sha_ == diff.request.sha && file_.display_path() == next.display_path() };
+        const bool same_file { kind_ != content_kind::empty && view_ == diff.request.view && sha_ == diff.request.sha && base_ == diff.request.base && file_.display_path() == next.display_path() };
 
         file_ = std::move(next);
         view_ = diff.request.view;
         sha_ = diff.request.sha;
+        base_ = diff.request.base;
         untracked_ = diff.request.untracked;
         context_lines_ = diff.request.context_lines;
         textconv_driver_ = diff.textconv_driver;

@@ -515,6 +515,63 @@ TEST_CASE("integration: a Korean file name survives status, diff and log --name-
     CHECK(session.selected_commit()->files[0].status == 'A');
     CHECK(session.selected_commit()->commit.subject == "add korean file");
 }
+
+TEST_CASE("integration: show_range compares two commits and a range from the root in sha1 and sha256 repositories", "[session][integration][range]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    for (const std::string format : { "sha1", "sha256" })
+    {
+        INFO("object format " << format);
+        test::temp_directory directory {};
+        const std::filesystem::path path { directory.path() / "repo" };
+        std::filesystem::create_directories(path);
+        git_ok(path, { "init", "-q", "-b", "main", "--object-format=" + format });
+        commit_file(path, "a.txt", "one\n", "first");
+        const std::string first { git_text(path, { "rev-parse", "HEAD" }) };
+        commit_file(path, "b.txt", "two\n", "second");
+        commit_file(path, "a.txt", "one\nmore\n", "third");
+        const std::string third { git_text(path, { "rev-parse", "HEAD" }) };
+
+        live_workspace live {};
+        const std::string repo { live.open(path) };
+        const repository_session& session { live.session(repo) };
+
+        // 두 커밋 비교: 첫 커밋 → 셋째 커밋. 범위가 아니므로 커밋 수가 없다.
+        const show_range_request pair { .base = first, .tip = third, .range = false };
+        live.require_succeeded(live.run(repo, pair));
+        REQUIRE(session.selected_range().has_value());
+        CHECK(session.selected_range()->request == pair);
+        CHECK(session.selected_range()->base == first);
+        CHECK_FALSE(session.selected_range()->commit_count.has_value());
+        REQUIRE(session.selected_range()->files.size() == 2);
+        CHECK(session.selected_range()->files[0].path == "a.txt");
+        CHECK(session.selected_range()->files[0].status == 'M');
+        CHECK(session.selected_range()->files[0].lines_added == 1u);
+        CHECK(session.selected_range()->files[1].path == "b.txt");
+        CHECK(session.selected_range()->files[1].status == 'A');
+
+        // 루트부터의 범위: 왼쪽은 이 저장소 형식의 빈 트리다.
+        const show_range_request root { .base = {}, .tip = third, .range = true };
+        live.require_succeeded(live.run(repo, root));
+        REQUIRE(session.selected_range().has_value());
+        CHECK(session.selected_range()->base == git_text(path, { "hash-object", "-t", "tree", "--stdin" }));
+        CHECK(session.selected_range()->base.size() == (format == "sha256" ? 64u : 40u));
+        CHECK(session.selected_range()->commit_count == 3u);
+        REQUIRE(session.selected_range()->files.size() == 2);
+        CHECK(session.selected_range()->files[0].status == 'A');
+
+        // 범위의 파일 diff는 같은 왼쪽 리비전을 쓴다.
+        live.require_succeeded(live.run(repo, diff_file_request { .path = "a.txt", .view = diff_view::range, .sha = third, .base = session.selected_range()->base }));
+        REQUIRE(session.selected_diff().has_value());
+        REQUIRE(session.selected_diff()->files.size() == 1);
+        CHECK(session.selected_diff()->files[0].lines_added == 2);
+        live.require_succeeded(live.run(repo, diff_file_request { .path = "a.txt", .view = diff_view::range, .sha = third, .base = first }));
+        REQUIRE(session.selected_diff().has_value());
+        REQUIRE(session.selected_diff()->files.size() == 1);
+        CHECK(session.selected_diff()->files[0].lines_added == 1);
+    }
+}
 TEST_CASE("integration: set_upstream connects a pushed branch without pushing and unset_upstream removes it", "[session][integration][upstream]")
 {
     if (test::git_is_available() == false)

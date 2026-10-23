@@ -370,6 +370,8 @@ namespace cyella {
             return "staged";
         case diff_view::commit:
             return "commit";
+        case diff_view::range:
+            return "range";
         }
         return "unstaged";
     }

@@ -117,6 +117,23 @@ namespace cyella {
         commit_detail detail {};
     };
 
+    // 여러 커밋을 고른 비교(`git diff base tip`)의 결과다.
+    struct range_detail
+    {
+        show_range_request request {};
+        // 실제로 비교한 왼쪽 리비전이다. 요청의 `base`가 비었으면 빈 트리의 해시다. 파일 diff 요청이 이 값을 쓴다.
+        std::string base {};
+        // 왼쪽과 비교한 변경 파일이다. 줄 수는 numstat으로 채운다.
+        std::vector<file_change> files {};
+        // 범위(`request.range`)면 `rev-list --count base..tip`이다. 두 커밋 비교면 값이 없다.
+        std::optional<std::uint32_t> commit_count {};
+    };
+
+    struct range_detail_loaded
+    {
+        range_detail detail {};
+    };
+
     struct file_diff
     {
         diff_file_request request {};
@@ -201,9 +218,9 @@ namespace cyella {
         std::vector<commit_signature> signatures {};
     };
 
-    using operation_event_payload
-        = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded, commit_detail_loaded,
-            file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded, status_loaded, signatures_verified>;
+    using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded,
+        commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded, status_loaded,
+        signatures_verified, range_detail_loaded>;
 
     struct operation_event
     {

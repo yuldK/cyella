@@ -378,6 +378,7 @@ cyella_add_source_filter(cyella_lib_files "presentation/shell"
     presentation/graph_geometry.h
     presentation/shell_controller.cpp
     presentation/shell_controller.h
+    presentation/shell_controller_compare.cpp
     presentation/shell_layout.cpp
     presentation/shell_layout.h
     presentation/text_wrap.cpp

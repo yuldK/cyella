@@ -341,6 +341,21 @@ TEST_CASE("session builders for remotes, conflicts and commit details", "[git][b
         == text_list { "--literal-pathspecs", "show", "--format=", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U3", sha, "--", "src/a.cpp" });
 }
 
+TEST_CASE("comparing two revisions diffs their trees with the older one on the left", "[git][builder]")
+{
+    const std::string base { "1111111111111111111111111111111111111111" };
+    const std::string tip { "2222222222222222222222222222222222222222" };
+    CHECK(to_text(make_git_diff_revisions_name_status_args(base, tip)) == text_list { "diff", "-z", "--name-status", "--find-renames", base, tip, "--" });
+    CHECK(to_text(make_git_diff_revisions_numstat_args(base, tip)) == text_list { "diff", "--numstat", "-z", "--find-renames", base, tip, "--" });
+    CHECK(to_text(make_git_diff_revisions_file_args(base, tip, "dir/*.txt", 5))
+        == text_list { "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U5", base, tip, "--", "dir/*.txt" });
+    CHECK(to_text(make_git_count_reachable_args(tip)) == text_list { "rev-list", "--count", tip, "--" });
+    // 빈 트리의 해시는 저장소의 객체 형식(sha1·sha256)을 따르므로 상수로 두지 않고 git에게 묻는다.
+    CHECK(to_text(make_git_empty_tree_args()) == text_list { "hash-object", "-t", "tree", "--stdin" });
+    CHECK_THROWS_AS(make_git_diff_revisions_name_status_args("--output=x", tip), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_diff_revisions_file_args(base, "-R", "a.txt"), std::invalid_argument);
+}
+
 TEST_CASE("fetch can keep stale tracking branches and pull can merge", "[git][builder]")
 {
     git_fetch_options fetch {};

@@ -387,6 +387,18 @@ namespace cyella {
     // 한 커밋에서 파일 하나의 diff다. `show --format= [-m --first-parent] ... <sha> -- <path>`.
     [[nodiscard]] git_arguments make_git_show_file_args(std::string_view sha, std::string_view path, bool is_merge, std::uint32_t context_lines = 3);
 
+    // 두 리비전의 비교다 (그래프에서 여러 커밋을 골랐을 때). 왼쪽이 `base`, 오른쪽이 `tip`이다.
+    // `diff -z --name-status --find-renames <base> <tip> --`. 해석은 `make_git_commit_name_status_args`와 같다.
+    [[nodiscard]] git_arguments make_git_diff_revisions_name_status_args(std::string_view base, std::string_view tip);
+    // `diff --numstat -z --find-renames <base> <tip> --`.
+    [[nodiscard]] git_arguments make_git_diff_revisions_numstat_args(std::string_view base, std::string_view tip);
+    // 파일 하나의 diff다. `diff ... <base> <tip> -- <path>`.
+    [[nodiscard]] git_arguments make_git_diff_revisions_file_args(std::string_view base, std::string_view tip, std::string_view path, std::uint32_t context_lines = 3);
+    // `rev-list --count <tip> --`. 루트 커밋부터의 범위처럼 왼쪽이 빈 트리일 때의 커밋 수다.
+    [[nodiscard]] git_arguments make_git_count_reachable_args(std::string_view tip);
+    // `hash-object -t tree --stdin`. 빈 입력을 주면 이 저장소 객체 형식의 빈 트리 해시다 (객체를 쓰지 않는다).
+    [[nodiscard]] git_arguments make_git_empty_tree_args();
+
     // `symbolic-ref --quiet --short HEAD`. 현재 브랜치 이름이다. detached면 종료 코드가 1이다.
     [[nodiscard]] git_arguments make_git_current_branch_args();
 

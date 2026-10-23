@@ -121,6 +121,12 @@ namespace cyella {
             return file_diff_;
         }
 
+        // 여러 커밋을 고른 비교의 마지막 결과다. 커밋 하나의 상세(`selected_commit`)와 따로 둔다.
+        [[nodiscard]] const std::optional<range_detail>& selected_range() const noexcept
+        {
+            return range_detail_;
+        }
+
         // 읽어 둔 서명 정보다. 아직 검증하지 않은 커밋은 null이다. SHA별로 한 번만 읽고 refresh가 지우지 않는다 (커밋은 바뀌지 않는다).
         // 서명 설정이 바뀌면 `forget_signatures`로 비운다.
         [[nodiscard]] const commit_signature* signature_of(const std::string& sha) const noexcept;
@@ -158,6 +164,7 @@ namespace cyella {
         void expect_commit_detail(operation_id id) noexcept;
         void expect_file_diff(operation_id id) noexcept;
         void expect_status(operation_id id) noexcept;
+        void expect_range_detail(operation_id id) noexcept;
         void set_awaiting_input(std::optional<operation_id> id) noexcept;
 
         // 받아들였으면 true다. 늦게 온 결과면 false이고 상태는 그대로다.
@@ -166,6 +173,7 @@ namespace cyella {
         bool apply(const remote_tags_loaded& event);
         bool apply(operation_id id, const commit_detail_loaded& event);
         bool apply(operation_id id, const file_diff_loaded& event);
+        bool apply(operation_id id, const range_detail_loaded& event);
         // 작업 트리 변경만 새 값으로 바꾼다. 그래프 행은 건드리지 않는다. 가장 최근에 낸 `refresh_status`의 결과만 받는다.
         status_apply_result apply(operation_id id, const status_loaded& event);
         bool apply(const ancestry_answered& event);
@@ -211,5 +219,8 @@ namespace cyella {
         std::set<std::string> requested_signatures_ {};
         std::optional<operation_id> awaiting_input_ {};
         std::uint64_t revision_ { 0 };
+        std::optional<range_detail> range_detail_ {};
+        // 마지막으로 요청한 여러 커밋 비교다. 그보다 앞선 요청의 결과는 버린다.
+        operation_id expected_range_ { 0 };
     };
 } // namespace cyella

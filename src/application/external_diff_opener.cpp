@@ -28,6 +28,10 @@ namespace cyella {
                 arguments.push_back(to_u8(plan.sha + "^"));
                 arguments.push_back(to_u8(plan.sha));
                 break;
+            case diff_view::range:
+                arguments.push_back(to_u8(plan.base));
+                arguments.push_back(to_u8(plan.sha));
+                break;
             }
             arguments.emplace_back(u8"--");
             arguments.push_back(to_u8(plan.display_path()));

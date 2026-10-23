@@ -228,7 +228,10 @@ namespace cyella::ui {
         }
         set_tab_stop(false);
         // 목록 행의 고르기를 가로채지 않도록 같은 고르기 메시지를 낸다 (사이드바 행과 같은 이유).
-        set_action(luil::ui_trigger::left_click, action_of(message(select_commit_intent { data_.row_key })));
+        // Ctrl·Shift는 여러 커밋 고르기다. 목록의 `pick`이 받는 수식 키를 이 element가 대신 싣는다.
+        set_action(luil::ui_trigger::left_click, [key = data_.row_key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+            return { message(select_commit_intent { .key = key, .control = context.control, .shift = context.shift }) };
+        });
         if (data_.wip)
             return;
 

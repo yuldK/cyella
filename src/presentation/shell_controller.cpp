@@ -604,7 +604,12 @@ namespace cyella {
             return;
         // 커밋을 고르면 열려 있던 PR 상세는 닫힌다 (이미 고른 커밋을 다시 눌러도 커밋 상세로 돌아온다).
         hosting_.clear_selection(session->id());
-        if (tab->selected_sha == found->sha)
+        // Ctrl·Shift+클릭은 여러 커밋 비교다. 비교할 기준이 없으면 그냥 클릭과 같고, 그냥 클릭은 비교를 푼다.
+        if ((intent.control || intent.shift) && select_compare(*tab, *session, *found, intent.shift))
+            return;
+        const bool compared { tab->compare.has_value() };
+        clear_compare(*tab);
+        if (tab->selected_sha == found->sha && compared == false)
             return;
         if (found->sha == graph_wip_sha && tab->selected_sha != graph_wip_sha)
             tab->history_sha = tab->selected_sha;
@@ -926,6 +931,8 @@ namespace cyella {
                 ui_.drawer_open = false;
             else if (tab != nullptr && tab->diff.has_value())
                 tab->diff.reset();
+            else if (tab != nullptr && tab->compare.has_value())
+                clear_compare(*tab);
             else
             {
                 // 남은 Esc는 떠 있는 토스트를 모두 내린다. 알림 센터에는 남는다.
@@ -1023,6 +1030,7 @@ namespace cyella {
             if (session == nullptr || tab == nullptr)
                 return true;
             hosting_.clear_selection(session->id());
+            clear_compare(*tab);
             if (intent->working)
             {
                 if (tab->selected_sha != graph_wip_sha)
@@ -1311,6 +1319,7 @@ namespace cyella {
             }
             tab.pending_commit = 0;
         }
+        sync_compares();
         notify_failures();
         settings_.after_events();
         rebase_.after_events();

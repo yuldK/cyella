@@ -274,6 +274,8 @@ namespace cyella {
         std::int64_t now { 0 };
         // 세션이 읽어 둔 커밋 서명이다. 행에 서명 표지를 단다. 위의 포인터 규칙을 따른다.
         const std::map<std::string, commit_signature>* signatures { nullptr };
+        // 여러 커밋을 고른 비교의 행 키다. 두 커밋 비교면 그 둘, 범위면 범위의 모든 커밋이다. 비면 `selected_key` 하나다.
+        std::vector<std::u8string> selection_keys {};
     };
 
     struct file_row_view
@@ -294,6 +296,22 @@ namespace cyella {
         bool lfs { false };
         // submodule 포인터(gitlink) 변경이다. 텍스트 변경이 아니라 특별한 행으로 그린다.
         bool submodule { false };
+    };
+
+    // 여러 커밋을 고른 비교의 머리 값이다 (`commit_detail_view::compare`).
+    struct commit_compare_view
+    {
+        // 범위(`오래된^..새것`)다. 거짓이면 두 커밋 비교다.
+        bool range { false };
+        // 범위의 커밋 수다. git의 답이 오기 전에는 그래프에서 센 수다.
+        std::size_t count { 0 };
+        // 왼쪽(오래된)·오른쪽(새) 커밋이다. 범위면 왼쪽은 범위의 첫 커밋이다 (비교의 왼쪽인 그 부모가 아니다).
+        std::u8string older_short {};
+        std::u8string older_subject {};
+        std::u8string newer_short {};
+        std::u8string newer_subject {};
+        // 파일 diff 요청의 왼쪽 리비전이다. 루트 커밋부터의 범위면 빈 트리의 해시다.
+        std::string base {};
     };
 
     struct commit_detail_view
@@ -334,6 +352,8 @@ namespace cyella {
         bool loading { false };
         // 서명 배지다. 서명 검증은 파일 목록과 따로 읽으므로 `loading`과 무관하게 먼저 보일 수 있다.
         signature_view signature {};
+        // 여러 커밋을 고른 비교다. 있으면 `sha`는 비교의 오른쪽(새 커밋)이고 `files`는 비교의 변경 파일이다. 메시지·부모·서명·CI는 채우지 않는다.
+        std::optional<commit_compare_view> compare {};
     };
 
     struct working_area_view

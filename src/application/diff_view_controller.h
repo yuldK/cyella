@@ -183,6 +183,8 @@ namespace cyella {
         diff_file file_ {};
         diff_view view_ { diff_view::unstaged };
         std::string sha_ {};
+        // range 보기의 왼쪽 리비전이다.
+        std::string base_ {};
         bool untracked_ { false };
         std::uint32_t context_lines_ { 3 };
         // textconv가 걸린 파일이다. 보이는 diff가 실제 파일 내용과 맞지 않아 hunk·줄 동작을 막는다.

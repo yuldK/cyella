@@ -834,6 +834,43 @@ namespace cyella {
         return arguments;
     }
 
+    git_arguments make_git_diff_revisions_name_status_args(const std::string_view base, const std::string_view tip)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "diff", "-z", "--name-status", "--find-renames", require_revision(base, "base"), require_revision(tip, "tip"), "--" });
+        return arguments;
+    }
+
+    git_arguments make_git_diff_revisions_numstat_args(const std::string_view base, const std::string_view tip)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "diff", "--numstat", "-z", "--find-renames", require_revision(base, "base"), require_revision(tip, "tip"), "--" });
+        return arguments;
+    }
+
+    git_arguments make_git_diff_revisions_file_args(const std::string_view base, const std::string_view tip, const std::string_view path, const std::uint32_t context_lines)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { literal_pathspecs, "diff" });
+        push_diff_basics(arguments, context_lines);
+        push_all(arguments, { require_revision(base, "base"), require_revision(tip, "tip"), "--", require_path(path) });
+        return arguments;
+    }
+
+    git_arguments make_git_count_reachable_args(const std::string_view tip)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "rev-list", "--count", require_revision(tip, "tip"), "--" });
+        return arguments;
+    }
+
+    git_arguments make_git_empty_tree_args()
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "hash-object", "-t", "tree", "--stdin" });
+        return arguments;
+    }
+
     git_arguments make_git_current_branch_args()
     {
         git_arguments arguments {};

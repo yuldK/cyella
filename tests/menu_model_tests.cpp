@@ -98,6 +98,14 @@ TEST_CASE("the history index answers ancestry and commit counts for loaded commi
     CHECK(index.count(sha_of(9), sha_of(5)) == 0);
     CHECK(index.count(sha_of(3), sha_of(9)) == 4);
     CHECK_FALSE(index.count(sha_of(1), sha_of(9)).has_value());
+
+    // rev-list from..to의 색인이다 (그래프에서 고른 범위의 행). 순서는 9, 7, 8, 5, 4, 3이다.
+    CHECK(index.range(sha_of(5), sha_of(9)) == std::vector<std::size_t> { 0, 2 });
+    CHECK(index.range(sha_of(4), sha_of(7)) == std::vector<std::size_t> { 1, 3 });
+    // 왼쪽이 없거나(루트부터) 읽지 않았으면 읽은 것 중 닿는 모든 커밋이다.
+    CHECK(index.range({}, sha_of(8)) == std::vector<std::size_t> { 2, 3, 4, 5 });
+    CHECK(index.range(sha_of(1), sha_of(7)) == std::vector<std::size_t> { 1, 3, 4, 5 });
+    CHECK(index.range(sha_of(5), sha_of(1)).empty());
     // 항목 키(앞 15자)로도 찾는다.
     CHECK(index.find(sha_of(9).substr(0, 15)) == index.find(sha_of(9)));
 }

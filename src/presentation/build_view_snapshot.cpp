@@ -234,7 +234,7 @@ namespace cyella {
             {
                 const operation_status& status { **it };
                 if (status.kind == operation_kind::load_more_log || status.kind == operation_kind::diff_file || status.kind == operation_kind::show_commit
-                    || status.kind == operation_kind::refresh_status || status.kind == operation_kind::verify_signatures)
+                    || status.kind == operation_kind::refresh_status || status.kind == operation_kind::verify_signatures || status.kind == operation_kind::show_range)
                     continue;
                 ++shown;
                 std::u8string heading { u8"#" + number(status.id) + u8"  " + (status.finished() ? result_text(status) : phase_text(status)) };
@@ -264,12 +264,12 @@ namespace cyella {
 
         bool same_diff(const diff_file_request& left, const diff_file_request& right) noexcept
         {
-            return left.path == right.path && left.view == right.view && left.sha == right.sha;
+            return left.path == right.path && left.view == right.view && left.sha == right.sha && left.base == right.base;
         }
 
-        void mark_selected(std::vector<file_row_view>& rows, const std::optional<diff_file_request>& diff, const diff_view view, const std::string& sha)
+        void mark_selected(std::vector<file_row_view>& rows, const std::optional<diff_file_request>& diff, const diff_view view, const std::string& sha, const std::string& base = {})
         {
-            if (diff.has_value() == false || diff->view != view || diff->sha != sha)
+            if (diff.has_value() == false || diff->view != view || diff->sha != sha || diff->base != base)
                 return;
             for (file_row_view& row : rows)
                 row.selected = row.path == diff->path;
@@ -311,6 +311,34 @@ namespace cyella {
             view.can_commit = view.blocked_reason.empty();
             view.amend_warning = tab.amend && snapshot.summary.head_pushed;
             return view;
+        }
+
+        // 상세 패널의 변경 파일 행과 줄 수 합계, 트리다. `view`·`base`는 행이 여는 diff의 보기다.
+        void fill_commit_files(commit_detail_view& view, const std::vector<file_change>& files, const tab_ui_state& tab, const diff_view diff, const std::string& base)
+        {
+            std::uint64_t added { 0 };
+            std::uint64_t removed { 0 };
+            for (const file_change& change : files)
+            {
+                view.files.push_back(make_file_row(change, u8"f:"));
+                if (change.is_submodule)
+                    continue;
+                added += change.lines_added.value_or(0);
+                removed += change.lines_removed.value_or(0);
+            }
+            if (added > 0)
+                view.added_total = u8"+" + number(added);
+            if (removed > 0)
+                view.removed_total = u8"-" + number(removed);
+            mark_selected(view.files, tab.diff, diff, view.sha, base);
+            if (view.files_tree)
+            {
+                std::vector<std::string> paths {};
+                paths.reserve(view.files.size());
+                for (const file_row_view& row : view.files)
+                    paths.push_back(row.path);
+                view.tree = build_file_tree(paths, tab.collapsed_folders);
+            }
         }
 
         commit_detail_view build_commit_detail(
@@ -355,32 +383,61 @@ namespace cyella {
             view.signature = make_signature_view(session.signature_of(sha));
             view.files_tree = files_tree;
             if (view.loading == false)
-            {
-                std::uint64_t added { 0 };
-                std::uint64_t removed { 0 };
-                for (const file_change& change : detail->files)
-                {
-                    view.files.push_back(make_file_row(change, u8"f:"));
-                    if (change.is_submodule)
-                        continue;
-                    added += change.lines_added.value_or(0);
-                    removed += change.lines_removed.value_or(0);
-                }
-                if (added > 0)
-                    view.added_total = u8"+" + number(added);
-                if (removed > 0)
-                    view.removed_total = u8"-" + number(removed);
-                mark_selected(view.files, tab.diff, diff_view::commit, sha);
-                if (files_tree)
-                {
-                    std::vector<std::string> paths {};
-                    paths.reserve(view.files.size());
-                    for (const file_row_view& row : view.files)
-                        paths.push_back(row.path);
-                    view.tree = build_file_tree(paths, tab.collapsed_folders);
-                }
-            }
+                fill_commit_files(view, detail->files, tab, diff_view::commit, {});
             return view;
+        }
+
+        // 여러 커밋을 고른 비교의 상세다. 파일 목록은 커밋 하나의 상세와 같은 모양이고, 머리는 두 커밋(또는 범위)이다.
+        commit_detail_view build_compare_detail(const repository_session& session, const tab_ui_state& tab, const graph_index* index, const bool files_tree)
+        {
+            const commit_compare_state& compare { *tab.compare };
+            commit_detail_view view {};
+            view.sha = tab.selected_sha;
+            view.short_sha = short_sha(tab.selected_sha);
+            view.files_tree = files_tree;
+            commit_compare_view header {};
+            header.range = compare.kind == commit_compare_kind::range;
+            // 그래프의 뒤에 있는 쪽이 오래된 커밋이다 (자식이 부모보다 앞인 순서).
+            const std::vector<commit_info>& commits { session.graph_commits() };
+            const std::optional<std::size_t> anchor_at { index != nullptr ? index->find(compare.anchor) : std::nullopt };
+            const std::optional<std::size_t> clicked_at { index != nullptr ? index->find(tab.selected_sha) : std::nullopt };
+            if (anchor_at.has_value() && clicked_at.has_value() && std::max(*anchor_at, *clicked_at) < commits.size())
+            {
+                const commit_info& older { commits[std::max(*anchor_at, *clicked_at)] };
+                const commit_info& newer { commits[std::min(*anchor_at, *clicked_at)] };
+                header.older_short = short_sha(older.sha);
+                header.older_subject = to_u8(older.subject);
+                header.newer_short = short_sha(newer.sha);
+                header.newer_subject = to_u8(newer.subject);
+                view.sha = newer.sha;
+                view.short_sha = header.newer_short;
+                if (header.range)
+                    header.count = index->range(compare.request.base, newer.sha).size();
+            }
+            const std::optional<range_detail>& detail { session.selected_range() };
+            view.loading = compare.kind == commit_compare_kind::undecided || detail.has_value() == false || detail->request != compare.request;
+            if (view.loading == false)
+            {
+                header.base = detail->base;
+                if (detail->commit_count.has_value())
+                    header.count = *detail->commit_count;
+                fill_commit_files(view, detail->files, tab, diff_view::range, detail->base);
+            }
+            view.compare = std::move(header);
+            return view;
+        }
+
+        // 그래프에서 고른 행의 키다. 두 커밋 비교면 그 둘, 범위면 범위(`오래된^..새것`)의 모든 커밋이다.
+        std::vector<std::u8string> compare_selection_keys(const tab_ui_state& tab, const graph_index* index)
+        {
+            const commit_compare_state& compare { *tab.compare };
+            std::vector<std::u8string> keys {};
+            if (compare.kind == commit_compare_kind::range && index != nullptr)
+                for (const std::size_t row : index->range(compare.request.base, compare.request.tip))
+                    keys.push_back(graph_item_key(index->sha_at(row)));
+            if (keys.empty())
+                keys = { graph_item_key(compare.anchor), graph_item_key(tab.selected_sha) };
+            return keys;
         }
 
         diff_panel_view build_diff(const repository_session& session, const diff_file_request& request, const float scroll, const diff_surface_state& surface)
@@ -401,6 +458,9 @@ namespace cyella {
                 break;
             case diff_view::commit:
                 view.subtitle = tr(u8"snapshot.diff.subtitle_commit", { { u8"path", request.path }, { u8"sha", short_sha(request.sha) } });
+                break;
+            case diff_view::range:
+                view.subtitle = tr(u8"snapshot.diff.subtitle_range", { { u8"path", request.path }, { u8"base", short_sha(request.base) }, { u8"sha", short_sha(request.sha) } });
                 break;
             }
             const std::optional<file_diff>& diff { session.selected_diff() };
@@ -469,9 +529,13 @@ namespace cyella {
             diff_panel_view& diff { *repository.diff };
             const std::vector<file_row_view>* files { nullptr };
             bool tree { false };
-            if (diff.request.view == diff_view::commit)
+            if (diff.request.view == diff_view::commit || diff.request.view == diff_view::range)
             {
                 if (repository.commit.has_value() == false || repository.commit->sha != diff.request.sha)
+                    return;
+                // 여러 커밋 비교의 파일은 그 비교의 목록 안에서만 앞뒤로 옮긴다.
+                const std::optional<commit_compare_view>& compare { repository.commit->compare };
+                if ((diff.request.view == diff_view::range) != compare.has_value() || (compare.has_value() && compare->base != diff.request.base))
                     return;
                 files = &repository.commit->files;
                 tree = repository.commit->files_tree;
@@ -573,6 +637,12 @@ namespace cyella {
                 view.working = build_working_area(snapshot, tab_state, ui.composition, committing);
                 view.working->files_tree = inputs.settings->ui.working_files_tree;
                 view.working->collapsed_folders = tab_state.collapsed_folders;
+            }
+            else if (tab_state.compare.has_value())
+            {
+                view.detail = detail_mode::commit;
+                view.commit = build_compare_detail(session, tab_state, index.get(), inputs.settings->ui.commit_files_tree);
+                graph.selection_keys = compare_selection_keys(tab_state, index.get());
             }
             else if (tab_state.selected_sha.empty() == false && tab_state.selected_sha != graph_wip_sha)
             {
@@ -717,6 +787,7 @@ namespace cyella {
         case operation_kind::count_commits:
         case operation_kind::refresh_remote_tags:
         case operation_kind::verify_signatures:
+        case operation_kind::show_range:
         case operation_kind::refresh_status:
         case operation_kind::inspect_path:
         // 편집기가 자기 자리에 읽는 중과 실패를 보인다.
@@ -1023,6 +1094,8 @@ namespace cyella {
             return tr(u8"snapshot.operation_name.unset_upstream");
         case operation_kind::trash_files:
             return tr(u8"snapshot.operation_name.trash_files");
+        case operation_kind::show_range:
+            return tr(u8"snapshot.operation_name.show_range");
         default:
             break;
         }

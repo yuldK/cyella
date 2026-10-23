@@ -495,6 +495,37 @@ namespace cyella::ui {
             return meta;
         }
 
+        // 여러 커밋을 고른 비교의 머리 글이다: 범위면 "커밋 N개", 두 커밋이면 "abc1234 ↔ def5678"이다.
+        std::u8string compare_title(const commit_compare_view& compare)
+        {
+            if (compare.range)
+                return compare.count == 1 ? tr(u8"repo.compare.range_title_one", { { u8"count", compare.count } }) : tr(u8"repo.compare.range_title", { { u8"count", compare.count } });
+            return tr(u8"repo.compare.pair_title", { { u8"older", compare.older_short }, { u8"newer", compare.newer_short } });
+        }
+
+        // 비교하는 두 커밋의 줄이다. 커밋 하나에만 있는 메시지·부모·서명·CI는 없다.
+        std::unique_ptr<luil::ui_element> build_compare_meta(const commit_compare_view& compare, float& height)
+        {
+            auto meta = std::make_unique<luil::stack_element>(
+                luil::ui_element_id { kind_layout, u8"compare-meta" }, luil::stack_config { .padding = luil::edge_insets { detail_padding, 10.0f, detail_padding, 10.0f } });
+            height = 20.0f;
+            const auto add_commit = [&meta, &height](const std::u8string& owner, std::u8string label, const std::u8string& sha, const std::u8string& subject) {
+                auto value
+                    = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, owner + u8"-value" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 8.0f });
+                value->add(make_text(owner + u8"-sha", sha, text_style { .size = 11.5f, .code = true }), estimate_text_width(sha, 11.5f, false) + 8.0f);
+                value->add_flexible(make_text(owner + u8"-subject", subject, text_style { .size = 12.0f }));
+                meta->add(detail_field(owner, std::move(label), std::move(value)), detail_row_height);
+                height += detail_row_height;
+            };
+            // 범위면 왼쪽은 범위의 첫 커밋이다 (실제 비교의 왼쪽은 그 부모다).
+            add_commit(u8"compare-older", compare.range ? tr(u8"repo.compare.range_first") : tr(u8"repo.compare.pair_left"), compare.older_short, compare.older_subject);
+            add_commit(u8"compare-newer", compare.range ? tr(u8"repo.compare.range_last") : tr(u8"repo.compare.pair_right"), compare.newer_short, compare.newer_subject);
+            meta->add_gap(4.0f);
+            meta->add(make_text(u8"compare-hint", tr(u8"repo.compare.hint"), text_style { .size = 11.0f, .color = dim_color }), 18.0f);
+            height += 22.0f;
+            return meta;
+        }
+
         // 변경 파일 머리다: "변경 파일 N개 +a −r"와 목록·트리 전환 단추.
         std::unique_ptr<luil::ui_element> build_files_header(const commit_detail_view& commit)
         {
@@ -545,10 +576,10 @@ namespace cyella::ui {
             return list;
         }
 
-        std::unique_ptr<luil::ui_element> build_commit_detail(
-            const repository_view& repository, const commit_detail_view& commit, const bool drawer, const float width, const float height, feedback_sources& sources)
+        // 커밋 하나의 머리와 메시지·메타 칸이다.
+        void add_commit_meta(
+            luil::stack_element* column, const repository_view& repository, const commit_detail_view& commit, const bool drawer, const float width, const float height, feedback_sources& sources)
         {
-            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-detail" }, luil::stack_config {}) };
             auto copy { make_icon_button(u8"detail-copy-sha", codicons::icon_copy, tr(u8"repo.detail.copy_sha"), message(copy_commit_sha_intent { commit.sha })) };
             column->add(detail_header(tr(u8"repo.detail.commit_title"), commit.short_sha, drawer, true, std::move(copy)), pane_header_height);
 
@@ -575,6 +606,23 @@ namespace cyella::ui {
             }
             else
                 column->add(std::move(meta), meta_height);
+        }
+
+        std::unique_ptr<luil::ui_element> build_commit_detail(
+            const repository_view& repository, const commit_detail_view& commit, const bool drawer, const float width, const float height, feedback_sources& sources)
+        {
+            auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"commit-detail" }, luil::stack_config {}) };
+            const std::optional<commit_compare_view>& compare { commit.compare };
+            if (compare.has_value())
+            {
+                const std::u8string subtitle { compare->range ? tr(u8"repo.compare.range_subtitle", { { u8"older", compare->older_short }, { u8"newer", compare->newer_short } }) : std::u8string {} };
+                column->add(detail_header(compare_title(*compare), subtitle, drawer, true), pane_header_height);
+                float compare_height { 0.0f };
+                auto meta { build_compare_meta(*compare, compare_height) };
+                column->add(std::move(meta), compare_height);
+            }
+            else
+                add_commit_meta(column.get(), repository, commit, drawer, width, height, sources);
 
             if (commit.loading)
             {
@@ -588,12 +636,18 @@ namespace cyella::ui {
             std::u8string selected {};
             const auto add_file = [&](const file_row_view& row, const std::optional<std::size_t> depth) {
                 items.push_back({ .key = row.key, .label = row.name });
-                const diff_file_request request { .path = row.path, .view = diff_view::commit, .sha = commit.sha, .untracked = false };
+                // 여러 커밋 비교의 파일은 두 리비전의 diff다.
+                diff_file_request request { .path = row.path, .view = diff_view::commit, .sha = commit.sha, .untracked = false };
+                if (compare.has_value())
+                {
+                    request.view = diff_view::range;
+                    request.base = compare->base;
+                }
                 // 파일 행은 경로 툴팁이 있어 포인터의 hit를 직접 받는다. 고르기 메시지를 행이 다시 내지 않으면 마우스 누름이 목록까지
                 // 가지 못해 diff가 열리지 않는다 (키보드·보조 기술은 목록으로 바로 가므로 열린다). 작업 영역·그래프 행과 같은 이유다.
                 const luil::input_action select { message(select_file_intent { request }) };
                 // 우클릭 메뉴는 변경 내용 보기와 경로·이름·`커밋:경로` 복사다.
-                const menu_target target { .kind = menu_target_kind::commit_file, .name = row.path, .sha = commit.sha };
+                const menu_target target { .kind = menu_target_kind::commit_file, .name = row.path, .sha = commit.sha, .base = request.base };
                 file_row_view shown { row };
                 // 트리에서는 폴더가 이미 보이므로 이름 바꾸기(← 옛 경로)만 남긴다.
                 if (depth.has_value() && shown.original_path.empty())
@@ -921,6 +975,9 @@ namespace cyella::ui {
         config.items = *graph.items;
         config.selected = graph.selected_key;
         config.cursor = graph.selected_key;
+        // Ctrl·Shift+클릭으로 여러 커밋을 골라 비교한다. 고른 행은 목록이 함께 칠하고 보조 기술은 다중 선택 목록으로 읽는다.
+        config.multiple_selection = true;
+        config.selection = graph.selection_keys;
         config.row_height = graph_row_height;
         config.scroll_offset = graph.scroll;
         config.overscan = 4;
@@ -964,6 +1021,8 @@ namespace cyella::ui {
         const auto select = [](const std::u8string& key) { return message(select_commit_intent { key }); };
         config.select = select;
         config.move = select;
+        // 행의 누름은 행 element가 수식 키와 함께 낸다. 이것은 보조 기술의 더하기(Ctrl+누름과 같다)와 행 밖의 누름이 지나는 길이다.
+        config.pick = [](const std::u8string& key, const luil::ui_action_context& context) { return message(select_commit_intent { .key = key, .control = context.control, .shift = context.shift }); };
         config.scroll = [](const float delta) { return message(scroll_intent { .target = scroll_target::graph, .value = delta }); };
         config.scroll_to = [](const float offset) { return message(scroll_intent { .target = scroll_target::graph, .value = offset, .absolute = true }); };
         auto list { std::make_unique<luil::virtual_list_element>(std::move(config)) };

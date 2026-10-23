@@ -173,6 +173,15 @@ namespace cyella {
         void handle_toolbar(toolbar_action action);
         void handle_scroll(const scroll_intent& intent);
         void handle_select_commit(const select_commit_intent& intent);
+        // ---- 여러 커밋 비교 (shell_controller_compare.cpp)
+        // Ctrl·Shift+클릭으로 비교를 시작하거나 마지막 커밋을 바꾼다. 비교할 기준이 없으면 false이고 그냥 클릭으로 다룬다.
+        bool select_compare(tab_ui_state& tab, repository_session& session, const commit_info& clicked, bool shift);
+        // 비교의 종류(범위인가)를 정하고 변경 파일 요청을 낸다. 조상 관계를 모르면 git에게 묻고 정하지 않은 채 둔다.
+        void decide_compare(tab_ui_state& tab, repository_session& session);
+        // 비교를 풀고 마지막에 누른 커밋 하나로 돌아간다.
+        void clear_compare(tab_ui_state& tab);
+        // relay를 비운 뒤다. 조상 답을 기다리던 비교를 정하고, 새로 고침으로 고른 커밋이 사라진 비교를 푼다.
+        void sync_compares();
         void handle_activate_ref(const activate_ref_intent& intent);
         void handle_commit();
         void handle_folder(const folder_chosen_intent& intent);

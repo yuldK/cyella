@@ -158,6 +158,8 @@ namespace cyella {
             return "trash_files";
         case operation_kind::verify_signatures:
             return "verify_signatures";
+        case operation_kind::show_range:
+            return "show_range";
         }
         return "unknown";
     }

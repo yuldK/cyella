@@ -60,6 +60,10 @@ namespace cyella {
             pair.left = added ? diff_side_spec {} : side_of(diff_side_kind::revision, plan.sha + "^", left_path);
             pair.right = deleted ? diff_side_spec {} : side_of(diff_side_kind::revision, plan.sha, right_path);
             break;
+        case diff_view::range:
+            pair.left = added ? diff_side_spec {} : side_of(diff_side_kind::revision, plan.base, left_path);
+            pair.right = deleted ? diff_side_spec {} : side_of(diff_side_kind::revision, plan.sha, right_path);
+            break;
         }
         return pair;
     }

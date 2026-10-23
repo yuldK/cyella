@@ -209,6 +209,10 @@ namespace cyella {
         {
             session->expect_file_diff(id);
         }
+        else if (kind == operation_kind::show_range)
+        {
+            session->expect_range_detail(id);
+        }
         else if (kind == operation_kind::refresh_status)
         {
             // 첫 snapshot 전이거나 전체 refresh가 도는 중이면 그 refresh가 모든 것을 읽는다. 겹쳐 내지 않는다.
@@ -489,7 +493,7 @@ namespace cyella {
                 {
                     rebase_plans_[event.id] = payload.plan;
                 }
-                else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded>)
+                else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded> || std::is_same_v<payload_type, range_detail_loaded>)
                 {
                     if (session != nullptr)
                         session->apply(event.id, payload);

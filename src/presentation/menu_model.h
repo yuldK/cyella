@@ -74,6 +74,8 @@ namespace cyella {
         // drop
         drop_party source {};
         drop_party destination {};
+        // commit_file: 여러 커밋 비교의 왼쪽 리비전이다. 있으면 "변경 내용 보기"가 `sha`와의 비교(range diff)를 연다.
+        std::string base {};
 
         [[nodiscard]] bool operator==(const menu_target&) const noexcept = default;
     };

@@ -220,6 +220,8 @@ target_compile_definitions(cyella_tests
         "CYELLA_TEST_CHILD_PATH=\"$<TARGET_FILE:cyella_test_child>\""
         "CYELLA_ASKPASS_PATH=\"$<TARGET_FILE:cyella_askpass>\""
         "CYELLA_REBASE_EDITOR_PATH=\"$<TARGET_FILE:cyella_rebase_editor>\"")
+# operation·사건 variant를 펼치는 test 파일(Catch2 test 여러 개)은 개체 파일의 섹션 수 한도(C1128)를 넘는다.
+target_compile_options(cyella_tests PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/bigobj>)
 target_include_directories(cyella_tests
     PRIVATE
         "${CYELLA_SOURCE_DIRECTORY}"

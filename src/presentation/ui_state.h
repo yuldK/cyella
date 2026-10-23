@@ -100,6 +100,29 @@ namespace cyella {
         pull_request,
     };
 
+    // 여러 커밋을 고른 비교의 종류다.
+    enum class commit_compare_kind : std::uint8_t
+    {
+        // Ctrl+클릭: 두 커밋을 비교한다 (`git diff 오래된 새것`).
+        pair,
+        // Shift+클릭: 한쪽이 다른 쪽의 조상이라 그 사이 범위를 합친 변경이다 (`git diff 오래된^ 새것`).
+        range,
+        // Shift+클릭인데 조상 관계를 git에 묻는 중이다. 답이 오면 pair나 range로 정한다.
+        undecided,
+    };
+
+    // 그래프에서 여러 커밋을 고른 비교다. 기준 커밋과 마지막에 누른 커밋(`tab_ui_state::selected_sha`) 둘로 정해진다.
+    struct commit_compare_state
+    {
+        // 기준 커밋이다. Ctrl·Shift+클릭을 거듭해도 그대로이고 마지막에 누른 커밋만 바뀐다.
+        std::string anchor {};
+        commit_compare_kind kind { commit_compare_kind::pair };
+        // 낸 비교 요청이다. 세션의 결과가 이 요청의 것일 때만 상세 패널에 보인다. `undecided`면 아직 내지 않았다.
+        show_range_request request {};
+        // `undecided`일 때 조상 관계를 묻는 operation이다. 답 없이 끝나면 두 커밋 비교로 정한다.
+        operation_id ancestry_query { 0 };
+    };
+
     struct tab_ui_state
     {
         // 고른 커밋의 SHA다. WIP 행이면 `graph_wip_sha`다.
@@ -136,6 +159,8 @@ namespace cyella {
         operation_id dismissed_dialog { 0 };
         // 체크아웃 정책 대화 상자의 선택이다.
         std::optional<dirty_checkout_state> dirty {};
+        // 여러 커밋을 고른 비교다. 그냥 클릭·WIP·Esc로 풀린다. `selected_sha`는 그동안에도 마지막에 누른 커밋이다.
+        std::optional<commit_compare_state> compare {};
 
         [[nodiscard]] bool section_collapsed(const sidebar_section section) const noexcept
         {

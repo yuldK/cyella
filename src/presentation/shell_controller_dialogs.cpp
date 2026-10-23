@@ -1029,7 +1029,11 @@ namespace cyella {
             return;
         case menu_target_kind::commit_file:
             if (key == u8"open_diff")
-                static_cast<void>(handle(luil::app_message { select_file_intent { diff_file_request { .path = target.name, .view = diff_view::commit, .sha = target.sha } } }));
+            {
+                // 여러 커밋 비교의 파일이면 그 비교의 diff다.
+                const diff_view view { target.base.empty() ? diff_view::commit : diff_view::range };
+                static_cast<void>(handle(luil::app_message { select_file_intent { diff_file_request { .path = target.name, .view = view, .sha = target.sha, .base = target.base } } }));
+            }
             else if (key == u8"copy_path")
                 copy_text(to_u8(target.name));
             else if (key == u8"copy_name")
