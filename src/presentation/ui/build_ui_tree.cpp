@@ -626,6 +626,9 @@ namespace cyella::ui {
             if (titled)
                 root->place(make_app_title(u8"caption-title", u8"cyella"), caption_title_rect(caption_config, app_title_aspect()));
         }
+        // 토스트는 본문 위에 떠서 자리를 밀어내지 않는다. 대화 상자는 그 위에 선다.
+        for (placed_toast& toast : build_toasts(view, rects.body.y + rects.body.height))
+            root->place(std::move(toast.element), toast.rect);
         // 끄는 동안의 문구는 대화 상자 아래, 나머지 화면 위에 그린다.
         if (view.repository.has_value() && view.repository->drop_hints != nullptr)
             root->place(build_drag_hint_overlay(view.repository->drop_hints), { 0.0f, 0.0f, view.logical_width, view.logical_height });
@@ -658,9 +661,6 @@ namespace cyella::ui {
             built.popups.push_back(build_selector_popup(*view.selector, scale));
         if (view.settings.has_value() && view.settings->font_list.has_value())
             built.popups.push_back(build_font_popup(*view.settings, scale));
-        // 알림은 본문 위에 떠야 하므로 popup이다. 본문 자리를 밀어내지 않고 diff 웹뷰에도 가리지 않는다.
-        for (built_popup& toast : build_toast_popups(view, rects.body.y + rects.body.height, scale))
-            built.popups.push_back(std::move(toast));
         const luil::virtual_list_element* notification_list { nullptr };
         if (view.notification_center.has_value())
             built.popups.push_back(build_notification_center_popup(*view.notification_center, view, rects.status.y, scale, &notification_list));

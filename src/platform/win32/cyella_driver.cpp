@@ -737,9 +737,6 @@ namespace cyella::win32 {
                         return luil::input_action {};
                     return luil::make_app_action(close_font_list_intent {});
                 };
-            else if (popup.toast)
-                // 토스트는 바깥을 누르거나 창이 움직여도 남는다. Esc는 어느 popup도 삼키지 않아 앱으로 가서 토스트를 내린다.
-                shown.dismiss = {};
             else if (popup.notifications)
                 shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
                     if (reason == luil::win32::popup_dismiss_reason::pointer_press_outside || reason == luil::win32::popup_dismiss_reason::escape_key)

@@ -41,6 +41,8 @@ namespace cyella {
         std::u8string git_message {};
         std::u8string git_version {};
         std::chrono::system_clock::time_point now {};
+        // 토스트가 떠오르고 물러나는 정도를 정하는 시각이다 (`toast_presence`).
+        std::chrono::steady_clock::time_point steady_now {};
         // 그래프 모델의 cache다. 비어 있으면 매번 짓는다 (test).
         std::function<std::shared_ptr<const std::vector<luil::virtual_list_item>>(const repository_session& session)> graph_items {};
         // 읽어 둔 이력의 부모 관계 cache다. 비어 있으면 매번 짓는다 (test).
@@ -56,6 +58,9 @@ namespace cyella {
 
     // 실패한 작업의 알림이다 (머리말·요약·명령줄과 git 원문·조치 단추). 실패가 아니면 빈 값이다. id·시각은 띄우는 쪽이 붙인다.
     [[nodiscard]] std::optional<notification> failure_notification(const operation_status& status);
+
+    // 토스트가 얼마나 나와 있는가다 [0, 1]. 떠오르는 동안 0에서 1로, 물러나는 동안 1에서 0으로 부드럽게 간다.
+    [[nodiscard]] float toast_presence(const notification& value, std::chrono::steady_clock::time_point now) noexcept;
 
     // 탭 표시다. `operations`는 그 저장소의 operation만이다.
     [[nodiscard]] tab_marker compute_tab_marker(std::span<const operation_status* const> operations, std::uint32_t changed_file_count, bool awaiting_input) noexcept;

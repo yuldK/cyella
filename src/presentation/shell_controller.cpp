@@ -11,6 +11,8 @@
 #include "infrastructure/avatar_fetcher.h"
 #include "infrastructure/ssh_tools.h"
 
+#include "luil/ui/transition.h"
+
 #include <algorithm>
 #include <filesystem>
 #include <system_error>
@@ -112,6 +114,8 @@ namespace cyella {
     {
         if (dependencies_.clock == nullptr)
             dependencies_.clock = [] { return std::chrono::system_clock::now(); };
+        if (dependencies_.steady_clock == nullptr)
+            dependencies_.steady_clock = [] { return std::chrono::steady_clock::now(); };
     }
 
     const app_settings& shell_controller::settings() const noexcept
@@ -230,18 +234,26 @@ namespace cyella {
 
     void shell_controller::notify(notification value)
     {
+        const std::chrono::steady_clock::time_point now { dependencies_.steady_clock() };
         // 같은 알림이 떠 있는 동안 또 오면(같은 안내를 두 번 눌렀다) 앞의 것을 지우고 새로 띄운다. 센터에 같은 줄이 쌓이지 않는다.
-        std::erase_if(ui_.notifications, [&value](const notification& shown) {
-            return shown.toast && shown.severity == value.severity && shown.title == value.title && shown.text == value.text && shown.actions == value.actions;
+        // 떠 있던 자리를 그대로 이어받아 다시 떠오르지 않는다 (같은 내용이 깜박이면 거슬린다).
+        std::optional<std::chrono::steady_clock::time_point> shown_at {};
+        std::erase_if(ui_.notifications, [&value, &shown_at](const notification& shown) {
+            const bool rising { shown.toast && shown.toast_leaving_at.has_value() == false };
+            const bool same { rising && shown.severity == value.severity && shown.title == value.title && shown.text == value.text && shown.actions == value.actions };
+            if (same)
+                shown_at = shown.toast_shown_at;
+            return same;
         });
         value.id = ++ui_.notification_serial;
         value.at = dependencies_.clock();
         // 알림 센터가 열려 있으면 거기 바로 보이므로 토스트를 띄우지 않는다.
         value.toast = ui_.notifications_open == false;
         value.read = ui_.notifications_open;
+        value.toast_shown_at = shown_at.value_or(now);
         // 조치가 달린 알림은 사용자가 고를 때까지 남는다. 나머지는 심각할수록 오래 머문다.
         if (value.toast && value.actions.empty())
-            value.toast_until = std::chrono::steady_clock::now() + toast_duration(value.severity);
+            value.toast_until = now + toast_duration(value.severity);
         ui_.notifications.push_back(std::move(value));
         if (ui_.notifications.size() > notification_capacity)
             ui_.notifications.erase(ui_.notifications.begin(), ui_.notifications.begin() + static_cast<std::ptrdiff_t>(ui_.notifications.size() - notification_capacity));
@@ -269,10 +281,20 @@ namespace cyella {
                 notify(std::move(*failure));
             }
         }
+        const std::chrono::steady_clock::time_point now { dependencies_.steady_clock() };
         for (notification& value : ui_.notifications)
             if (value.toast && value.operation != 0)
                 if (const auto found { latest.find(value.repository_id) }; found != latest.end() && found->second > value.operation)
-                    value.toast = false;
+                    leave_toast(value, now);
+    }
+
+    void shell_controller::leave_toast(notification& value, const std::chrono::steady_clock::time_point now, const bool remove)
+    {
+        value.remove_after_leave = value.remove_after_leave || remove;
+        if (value.toast == false || value.toast_leaving_at.has_value())
+            return;
+        value.toast_leaving_at = now;
+        value.toast_until.reset();
     }
 
     bool shell_controller::select_repository_tab(const std::string& repository_id)
@@ -796,13 +818,17 @@ namespace cyella {
         }
         if (const auto* const intent { message.get<dismiss_notification_intent>() }; intent != nullptr)
         {
+            const auto matches = [id = intent->id](const notification& value) { return value.id == id; };
+            auto found { std::find_if(ui_.notifications.begin(), ui_.notifications.end(), matches) };
             if (intent->id == 0)
-            {
-                if (ui_.notifications.empty() == false)
-                    ui_.notifications.pop_back();
-            }
+                found = ui_.notifications.empty() ? ui_.notifications.end() : std::prev(ui_.notifications.end());
+            if (found == ui_.notifications.end())
+                return true;
+            // 떠 있는 토스트는 물러난 뒤에 지운다. 센터의 항목이나 내려간 토스트는 바로 지운다.
+            if (found->toast)
+                leave_toast(*found, dependencies_.steady_clock(), true);
             else
-                std::erase_if(ui_.notifications, [id = intent->id](const notification& value) { return value.id == id; });
+                ui_.notifications.erase(found);
             return true;
         }
         if (const auto* const intent { message.get<toggle_notification_details_intent>() }; intent != nullptr)
@@ -832,7 +858,10 @@ namespace cyella {
                 {
                     value.read = true;
                     value.toast = false;
+                    value.toast_leaving_at.reset();
                 }
+            // 토스트로 물러나던 중에 ×를 눌렀던 것은 센터를 열어도 보이지 않아야 한다.
+            std::erase_if(ui_.notifications, [](const notification& value) { return value.remove_after_leave; });
             return true;
         }
         if (const auto* const intent { message.get<close_notification_center_intent>() }; intent != nullptr)
@@ -900,8 +929,9 @@ namespace cyella {
             else
             {
                 // 남은 Esc는 떠 있는 토스트를 모두 내린다. 알림 센터에는 남는다.
+                const std::chrono::steady_clock::time_point now { dependencies_.steady_clock() };
                 for (notification& value : ui_.notifications)
-                    value.toast = false;
+                    leave_toast(value, now);
             }
             return true;
         }
@@ -1394,6 +1424,7 @@ namespace cyella {
         inputs.git_message = dependencies_.git_message;
         inputs.git_version = dependencies_.git_version;
         inputs.now = dependencies_.clock();
+        inputs.steady_now = dependencies_.steady_clock();
         inputs.exists = [this](const std::u8string_view path) { return repository_exists(path); };
         inputs.hosting_view = [this](const std::string& repository_id) { return hosting_.view_of(repository_id); };
         inputs.commit_ci = [this](const std::string& repository_id, const std::string& sha) { return hosting_.ci_mark(repository_id, sha); };
@@ -1499,9 +1530,22 @@ namespace cyella {
     std::optional<std::chrono::steady_clock::time_point> shell_controller::next_tick() const noexcept
     {
         std::optional<std::chrono::steady_clock::time_point> next { pane_widths_flush_at_ };
+        const auto earlier = [&next](const std::chrono::steady_clock::time_point at) {
+            if (next.has_value() == false || at < *next)
+                next = at;
+        };
+        const std::chrono::steady_clock::time_point now { dependencies_.steady_clock != nullptr ? dependencies_.steady_clock() : std::chrono::steady_clock::now() };
         for (const notification& value : ui_.notifications)
-            if (value.toast && value.toast_until.has_value() && (next.has_value() == false || *value.toast_until < *next))
-                next = value.toast_until;
+        {
+            if (value.toast == false)
+                continue;
+            // 떠오르거나 물러나는 동안은 frame마다 다시 짓는다. 자리와 짙기가 시각의 함수다 (`toast_presence`).
+            const bool entering { now < value.toast_shown_at + toast_enter_duration };
+            if (entering || value.toast_leaving_at.has_value())
+                earlier(value.toast_leaving_at.has_value() && now >= *value.toast_leaving_at + toast_leave_duration ? now : now + luil::transition_frame);
+            else if (value.toast_until.has_value())
+                earlier(*value.toast_until);
+        }
         return next;
     }
 
@@ -1510,11 +1554,16 @@ namespace cyella {
         if (pane_widths_flush_at_.has_value() && now >= *pane_widths_flush_at_)
             flush();
         for (notification& value : ui_.notifications)
+        {
             if (value.toast && value.toast_until.has_value() && now >= *value.toast_until)
+                leave_toast(value, now);
+            if (value.toast_leaving_at.has_value() && now >= *value.toast_leaving_at + toast_leave_duration)
             {
                 value.toast = false;
-                value.toast_until.reset();
+                value.toast_leaving_at.reset();
             }
+        }
+        std::erase_if(ui_.notifications, [](const notification& value) { return value.remove_after_leave && value.toast == false; });
     }
 
     void shell_controller::flush()

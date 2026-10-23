@@ -187,8 +187,14 @@ namespace cyella {
         std::chrono::system_clock::time_point at {};
         // 토스트로 떠 있다. 닫히거나 시간이 지나 내려가도 알림 센터에는 남는다.
         bool toast { true };
+        // 토스트가 떠오르기 시작한 시각이다. 이때부터 `toast_enter_duration` 동안 아래에서 떠오르며 짙어진다.
+        std::chrono::steady_clock::time_point toast_shown_at {};
         // 토스트가 저절로 내려갈 시각이다. 없으면 사용자가 닫을 때까지 남는다 (조치가 달린 알림).
         std::optional<std::chrono::steady_clock::time_point> toast_until {};
+        // 토스트가 물러나기 시작한 시각이다. `toast_leave_duration` 동안 흐려지며 자리를 접고, 끝나면 `toast`가 거짓이 된다.
+        std::optional<std::chrono::steady_clock::time_point> toast_leaving_at {};
+        // 물러남이 끝나면 알림 센터에서도 지운다 (×로 닫았다).
+        bool remove_after_leave { false };
         bool expanded { false };
         // 알림 센터를 연 뒤에 들어온 것만 거짓이다. 종 아이콘의 점을 정한다.
         bool read { false };
@@ -196,6 +202,9 @@ namespace cyella {
 
     // 알림 센터가 기억하는 개수다. 넘으면 오래된 것부터 버린다.
     inline constexpr std::size_t notification_capacity { 100 };
+    // 토스트가 떠오르고 물러나는 시간이다. 들어올 때를 조금 길게 잡아 눈이 따라가게 한다.
+    inline constexpr std::chrono::milliseconds toast_enter_duration { 240 };
+    inline constexpr std::chrono::milliseconds toast_leave_duration { 200 };
 
     // diff 웹뷰가 지금 보이는 모습이다. 웹뷰를 쥔 driver가 frame마다 채우고, 머리 막대(전환 단추)와 대체 보기가 읽는다.
     struct diff_surface_state

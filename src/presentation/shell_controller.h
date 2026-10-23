@@ -54,6 +54,8 @@ namespace cyella {
             std::u8string git_message {};
             std::u8string git_version {};
             std::function<std::chrono::system_clock::time_point()> clock {};
+            // 토스트의 떠오름·물러남·만료가 쓰는 시계다. 비어 있으면 `steady_clock::now`다 (test가 시각을 정한다).
+            std::function<std::chrono::steady_clock::time_point()> steady_clock {};
             // 환경 설정 화면이 쓰는 값이다. 이번 실행이 찾은 git, ssh 도구의 위치, worker에게 시킬 일이다.
             git_tool_info git_tool {};
             std::function<void()> request_ssh_info {};
@@ -307,6 +309,8 @@ namespace cyella {
         void notify(notification value);
         // 새로 실패한 사용자 작업을 알리고, 같은 저장소의 뒤 작업이 성공했으면 앞 실패의 토스트를 내린다.
         void notify_failures();
+        // 떠 있는 토스트를 물러나게 한다. `remove`면 물러남이 끝난 뒤 알림 센터에서도 지운다.
+        void leave_toast(notification& value, std::chrono::steady_clock::time_point now, bool remove = false);
         // 그 저장소를 연 탭을 고른다. 열린 탭이 없으면 false다.
         bool select_repository_tab(const std::string& repository_id);
         [[nodiscard]] luil::text::text_edit_state* draft(text_target target);

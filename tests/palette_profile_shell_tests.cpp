@@ -763,6 +763,8 @@ TEST_CASE("a matching rule only proposes a profile; nothing is written until it 
 
     // 같은 저장소에는 한 번만 제안한다.
     test.send(dismiss_notification_intent {});
+    // ×로 닫은 토스트는 물러난 뒤 지워진다.
+    test.controller.tick(std::chrono::steady_clock::now() + toast_leave_duration);
     test.identity_is(u8"Global Gal", u8"g@example.com");
     CHECK(test.controller.state().latest_notification() == nullptr);
 

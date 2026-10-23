@@ -10,6 +10,9 @@
 #include "luil/ui/stack_element.h"
 #include "luil/ui/ui_tree.h"
 
+#include "include/core/SkCanvas.h"
+#include "include/core/SkRect.h"
+
 #include <algorithm>
 #include <memory>
 #include <utility>
@@ -26,9 +29,16 @@ namespace cyella::ui {
         constexpr float action_line_gap { 4.0f };
         constexpr float detail_line_height { 16.0f };
         constexpr std::size_t detail_visible_lines { 8 };
-        constexpr float toast_maximum_width { 400.0f };
-        constexpr float toast_margin { 12.0f };
-        constexpr float toast_spacing { 8.0f };
+        constexpr float toast_maximum_width { 380.0f };
+        constexpr float toast_margin { 16.0f };
+        constexpr float toast_spacing { 10.0f };
+        // 토스트는 모서리를 크게 굴리고 그림자를 짙게 드리워 화면 위에 떠 있는 카드로 읽히게 한다.
+        constexpr float toast_radius { 10.0f };
+        constexpr float toast_shadow { 0.55f };
+        // 짙기를 겹쳐 그릴 때 그림자까지 담는 둘레다 (논리 픽셀).
+        constexpr float toast_layer_outset { 32.0f };
+        // 이보다 덜 나온 토스트는 짓지 않는다. 다 물러난 카드가 누름을 받지 않게 한다.
+        constexpr float toast_presence_minimum { 0.02f };
         constexpr float center_maximum_width { 420.0f };
         constexpr float center_maximum_height { 520.0f };
         constexpr float center_header_height { 36.0f };
@@ -204,6 +214,54 @@ namespace cyella::ui {
         {
             return std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(content), { 0.0f, 0.0f, width * scale, height * scale }, scale));
         }
+
+        // 떠오르고 물러나는 토스트 한 장이다. 나와 있는 정도(`presence`)만큼 짙게 그리고, 쌓인 자리의 아래 끝을 넘는 부분은 자른다.
+        //  - 자리는 배치가 정한다 (`build_toasts`가 나온 정도만큼 위로 밀어 올린다). 여기서는 짙기와 자르기만 한다.
+        //  - 다 나온 토스트는 겹쳐 그리지 않는다. 겹친 판은 글자의 subpixel 그리기를 잃는다.
+        class toast_motion_element final : public luil::ui_element
+        {
+        public:
+            toast_motion_element(luil::ui_element_id id, std::unique_ptr<luil::ui_element> content, const float presence, const float clip_bottom)
+                : ui_element { std::move(id) }
+                , presence_ { presence }
+                , clip_bottom_ { clip_bottom }
+            {
+                add_child(std::move(content));
+            }
+
+            void arrange(const luil::arrange_context& context) override
+            {
+                set_bounds(context.slot);
+                children()[0]->arrange(context.for_child(context.slot));
+            }
+
+            void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override
+            {
+                const float scale { context.scale };
+                const luil::rect_f box { bounds() };
+                const float outset { toast_layer_outset * scale };
+                context.canvas.save();
+                context.canvas.clipRect(SkRect::MakeLTRB(box.x - outset, box.y - outset, box.x + box.width + outset, clip_bottom_ * scale));
+                if (presence_ < 1.0f)
+                {
+                    const SkRect layer { SkRect::MakeLTRB(box.x - outset, box.y - outset, box.x + box.width + outset, box.y + box.height + outset) };
+                    context.canvas.saveLayerAlpha(&layer, static_cast<U8CPU>(std::clamp(presence_, 0.0f, 1.0f) * 255.0f + 0.5f));
+                }
+                draw_children(context, interaction);
+                if (presence_ < 1.0f)
+                    context.canvas.restore();
+                context.canvas.restore();
+            }
+
+            [[nodiscard]] luil::access_info accessibility() const override
+            {
+                return { .role = luil::access_role::group, .name = children()[0]->accessibility().name };
+            }
+
+        private:
+            float presence_ { 1.0f };
+            float clip_bottom_ { 0.0f };
+        };
     } // namespace
 
     float notification_card_height(const notification_view& value, const float width, const bool center)
@@ -216,32 +274,37 @@ namespace cyella::ui {
         return height;
     }
 
-    std::vector<built_popup> build_toast_popups(const view_snapshot& view, const float bottom, const float scale)
+    std::vector<placed_toast> build_toasts(const view_snapshot& view, const float bottom)
     {
-        std::vector<built_popup> popups {};
+        std::vector<placed_toast> toasts {};
         const float width { std::min(toast_maximum_width, std::max(view.logical_width - toast_margin * 2.0f, 160.0f)) };
         float next_bottom { bottom - toast_margin };
         for (const notification_view& value : view.toasts)
         {
+            if (value.presence < toast_presence_minimum)
+                continue;
             const float height { notification_card_height(value, width, false) };
             // 창이 낮아 위로 쌓을 자리가 없으면 거기서 멈춘다. 나머지는 알림 센터에서 본다.
-            if (next_bottom - height < view.logical_height * 0.25f && popups.empty() == false)
+            if (next_bottom - height < view.logical_height * 0.25f && toasts.empty() == false)
                 break;
-            built_popup popup {};
-            popup.id = u8"toast-" + number_text(value.id);
-            popup.toast = true;
-            popup.x = view.logical_width - toast_margin - width;
-            popup.y = next_bottom - height;
-            popup.width = width;
-            popup.height = height;
-            auto panel { std::make_unique<luil::panel_element>(luil::ui_element_id { kind_panel, popup.id + u8"-panel" }, floating_panel_config(panel_radius, 0.3f)) };
+            // 나온 만큼만 자리를 차지한다. 떠오르는 카드는 아래 끝 너머에서 올라오며 위의 카드를 밀어 올리고,
+            // 물러나는 카드는 자리를 접으며 위의 카드를 끌어내린다. 그래서 쌓인 줄이 한 번에 튀지 않는다.
+            const float shown { (height + toast_spacing) * value.presence };
+            const std::u8string owner { u8"toast-" + number_text(value.id) };
+            auto panel { std::make_unique<luil::panel_element>(luil::ui_element_id { kind_panel, owner + u8"-panel" }, floating_panel_config(toast_radius, toast_shadow)) };
             panel->set_content(make_card(value, width, false));
             panel->set_access_name(value.title.empty() ? value.text : value.title + u8" — " + value.text);
-            popup.tree = arranged(std::move(panel), width, height, scale);
-            next_bottom = popup.y - toast_spacing;
-            popups.push_back(std::move(popup));
+            panel->set_hit_opaque(true);
+            placed_toast toast {};
+            toast.rect = { view.logical_width - toast_margin - width, next_bottom - shown + toast_spacing * value.presence, width, height };
+            toast.presence = value.presence;
+            toast.element = std::make_unique<toast_motion_element>(luil::ui_element_id { kind_panel, owner }, std::move(panel), value.presence, bottom);
+            toasts.push_back(std::move(toast));
+            next_bottom -= shown;
         }
-        return popups;
+        // 덜 나온 카드(떠오르거나 물러나는 중)를 먼저 그려 다 나온 카드 밑으로 지나가게 한다.
+        std::stable_sort(toasts.begin(), toasts.end(), [](const placed_toast& left, const placed_toast& right) { return left.presence < right.presence; });
+        return toasts;
     }
 
     built_popup build_notification_center_popup(const notification_center_view& center, const view_snapshot& view, const float bottom, const float scale, const luil::virtual_list_element** list)

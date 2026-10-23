@@ -23,8 +23,7 @@ namespace cyella::ui {
         bool selector { false };
         bool font { false };
         bool ref_list { false };
-        // 토스트는 어느 계기에도 닫히지 않는다 (시간·×·Esc가 내린다). 알림 센터는 바깥 누름과 Esc에 닫힌다.
-        bool toast { false };
+        // 알림 센터다. 바깥 누름과 Esc에 닫힌다.
         bool notifications { false };
     };
 

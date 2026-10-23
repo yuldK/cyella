@@ -7,6 +7,8 @@
 #include "presentation/sidebar_extension.h"
 #include "presentation/snapshot_dialogs.h"
 
+#include "luil/ui/transition.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -200,7 +202,7 @@ namespace cyella {
             return view;
         }
 
-        void fill_notifications(view_snapshot& view, const ui_state& ui, const std::int64_t now)
+        void fill_notifications(view_snapshot& view, const ui_state& ui, const std::int64_t now, const std::chrono::steady_clock::time_point steady_now)
         {
             status_view& status { view.status };
             status.notifications = ui.notifications.size();
@@ -217,7 +219,11 @@ namespace cyella {
             }
             for (auto it { ui.notifications.rbegin() }; it != ui.notifications.rend() && view.toasts.size() < toast_visible_limit; ++it)
                 if (it->toast)
-                    view.toasts.push_back(make_notification_view(*it, now));
+                {
+                    notification_view toast { make_notification_view(*it, now) };
+                    toast.presence = toast_presence(*it, steady_now);
+                    view.toasts.push_back(std::move(toast));
+                }
         }
 
         std::vector<log_line_view> build_log(const std::vector<const operation_status*>& operations)
@@ -660,6 +666,18 @@ namespace cyella {
             }
         }
     } // namespace
+
+    float toast_presence(const notification& value, const std::chrono::steady_clock::time_point now) noexcept
+    {
+        const auto progress = [now](const std::chrono::steady_clock::time_point started, const std::chrono::milliseconds duration) {
+            return luil::transition_value(luil::transition { .from = 0.0f, .to = 1.0f, .started = started, .duration = duration }, now);
+        };
+        if (value.toast == false)
+            return 0.0f;
+        if (value.toast_leaving_at.has_value())
+            return std::min(1.0f - progress(*value.toast_leaving_at, toast_leave_duration), progress(value.toast_shown_at, toast_enter_duration));
+        return progress(value.toast_shown_at, toast_enter_duration);
+    }
 
     std::optional<notification> failure_notification(const operation_status& status)
     {
@@ -1126,7 +1144,7 @@ namespace cyella {
             view.start = std::move(start);
         }
 
-        fill_notifications(view, ui, now);
+        fill_notifications(view, ui, now, inputs.steady_now);
 
         if (ui.operation_log_open)
             view.log = build_log(inputs.operations);

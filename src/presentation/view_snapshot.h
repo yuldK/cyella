@@ -149,6 +149,8 @@ namespace cyella {
         // "3분 전"과 그 툴팁의 절대 시각이다.
         std::u8string time {};
         std::u8string time_tooltip {};
+        // 토스트가 나와 있는 정도다 [0, 1] (`toast_presence`). 센터의 항목은 늘 1이다.
+        float presence { 1.0f };
     };
 
     // 상태 줄의 종이 연 목록이다. 최신이 앞이다.

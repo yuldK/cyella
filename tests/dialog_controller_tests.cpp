@@ -1025,11 +1025,13 @@ TEST_CASE("a failure is notified once, stays until handled and its toast goes do
     test.controller.after_events();
     CHECK(failures() == 1);
 
-    // 같은 저장소의 뒤 작업이 성공하면 앞 실패의 토스트는 내려가고 센터에는 남는다.
+    // 같은 저장소의 뒤 작업이 성공하면 앞 실패의 토스트는 물러나 내려가고 센터에는 남는다.
     const operation_id fetching { test.workspace.submit(test.repository, fetch_request {}) };
     test.start(fetching);
     test.finish(fetching, operation_state::succeeded);
     REQUIRE(failures() == 1);
+    CHECK(test.controller.state().latest_notification()->toast_leaving_at.has_value());
+    test.controller.tick(*test.controller.state().latest_notification()->toast_leaving_at + toast_leave_duration);
     CHECK(test.view().toasts.empty());
     CHECK(test.view().status.notifications == 1);
 }
