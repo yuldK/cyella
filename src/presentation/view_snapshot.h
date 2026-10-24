@@ -62,6 +62,8 @@ namespace cyella {
         std::u8string key {};
         std::u8string label {};
         tab_marker marker { tab_marker::none };
+        // 바뀐 파일 수다. 표시가 배지일 때 `changes`의 개수로 적는다.
+        std::uint32_t changed_files { 0 };
         // rebase·merge 중이면 "rebase 중" 같은 꼬리표다.
         std::u8string in_progress {};
         std::u8string tooltip {};
@@ -507,6 +509,9 @@ namespace cyella {
         std::int64_t now { 0 };
         layout_mode mode { layout_mode::wide };
         theme_preference theme { theme_preference::system };
+        // 탭 줄의 모양과 상태 표시 자리다 (`appearance_settings`).
+        tab_shape tab_shape_choice { tab_shape::connected };
+        tab_marker_place tab_marker_choice { tab_marker_place::badge };
         bool graph_layout { true };
         std::u8string git_version {};
         std::vector<tab_view> tabs {};

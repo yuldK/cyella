@@ -1,5 +1,6 @@
 // 환경 설정 대화 상자를 tree로 지어 보는 test다. 어느 쪽(page)이든 id가 겹치지 않고 모두 배치되며, 사용자가 누를 단추가
 // 이름으로 찾아지는지(UI 자동화가 같은 이름을 쓴다)를 본다.
+#include "presentation/settings/settings_intents.h"
 #include "presentation/settings/settings_view.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/element_kinds.h"
@@ -324,4 +325,49 @@ TEST_CASE("narrow settings keep command titles and file app actions readable", "
             CHECK(button->bounds().x + button->bounds().width <= row->bounds().x + row->bounds().width + 0.1f);
         }
     }
+}
+
+TEST_CASE("the tab shape and tab status cards are radio groups with inert preview bars", "[settings][ui][tabs]")
+{
+    snapshot_harness harness {};
+    settings_state state {};
+    app_settings settings {};
+    settings.appearance.tabs = tab_shape::flat;
+    settings.appearance.tab_marker = tab_marker_place::close_slot;
+    settings_view_inputs inputs {};
+    inputs.state = &state;
+    inputs.settings = &settings;
+    view_snapshot view { harness.build(1440.0f) };
+    view.settings = build_settings_view(inputs);
+    const ui::built_tree built { ui::build_ui_tree(view) };
+    REQUIRE(built.tree->duplicate_ids().empty());
+
+    const luil::ui_element* const shapes { built.tree->find({ ui::kind_tab_style_picker, u8"settings-tab-shape" }) };
+    REQUIRE(shapes != nullptr);
+    CHECK(shapes->accessibility().role == luil::access_role::radio_group);
+    const luil::ui_element* const flat { built.tree->find({ ui::kind_tab_style_option, u8"settings-tab-shape-flat" }) };
+    const luil::ui_element* const connected { built.tree->find({ ui::kind_tab_style_option, u8"settings-tab-shape-connected" }) };
+    REQUIRE(flat != nullptr);
+    REQUIRE(connected != nullptr);
+    CHECK(flat->accessibility().selected == true);
+    CHECK(connected->accessibility().selected == false);
+
+    const luil::ui_element* const close_slot { built.tree->find({ ui::kind_tab_style_option, u8"settings-tab-marker-close_slot" }) };
+    REQUIRE(close_slot != nullptr);
+    CHECK(close_slot->accessibility().selected == true);
+    REQUIRE(built.tree->find({ ui::kind_tab_style_option, u8"settings-tab-marker-badge" }) != nullptr);
+    REQUIRE(built.tree->find({ ui::kind_tab_style_option, u8"settings-tab-marker-icon_corner" }) != nullptr);
+
+    // 견본 막대의 탭은 누를 수 없는 그림이다. 진짜 탭 kind로 찾히지 않는다.
+    CHECK(built.tree->find({ luil::ui_element_kind::tab, u8"settings-tab-shape-flat-preview-0" }) == nullptr);
+
+    // 카드를 누르면 그 값을 고르자는 메시지다.
+    const luil::ui_action* const pick { connected->action(luil::ui_trigger::left_click) };
+    REQUIRE(pick != nullptr);
+    const auto actions { (*pick)(luil::ui_action_context { connected->id(), 0.0f, 0.0f }) };
+    REQUIRE(actions.size() == 1);
+    const auto* const picked { std::get_if<luil::app_message>(&actions.front()) };
+    REQUIRE(picked != nullptr);
+    REQUIRE(picked->get<set_tab_shape_intent>() != nullptr);
+    CHECK(picked->get<set_tab_shape_intent>()->shape == tab_shape::connected);
 }

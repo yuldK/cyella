@@ -14,6 +14,8 @@ namespace cyella::ui {
     inline constexpr luil::ui_element_kind kind_settings_field { luil::application_element_kind(607) };
     inline constexpr luil::ui_element_kind kind_accent_picker { luil::application_element_kind(609) };
     inline constexpr luil::ui_element_kind kind_accent_option { luil::application_element_kind(610) };
+    inline constexpr luil::ui_element_kind kind_tab_style_picker { luil::application_element_kind(611) };
+    inline constexpr luil::ui_element_kind kind_tab_style_option { luil::application_element_kind(612) };
     // cyella element의 kind다. luil이 정하지 않은 앱 kind는 여기 한 곳에만 둔다. UI 자동화는 kind 숫자가 아니라
     // owner 이름으로 요소를 찾으므로(UI Automation), owner를 화면 안에서 유일하게 짓는다.
     inline constexpr luil::ui_element_kind kind_layout { luil::application_element_kind(0) };

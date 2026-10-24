@@ -3,9 +3,11 @@
 #include "presentation/frame_feedback.h"
 #include "presentation/view_snapshot.h"
 
+#include "luil/theme/ui_style.h"
 #include "luil/ui/ui_tree.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,8 +27,9 @@ namespace cyella::ui {
         bool ref_list { false };
         // 알림 센터다. 바깥 누름과 Esc에 닫힌다.
         bool notifications { false };
-        // 표면 둘레의 1px 사각 테두리다 (luil `ui_popup::border`). 둥근 테두리를 직접 긋는 판은 끈다 — 두 선이 겹치면 사각 틀 안에 둥근 판이 갇혀 보인다.
-        bool border { true };
+        // 표면 모서리다 (luil `ui_popup::corner`). 비면 앱 스타일(OS 기본)이다.
+        //  - 둥근 창은 OS가 잘라 내고 같은 모양의 테두리와 그림자를 얹는다. 둥글게 못 하는 환경에서는 직각 창과 1px 선이다.
+        std::optional<luil::popup_corner> corner {};
     };
 
     struct built_tree

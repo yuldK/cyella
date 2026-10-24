@@ -6,6 +6,8 @@
 #include "luil/generated/codicons.h"
 
 #include <algorithm>
+#include <charconv>
+#include <string>
 #include <utility>
 
 namespace cyella {
@@ -357,7 +359,8 @@ namespace cyella {
         case menu_target_kind::lfs_file:
             return build_extension_menu(target, context);
         case menu_target_kind::tab:
-            // 탭 메뉴는 저장소 상태가 아니라 탭 목록으로 정한다 (`build_tab_menu`).
+        case menu_target_kind::tab_list:
+            // 탭 메뉴는 저장소 상태가 아니라 탭 목록으로 정한다 (`build_tab_menu`·`build_tab_list_menu`).
             break;
         }
         return {};
@@ -391,6 +394,33 @@ namespace cyella {
                 });
         }
         return model;
+    }
+
+    menu_model build_tab_list_menu(const repository_tabs& tabs, const repository_tab_id selected)
+    {
+        menu_model model {};
+        model.title = tr(u8"menu.all_tabs");
+        for (const repository_tab& tab : tabs.tabs())
+        {
+            const bool repository { tab.kind == repository_tab_kind::repository };
+            const char32_t icon { tab.id == selected ? icons::icon_check : repository ? icons::icon_repo : icons::icon_home };
+            model.entries.push_back(make_entry(u8"tab-" + to_u8(std::to_string(tab.id)), repository ? tab.display_name : tr(u8"menu.start_tab"), icon));
+        }
+        return model;
+    }
+
+    std::optional<repository_tab_id> tab_list_entry_id(const std::u8string_view key)
+    {
+        constexpr std::u8string_view prefix { u8"tab-" };
+        if (key.starts_with(prefix) == false)
+            return std::nullopt;
+        const std::u8string_view digits { key.substr(prefix.size()) };
+        repository_tab_id id { 0 };
+        const char* const begin { reinterpret_cast<const char*>(digits.data()) };
+        const auto [end, error] { std::from_chars(begin, begin + digits.size(), id) };
+        if (error != std::errc {} || end != begin + digits.size() || digits.empty())
+            return std::nullopt;
+        return id;
     }
 
     bool can_drop_on(const drop_party& source, const drop_party& destination) noexcept

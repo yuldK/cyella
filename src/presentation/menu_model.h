@@ -40,6 +40,8 @@ namespace cyella {
         commit_file,
         // 탭 줄의 탭이다. `tab`이 탭 id다. 저장소 상태 없이 탭 목록만으로 항목이 정해져 시작 탭에서도 열린다.
         tab,
+        // 탭 줄이 넘칠 때 ▾ 단추가 여는 모든 탭의 목록이다. `tab`이 지금 고른 탭이다.
+        tab_list,
     };
 
     // 끌어 놓기의 한쪽이다. 브랜치(`kind`가 local·remote)나 커밋이다.
@@ -142,6 +144,11 @@ namespace cyella {
     // 탭 우클릭 메뉴다: 닫기·다른 탭 닫기·오른쪽 탭 닫기, 저장소 탭이면 경로 복사와 탐색기·VS Code로 열기가 더해진다.
     // 탭이 없으면 빈 메뉴다.
     [[nodiscard]] menu_model build_tab_menu(const repository_tabs& tabs, repository_tab_id id);
+
+    // 모든 탭의 목록이다. 항목 키는 `tab-<id>`이고 고르면 그 탭으로 간다. 지금 탭에는 체크가 선다.
+    [[nodiscard]] menu_model build_tab_list_menu(const repository_tabs& tabs, repository_tab_id selected);
+    // `build_tab_list_menu` 항목 키의 탭 id다. 그 꼴이 아니면 비어 있다.
+    [[nodiscard]] std::optional<repository_tab_id> tab_list_entry_id(std::u8string_view key);
 
     // 놓을 수 있는 쌍인가. 같은 브랜치 위, 원격끼리, 원격이 끈 쪽이면서 원격 대상이 아니면 안 된다.
     [[nodiscard]] bool can_drop_on(const drop_party& source, const drop_party& destination) noexcept;

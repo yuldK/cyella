@@ -7,6 +7,8 @@
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
+#include "luil/app/app_host.h"
+#include "luil/theme/ui_style.h"
 #include "luil/theme/ui_theme.h"
 #include "luil/ui/draw_primitives.h"
 #include "luil/ui/panel_element.h"
@@ -50,9 +52,9 @@ namespace cyella::ui {
         constexpr float center_empty_height { 132.0f };
         constexpr float center_margin { 8.0f };
         // 센터는 토스트와 같은 카드를 한 판 위에 쌓는다. 판은 창 바탕, 카드는 표면색이라 카드가 판 위에 떠 보인다.
-        //  - popup 창은 창 바탕색으로 지운 불투명한 직사각형이다. 판도 같은 색이라 둥근 모서리 바깥이 튀지 않는다.
-        //    그림자는 창 밖이라 그릴 수 없으므로 두지 않는다.
-        constexpr float center_radius { 10.0f };
+        //  - 모서리와 테두리·그림자는 OS가 popup 창째로 둥글게 그린다 (`popup_corner::round`). 판은 그 반지름을 따라
+        //    칠하기만 하고 선은 긋지 않는다 — 판의 선과 OS의 선이 겹치면 모서리에서 두 겹이 어긋난다.
+        constexpr luil::popup_corner center_corner { luil::popup_corner::round };
         constexpr float center_list_padding { 8.0f };
         constexpr float center_filter_width { 210.0f };
         constexpr float center_day_height { 28.0f };
@@ -698,11 +700,10 @@ namespace cyella::ui {
         popup.height = center_header_height + list_height;
         popup.x = view.logical_width - center_margin - width;
         popup.y = std::max(bottom - 4.0f - popup.height, 0.0f);
-        // 경계는 판의 둥근 테두리 하나다. 판이 창 바탕색이라 아래 화면과 가르려면 구분선보다 또렷한 선이 있어야 한다.
-        popup.border = false;
-        luil::panel_config panel_config { floating_panel_config(center_radius, 0.0f) };
+        popup.corner = center_corner;
+        luil::panel_config panel_config {};
         panel_config.background = [](const luil::ui_color_palette& palette) { return palette.window_background; };
-        panel_config.border = [](const luil::ui_color_palette& palette) { return palette.group_border; };
+        panel_config.corner_radius = luil::popup_corner_radius(center_corner);
         auto panel { std::make_unique<luil::panel_element>(luil::ui_element_id { kind_panel, u8"notification-center-panel" }, panel_config) };
         panel->set_content(std::move(column));
         panel->set_access_name(tr(u8"tree.notification.center"));

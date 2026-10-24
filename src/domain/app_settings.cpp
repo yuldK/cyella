@@ -182,6 +182,45 @@ namespace cyella {
         return std::nullopt;
     }
 
+    std::u8string_view tab_shape_name(const tab_shape shape) noexcept
+    {
+        return shape == tab_shape::flat ? u8"flat" : u8"connected";
+    }
+
+    std::optional<tab_shape> parse_tab_shape(const std::u8string_view name) noexcept
+    {
+        if (name == u8"connected")
+            return tab_shape::connected;
+        if (name == u8"flat")
+            return tab_shape::flat;
+        return std::nullopt;
+    }
+
+    std::u8string_view tab_marker_place_name(const tab_marker_place place) noexcept
+    {
+        switch (place)
+        {
+        case tab_marker_place::icon_corner:
+            return u8"icon_corner";
+        case tab_marker_place::close_slot:
+            return u8"close_slot";
+        case tab_marker_place::badge:
+            break;
+        }
+        return u8"badge";
+    }
+
+    std::optional<tab_marker_place> parse_tab_marker_place(const std::u8string_view name) noexcept
+    {
+        if (name == u8"icon_corner")
+            return tab_marker_place::icon_corner;
+        if (name == u8"badge")
+            return tab_marker_place::badge;
+        if (name == u8"close_slot")
+            return tab_marker_place::close_slot;
+        return std::nullopt;
+    }
+
     std::u8string format_utc_timestamp(const std::chrono::system_clock::time_point time)
     {
         const std::time_t seconds { std::chrono::system_clock::to_time_t(time) };

@@ -845,3 +845,16 @@ TEST_CASE("font drafts apply together and font selection persists without losing
     CHECK(test.service.settings().appearance.ui_font.empty());
     CHECK(test.service.settings().appearance.code_font == u8"Consolas");
 }
+
+TEST_CASE("choosing the tab shape and tab status spot is saved through the settings service", "[settings][controller]")
+{
+    controller_harness test {};
+    test.send(open_settings_intent {});
+    CHECK(test.view().tab_shape_choice == tab_shape::connected);
+    test.send(set_tab_shape_intent { tab_shape::flat });
+    test.send(set_tab_marker_intent { tab_marker_place::icon_corner });
+    CHECK(test.view().tab_shape_choice == tab_shape::flat);
+    CHECK(test.view().tab_marker_choice == tab_marker_place::icon_corner);
+    CHECK(test.store.saved.appearance.tabs == tab_shape::flat);
+    CHECK(test.store.saved.appearance.tab_marker == tab_marker_place::icon_corner);
+}

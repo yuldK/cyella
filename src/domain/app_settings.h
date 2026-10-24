@@ -48,6 +48,24 @@ namespace cyella {
         dark,
     };
 
+    // 탭 줄의 모양이다. 이어진 탭은 선택된 탭이 아래 도구 막대와 한 판으로 이어지고, 평평한 칸은 탭이 칸막이로 맞붙는다.
+    enum class tab_shape
+    {
+        connected,
+        flat,
+    };
+
+    // 탭의 상태(바뀐 파일·대기·실행 중·입력 대기)를 어디에 보이는가다.
+    enum class tab_marker_place
+    {
+        // 저장소 아이콘의 오른쪽 아래 모서리의 작은 점이다.
+        icon_corner,
+        // 이름 뒤의 작은 알약이다 ("3"·"대기"·"실행 중"·"입력").
+        badge,
+        // 닫기 단추 자리의 표시다. 포인터를 올리면 닫기 단추로 바뀐다.
+        close_slot,
+    };
+
     struct appearance_settings
     {
         theme_preference theme { theme_preference::system };
@@ -60,6 +78,8 @@ namespace cyella {
         // 키 컬러 id다 (luil 목록의 `blue`·`mint`…, 운영체제 색은 `system`). 비면 luil의 기본 키 컬러다.
         // 목록에 없는 id도 설정에는 남기고 표시만 기본 키 컬러로 되돌린다 (다른 버전의 목록에서 고른 값일 수 있다).
         std::u8string accent {};
+        tab_shape tabs { tab_shape::connected };
+        tab_marker_place tab_marker { tab_marker_place::badge };
 
         [[nodiscard]] bool operator==(const appearance_settings&) const noexcept = default;
     };
@@ -186,6 +206,12 @@ namespace cyella {
 
     [[nodiscard]] std::u8string_view diff_layout_preference_name(diff_layout_preference layout) noexcept;
     [[nodiscard]] std::optional<diff_layout_preference> parse_diff_layout_preference(std::u8string_view name) noexcept;
+
+    [[nodiscard]] std::u8string_view tab_shape_name(tab_shape shape) noexcept;
+    [[nodiscard]] std::optional<tab_shape> parse_tab_shape(std::u8string_view name) noexcept;
+
+    [[nodiscard]] std::u8string_view tab_marker_place_name(tab_marker_place place) noexcept;
+    [[nodiscard]] std::optional<tab_marker_place> parse_tab_marker_place(std::u8string_view name) noexcept;
 
     // `2026-10-20T09:30:12Z` 형식의 UTC 문자열이다. 변환에 실패하면 빈 값이다.
     [[nodiscard]] std::u8string format_utc_timestamp(std::chrono::system_clock::time_point time);

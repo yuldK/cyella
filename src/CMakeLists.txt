@@ -474,6 +474,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/foundation"
     presentation/ui/repository_tabs_element.h
     presentation/ui/settings/appearance_ui.cpp
     presentation/ui/settings/appearance_ui.h
+    presentation/ui/settings/tab_style_ui.cpp
+    presentation/ui/settings/tab_style_ui.h
     presentation/ui/ui_helpers.cpp
     presentation/ui/ui_helpers.h)
 

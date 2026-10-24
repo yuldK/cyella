@@ -1,6 +1,8 @@
 // 대화 상자·메뉴·라벨 칩·충돌 화면의 luil tree다. snapshot에서 배치까지 지은 tree를 읽어, 눌림·끌기·놓기가 element에 서 있는지와
 // 자리가 겹치지 않는지와 탭의 삽입 방향 강조를 검증한다.
+#include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
+#include "presentation/menu_model.h"
 #include "presentation/selector_intents.h"
 #include "presentation/ui/app_symbol.h"
 #include "presentation/ui/build_ui_tree.h"
@@ -9,11 +11,13 @@
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
 #include "presentation/ui/ref_chip_element.h"
+#include "presentation/ui/repository_tabs_element.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
 #include "view_snapshot_support.h"
 
+#include "luil/generated/codicons.h"
 #include "luil/ui/image_decode.h"
 #include "luil/ui/ui_platform.h"
 
@@ -22,6 +26,7 @@
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <optional>
@@ -170,7 +175,7 @@ TEST_CASE("toolbar controls stay inside the window at every responsive boundary"
         }
 }
 
-TEST_CASE("repository tabs scroll with their add button and reveal the selected tab", "[presentation][ui][tabs]")
+TEST_CASE("repository tabs shrink first, then step one tab at a time and reveal the selected tab", "[presentation][ui][tabs]")
 {
     tree_fixture fixture {};
     view_snapshot view { fixture.harness.build(760.0f) };
@@ -184,39 +189,52 @@ TEST_CASE("repository tabs scroll with their add button and reveal the selected 
     CHECK(end.tree->unarranged().empty());
     const auto* const last { find_element(end, luil::ui_element_kind::tab, u8"tab-8") };
     const auto* const add { find_element(end, cyella::ui::kind_button, u8"new-tab") };
-    const auto* const lane { find_element(end, cyella::ui::kind_layout, u8"tabs-lane") };
-    const auto* const scroll { find_element(end, luil::ui_element_kind::scroll_area_bar, u8"tabs-scroll") };
+    const auto* const back { find_element(end, luil::ui_element_kind::tab_step_back, u8"tabs") };
+    const auto* const forward { find_element(end, luil::ui_element_kind::tab_step_forward, u8"tabs") };
+    const auto* const list { find_element(end, luil::ui_element_kind::tab_overflow, u8"tabs") };
     REQUIRE(last != nullptr);
     REQUIRE(add != nullptr);
-    REQUIRE(lane != nullptr);
-    REQUIRE(scroll != nullptr);
-    CHECK(add->bounds().x == last->bounds().x + last->bounds().width);
-    CHECK(add->bounds().x + add->bounds().width <= lane->bounds().x + lane->bounds().width);
-    REQUIRE(scroll->accessibility().range.has_value());
-    CHECK(scroll->accessibility().range->value == scroll->accessibility().range->maximum);
-    REQUIRE(scroll->pointer_drag() != nullptr);
-    CHECK(scroll->pointer_drag()->follows_pointer);
-    CHECK(scroll->key_step()->axis == luil::focus_axis::horizontal);
-    const auto changed { scroll->access_actions({ .command = luil::access_command::set_value, .value = 0.0f }) };
-    REQUIRE(changed.has_value());
-    REQUIRE(changed->size() == 1);
-    const auto* const action { std::get_if<luil::app_message>(&changed->front()) };
-    REQUIRE(action != nullptr);
-    const auto* const intent { action->get<scroll_tabs_intent>() };
-    REQUIRE(intent != nullptr);
-    CHECK(intent->absolute);
-    CHECK(intent->delta == 0.0f);
+    REQUIRE(back != nullptr);
+    REQUIRE(forward != nullptr);
+    REQUIRE(list != nullptr);
+    // 넘치면 탭은 최소 폭까지 줄어 있고, 양 끝 단추와 ▾·새 탭 단추가 선다. 고른 마지막 탭은 끝까지 흘려 드러난다.
+    CHECK(back->visible());
+    CHECK(forward->visible());
+    CHECK(last->bounds().width == 120.0f);
+    REQUIRE(end.feedback.tab_scroll.has_value());
+    CHECK(*end.feedback.tab_scroll > 0.0f);
+    CHECK(last->bounds().x + last->bounds().width <= forward->bounds().x);
+    CHECK(add->bounds().x >= list->bounds().x + list->bounds().width);
 
+    // ▾는 모든 탭의 목록을 지금 탭 기준으로 연다.
+    const auto opened { list->action(luil::ui_trigger::left_click) };
+    REQUIRE(opened != nullptr);
+    const auto opened_actions { (*opened)(luil::ui_action_context { list->id(), 10.0f, 20.0f }) };
+    REQUIRE(opened_actions.size() == 1);
+    const auto* const open_message { std::get_if<luil::app_message>(&opened_actions.front()) };
+    REQUIRE(open_message != nullptr);
+    const auto* const open_intent { open_message->get<open_context_menu_intent>() };
+    REQUIRE(open_intent != nullptr);
+    CHECK(open_intent->target.kind == menu_target_kind::tab_list);
+    CHECK(open_intent->target.tab == 8);
+
+    // 다른 탭을 고르면 흘린 값이 그 탭을 드러내는 자리로 다듬어진다.
     view.selected_tab = 1;
     view.tab_scroll = *end.feedback.tab_scroll;
     const cyella::ui::built_tree start { cyella::ui::build_ui_tree(view) };
     CHECK(start.feedback.tab_scroll == 0.0f);
-    const auto* const first { find_element(start, luil::ui_element_kind::tab, u8"tab-1") };
-    REQUIRE(first != nullptr);
-    CHECK(first->bounds().x == 0.0f);
-    view.tabs.resize(1);
-    const cyella::ui::built_tree short_row { cyella::ui::build_ui_tree(view) };
-    CHECK(find_element(short_row, luil::ui_element_kind::scroll_area_bar, u8"tabs-scroll") == nullptr);
+
+    // 줄이면 다 들어가는 수면 넘치지 않는다. 탭은 고른 폭보다 좁고, 새 탭 단추는 마지막 탭 바로 뒤다.
+    view.tabs.resize(4);
+    const cyella::ui::built_tree fitted { cyella::ui::build_ui_tree(view) };
+    const auto* const fourth { find_element(fitted, luil::ui_element_kind::tab, u8"tab-4") };
+    const auto* const fitted_add { find_element(fitted, cyella::ui::kind_button, u8"new-tab") };
+    REQUIRE(fourth != nullptr);
+    REQUIRE(fitted_add != nullptr);
+    CHECK(fourth->bounds().width < 180.0f);
+    CHECK(fourth->bounds().width >= 120.0f);
+    CHECK(fitted_add->bounds().x == fourth->bounds().x + fourth->bounds().width);
+    CHECK_FALSE(find_element(fitted, luil::ui_element_kind::tab_step_back, u8"tabs")->visible());
 }
 
 TEST_CASE("tab dragging marks the gap on the hovered half and places the tab there", "[presentation][ui][tabs][drag]")
@@ -907,4 +925,64 @@ TEST_CASE("the app symbol and title SVG assets read as vector images", "[present
         CHECK(image.width() == expected.width);
         CHECK(image.height() == expected.height);
     }
+}
+
+TEST_CASE("tab status goes to the chosen spot and the repository icon stays", "[presentation][ui][tabs]")
+{
+    luil::tab_item badge_item {};
+    cyella::ui::apply_tab_marker(badge_item, tab_marker::changes, 3, tab_marker_place::badge);
+    REQUIRE(badge_item.badge.has_value());
+    CHECK(badge_item.badge->text == u8"3");
+    CHECK_FALSE(badge_item.indicator.has_value());
+
+    luil::tab_item running {};
+    cyella::ui::apply_tab_marker(running, tab_marker::running, 0, tab_marker_place::badge);
+    REQUIRE(running.badge.has_value());
+    CHECK(running.badge->spinning);
+    CHECK(running.badge->tone == luil::badge_tone::accent);
+
+    luil::tab_item corner {};
+    cyella::ui::apply_tab_marker(corner, tab_marker::needs_input, 0, tab_marker_place::icon_corner);
+    REQUIRE(corner.indicator.has_value());
+    CHECK(corner.indicator->kind == luil::tab_indicator_kind::glyph);
+    CHECK(corner.indicator->tone == luil::badge_tone::warning);
+    CHECK_FALSE(corner.badge.has_value());
+
+    luil::tab_item quiet {};
+    cyella::ui::apply_tab_marker(quiet, tab_marker::none, 0, tab_marker_place::close_slot);
+    CHECK_FALSE(quiet.badge.has_value());
+    CHECK_FALSE(quiet.indicator.has_value());
+
+    CHECK(cyella::ui::repository_tab_style(tab_shape::flat, tab_marker_place::close_slot).variant == luil::tab_bar_variant::flat);
+    CHECK(cyella::ui::repository_tab_style(tab_shape::flat, tab_marker_place::close_slot).indicator_placement == luil::tab_indicator_placement::close_slot);
+    CHECK(cyella::ui::repository_tab_style(tab_shape::connected, tab_marker_place::badge).variant == luil::tab_bar_variant::connected);
+
+    // 탭 줄의 아이콘은 상태와 무관하게 저장소 아이콘이고, 바뀐 파일 수는 배지가 말한다.
+    tree_fixture fixture {};
+    view_snapshot view { fixture.harness.build() };
+    view.tabs = { { .id = 1, .label = u8"하나", .marker = tab_marker::changes, .changed_files = 2 } };
+    view.selected_tab = 1;
+    const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
+    const auto* const tab { find_element(built, luil::ui_element_kind::tab, u8"tab-1") };
+    REQUIRE(tab != nullptr);
+    CHECK(tab->accessibility().name.find(u8"2") != std::u8string::npos);
+}
+
+TEST_CASE("the all-tabs list checks the current tab and selects the chosen one", "[presentation][menu][tabs]")
+{
+    repository_tabs tabs {};
+    const repository_tab_id first { tabs.open_repository(u8"C:\\work\\one").id };
+    const repository_tab_id second { tabs.open_repository(u8"C:\\work\\two").id };
+    const menu_model model { build_tab_list_menu(tabs, second) };
+    CHECK(model.title == tr(u8"menu.all_tabs"));
+    REQUIRE(model.entries.size() == tabs.tabs().size());
+    const auto entry_of
+        = [&model](const repository_tab_id id) { return std::find_if(model.entries.begin(), model.entries.end(), [id](const menu_entry& entry) { return tab_list_entry_id(entry.key) == id; }); };
+    REQUIRE(entry_of(first) != model.entries.end());
+    REQUIRE(entry_of(second) != model.entries.end());
+    CHECK(entry_of(second)->icon == luil::codicons::icon_check);
+    CHECK(entry_of(first)->icon == luil::codicons::icon_repo);
+    CHECK_FALSE(tab_list_entry_id(u8"close").has_value());
+    CHECK_FALSE(tab_list_entry_id(u8"tab-").has_value());
+    CHECK_FALSE(tab_list_entry_id(u8"tab-3x").has_value());
 }

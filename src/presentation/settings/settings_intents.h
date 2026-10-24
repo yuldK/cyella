@@ -45,6 +45,18 @@ namespace cyella {
         std::u8string id {};
     };
 
+    // 탭 줄의 모양을 고른다. 바로 저장한다.
+    struct set_tab_shape_intent
+    {
+        tab_shape shape { tab_shape::connected };
+    };
+
+    // 탭의 상태를 보일 자리를 고른다. 바로 저장한다.
+    struct set_tab_marker_intent
+    {
+        tab_marker_place place { tab_marker_place::badge };
+    };
+
     // 화면 문구의 언어다. 저장만 하고 다시 시작할 때 적용한다 (ADR-008).
     struct set_language_intent
     {

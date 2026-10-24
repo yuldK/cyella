@@ -620,7 +620,7 @@ TEST_CASE("notices rise as toasts, leave smoothly when they time out and stay in
         const ui::built_tree center_tree { ui::build_ui_tree(test.controller.make_view(1440.0f, 900.0f, 1.0f)) };
         const auto popup { std::find_if(center_tree.popups.begin(), center_tree.popups.end(), [](const ui::built_popup& value) { return value.notifications; }) };
         REQUIRE(popup != center_tree.popups.end());
-        CHECK_FALSE(popup->border);
+        CHECK(popup->corner == luil::popup_corner::round);
         const std::u8string card { u8"notification-" + ui::number_text(test.controller.state().notifications.back().id) };
         CHECK(popup->tree->find({ ui::kind_panel, card }) != nullptr);
         CHECK(popup->tree->find({ ui::kind_button, card + u8"-close" }) != nullptr);

@@ -4,10 +4,8 @@
 #include "domain/text_catalog.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
-#include "presentation/ui_intents.h"
 
 #include "luil/ui/draw_primitives.h"
-#include "luil/ui/stack_element.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPaint.h"
@@ -21,112 +19,11 @@
 
 namespace cyella::ui {
     namespace {
-        constexpr float add_width { 32.0f };
-        constexpr float scrollbar_height { 10.0f };
-        // 탭마다 그리는 둥근 테두리의 자리다. 끌리는 탭도 같은 모양으로 뜬다.
-        SkRect tab_shape(const luil::rect_f& box, const float scale)
+        // 끌리는 탭이 뜨는 둥근 판의 자리다.
+        SkRect floating_tab_rect(const luil::rect_f& box, const float scale)
         {
             return SkRect::MakeXYWH(box.x + 2.5f * scale, box.y + 3.5f * scale, std::max(box.width - 5.0f * scale, 0.0f), std::max(box.height - 6.0f * scale, 0.0f));
         }
-
-        class tab_scrollbar_element final : public luil::ui_element
-        {
-        public:
-            tab_scrollbar_element(const float content, const float viewport, const float offset)
-                : ui_element { { luil::ui_element_kind::scroll_area_bar, u8"tabs-scroll" } }
-                , content_ { content }
-                , viewport_ { viewport }
-                , offset_ { offset }
-            {
-                set_access_name(tr(u8"tabs.horizontal_scroll"));
-                set_tab_stop(true);
-                luil::pointer_drag_target drag {};
-                drag.follows_pointer = true;
-                drag.on_press = [this](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
-                    if (context.x >= thumb_left_ && context.x <= thumb_left_ + thumb_width_)
-                        return {};
-                    return { message(scroll_tabs_intent { delta_for(context.x - thumb_left_ - thumb_width_ / 2.0f) }) };
-                };
-                drag.on_move = [this](const luil::ui_action_context& previous, const luil::ui_action_context& current) -> std::vector<luil::input_action> {
-                    return { message(scroll_tabs_intent { delta_for(current.x - previous.x) }) };
-                };
-                set_pointer_drag_target(std::move(drag));
-                luil::key_step_target keys {};
-                keys.axis = luil::focus_axis::horizontal;
-                keys.on_step = [this](const luil::value_step step) -> std::optional<std::vector<luil::input_action>> {
-                    float delta { 0.0f };
-                    switch (step)
-                    {
-                    case luil::value_step::decrease:
-                        delta = -48.0f;
-                        break;
-                    case luil::value_step::increase:
-                        delta = 48.0f;
-                        break;
-                    case luil::value_step::decrease_page:
-                        delta = -viewport_;
-                        break;
-                    case luil::value_step::increase_page:
-                        delta = viewport_;
-                        break;
-                    case luil::value_step::minimum:
-                        delta = -offset_;
-                        break;
-                    case luil::value_step::maximum:
-                        delta = content_ - viewport_ - offset_;
-                        break;
-                    }
-                    return std::vector<luil::input_action> { message(scroll_tabs_intent { delta }) };
-                };
-                set_key_step_target(std::move(keys));
-            }
-
-            void arrange(const luil::arrange_context& context) override
-            {
-                set_bounds(context.slot);
-                const float scale { context.scale };
-                track_width_ = std::max(context.slot.width - 8.0f * scale, 0.0f);
-                thumb_width_ = std::min(track_width_, std::max(24.0f * scale, track_width_ * viewport_ / content_));
-                thumb_left_ = context.slot.x + 4.0f * scale + (track_width_ - thumb_width_) * offset_ / (content_ - viewport_);
-            }
-
-            void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override
-            {
-                const float height { 4.0f * context.scale };
-                const float top { bounds().y + (bounds().height - height) / 2.0f };
-                const SkPaint track { luil::solid_paint(luil::with_alpha(context.palette.primary_foreground, 0.07f)) };
-                context.canvas.drawRoundRect(SkRect::MakeXYWH(bounds().x + 4.0f * context.scale, top, track_width_, height), height / 2.0f, height / 2.0f, track);
-                const bool active { interaction.hovered == id() || interaction.pressed == id() };
-                const SkPaint thumb { luil::solid_paint(luil::with_alpha(context.palette.primary_foreground, active ? 0.65f : 0.38f)) };
-                context.canvas.drawRoundRect(SkRect::MakeXYWH(thumb_left_, top, thumb_width_, height), height / 2.0f, height / 2.0f, thumb);
-            }
-
-            [[nodiscard]] luil::access_info accessibility() const override
-            {
-                return { .role = luil::access_role::scroll_bar, .name = access_name(), .range = luil::access_range { 0.0f, content_ - viewport_, offset_ } };
-            }
-
-            [[nodiscard]] std::optional<std::vector<luil::input_action>> access_actions(const luil::access_request& request) const override
-            {
-                if (request.command != luil::access_command::set_value)
-                    return ui_element::access_actions(request);
-                return std::vector<luil::input_action> { message(scroll_tabs_intent { std::clamp(request.value, 0.0f, content_ - viewport_), true }) };
-            }
-
-        private:
-            [[nodiscard]] float delta_for(const float pixels) const noexcept
-            {
-                const float travel { track_width_ - thumb_width_ };
-                return travel > 0.0f ? pixels * (content_ - viewport_) / travel : 0.0f;
-            }
-
-            float content_ { 0.0f };
-            float viewport_ { 0.0f };
-            float offset_ { 0.0f };
-            float track_width_ { 0.0f };
-            float thumb_left_ { 0.0f };
-            float thumb_width_ { 0.0f };
-        };
 
         void collect_tabs(luil::ui_element& element, std::vector<luil::ui_element*>& tabs)
         {
@@ -146,36 +43,125 @@ namespace cyella::ui {
         }
     } // namespace
 
-    repository_tabs_element::repository_tabs_element(
-        luil::tab_bar_config config, place_factory place, std::unique_ptr<luil::ui_element> add_button, const float viewport_width, const bool reveal_selected)
+    luil::tab_bar_style repository_tab_style(const tab_shape shape, const tab_marker_place place) noexcept
+    {
+        luil::tab_bar_style style {};
+        style.variant = shape == tab_shape::flat ? luil::tab_bar_variant::flat : luil::tab_bar_variant::connected;
+        style.close_visibility = luil::tab_close_visibility::selected_or_hovered;
+        style.indicator_placement = place == tab_marker_place::close_slot ? luil::tab_indicator_placement::close_slot : luil::tab_indicator_placement::icon_corner;
+        style.bar_background = luil::palette_role::caption_background;
+        style.selected_background = luil::palette_role::window_background;
+        return style;
+    }
+
+    void apply_tab_marker(luil::tab_item& item, const tab_marker marker, const std::uint32_t changed_files, const tab_marker_place place)
+    {
+        if (marker == tab_marker::none)
+            return;
+        if (place == tab_marker_place::badge)
+        {
+            luil::tab_badge badge {};
+            switch (marker)
+            {
+            case tab_marker::changes:
+                badge.text = number_text(changed_files);
+                badge.tone = luil::badge_tone::neutral;
+                badge.description = tr(u8"tabs.state_changes", { { u8"count", changed_files } });
+                break;
+            case tab_marker::queued:
+                badge.text = tr(u8"tabs.badge_queued");
+                badge.tone = luil::badge_tone::neutral;
+                badge.glyph = codicons::icon_watch;
+                badge.description = tr(u8"tabs.state_queued");
+                break;
+            case tab_marker::running:
+                badge.text = tr(u8"tabs.badge_running");
+                badge.tone = luil::badge_tone::accent;
+                badge.glyph = codicons::icon_sync;
+                badge.spinning = true;
+                badge.description = tr(u8"tabs.state_running");
+                break;
+            case tab_marker::needs_input:
+                badge.text = tr(u8"tabs.badge_needs_input");
+                badge.tone = luil::badge_tone::warning;
+                badge.description = tr(u8"tabs.state_needs_input");
+                break;
+            case tab_marker::none:
+                return;
+            }
+            item.badge = std::move(badge);
+            return;
+        }
+
+        // 닫기 자리의 바뀜 점은 흐린 색이다. 그 자리는 단추와 번갈아 서므로 눈에 덜 띄어야 하고, 아이콘 모서리의 점은 작아서 강조색이어야 보인다.
+        luil::tab_indicator indicator {};
+        switch (marker)
+        {
+        case tab_marker::changes:
+            indicator.kind = luil::tab_indicator_kind::dot;
+            indicator.tone = place == tab_marker_place::close_slot ? luil::badge_tone::neutral : luil::badge_tone::accent;
+            indicator.description = tr(u8"tabs.state_changes", { { u8"count", changed_files } });
+            break;
+        case tab_marker::queued:
+            indicator.kind = luil::tab_indicator_kind::ring;
+            indicator.tone = luil::badge_tone::neutral;
+            indicator.description = tr(u8"tabs.state_queued");
+            break;
+        case tab_marker::running:
+            indicator.kind = luil::tab_indicator_kind::busy;
+            indicator.tone = luil::badge_tone::accent;
+            indicator.description = tr(u8"tabs.state_running");
+            break;
+        case tab_marker::needs_input:
+            indicator.kind = luil::tab_indicator_kind::glyph;
+            indicator.glyph = codicons::icon_bell;
+            indicator.tone = luil::badge_tone::warning;
+            indicator.description = tr(u8"tabs.state_needs_input");
+            break;
+        case tab_marker::none:
+            return;
+        }
+        item.indicator = std::move(indicator);
+    }
+
+    repository_tabs_element::repository_tabs_element(luil::tab_bar_config config, place_factory place, const float viewport_width, const bool reveal_selected)
         : ui_element { { kind_layout, u8"repository-tabs" } }
         , selected_ { config.selected }
         , place_ { std::move(place) }
+        , stepping_ { config.overflow_mode == luil::tab_overflow_mode::step && config.scroll != nullptr }
+        , menu_ { config.overflow != nullptr }
+        , trailing_width_ { config.trailing != nullptr ? config.trailing_width : 0.0f }
     {
+        if (config.style.has_value())
+            bar_background_ = config.style->bar_background;
         // luil 탭은 이 메시지가 있어야 끌기와 놓기를 단다. 놓기는 아래에서 앞·뒤를 가르는 것으로 바꿔 다므로 이 길로는 나가지 않는다.
         if (place_ != nullptr)
             config.reorder = [place = place_](const std::u8string& moved, const std::u8string& target) { return place(moved, target, false); };
-        const float tabs_width { static_cast<float>(config.items.size()) * config.tab_width };
-        const float content_width { tabs_width + add_width };
-        const float maximum { std::max(content_width - viewport_width, 0.0f) };
-        float offset { std::clamp(config.scroll_offset, 0.0f, maximum) };
-        if (reveal_selected)
+
+        // 고른 탭을 드러낼 스크롤 값은 막대를 짓기 전에 정해야 한다. 막대가 배치에서 쓰는 셈을 그대로 따라간다:
+        // 줄여도 넘치면 탭은 최소 폭이고, 띠는 앞·뒤 단추와 넘침·꼬리 단추를 뗀 자리다.
+        const std::size_t count { config.items.size() };
+        const float smallest { luil::fitted_tab_width(count, config.tab_width, config.min_tab_width, 0.0f) };
+        const bool overflowing { static_cast<float>(count) * smallest + trailing_width_ > viewport_width };
+        if (overflowing == false)
+            config.scroll_offset = 0.0f;
+        else
         {
-            for (std::size_t index { 0 }; index < config.items.size(); ++index)
-                if (config.items[index].key == selected_)
-                {
-                    const float left { static_cast<float>(index) * config.tab_width };
-                    const float right { left + config.tab_width + (index + 1 == config.items.size() ? add_width : 0.0f) };
-                    offset = std::clamp(std::max(std::min(offset, left), right - viewport_width), 0.0f, maximum);
-                    break;
-                }
+            const float buttons { (menu_ ? luil::tab_overflow_width : 0.0f) + (stepping_ ? luil::tab_overflow_width * 2.0f : 0.0f) };
+            const float lane { std::max(viewport_width - trailing_width_ - buttons, 0.0f) };
+            const float maximum { std::max(static_cast<float>(count) * smallest - lane, 0.0f) };
+            float offset { std::clamp(config.scroll_offset, 0.0f, maximum) };
+            if (reveal_selected)
+                for (std::size_t index { 0 }; index < count; ++index)
+                    if (config.items[index].key == selected_)
+                    {
+                        const float left { static_cast<float>(index) * smallest };
+                        offset = std::clamp(std::max(std::min(offset, left), left + smallest - lane), 0.0f, maximum);
+                        break;
+                    }
+            config.scroll_offset = offset;
         }
-        overflowing_ = maximum > 0.0f;
-        const luil::strip_config strip_config { .content_width = content_width, .scroll_offset = offset, .scroll = config.scroll };
-        auto lane { std::make_unique<luil::strip_element>(luil::ui_element_id { kind_layout, u8"tabs-lane" }, strip_config) };
-        lane_ = lane.get();
-        config.scroll_offset = 0.0f;
-        config.scroll = {};
+
         auto bar { std::make_unique<luil::tab_bar_element>(std::move(config)) };
         bar_ = bar.get();
         bar->set_access_name(tr(u8"tabs.repository_tabs"));
@@ -210,70 +196,41 @@ namespace cyella::ui {
                 tab->set_drop_target(std::move(own));
             }
         }
-        const luil::stack_config row_config { .direction = luil::stack_direction::row };
-        auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"tabs-content" }, row_config) };
-        row->add(std::move(bar), tabs_width);
-        row->add(std::move(add_button), add_width);
-        row->add_flexible_gap();
-        lane->set_content(std::move(row));
-        add_child(std::move(lane));
-        if (overflowing_)
-        {
-            auto scrollbar { std::make_unique<tab_scrollbar_element>(content_width, viewport_width, offset) };
-            scrollbar_ = scrollbar.get();
-            add_child(std::move(scrollbar));
-        }
+        add_child(std::move(bar));
     }
 
     void repository_tabs_element::arrange(const luil::arrange_context& context)
     {
         set_bounds(context.slot);
-        const float height { overflowing_ ? scrollbar_height * context.scale : 0.0f };
-        lane_->arrange(context.for_child({ context.slot.x, context.slot.y, context.slot.width, std::max(context.slot.height - height, 0.0f) }));
-        if (scrollbar_ != nullptr)
-            scrollbar_->arrange(context.for_child({ context.slot.x, context.slot.y + context.slot.height - height, context.slot.width, height }));
+        bar_->arrange(context.for_child(context.slot));
+    }
+
+    luil::rect_f repository_tabs_element::lane_bounds(const float scale) const noexcept
+    {
+        const luil::rect_f box { bar_->bounds() };
+        if (bar_->overflowing() == false)
+            return box;
+        const float button { luil::tab_overflow_width * scale };
+        const float left { box.x + (stepping_ ? button : 0.0f) };
+        const float right { box.x + box.width - trailing_width_ * scale - (menu_ ? button : 0.0f) - (stepping_ ? button : 0.0f) };
+        return { left, box.y, std::max(right - left, 0.0f), box.height };
     }
 
     void repository_tabs_element::draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const
     {
         draw_children(context, interaction);
-        const float scale { context.scale };
-        const luil::rect_f clip { lane_->bounds() };
+        const std::optional<std::size_t> moved { interaction.drag.has_value() && tabs_.empty() == false ? index_of(interaction.drag->payload.source) : std::nullopt };
+        if (moved.has_value() == false)
+        {
+            motion_.visible = false;
+            return;
+        }
+        const luil::rect_f clip { lane_bounds(context.scale) };
         context.canvas.save();
         context.canvas.clipRect(SkRect::MakeXYWH(clip.x, clip.y, clip.width, clip.height));
-        for (const luil::ui_element* const tab : tabs_)
-        {
-            const bool selected { tab->id().owner == selected_ };
-            SkPaint border { luil::solid_paint(selected ? luil::with_alpha(context.palette.accent, 0.65f) : context.palette.divider) };
-            border.setStyle(SkPaint::kStroke_Style);
-            border.setStrokeWidth(scale);
-            context.canvas.drawRoundRect(tab_shape(tab->bounds(), scale), 4.0f * scale, 4.0f * scale, border);
-        }
-        const std::optional<std::size_t> moved { interaction.drag.has_value() ? index_of(interaction.drag->payload.source) : std::nullopt };
-        if (moved.has_value())
-            draw_drop(context, *interaction.drag, *moved);
-        else
-            motion_.visible = false;
+        draw_drop(context, *interaction.drag, *moved);
         context.canvas.restore();
-        const float reach { std::min(12.0f * scale, clip.width / 2.0f) };
-        const auto shadow = [&](const bool left, const float strength) {
-            context.canvas.save();
-            context.canvas.translate(left ? clip.x : clip.x + clip.width, clip.y);
-            context.canvas.rotate(left ? -90.0f : 90.0f);
-            const luil::rect_f band { left ? -clip.height : 0.0f, 0.0f, clip.height, reach };
-            luil::draw_downward_shadow(context.canvas, band, context.palette.content_shadow, 0.38f * strength);
-            context.canvas.restore();
-        };
-        // 흘리는 창의 위·아래 그림자와 같은 곡선이다: 끝에서 멀어진 만큼 서서히 짙어져, 흘리기 시작한 순간 툭 켜지지 않는다.
-        const float left { luil::scroll_edge_strength(lane_->scroll_offset()) };
-        const float right { luil::scroll_edge_strength(lane_->maximum_scroll() - lane_->scroll_offset()) };
-        if (left > 0.0f)
-            shadow(true, left);
-        if (right > 0.0f)
-            shadow(false, right);
-        // 끌리는 탭은 가장자리 그림자보다 위에 뜬다.
-        if (moved.has_value())
-            draw_dragged(context, interaction, *moved);
+        draw_dragged(context, interaction, *moved);
     }
 
     std::optional<std::chrono::steady_clock::time_point> repository_tabs_element::next_update(const luil::update_context& context, const luil::interaction_snapshot& interaction) const
@@ -344,7 +301,7 @@ namespace cyella::ui {
         if (motion_.visible == false)
             return;
 
-        // 끝이 둥근 세로선과 위아래의 작은 점이다. 탭 테두리 사이의 틈에 선다.
+        // 끝이 둥근 세로선과 위아래의 작은 점이다. 탭 사이의 틈에 선다.
         const auto now { context.now };
         const float scale { context.scale };
         const luil::rect_f first { tabs_.front()->bounds() };
@@ -358,7 +315,7 @@ namespace cyella::ui {
             context.canvas.drawCircle(x, bottom, 2.75f * scale + spread, paint);
         };
         // 끌리는 탭의 글자를 가로지를 때 섞여 보이지 않게 줄 바탕색 테를 먼저 두른다.
-        SkPaint halo { luil::solid_paint(context.palette.window_background) };
+        SkPaint halo { luil::solid_paint(luil::palette_color(context.palette, bar_background_)) };
         halo.setAntiAlias(true);
         mark(1.5f * scale, halo);
         SkPaint line { luil::solid_paint(context.palette.accent) };
@@ -371,19 +328,19 @@ namespace cyella::ui {
         const float scale { context.scale };
         const luil::ui_element& tab { *tabs_[moved] };
         const luil::rect_f box { tab.bounds() };
-        const luil::rect_f lane { lane_->bounds() };
+        const luil::rect_f lane { lane_bounds(scale) };
         context.canvas.save();
         context.canvas.clipRect(SkRect::MakeXYWH(lane.x, bounds().y, lane.width, bounds().height));
 
         // 떠난 자리는 줄 바탕으로 덮어 흐리게 남긴다 — 어디서 왔는지는 보이되 놓을 자리와 헷갈리지 않는다.
-        context.canvas.drawRect(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), luil::solid_paint(luil::with_alpha(context.palette.window_background, 0.6f)));
+        context.canvas.drawRect(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), luil::solid_paint(luil::with_alpha(luil::palette_color(context.palette, bar_background_), 0.6f)));
 
         // 잡은 지점 그대로 포인터를 따라 줄 위를 미끄러진다. 탭 줄 밖으로는 나가지 않는다.
         const luil::drag_visual& drag { *interaction.drag };
         const float lowest { std::max(lane.x, tabs_.front()->bounds().x) };
         const float highest { std::max(std::min(lane.x + lane.width, tabs_.back()->bounds().x + box.width) - box.width, lowest) };
         const float left { std::clamp(drag.x - drag.payload.grab_offset_x, lowest, highest) };
-        const SkRect shape { tab_shape({ left, box.y, box.width, box.height }, scale) };
+        const SkRect shape { floating_tab_rect({ left, box.y, box.width, box.height }, scale) };
         const float radius { 5.0f * scale };
         luil::draw_surface_shadow(context, { shape.x(), shape.y(), shape.width(), shape.height() }, radius, 0.45f);
         const SkRRect rounded { SkRRect::MakeRectXY(shape, radius, radius) };
@@ -419,6 +376,6 @@ namespace cyella::ui {
 
     float repository_tabs_element::scroll_offset() const noexcept
     {
-        return lane_->scroll_offset();
+        return bar_->scroll_offset();
     }
 } // namespace cyella::ui

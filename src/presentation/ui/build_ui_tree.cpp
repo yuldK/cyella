@@ -48,6 +48,8 @@ namespace cyella::ui {
     namespace {
         // 배너가 펼쳤을 때 보이는 [자세히] 줄 수와 한 줄 높이다 (논리 픽셀).
         constexpr float tab_width { 180.0f };
+        // 자리가 모자랄 때 탭이 줄어드는 최소 폭이다. 아이콘·이름 몇 글자·배지가 들어갈 만큼이다.
+        constexpr float tab_min_width { 120.0f };
         constexpr float tab_row_button_width { 32.0f };
         constexpr float tool_button_width { 80.0f };
         constexpr float tool_button_compact_width { 36.0f };
@@ -77,19 +79,6 @@ namespace cyella::ui {
 
         char32_t tab_glyph(const tab_view& tab) noexcept
         {
-            switch (tab.marker)
-            {
-            case tab_marker::needs_input:
-                return codicons::icon_bell;
-            case tab_marker::running:
-                return codicons::icon_sync;
-            case tab_marker::queued:
-                return codicons::icon_watch;
-            case tab_marker::changes:
-                return codicons::icon_circle_filled;
-            case tab_marker::none:
-                break;
-            }
             return tab.start ? codicons::icon_home : codicons::icon_repo;
         }
 
@@ -144,16 +133,31 @@ namespace cyella::ui {
             config.owner = u8"tabs";
             config.selected = tab_key(view.selected_tab);
             config.tab_width = tab_width;
+            config.min_tab_width = tab_min_width;
             config.scroll_offset = view.tab_scroll;
+            config.style = repository_tab_style(view.tab_shape_choice, view.tab_marker_choice);
             const bool single_start { view.tabs.size() == 1 && view.tabs.front().start };
             for (const tab_view& tab : view.tabs)
             {
-                // 탭 표시는 아이콘 자리에 하나만 선다. 이름 뒤 꼬리표는 rebase·merge 중일 때만이다.
+                // 저장소 아이콘은 늘 그대로이고, 상태는 설정이 고른 자리(배지·아이콘 모서리·닫기 자리)에 선다.
                 std::u8string label { tab.label };
                 if (tab.in_progress.empty() == false)
                     label += u8" · " + tab.in_progress;
-                config.items.push_back({ .key = tab_key(tab.id), .label = std::move(label), .icon = tab_glyph(tab), .closable = single_start == false });
+                luil::tab_item item { .key = tab_key(tab.id), .label = std::move(label), .icon = tab_glyph(tab), .closable = single_start == false };
+                apply_tab_marker(item, tab.marker, tab.changed_files, view.tab_marker_choice);
+                config.items.push_back(std::move(item));
             }
+            // 자리가 모자라면 먼저 줄이고, 그래도 넘치면 양 끝의 단추와 휠이 한 탭씩 넘긴다. ▾는 모든 탭의 목록을 연다.
+            config.overflow_mode = luil::tab_overflow_mode::step;
+            config.wheel_steps = true;
+            config.step_back_tooltip = tr(u8"tabs.step_back");
+            config.step_forward_tooltip = tr(u8"tabs.step_forward");
+            config.overflow = [selected = view.selected_tab](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                return { message(open_context_menu_intent { menu_target { .kind = menu_target_kind::tab_list, .tab = selected }, context.x, context.y }) };
+            };
+            config.overflow_tooltip = tr(u8"tabs.all_tabs");
+            config.trailing = [] { return make_icon_button(u8"new-tab", codicons::icon_add, tr(u8"tabs.new_tab"), message(new_tab_intent {})); };
+            config.trailing_width = tab_row_button_width;
             config.select = [](const std::u8string& key) { return message(select_tab_intent { tab_id_of(key) }); };
             config.close = [](const std::u8string& key) { return message(close_tab_intent { tab_id_of(key) }); };
             config.context_menu = [](const std::u8string& key, const luil::ui_action_context& context) {
@@ -161,23 +165,27 @@ namespace cyella::ui {
             };
             config.scroll = [](const float delta) { return message(scroll_tabs_intent { delta }); };
             const float viewport_width { std::max(view.logical_width - tab_row_button_width * 3.0f - 4.0f, 0.0f) };
-            auto add { make_icon_button(u8"new-tab", codicons::icon_add, tr(u8"tabs.new_tab"), message(new_tab_intent {})) };
             const auto place = [](const std::u8string& moved, const std::u8string& target, const bool after) { return message(reorder_tab_intent { tab_id_of(moved), tab_id_of(target), after }); };
-            auto tab_bar { std::make_unique<repository_tabs_element>(std::move(config), place, std::move(add), viewport_width, view.reveal_selected_tab) };
+            auto tab_bar { std::make_unique<repository_tabs_element>(std::move(config), place, viewport_width, view.reveal_selected_tab) };
             sources.tabs = tab_bar.get();
             std::u8string names {};
             for (const tab_view& tab : view.tabs)
                 names += (names.empty() ? u8"" : u8", ") + tab.label + marker_text(tab.marker);
             tab_bar->set_tabs_name(tr(u8"tabs.tabs_access_name", { { u8"names", names } }));
 
+            // 탭 막대는 자기 바탕과 바닥선을 긋는다 — 선택된 탭 밑에서 바닥선이 끊겨야 아래 도구 막대와 이어진다.
+            // 오른쪽 단추 칸은 같은 바탕과 바닥선을 따로 둔다.
+            auto tools { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"tab-row-tools" }, luil::stack_config { .direction = luil::stack_direction::row }) };
+            tools->add(make_icon_button(u8"command-palette", codicons::icon_terminal, palette_tooltip(view), message(open_palette_intent {}), true, view.palette.has_value()), tab_row_button_width);
+            tools->add(make_icon_button(u8"theme", codicons::icon_color_mode, theme_tooltip(view.theme), message(cycle_theme_intent {})), tab_row_button_width);
+            tools->add(make_icon_button(u8"settings", codicons::icon_settings_gear, tr(u8"tree.settings"), message(open_settings_intent {})), tab_row_button_width);
+            tools->add_gap(4.0f);
             auto row { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"tab-row" }, luil::stack_config { .direction = luil::stack_direction::row }) };
             row->add_flexible(std::move(tab_bar));
-            row->add(make_icon_button(u8"command-palette", codicons::icon_terminal, palette_tooltip(view), message(open_palette_intent {}), true, view.palette.has_value()), tab_row_button_width);
-            row->add(make_icon_button(u8"theme", codicons::icon_color_mode, theme_tooltip(view.theme), message(cycle_theme_intent {})), tab_row_button_width);
-            row->add(make_icon_button(u8"settings", codicons::icon_settings_gear, tr(u8"tree.settings"), message(open_settings_intent {})), tab_row_button_width);
-            row->add_gap(4.0f);
-            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"tab-row-bar" },
-                bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; }, .divider_bottom = true }, std::move(row));
+            row->add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"tab-row-bar" },
+                         bar_style { .background = [](const luil::ui_color_palette& palette) { return palette.caption.background; }, .divider_bottom = true }, std::move(tools)),
+                tab_row_button_width * 3.0f + 4.0f);
+            return row;
         }
 
         // ---------------------------------------------------------------- 툴바

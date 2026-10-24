@@ -11,6 +11,7 @@
 #include "presentation/ui/settings/settings_page_parts.h"
 #include "presentation/ui/settings/settings_pages_ui.h"
 #include "presentation/ui/settings/signing_ui.h"
+#include "presentation/ui/settings/tab_style_ui.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
@@ -108,6 +109,14 @@ namespace cyella::ui {
             page.add(make_accent_picker(view.accent), accent_picker_height(content_width));
             page.gap(small_gap);
             add_help(page, u8"settings-accent-help", tr(u8"settings.general.accent_help"), content_width);
+
+            page.add(section_title(u8"settings-section-tab-shape", tr(u8"settings.tabs.shape")), section_height);
+            page.add(make_tab_shape_picker(view), tab_style_picker_height(tab_shape_choices));
+            page.gap(small_gap);
+            add_help(page, u8"settings-tab-shape-help", tr(u8"settings.tabs.shape_help"), content_width);
+
+            page.add(section_title(u8"settings-section-tab-marker", tr(u8"settings.tabs.marker")), section_height);
+            page.add(make_tab_marker_picker(view), tab_style_picker_height(tab_marker_choices));
 
             // 언어 이름은 그 언어로 쓴다 (어느 화면 언어에서든 자기 언어를 찾을 수 있게). 바꾸면 다시 시작할 때 적용한다 (ADR-008).
             page.add(section_title(u8"settings-section-language", tr(u8"settings.general.language")), section_height);

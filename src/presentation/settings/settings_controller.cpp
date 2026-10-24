@@ -392,12 +392,13 @@ namespace cyella {
                 || message.get<close_font_list_intent>() != nullptr || message.get<font_list_scroll_intent>() != nullptr)
                 return true;
             return message.get<select_settings_page_intent>() != nullptr || message.get<settings_scroll_intent>() != nullptr || message.get<set_theme_intent>() != nullptr
-                || message.get<set_accent_intent>() != nullptr || message.get<set_language_intent>() != nullptr || message.get<set_gravatar_intent>() != nullptr
-                || message.get<apply_git_path_intent>() != nullptr || message.get<reset_git_path_intent>() != nullptr || message.get<add_tool_intent>() != nullptr
-                || message.get<edit_tool_intent>() != nullptr || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr
-                || message.get<cancel_tool_edit_intent>() != nullptr || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr
-                || message.get<refresh_ssh_intent>() != nullptr || message.get<create_ssh_key_intent>() != nullptr || message.get<copy_public_key_intent>() != nullptr
-                || message.get<test_ssh_connection_intent>() != nullptr || message.get<set_diff_layout_default_intent>() != nullptr || message.get<set_diff_context_lines_intent>() != nullptr;
+                || message.get<set_accent_intent>() != nullptr || message.get<set_tab_shape_intent>() != nullptr || message.get<set_tab_marker_intent>() != nullptr
+                || message.get<set_language_intent>() != nullptr || message.get<set_gravatar_intent>() != nullptr || message.get<apply_git_path_intent>() != nullptr
+                || message.get<reset_git_path_intent>() != nullptr || message.get<add_tool_intent>() != nullptr || message.get<edit_tool_intent>() != nullptr
+                || message.get<remove_tool_intent>() != nullptr || message.get<save_tool_intent>() != nullptr || message.get<cancel_tool_edit_intent>() != nullptr
+                || message.get<insert_tool_token_intent>() != nullptr || message.get<settings_file_chosen_intent>() != nullptr || message.get<refresh_ssh_intent>() != nullptr
+                || message.get<create_ssh_key_intent>() != nullptr || message.get<copy_public_key_intent>() != nullptr || message.get<test_ssh_connection_intent>() != nullptr
+                || message.get<set_diff_layout_default_intent>() != nullptr || message.get<set_diff_context_lines_intent>() != nullptr;
         };
         if (settings_message() == false)
             return false;
@@ -432,6 +433,16 @@ namespace cyella {
         {
             const std::u8string accent { accent_intent->id };
             update_settings([&accent](app_settings& settings) { settings.appearance.accent = accent; });
+        }
+        else if (const auto* const shape_intent { message.get<set_tab_shape_intent>() }; shape_intent != nullptr)
+        {
+            const tab_shape shape { shape_intent->shape };
+            update_settings([shape](app_settings& settings) { settings.appearance.tabs = shape; });
+        }
+        else if (const auto* const marker_intent { message.get<set_tab_marker_intent>() }; marker_intent != nullptr)
+        {
+            const tab_marker_place place { marker_intent->place };
+            update_settings([place](app_settings& settings) { settings.appearance.tab_marker = place; });
         }
         else if (const auto* const language_intent { message.get<set_language_intent>() }; language_intent != nullptr)
         {

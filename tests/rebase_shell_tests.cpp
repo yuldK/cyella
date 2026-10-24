@@ -197,8 +197,8 @@ TEST_CASE("rebase editor tree: rows drag onto each other, letters change the act
     CHECK_FALSE(list->key_search()->on_search(u8"x", true).has_value());
 
     // 줄 끌어 놓기: 다른 줄은 받고 자기 자신은 받지 않는다. 놓으면 reorder intent다.
-    const luil::ui_element* const first { tree->find(luil::ui_element_id { luil::ui_element_kind::virtual_list_row, rebase_row_key(sha_of('a')) }) };
-    const luil::ui_element* const third { tree->find(luil::ui_element_id { luil::ui_element_kind::virtual_list_row, rebase_row_key(sha_of('c')) }) };
+    const luil::ui_element* const first { tree->find(luil::virtual_list_row_id(u8"rebase-todo", rebase_row_key(sha_of('a')))) };
+    const luil::ui_element* const third { tree->find(luil::virtual_list_row_id(u8"rebase-todo", rebase_row_key(sha_of('c')))) };
     REQUIRE(first != nullptr);
     REQUIRE(third != nullptr);
     REQUIRE(third->drag() != nullptr);

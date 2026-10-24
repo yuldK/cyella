@@ -298,6 +298,28 @@ namespace cyella {
                     warn(result, tr(u8"app_settings.accent_not_string"));
             }
 
+            if (const auto tabs { source->find("tabs") }; tabs != source->end() && tabs->is_null() == false)
+            {
+                std::optional<tab_shape> parsed {};
+                if (tabs->is_string())
+                    parsed = parse_tab_shape(as_u8string(tabs->get_ref<const std::string&>()));
+                if (parsed.has_value())
+                    result.settings.appearance.tabs = *parsed;
+                else
+                    warn(result, tr(u8"app_settings.tabs_invalid"));
+            }
+
+            if (const auto marker { source->find("tab_marker") }; marker != source->end() && marker->is_null() == false)
+            {
+                std::optional<tab_marker_place> parsed {};
+                if (marker->is_string())
+                    parsed = parse_tab_marker_place(as_u8string(marker->get_ref<const std::string&>()));
+                if (parsed.has_value())
+                    result.settings.appearance.tab_marker = *parsed;
+                else
+                    warn(result, tr(u8"app_settings.tab_marker_invalid"));
+            }
+
             for (const char* const key : { "ui_font", "code_font" })
             {
                 const auto field { source->find(key) };
@@ -599,6 +621,8 @@ namespace cyella {
             appearance["theme"] = as_string(theme_preference_name(settings.appearance.theme));
             appearance["gravatar"] = settings.appearance.gravatar;
             appearance["accent"] = as_string(settings.appearance.accent);
+            appearance["tabs"] = as_string(tab_shape_name(settings.appearance.tabs));
+            appearance["tab_marker"] = as_string(tab_marker_place_name(settings.appearance.tab_marker));
             appearance["ui_font"] = as_string(settings.appearance.ui_font);
             appearance["code_font"] = as_string(settings.appearance.code_font);
             root["appearance"] = std::move(appearance);

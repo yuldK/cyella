@@ -253,6 +253,7 @@ namespace cyella {
         case menu_target_kind::drop:
         case menu_target_kind::commit_file:
         case menu_target_kind::tab:
+        case menu_target_kind::tab_list:
             break;
         }
         static_cast<void>(context);

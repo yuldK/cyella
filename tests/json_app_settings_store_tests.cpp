@@ -816,3 +816,21 @@ TEST_CASE("repository layout defaults to graph and round trips both choices with
         CHECK(loaded.diagnostics.size() == 1);
     }
 }
+
+TEST_CASE("the tab shape and tab status spot round trip and fall back on unknown values", "[json_app_settings]")
+{
+    CHECK(app_settings {}.appearance.tabs == tab_shape::connected);
+    CHECK(app_settings {}.appearance.tab_marker == tab_marker_place::badge);
+    app_settings settings {};
+    settings.appearance.tabs = tab_shape::flat;
+    settings.appearance.tab_marker = tab_marker_place::close_slot;
+    const app_settings_load_result loaded { parse_app_settings_json(serialize_app_settings_json(settings, u8"")) };
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings.appearance.tabs == tab_shape::flat);
+    CHECK(loaded.settings.appearance.tab_marker == tab_marker_place::close_slot);
+
+    const app_settings_load_result wrong { parse_app_settings_json(u8R"({"appearance":{"tabs":"round","tab_marker":3}})") };
+    CHECK(wrong.settings.appearance.tabs == tab_shape::connected);
+    CHECK(wrong.settings.appearance.tab_marker == tab_marker_place::badge);
+    CHECK(wrong.diagnostics.size() == 2);
+}

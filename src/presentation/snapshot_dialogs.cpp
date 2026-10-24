@@ -207,6 +207,8 @@ namespace cyella {
         // 탭 메뉴는 저장소 상태 없이 탭 목록으로 정한다. 시작 탭에서도 열린다.
         if (state.target.kind == menu_target_kind::tab)
             model = build_tab_menu(tabs, state.target.tab);
+        else if (state.target.kind == menu_target_kind::tab_list)
+            model = build_tab_list_menu(tabs, state.target.tab);
         else if (session != nullptr)
             model = build_context_menu(state.target, build_menu_context(*session, state.target, index));
         if (model.entries.empty())

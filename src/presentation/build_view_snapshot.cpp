@@ -1192,6 +1192,8 @@ namespace cyella {
         view.logical_height = inputs.height / view.scale;
         view.mode = select_layout_mode(view.logical_width);
         view.theme = settings.appearance.theme;
+        view.tab_shape_choice = settings.appearance.tabs;
+        view.tab_marker_choice = settings.appearance.tab_marker;
         view.graph_layout = settings.ui.graph_layout;
         view.git_version = inputs.git_version;
         view.tab_scroll = ui.tab_scroll;
@@ -1229,6 +1231,7 @@ namespace cyella {
                 const operation_id dismissed { state == ui.tabs.end() ? operation_id { 0 } : state->second.dismissed_input };
                 const bool awaiting { session->awaiting_input().has_value() && *session->awaiting_input() > dismissed };
                 item.marker = compute_tab_marker(mine, summary.changed_file_count, awaiting);
+                item.changed_files = summary.changed_file_count;
                 if (summary.in_progress.kind != repository_operation_state::none)
                     item.in_progress = tr(u8"snapshot.tab.in_progress", { { u8"operation", repository_operation_state_name(summary.in_progress.kind) } });
             }

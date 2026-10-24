@@ -801,6 +801,12 @@ namespace cyella {
                 run_tab_menu_action(state.target, key);
             return;
         }
+        if (state.target.kind == menu_target_kind::tab_list)
+        {
+            if (const std::optional<repository_tab_id> id { tab_list_entry_id(key) }; id.has_value())
+                static_cast<void>(handle(luil::app_message { select_tab_intent { *id } }));
+            return;
+        }
         repository_session* const session { selected_session() };
         if (session == nullptr)
             return;
@@ -1026,6 +1032,8 @@ namespace cyella {
             return;
         case menu_target_kind::tab:
             run_tab_menu_action(target, key);
+            return;
+        case menu_target_kind::tab_list:
             return;
         case menu_target_kind::commit_file:
             if (key == u8"open_diff")

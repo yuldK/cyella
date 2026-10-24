@@ -168,6 +168,9 @@ namespace cyella {
         theme_preference theme { theme_preference::system };
         // 저장된 키 컬러 id다 (`appearance.accent`). 비면 luil의 기본 키 컬러다.
         std::u8string accent {};
+        // 저장된 탭 줄 모양과 상태 표시 자리다. 견본이 이 값으로 그린다.
+        tab_shape tab_shape_choice { tab_shape::connected };
+        tab_marker_place tab_marker_choice { tab_marker_place::badge };
         language_preference language { language_preference::system };
         luil::text_input_view ui_font {};
         luil::text_input_view code_font {};
