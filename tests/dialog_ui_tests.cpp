@@ -1,6 +1,8 @@
 // 대화 상자·메뉴·라벨 칩·충돌 화면의 luil tree다. snapshot에서 배치까지 지은 tree를 읽어, 눌림·끌기·놓기가 element에 서 있는지와
 // 자리가 겹치지 않는지와 탭의 삽입 방향 강조를 검증한다.
 #include "domain/text_catalog.h"
+#include "presentation/commands/command_intents.h"
+#include "presentation/commands/command_registry.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/menu_model.h"
 #include "presentation/selector_intents.h"
@@ -1115,4 +1117,56 @@ TEST_CASE("working files pick with modifiers on press and the unstaged header di
     REQUIRE(intent != nullptr);
     CHECK(intent->paths == std::vector<std::string> { "src/a.cpp", "src/b.cpp" });
     CHECK(intent->untracked == std::vector<std::string> { "new.txt" });
+
+    // 파일 행을 누르면 초점이 파일 목록에 선다. ↓는 다음 파일, Enter·Space는 커서 파일(고른 a.cpp)의 diff를 연다.
+    cyella::ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(built.tree);
+    const luil::rect_f box { picked->bounds() };
+    static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = box.x + box.width / 3.0f, .y = box.y + box.height / 2.0f }));
+    static_cast<void>(interaction.process(luil::pointer_released_event { .x = box.x + box.width / 3.0f, .y = box.y + box.height / 2.0f }));
+    CHECK(interaction.snapshot().focused == luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"working-files" });
+    for (const luil::key_code key : { luil::key_code::enter, luil::key_code::space })
+    {
+        const std::vector<luil::input_action> opened { interaction.process(luil::key_pressed_event { .key = key }) };
+        REQUIRE(intent_at<select_file_intent>(opened, 0) != nullptr);
+        CHECK(intent_at<select_file_intent>(opened, 0)->request.path == "src/a.cpp");
+    }
+    const std::vector<luil::input_action> down { interaction.process(luil::key_pressed_event { .key = luil::key_code::arrow_down }) };
+    REQUIRE(intent_at<select_file_intent>(down, 0) != nullptr);
+    CHECK(intent_at<select_file_intent>(down, 0)->request.path == "src/b.cpp");
+}
+
+TEST_CASE("pressing a graph row gives the list the keyboard so arrows and Escape work", "[presentation][ui][select]")
+{
+    tree_fixture fixture {};
+    fixture.harness.ui.tabs[fixture.tab].selected_sha = sha_of(3);
+    // 단축키 표는 controller가 view에 싣는다. harness의 view에는 없어 여기서 싣는다.
+    view_snapshot view { fixture.harness.build() };
+    view.shortcuts = resolve_shortcut_bindings(app_settings {});
+    const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
+    const luil::ui_element* const row { find_element(built, cyella::ui::kind_graph_row, u8"commit-" + graph_item_key(sha_of(3))) };
+    REQUIRE(row != nullptr);
+    cyella::ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(built.tree);
+    const luil::rect_f box { row->bounds() };
+    static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = box.x + box.width / 2.0f, .y = box.y + box.height / 2.0f }));
+    static_cast<void>(interaction.process(luil::pointer_released_event { .x = box.x + box.width / 2.0f, .y = box.y + box.height / 2.0f }));
+    // 행 내용을 눌러도 초점은 그래프 목록에 선다 (행 내용은 초점 자리가 아니다).
+    CHECK(interaction.snapshot().focused == luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"graph" });
+
+    const std::vector<luil::input_action> down { interaction.process(luil::key_pressed_event { .key = luil::key_code::arrow_down }) };
+    const auto* const moved { intent_at<select_commit_intent>(down, 0) };
+    REQUIRE(moved != nullptr);
+    CHECK(moved->key == graph_item_key(sha_of(2)));
+
+    const std::vector<luil::input_action> escape { interaction.process(luil::key_pressed_event { .key = luil::key_code::escape }) };
+    const auto* const closed { intent_at<run_command_intent>(escape, 0) };
+    REQUIRE(closed != nullptr);
+    CHECK(closed->id == "view.close");
+
+    // 그래프의 Space·Enter는 아무것도 하지 않는다 (체크아웃은 두 번 누름·메뉴의 것이다).
+    CHECK(interaction.process(luil::key_pressed_event { .key = luil::key_code::enter }).empty());
+    CHECK(interaction.process(luil::key_pressed_event { .key = luil::key_code::space }).empty());
 }

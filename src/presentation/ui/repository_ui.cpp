@@ -179,7 +179,8 @@ namespace cyella::ui {
             config.cursor = selected;
             config.row_height = sidebar_row_height;
             config.scroll_offset = scroll;
-            config.build_row = [index](const luil::virtual_list_item& item, std::size_t, const bool selected) -> std::unique_ptr<luil::ui_element> {
+            config.build_row = [index, list = luil::ui_element_id { luil::ui_element_kind::virtual_list, config.owner }](
+                                   const luil::virtual_list_item& item, std::size_t, const bool selected) -> std::unique_ptr<luil::ui_element> {
                 const auto found { index->rows.find(item.key) };
                 if (found == index->rows.end())
                     return nullptr;
@@ -210,7 +211,9 @@ namespace cyella::ui {
                     // 원격 묶음 행도 누른 순간 고른다 (목록 행의 클릭은 뗀 순간이라 다른 행과 어긋난다).
                     select = sidebar_select_action(row);
                 }
-                return std::make_unique<sidebar_row_element>(row, std::move(select), std::move(activate), std::move(menu), selected);
+                auto element { std::make_unique<sidebar_row_element>(row, std::move(select), std::move(activate), std::move(menu), selected) };
+                element->set_focus_owner(list);
+                return element;
             };
             config.select = [index](const std::u8string& key) {
                 const auto found { index->rows.find(key) };
@@ -580,6 +583,8 @@ namespace cyella::ui {
             };
             config.select = select;
             config.move = select;
+            // Space·Enter는 커서 파일의 diff를 연다 (↑↓가 이미 연 것이면 그대로다).
+            config.activate = select;
             // 보조 기술의 더하기·빼기는 Ctrl+누름과 같다.
             if (multiple)
                 config.pick = [requests](const std::u8string& key, const luil::ui_action_context& context) {
@@ -671,8 +676,11 @@ namespace cyella::ui {
                 // 트리에서는 폴더가 이미 보이므로 이름 바꾸기(← 옛 경로)만 남긴다.
                 if (depth.has_value() && shown.original_path.empty())
                     shown.folder.clear();
-                (*builders)[row.key]
-                    = [shown, select, target, depth] { return std::make_unique<file_row_element>(shown, std::vector<file_row_button> {}, action_of(select), target, depth, shown.selected); };
+                (*builders)[row.key] = [shown, select, target, depth] {
+                    auto element { std::make_unique<file_row_element>(shown, std::vector<file_row_button> {}, action_of(select), target, depth, shown.selected) };
+                    element->set_focus_owner(luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"commit-files" });
+                    return element;
+                };
                 (*requests)[row.key] = request;
                 if (row.selected)
                     selected = row.key;
@@ -773,7 +781,11 @@ namespace cyella::ui {
                         return { message(select_file_intent { .request = request, .key = key, .control = context.control, .shift = context.shift }) };
                     };
                     const bool picked { row.selected || std::find(chosen.begin(), chosen.end(), row.key) != chosen.end() };
-                    (*builders)[row.key] = [shown, buttons, select, target, depth, picked] { return std::make_unique<file_row_element>(shown, buttons, select, target, depth, picked); };
+                    (*builders)[row.key] = [shown, buttons, select, target, depth, picked] {
+                        auto element { std::make_unique<file_row_element>(shown, buttons, select, target, depth, picked) };
+                        element->set_focus_owner(luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"working-files" });
+                        return element;
+                    };
                     (*requests)[row.key] = request;
                     if (row.selected)
                         selected = row.key;
@@ -1039,6 +1051,7 @@ namespace cyella::ui {
             data.row_key = graph_item_key(commit.sha);
             data.sha = commit.sha;
             data.selected = selected;
+            data.list = luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"graph" };
             if (graph_state.signatures != nullptr)
                 if (const auto signature { graph_state.signatures->find(commit.sha) }; signature != graph_state.signatures->end())
                 {

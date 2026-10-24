@@ -30,6 +30,18 @@ namespace cyella::ui {
             return static_cast<bool>(press_);
         }
 
+        // 누르면 초점이 갈 목록이다. 행 내용은 초점 자리가 아니라, 정하지 않으면 누를 때 초점이 사라져 ↑↓·Space·Enter가 목록에 닿지
+        // 않는다 (luil 목록의 기본 행이 하는 일을 이 element가 대신한다).
+        void set_focus_owner(luil::ui_element_id owner)
+        {
+            focus_owner_ = std::move(owner);
+        }
+
+        [[nodiscard]] const luil::ui_element_id& pointer_focus_target() const noexcept override
+        {
+            return focus_owner_ == luil::ui_element_id {} ? id() : focus_owner_;
+        }
+
     protected:
         // 누름을 단다. 액션이 없어도 hit를 받도록 막는다 — 받지 않으면 누름이 목록 행으로 내려가 뗄 때 다시 고른다.
         void set_press(luil::ui_action action)
@@ -40,5 +52,6 @@ namespace cyella::ui {
 
     private:
         luil::ui_action press_ {};
+        luil::ui_element_id focus_owner_ {};
     };
 } // namespace cyella::ui

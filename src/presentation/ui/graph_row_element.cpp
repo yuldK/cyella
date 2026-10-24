@@ -227,6 +227,7 @@ namespace cyella::ui {
             access_name_ += u8" [" + names + u8"]";
         }
         set_tab_stop(false);
+        set_focus_owner(data_.list);
         // 목록 행의 고르기를 가로채지 않도록 같은 고르기 메시지를 누른 순간 낸다 (`press_row_element`).
         // Ctrl·Shift는 여러 커밋 고르기다. 목록의 `pick`이 받는 수식 키를 이 element가 대신 싣는다.
         set_press([key = data_.row_key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
@@ -263,7 +264,11 @@ namespace cyella::ui {
         set_drop_target(std::move(drop));
 
         for (const ref_label& label : data_.labels)
-            chips_.push_back(static_cast<ref_chip_element*>(add_chip(std::make_unique<ref_chip_element>(label, data_.row_key, data_.sha, data_.row.color, data_.selected))));
+        {
+            auto chip { std::make_unique<ref_chip_element>(label, data_.row_key, data_.sha, data_.row.color, data_.selected) };
+            chip->set_focus_owner(data_.list);
+            chips_.push_back(static_cast<ref_chip_element*>(add_chip(std::move(chip))));
+        }
     }
 
     luil::ui_element* graph_row_element::add_chip(std::unique_ptr<luil::ui_element> chip)
