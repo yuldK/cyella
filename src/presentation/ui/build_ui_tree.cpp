@@ -202,7 +202,7 @@ namespace cyella::ui {
                 , tail_ { std::move(tail) }
                 , open_ { open }
             {
-                set_tooltip(tr(u8"tree.selector_tooltip", { { u8"caption", caption_ }, { u8"value", value_ } }));
+                set_text_tooltip(*this, tr(u8"tree.selector_tooltip", { { u8"caption", caption_ }, { u8"value", value_ } }));
                 set_cursor(luil::ui_cursor::hand);
                 // 목록의 자리는 이 상자의 왼쪽 아래다. 배치가 끝난 뒤의 자리를 눌렀을 때 읽는다 (물리 픽셀).
                 const auto open_list = [this, kind](const luil::ui_action_context&) -> std::vector<luil::input_action> {
@@ -414,13 +414,13 @@ namespace cyella::ui {
                 const float width { std::min({ 460.0f, view.logical_width * 0.3f, estimate_text_width(status.identity_text, 11.0f) + 44.0f }) };
                 const luil::text_button_visual visual { status.identity_warning ? luil::text_button_visual::danger : luil::text_button_visual::normal };
                 auto identity { make_text_button(u8"status-identity", status.identity_text, visual, message(open_palette_intent { palette_mode::profiles }), true, codicons::icon_person) };
-                identity->set_tooltip(status.identity_tooltip);
+                set_text_tooltip(*identity, status.identity_tooltip);
                 row->add(std::move(identity), { .length = width, .cross_length = 20.0f });
             }
             if (view.git_version.empty() == false)
             {
                 auto version { make_text(u8"status-git", view.git_version, text_style { .size = 10.0f, .color = dim, .code = true }) };
-                version->set_tooltip(view.git_version);
+                set_text_tooltip(*version, view.git_version);
                 row->add(std::move(version), std::min(190.0f, view.logical_width * 0.35f));
             }
             row->add(make_text_button(u8"operation-log-toggle", tr(u8"tree.log.title"), status.log_open ? luil::text_button_visual::accent : luil::text_button_visual::normal,

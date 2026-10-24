@@ -120,7 +120,7 @@ namespace cyella::ui {
     std::unique_ptr<luil::label_element> make_label(std::u8string owner, std::u8string text, const float size, const luil::label_color_role role)
     {
         auto label { std::make_unique<luil::label_element>(luil::ui_element_id { kind_label, std::move(owner) }, luil::label_config { .text = text, .font_size = size, .color = role }) };
-        label->set_tooltip(std::move(text));
+        set_text_tooltip(*label, std::move(text));
         label->set_hit_opaque(false);
         return label;
     }
@@ -129,7 +129,7 @@ namespace cyella::ui {
         std::u8string owner, const char32_t glyph, std::u8string tooltip, luil::input_action action, const bool enabled, const bool active, const float icon_size)
     {
         auto button { std::make_unique<luil::button_element>(luil::ui_element_id { kind_button, std::move(owner) }, luil::button_config { .glyph = glyph, .icon_size = icon_size, .active = active }) };
-        button->set_tooltip(std::move(tooltip));
+        set_text_tooltip(*button, std::move(tooltip));
         button->set_enabled(enabled);
         button->set_cursor(luil::ui_cursor::hand);
         button->set_action(luil::ui_trigger::left_click, action_of(std::move(action)));
@@ -196,7 +196,7 @@ namespace cyella::ui {
         , text_ { std::move(text) }
         , style_ { std::move(style) }
     {
-        set_tooltip(text_);
+        set_text_tooltip(*this, text_);
         set_hit_opaque(false);
     }
 
@@ -302,7 +302,7 @@ namespace cyella::ui {
         // 올려서 메일을 보는 자리라 누름은 받지 않되 hover는 받는다.
         set_tab_stop(false);
         if (email_.empty() == false)
-            set_tooltip(email_);
+            set_text_tooltip(*this, email_);
         if (avatar.valid())
         {
             luil::image_config config { .image = std::move(avatar), .fit = luil::image_fit::cover };
@@ -531,7 +531,7 @@ namespace cyella::ui {
         , show_label_ { show_label }
         , horizontal_ { horizontal }
     {
-        set_tooltip(tooltip.empty() ? label_ : std::move(tooltip));
+        set_text_tooltip(*this, tooltip.empty() ? label_ : std::move(tooltip));
         set_access_name(label_);
         set_enabled(enabled);
         set_cursor(luil::ui_cursor::hand);

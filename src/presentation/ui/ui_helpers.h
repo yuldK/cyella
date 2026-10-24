@@ -2,6 +2,7 @@
 
 #include "presentation/shell_layout.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/tooltip_card.h"
 
 #include "luil/generated/codicons.h"
 #include "luil/theme/ui_theme.h"

@@ -282,8 +282,14 @@ TEST_CASE("sidebar rows group remotes, filter by name and collapse sections", "[
     CHECK(all.rows[1].current);
     CHECK(all.rows[1].ahead == 1);
     CHECK(all.rows[2].no_upstream);
+    // 툴팁은 첫 줄이 이름이고 나머지가 한 줄씩이다 (카드로 그린다).
+    CHECK(all.rows[1].tooltip == u8"main\nupstream: origin/main\n보낼 커밋 1개");
+    CHECK(all.rows[2].tooltip == u8"feature/graph\nupstream 없음");
     CHECK(all.rows[4].group);
     CHECK(all.rows[4].detail == u8"https://example.com/repo.git");
+    CHECK(all.rows[4].tooltip == u8"origin\nhttps://example.com/repo.git");
+    CHECK(all.rows[7].tooltip == u8"v1.0\n원격에 없는 태그");
+    CHECK(all.rows[9].tooltip == u8"stash@{0}\nWIP on main");
     CHECK(all.rows[5].label == u8"main");
     CHECK(all.rows[5].depth == 1);
     CHECK(all.rows[7].local_only);

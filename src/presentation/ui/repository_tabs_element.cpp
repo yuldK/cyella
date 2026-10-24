@@ -30,12 +30,15 @@ namespace cyella::ui {
             if (element.id().kind == luil::ui_element_kind::tab)
             {
                 tabs.push_back(&element);
+                // luil이 단 탭 툴팁(저장소 경로)도 길면 카드로 접는다.
+                if (element.tooltip().empty() == false)
+                    set_text_tooltip(element, element.tooltip());
                 const std::u8string name { tr(u8"tabs.close_tab", { { u8"name", element.accessibility().name } }) };
                 for (const auto& child : element.children())
                     if (child->id().kind == luil::ui_element_kind::tab_close)
                     {
                         child->set_access_name(name);
-                        child->set_tooltip(name);
+                        set_text_tooltip(*child, name);
                     }
             }
             for (const auto& child : element.children())

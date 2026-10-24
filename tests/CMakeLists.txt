@@ -90,6 +90,7 @@ cyella_add_source_filter(cyella_test_files "presentation"
     selector_model_tests.cpp
     shell_layout_tests.cpp
     start_page_view_tests.cpp
+    tooltip_card_tests.cpp
     ui_tree_perf_tests.cpp
     view_snapshot_support.h
     view_snapshot_tests.cpp)

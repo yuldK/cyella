@@ -392,7 +392,7 @@ namespace cyella::ui {
                 foot->add_flexible_gap();
                 auto when { make_text(u8"detail-date", commit.date_absolute, text_style { .size = 11.0f, .align = 2 }) };
                 if (relative_width <= 0.0f && commit.date.empty() == false)
-                    when->set_tooltip(commit.date_absolute + u8" · " + commit.date);
+                    set_text_tooltip(*when, commit.date_absolute + u8" · " + commit.date);
                 foot->add(std::move(when), when_width);
                 if (relative_width > 0.0f)
                     foot->add(make_text(u8"detail-date-relative", relative, text_style { .size = 11.0f, .color = dim_color, .align = 2 }), relative_width);
@@ -426,7 +426,7 @@ namespace cyella::ui {
                 tooltip = tr(u8"repo.rebase.nothing_tooltip");
             auto button = make_text_button(
                 u8"detail-interactive-rebase", label, luil::text_button_visual::normal, message(open_interactive_rebase_here_intent { commit.sha }), above > 0, codicons::icon_list_ordered);
-            button->set_tooltip(std::move(tooltip));
+            set_text_tooltip(*button, std::move(tooltip));
             return button;
         }
 
@@ -467,7 +467,7 @@ namespace cyella::ui {
                 {
                     auto link = make_text_button(
                         u8"detail-parent-" + number_text(index), commit.parents[index], luil::text_button_visual::link, message(select_commit_intent { graph_item_key(commit.parent_shas[index]) }));
-                    link->set_tooltip(tr(u8"repo.detail.go_to_parent", { { u8"sha", commit.parent_shas[index] } }));
+                    set_text_tooltip(*link, tr(u8"repo.detail.go_to_parent", { { u8"sha", commit.parent_shas[index] } }));
                     parents->add(std::move(link), { .length = estimate_text_width(commit.parents[index], 12.0f, false) + 8.0f, .cross_length = 18.0f });
                 }
                 if (commit.parent_shas.empty() == false)

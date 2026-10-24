@@ -109,7 +109,7 @@ namespace cyella::ui {
         , row_ { std::move(row) }
     {
         if (row_.tooltip.empty() == false)
-            set_tooltip(row_.tooltip);
+            set_text_tooltip(*this, row_.tooltip);
         if (select.has_value() == false && activate.has_value() == false && menu.has_value() == false)
         {
             set_hit_opaque(false);
@@ -305,7 +305,7 @@ namespace cyella::ui {
                     return actions;
                 });
         }
-        set_tooltip(to_u8(row_.path));
+        set_text_tooltip(*this, to_u8(row_.path));
         for (file_row_button& button : buttons)
         {
             luil::input_action action { std::move(button.action) };
@@ -408,7 +408,7 @@ namespace cyella::ui {
     {
         set_tab_stop(false);
         set_cursor(luil::ui_cursor::hand);
-        set_tooltip(to_u8(row_.path));
+        set_text_tooltip(*this, to_u8(row_.path));
         // 보조 기술의 펼치기·접기·실행은 모두 같은 뒤집기다. 이미 그 상태면 아무것도 내지 않는다.
         set_access_handler([toggle, expanded = row_.expanded](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
             if (request.command == luil::access_command::invoke || (request.command == luil::access_command::expand && expanded == false)
@@ -610,7 +610,7 @@ namespace cyella::ui {
         , line_ { std::move(line) }
     {
         set_hit_opaque(false);
-        set_tooltip(line_.text);
+        set_text_tooltip(*this, line_.text);
     }
 
     void log_row_element::arrange(const luil::arrange_context& context)
@@ -647,7 +647,7 @@ namespace cyella::ui {
         , open_ { open }
         , when_ { std::move(when) }
     {
-        set_tooltip(item_.path);
+        set_text_tooltip(*this, item_.path);
         set_cursor(luil::ui_cursor::hand);
         set_action(luil::ui_trigger::left_click, action_of(std::move(activate)));
         for (file_row_button& button : buttons)
@@ -741,7 +741,7 @@ namespace cyella::ui {
         , title_ { std::move(title) }
         , description_ { std::move(description) }
     {
-        set_tooltip(description_);
+        set_text_tooltip(*this, description_);
         set_enabled(enabled);
         set_cursor(luil::ui_cursor::hand);
         set_action(luil::ui_trigger::left_click, action_of(std::move(action)));

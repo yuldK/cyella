@@ -143,7 +143,7 @@ namespace cyella::ui {
             auto row { make_row(owner + u8"-row", 6.0f) };
             row->add(std::make_unique<icon_element>(luil::ui_element_id { kind_label, owner + u8"-icon" }, codicons::icon_warning, color), 16.0f);
             auto label { make_text(std::move(owner), text, text_style { .size = 11.5f, .color = color }) };
-            label->set_tooltip(std::move(text));
+            set_text_tooltip(*label, std::move(text));
             row->add_flexible(std::move(label));
             return row;
         }
@@ -438,7 +438,7 @@ namespace cyella::ui {
             const bool problem { view.problem.empty() == false };
             const std::u8string note { problem ? view.problem : view.status_text };
             auto note_label { make_text(u8"rebase-problem", note, text_style { .size = 11.0f, .color = problem ? (view.can_start ? warning_color : error_color) : dim, .align = 2 }) };
-            note_label->set_tooltip(note);
+            set_text_tooltip(*note_label, note);
             status->add(std::move(note_label), 16.0f);
             row->add_flexible(std::move(status));
             row->add(
@@ -494,7 +494,7 @@ namespace cyella::ui {
         // ---- 머리: 범위와 경고
         measured_column header { u8"rebase-header" };
         auto subtitle { make_text(u8"rebase-subtitle", view.subtitle, text_style { .size = 12.0f }) };
-        subtitle->set_tooltip(view.subtitle);
+        set_text_tooltip(*subtitle, view.subtitle);
         header.add(std::move(subtitle), line_height + 2.0f);
         std::size_t warning_index { 0 };
         for (const std::u8string& warning : view.warnings)

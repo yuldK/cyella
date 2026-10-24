@@ -28,7 +28,7 @@ namespace cyella::ui {
                 , selected_ { selected }
                 , icons_only_ { icons_only }
             {
-                set_tooltip(option_.label);
+                set_text_tooltip(*this, option_.label);
                 set_search_label(option_.label);
                 set_cursor(luil::ui_cursor::hand);
                 if (select != nullptr)

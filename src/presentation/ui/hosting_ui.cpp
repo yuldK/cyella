@@ -145,7 +145,7 @@ namespace cyella::ui {
                 label = tr(u8"hosting.detail.on_branch", { { u8"branch", detail.local_branch } });
             auto checkout = make_text_button(u8"pr-checkout", label, luil::text_button_visual::accent, message(hosting_detail_action_intent { hosting_detail_action::checkout }),
                 detail.can_checkout && detail.checked_out == false, codicons::icon_git_pull_request_go_to_changes);
-            checkout->set_tooltip(label);
+            set_text_tooltip(*checkout, label);
             actions->add(std::move(checkout), action_height);
         }
         auto browser = make_text_button(u8"pr-open-browser", tr(u8"hosting.detail.open_in_browser"), luil::text_button_visual::normal,

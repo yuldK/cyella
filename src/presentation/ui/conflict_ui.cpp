@@ -40,7 +40,7 @@ namespace cyella::ui {
                 , stacked_ { stacked }
             {
                 set_hit_opaque(false);
-                set_tooltip(to_u8(file_.path));
+                set_text_tooltip(*this, to_u8(file_.path));
                 const std::u8string tag { to_u8(file_.path) };
                 add_button(u8"conflict-ours:" + tag, rebasing ? tr(u8"conflict.ours_rebase") : tr(u8"conflict.ours"), luil::text_button_visual::normal,
                     message(submit_operation_intent { repository_id, resolve_file_request { .path = file_.path, .side = conflict_side::ours } }), busy, 96.0f,
@@ -115,7 +115,7 @@ namespace cyella::ui {
             {
                 labels_.push_back(label);
                 auto button { make_text_button(std::move(owner), std::move(label), visual, std::move(action), disabled == false) };
-                button->set_tooltip(std::move(tooltip));
+                set_text_tooltip(*button, std::move(tooltip));
                 button->set_tab_stop(true);
                 widths_.push_back(width);
                 add_child(std::move(button));
@@ -201,12 +201,12 @@ namespace cyella::ui {
         {
             auto skip = make_text_button(
                 u8"conflict-skip", tr(u8"conflict.skip"), luil::text_button_visual::normal, message(conflict_action_intent { conflict_action::skip_sequence }), conflict.busy == false);
-            skip->set_tooltip(tr(u8"conflict.skip_tooltip"));
+            set_text_tooltip(*skip, tr(u8"conflict.skip_tooltip"));
             footer->add(std::move(skip), 96.0f);
         }
         auto next = make_text_button(
             u8"conflict-continue", tr(u8"conflict.continue"), luil::text_button_visual::accent, message(conflict_action_intent { conflict_action::continue_sequence }), conflict.can_continue, 0, true);
-        next->set_tooltip(conflict.can_continue ? tr(u8"conflict.continue_tooltip") : tr(u8"conflict.continue_disabled_tooltip"));
+        set_text_tooltip(*next, conflict.can_continue ? tr(u8"conflict.continue_tooltip") : tr(u8"conflict.continue_disabled_tooltip"));
         footer->add(std::move(next), 96.0f);
         auto footer_column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"conflict-footer-content" }, luil::stack_config {}) };
         const float help_height { conflict.files.empty() ? 0.0f : 24.0f };

@@ -73,7 +73,7 @@ namespace cyella::ui {
                 , accent_ { accent }
             {
                 set_cursor(luil::ui_cursor::hand);
-                set_tooltip(title_);
+                set_text_tooltip(*this, title_);
                 set_action(luil::ui_trigger::left_click, action_of(message(set_theme_intent { theme })));
             }
 
@@ -189,7 +189,7 @@ namespace cyella::ui {
                 , title_ { accent_title(accent) }
             {
                 set_cursor(luil::ui_cursor::hand);
-                set_tooltip(title_);
+                set_text_tooltip(*this, title_);
                 set_action(luil::ui_trigger::left_click, action_of(message(set_accent_intent { std::u8string { accent.id } })));
             }
 

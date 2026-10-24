@@ -197,7 +197,7 @@ namespace cyella::ui {
             for (std::size_t index { 0 }; index < shown; ++index)
             {
                 auto line { make_text(owner + u8"-detail-" + number_text(index), value.details[index], text_style { .size = 11.0f, .color = dim_color(), .code = true }) };
-                line->set_tooltip(value.details[index]);
+                set_text_tooltip(*line, value.details[index]);
                 details->add(std::move(line), detail_line_height);
             }
             if (value.details.size() > shown)
@@ -442,7 +442,7 @@ namespace cyella::ui {
             }
 
             auto time { make_text(owner + u8"-time", value.time, text_style { .size = 11.0f, .color = dim_color(), .align = 2 }) };
-            time->set_tooltip(value.time_tooltip);
+            set_text_tooltip(*time, value.time_tooltip);
             auto close { make_icon_button(owner + u8"-close", codicons::icon_close, tr(u8"tree.notification.clear"), message(dismiss_notification_intent { value.id })) };
             const luil::ui_element_id id { kind_panel, owner };
             auto card { std::make_unique<center_card_element>(id, value.severity, std::move(column), std::move(time), std::move(close)) };

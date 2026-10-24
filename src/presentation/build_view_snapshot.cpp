@@ -771,6 +771,30 @@ namespace cyella {
                 status.changes = summary.changed_file_count;
             }
         }
+
+        // 사이드바 로컬 브랜치의 툴팁이다. 이름 아래로 upstream·앞뒤 커밋·다른 worktree를 한 줄씩 적는다
+        // (`set_text_tooltip`이 첫 줄을 제목으로 하는 카드로 그린다). 원격이 없으면 upstream 줄은 군말이다.
+        std::u8string local_branch_tooltip(const ref& value, const bool has_remotes)
+        {
+            std::u8string tooltip { to_u8(value.name) };
+            const std::u8string upstream { to_u8(value.upstream) };
+            if (value.upstream_gone)
+                tooltip += u8"\n" + tr(u8"snapshot.sidebar.tooltip.upstream_gone", { { u8"upstream", upstream } });
+            else if (value.upstream.empty() == false)
+                tooltip += u8"\n" + tr(u8"snapshot.sidebar.tooltip.upstream", { { u8"upstream", upstream } });
+            else if (has_remotes)
+                tooltip += u8"\n" + tr(u8"snapshot.sidebar.tooltip.no_upstream");
+            std::u8string counts {};
+            if (value.ahead > 0)
+                counts = tr(u8"snapshot.sidebar.tooltip.ahead", { { u8"count", value.ahead } });
+            if (value.behind > 0)
+                counts += (counts.empty() ? u8"" : u8" · ") + tr(u8"snapshot.sidebar.tooltip.behind", { { u8"count", value.behind } });
+            if (counts.empty() == false)
+                tooltip += u8"\n" + counts;
+            if (value.worktree_path.empty() == false)
+                tooltip += u8"\n" + tr(u8"snapshot.sidebar.tooltip.checked_out_elsewhere") + u8"\n" + to_u8(value.worktree_path);
+            return tooltip;
+        }
     } // namespace
 
     float toast_presence(const notification& value, const std::chrono::steady_clock::time_point now) noexcept
@@ -895,9 +919,7 @@ namespace cyella {
                 row.no_upstream = has_remotes && value.upstream.empty();
                 row.upstream_gone = value.upstream_gone;
                 row.worktree_path = value.worktree_path;
-                row.tooltip = value.upstream.empty() ? row.label + tr(u8"snapshot.sidebar.no_upstream_suffix") : row.label + u8" → " + to_u8(value.upstream);
-                if (value.worktree_path.empty() == false)
-                    row.tooltip += tr(u8"snapshot.sidebar.checked_out_elsewhere_suffix", { { u8"path", value.worktree_path } });
+                row.tooltip = local_branch_tooltip(value, has_remotes);
                 result.rows.push_back(std::move(row));
             }
             result.counts[header] = count;
@@ -938,7 +960,7 @@ namespace cyella {
                 for (const remote_info& info : snapshot.summary.remotes)
                     if (info.name == remote)
                         group.detail = to_u8(info.fetch_url);
-                group.tooltip = group.detail.empty() ? group.label : group.label + u8" · " + group.detail;
+                group.tooltip = group.detail.empty() ? group.label : group.label + u8"\n" + group.detail;
                 result.rows.push_back(std::move(group));
                 for (const ref* value : branches)
                 {
@@ -978,7 +1000,7 @@ namespace cyella {
                 row.ref_name = value.name;
                 row.target_sha = value.target_sha;
                 row.local_only = has_remotes && value.remotes.empty();
-                row.tooltip = row.local_only ? row.label + tr(u8"snapshot.sidebar.local_only_tag_suffix") : row.label;
+                row.tooltip = row.local_only ? row.label + u8"\n" + tr(u8"snapshot.sidebar.tooltip.local_only_tag") : row.label;
                 result.rows.push_back(std::move(row));
             }
             result.counts[header] = count;
@@ -1006,7 +1028,7 @@ namespace cyella {
                 row.stash_index = stash.index;
                 row.ref_name = stash.name;
                 row.target_sha = stash.sha;
-                row.tooltip = row.detail + u8" · " + row.label;
+                row.tooltip = row.detail + u8"\n" + row.label;
                 result.rows.push_back(std::move(row));
             }
             result.counts[header] = count;

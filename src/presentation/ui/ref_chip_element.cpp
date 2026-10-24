@@ -224,9 +224,15 @@ namespace cyella::ui {
         , lane_color_ { lane_color }
     {
         set_tab_stop(false);
-        set_tooltip(label_.also_remote ? label_.text + u8" · " + label_.remote_name : label_.text);
+        // 첫 줄이 이름이고 나머지는 한 줄씩이다 (`set_text_tooltip`이 카드로 그린다).
+        std::u8string text { label_.text };
+        if (label_.also_remote)
+            text += u8"\n" + tr(u8"ref_chip.also_remote", { { u8"remote", label_.remote_name } });
+        if (label_.local_only)
+            text += u8"\n" + tr(u8"ref_chip.not_on_remote");
         if (label_.worktree_path.empty() == false)
-            set_tooltip(tooltip() + tr(u8"ref_chip.checked_out_in_worktree_suffix", { { u8"path", std::u8string { label_.worktree_path.begin(), label_.worktree_path.end() } } }));
+            text += u8"\n" + tr(u8"ref_chip.checked_out_in_worktree") + u8"\n" + to_u8(label_.worktree_path);
+        set_text_tooltip(*this, std::move(text));
         access_name_ = label_.text + (label_.local_only ? tr(u8"ref_chip.not_on_remote_suffix") : std::u8string {})
             + (label_.worktree_path.empty() ? std::u8string {} : tr(u8"ref_chip.in_other_worktree_suffix"));
         // 칩을 눌러도 행을 누른 것과 같다 (Ctrl·Shift는 여러 커밋 고르기). 보조 기술의 "실행"은 그냥 누름이다.

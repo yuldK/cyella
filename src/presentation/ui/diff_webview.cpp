@@ -122,7 +122,7 @@ namespace cyella::ui {
             };
             auto metadata { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-header-metadata" }, metadata_config) };
             auto subtitle { make_text(u8"diff-subtitle", diff.subtitle, text_style { .size = 11.0f, .color = dim_color }) };
-            subtitle->set_tooltip(diff.subtitle);
+            set_text_tooltip(*subtitle, diff.subtitle);
             if (compact)
             {
                 auto path { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-path-row" }, metadata_config) };
@@ -135,7 +135,7 @@ namespace cyella::ui {
                 if (diff.surface.truncated)
                 {
                     auto note { make_text(u8"diff-truncated-note", tr(u8"diff.truncated_short"), text_style { .size = 11.0f, .color = dim_color }) };
-                    note->set_tooltip(tr(u8"diff.truncated_tooltip"));
+                    set_text_tooltip(*note, tr(u8"diff.truncated_tooltip"));
                     path->add(std::move(note), 28.0f);
                 }
                 column->add(std::move(path), 32.0f);

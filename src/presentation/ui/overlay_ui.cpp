@@ -174,7 +174,7 @@ namespace cyella::ui {
         {
             luil::ui_element& item { *root->children()[index + 1] };
             const ref_label& label { entries[index] };
-            item.set_tooltip(label.text);
+            set_text_tooltip(item, label.text);
             if (const luil::ui_action* const select { item.action(luil::ui_trigger::left_click) }; select != nullptr)
                 item.set_action(luil::ui_trigger::right_click, *select);
         }

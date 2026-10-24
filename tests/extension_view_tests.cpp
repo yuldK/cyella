@@ -270,7 +270,9 @@ TEST_CASE("the sidebar marks branches checked out in another worktree", "[presen
     const sidebar_row_view* const branch { find_row(rows, u8"l:feature/graph") };
     REQUIRE(branch != nullptr);
     CHECK(branch->worktree_path == "C:/work/repo-feat");
-    CHECK(branch->tooltip.find(u8"다른 worktree") != std::u8string::npos);
+    // 툴팁은 이름 아래로 한 줄씩 쌓는다. 경로는 문장에 끼우지 않고 제 줄에 둔다 (카드가 폭 안에서 접는다).
+    CHECK(branch->tooltip.starts_with(u8"feature/graph\n"));
+    CHECK(branch->tooltip.ends_with(u8"\n다른 worktree에서 체크아웃됨\nC:/work/repo-feat"));
     CHECK(find_row(rows, u8"l:main")->worktree_path.empty());
 }
 

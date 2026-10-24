@@ -73,7 +73,7 @@ namespace cyella::ui {
                 , selected_ { selected }
             {
                 set_cursor(luil::ui_cursor::hand);
-                set_tooltip(description_);
+                set_text_tooltip(*this, description_);
                 set_action(luil::ui_trigger::left_click, action_of(std::move(action)));
                 preview_ = preview.get();
                 add_child(std::move(preview));
