@@ -180,6 +180,8 @@ namespace cyella {
         void decide_compare(tab_ui_state& tab, repository_session& session);
         // 비교를 풀고 마지막에 누른 커밋 하나로 돌아간다.
         void clear_compare(tab_ui_state& tab);
+        // 그래프 행을 끄는 동안 포인터 아래 행까지를 고른다 (그 행의 Shift+클릭).
+        void handle_graph_sweep(const graph_sweep_intent& intent);
         // relay를 비운 뒤다. 조상 답을 기다리던 비교를 정하고, 새로 고침으로 고른 커밋이 사라진 비교를 푼다.
         void sync_compares();
         // ---- 작업 영역의 여러 파일 고르기 (shell_controller_working.cpp)

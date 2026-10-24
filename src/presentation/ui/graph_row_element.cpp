@@ -34,6 +34,8 @@ namespace cyella::ui {
         // 서명이 있는 커밋의 제목 앞 표지다.
         constexpr float signature_mark_size { 13.0f };
         constexpr float signature_mark_gap { 4.0f };
+        // 행 끌어 고르기가 서는 거리다 (물리 픽셀). luil의 끌기 시작 거리(`interaction_config::drag_start_distance`)와 같다.
+        constexpr float sweep_start_distance { 6.0f };
 
         char32_t label_glyph(const ref_label& label) noexcept
         {
@@ -235,6 +237,14 @@ namespace cyella::ui {
         });
         if (data_.wip)
             return;
+
+        // 누른 채 끌면 지나는 행까지 고른다 (`graph_sweep_intent`). 끌기 거리 안에서 떼면 평소의 클릭·두 번 누름이다.
+        //  - 목록 가장자리에 대면 목록이 스스로 흐르고, 같은 포인터 자리로 다시 불린다.
+        luil::pointer_drag_target sweep {};
+        sweep.on_move = [](const luil::ui_action_context&, const luil::ui_action_context& current) -> std::vector<luil::input_action> { return { message(graph_sweep_intent { current.y }) }; };
+        sweep.start_distance = sweep_start_distance;
+        sweep.auto_scroll = true;
+        set_pointer_drag_target(std::move(sweep));
 
         set_action(luil::ui_trigger::double_click, action_of(message(activate_commit_intent { data_.sha })));
         menu_target target {};

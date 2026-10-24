@@ -392,6 +392,47 @@ TEST_CASE("shift+click takes the range between an ancestor and its descendant", 
     }
 }
 
+TEST_CASE("dragging over graph rows selects from the pressed commit to the row under the pointer", "[presentation][controller][compare]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, branching_history());
+    const auto tab = [&test]() -> const tab_ui_state& { return test.controller.state().tabs.at(test.controller.tabs().selected().id); };
+    // 목록 위 끝이 창 좌표 100(물리 픽셀)이고 배율 1.5다. 행 하나는 28 논리 픽셀이다.
+    test.controller.apply_feedback(frame_feedback { .graph_maximum = 0.0f, .graph_top = 100.0f, .scale = 1.5f });
+    const std::vector<commit_info>& commits { session->graph_commits() };
+    const auto row_y = [&commits](const std::string& sha) {
+        const auto index { static_cast<float>(std::ranges::find(commits, sha, &commit_info::sha) - commits.begin()) };
+        return 100.0f + (index * graph_row_height + graph_row_height / 2.0f) * 1.5f;
+    };
+
+    // 2를 누르고 위의 5까지 끈다. 2가 5의 조상이라 범위다 (5를 Shift+클릭한 것과 같다).
+    REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(2)) }));
+    REQUIRE(test.send(graph_sweep_intent { row_y(sha_of(5)) }));
+    REQUIRE(tab().compare.has_value());
+    CHECK(tab().compare->anchor == sha_of(2));
+    CHECK(tab().selected_sha == sha_of(5));
+    CHECK(tab().compare->kind == commit_compare_kind::range);
+
+    // 같은 행 안의 이동은 비교를 다시 내지 않는다.
+    const std::size_t ranges { count_operations(test.workspace, operation_kind::show_range) };
+    REQUIRE(test.send(graph_sweep_intent { row_y(sha_of(5)) + 5.0f }));
+    CHECK(count_operations(test.workspace, operation_kind::show_range) == ranges);
+
+    // 목록 밖으로 끌면 끝 행에 멈춘다 (위는 첫 행, 아래는 마지막 행).
+    REQUIRE(test.send(graph_sweep_intent { 4000.0f }));
+    CHECK(tab().selected_sha == commits.back().sha);
+    REQUIRE(test.send(graph_sweep_intent { -50.0f }));
+    CHECK(tab().selected_sha == commits.front().sha);
+
+    // 누른 행으로 돌아오면 그 커밋 하나다.
+    REQUIRE(test.send(graph_sweep_intent { row_y(sha_of(2)) }));
+    CHECK(tab().selected_sha == sha_of(2));
+    CHECK_FALSE(tab().compare.has_value());
+}
+
 TEST_CASE("a plain click, Esc, WIP and a refresh that drops a commit end the comparison", "[presentation][controller][compare]")
 {
     controller_harness test {};

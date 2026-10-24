@@ -256,6 +256,14 @@ namespace cyella {
         bool shift { false };
     };
 
+    // 그래프 행을 누른 채 끌고 있다. 누른 행이 기준이고 포인터 아래 행까지가 고른 범위다 (그 행을 Shift+클릭한 것과 같다).
+    //  - `y`는 포인터의 창 좌표(물리 픽셀)다. 행은 controller가 그래프 목록의 자리·배율·스크롤로 되찾는다
+    //    (`frame_feedback::graph_top`). 끄는 동안 목록이 스스로 흘러도 같은 좌표로 다시 온다.
+    struct graph_sweep_intent
+    {
+        float y { 0.0f };
+    };
+
     // 상세 패널의 파일을 골랐다. diff를 읽어 그래프 자리에 보인다.
     struct select_file_intent
     {

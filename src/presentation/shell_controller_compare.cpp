@@ -1,13 +1,16 @@
 #include "presentation/shell_controller.h"
 
 #include "domain/commit_graph_layout.h"
+#include "presentation/graph_geometry.h"
 
 #include <algorithm>
+#include <cmath>
 
 // 그래프에서 여러 커밋을 골라 비교하는 화면 쪽 규칙이다.
 //  - Ctrl+클릭: 기준 커밋과 누른 커밋을 비교한다 (`git diff 오래된 새것`). 다른 갈래의 커밋끼리도 된다.
 //  - Shift+클릭: 한쪽이 다른 쪽의 조상이면 그 사이 범위를 합친 변경이다 (`git diff 오래된^ 새것`). 아니면 Ctrl과 같다.
 //  - 기준은 처음 Ctrl·Shift+클릭 직전에 골라 둔 커밋이고, 거듭 누르면 마지막에 누른 커밋만 바뀐다.
+//  - Shift+↑↓와 행을 누른 채 끄는 것도 Shift+클릭과 같다 (누른 행·고른 행이 기준이다).
 namespace cyella {
     bool shell_controller::select_compare(tab_ui_state& tab, repository_session& session, const commit_info& clicked, const bool shift)
     {
@@ -89,6 +92,25 @@ namespace cyella {
         if (tab.diff.has_value() && tab.diff->view == diff_view::range)
             tab.diff.reset();
         tab.detail_scroll = 0.0f;
+    }
+
+    void shell_controller::handle_graph_sweep(const graph_sweep_intent& intent)
+    {
+        repository_session* const session { selected_session() };
+        tab_ui_state* const tab { selected_tab_state() };
+        if (session == nullptr || tab == nullptr || feedback_.graph_top.has_value() == false)
+            return;
+        const std::vector<commit_info>& commits { session->graph_commits() };
+        if (commits.empty())
+            return;
+        // 포인터의 창 좌표를 목록 내용 좌표로 옮긴다. 스크롤은 배치가 범위 안으로 다듬은 값과 같게 다듬는다.
+        const float scale { feedback_.scale > 0.0f ? feedback_.scale : 1.0f };
+        const float scroll { std::max(0.0f, feedback_.graph_maximum.has_value() ? std::min(tab->graph_scroll, *feedback_.graph_maximum) : tab->graph_scroll) };
+        const float content_y { (intent.y - *feedback_.graph_top) / scale + scroll };
+        const auto row { static_cast<std::size_t>(std::clamp(std::floor(content_y / graph_row_height), 0.0f, static_cast<float>(commits.size() - 1))) };
+        if (commits[row].sha == tab->selected_sha)
+            return;
+        handle_select_commit(select_commit_intent { .key = graph_item_key(commits[row].sha), .shift = true });
     }
 
     void shell_controller::sync_compares()

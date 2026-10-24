@@ -677,7 +677,9 @@ namespace cyella::ui {
         {
             built.feedback.graph_maximum = sources.graph->metrics().maximum_scroll;
             built.feedback.graph_viewport = sources.graph->metrics().viewport_height;
+            built.feedback.graph_top = sources.graph->bounds().y;
         }
+        built.feedback.scale = scale;
         if (sources.sidebar != nullptr)
             built.feedback.sidebar_maximum = sources.sidebar->metrics().maximum_scroll;
         if (sources.detail != nullptr)

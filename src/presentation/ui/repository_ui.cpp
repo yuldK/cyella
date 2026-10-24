@@ -1071,7 +1071,16 @@ namespace cyella::ui {
         };
         const auto select = [](const std::u8string& key) { return message(select_commit_intent { key }); };
         config.select = select;
-        config.move = select;
+        // Shift+↑↓·Page·Home/End는 기준 커밋부터의 범위다 (Shift+클릭과 같다).
+        //  - Ctrl만 든 걸음은 선택을 두고 커서만 옮기는 것인데, 그래프는 커서가 곧 고른 커밋이라 할 일이 없다.
+        //    행 누름도 이 길로 오지만(`keep_selection` 참) 고르기는 행이 누른 순간 이미 냈다 (`press_row_element`).
+        config.move_with = [](const std::u8string& key, const luil::virtual_list_move_context& context) {
+            if (context.extend)
+                return message(select_commit_intent { .key = key, .shift = true });
+            if (context.keep_selection)
+                return luil::input_action {};
+            return message(select_commit_intent { .key = key });
+        };
         // 행의 누름은 행 element가 수식 키와 함께 낸다. 이것은 보조 기술의 더하기(Ctrl+누름과 같다)와 행 밖의 누름이 지나는 길이다.
         config.pick = [](const std::u8string& key, const luil::ui_action_context& context) { return message(select_commit_intent { .key = key, .control = context.control, .shift = context.shift }); };
         config.scroll = [](const float delta) { return message(scroll_intent { .target = scroll_target::graph, .value = delta }); };

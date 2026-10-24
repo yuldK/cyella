@@ -1170,3 +1170,51 @@ TEST_CASE("pressing a graph row gives the list the keyboard so arrows and Escape
     CHECK(interaction.process(luil::key_pressed_event { .key = luil::key_code::enter }).empty());
     CHECK(interaction.process(luil::key_pressed_event { .key = luil::key_code::space }).empty());
 }
+
+TEST_CASE("shift+arrows and dragging over graph rows extend the selection", "[presentation][ui][select]")
+{
+    tree_fixture fixture {};
+    fixture.harness.ui.tabs[fixture.tab].selected_sha = sha_of(3);
+    view_snapshot view { fixture.harness.build() };
+    view.shortcuts = resolve_shortcut_bindings(app_settings {});
+    const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
+    const luil::ui_element* const row { find_element(built, cyella::ui::kind_graph_row, u8"commit-" + graph_item_key(sha_of(3))) };
+    REQUIRE(row != nullptr);
+    cyella::ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(built.tree);
+    const luil::rect_f box { row->bounds() };
+    const float x { box.x + box.width / 2.0f };
+    const float y { box.y + box.height / 2.0f };
+
+    SECTION("shift+arrow is a shift+click on the next row and ctrl+arrow leaves the selection alone")
+    {
+        static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = x, .y = y }));
+        static_cast<void>(interaction.process(luil::pointer_released_event { .x = x, .y = y }));
+        const std::vector<luil::input_action> extended { interaction.process(luil::key_pressed_event { .key = luil::key_code::arrow_down, .shift = true }) };
+        const auto* const range { intent_at<select_commit_intent>(extended, 0) };
+        REQUIRE(range != nullptr);
+        CHECK(range->key == graph_item_key(sha_of(2)));
+        CHECK(range->shift);
+        CHECK_FALSE(range->control);
+        const std::vector<luil::input_action> kept { interaction.process(luil::key_pressed_event { .key = luil::key_code::arrow_down, .control = true }) };
+        CHECK(intent_at<select_commit_intent>(kept, 0) == nullptr);
+    }
+
+    SECTION("dragging past the start distance sweeps with the pointer position")
+    {
+        const std::vector<luil::input_action> pressed { interaction.process(luil::pointer_pressed_event { .x = x, .y = y }) };
+        REQUIRE(intent_at<select_commit_intent>(pressed, 0) != nullptr);
+        // 끌기 거리 안의 이동은 아직 누름이다.
+        CHECK(intent_at<graph_sweep_intent>(interaction.process(luil::pointer_moved_event { .x = x, .y = y + 2.0f }), 0) == nullptr);
+        const float below { y + box.height * 2.0f };
+        const std::vector<luil::input_action> moved { interaction.process(luil::pointer_moved_event { .x = x, .y = below }) };
+        const graph_sweep_intent* sweep { nullptr };
+        for (std::size_t index { 0 }; index < moved.size() && sweep == nullptr; ++index)
+            sweep = intent_at<graph_sweep_intent>(moved, index);
+        REQUIRE(sweep != nullptr);
+        CHECK(sweep->y == below);
+        // 끌기 뒤의 뗌은 클릭이 아니다 (다시 고르지 않는다).
+        CHECK(intent_at<select_commit_intent>(interaction.process(luil::pointer_released_event { .x = x, .y = below }), 0) == nullptr);
+    }
+}

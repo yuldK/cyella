@@ -1062,6 +1062,11 @@ namespace cyella {
             handle_select_commit(*intent);
             return true;
         }
+        if (const auto* const intent { message.get<graph_sweep_intent>() }; intent != nullptr)
+        {
+            handle_graph_sweep(*intent);
+            return true;
+        }
         if (const auto* const intent { message.get<select_file_intent>() }; intent != nullptr)
         {
             handle_select_file(*intent);

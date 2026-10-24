@@ -26,5 +26,8 @@ namespace cyella {
         std::optional<float> tab_scroll {};
         // 그래프 창 높이다 (논리 픽셀). 끝에 가까워지면 다음 쪽을 읽는 판정이 쓴다.
         float graph_viewport { 0.0f };
+        // 그래프 목록 위 끝의 창 좌표(물리 픽셀)와 그 frame의 배율이다. 끌어 고르기가 포인터 자리를 행으로 옮긴다.
+        std::optional<float> graph_top {};
+        float scale { 1.0f };
     };
 } // namespace cyella
