@@ -3,6 +3,7 @@
 #include "application/diff_sides.h"
 #include "application/external_diff_opener.h"
 #include "application/git_operation.h"
+#include "application/window_placement.h"
 #include "domain/operation_status.h"
 
 #include <cstdint>
@@ -18,6 +19,12 @@ namespace cyella {
         float width { 0.0f };
         float height { 0.0f };
         float scale { 1.0f };
+    };
+
+    // 주 창의 배치가 정해졌거나 바뀌었다 (시작, 이동·크기 조절 끝, 최대화 전환, 종료 직전). driver가 다음 실행을 위해 적어 둔다.
+    struct window_placement_intent
+    {
+        saved_window_placement placement {};
     };
 
     // 창을 닫는다 (caption X, Alt+F4).

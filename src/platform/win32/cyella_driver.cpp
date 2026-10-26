@@ -4,6 +4,7 @@
 #include "domain/text_catalog.h"
 #include "infrastructure/git_operation_runner.h"
 #include "infrastructure/git_tool_discovery.h"
+#include "infrastructure/json_window_placement.h"
 #include "platform/win32/askpass_helper_path.h"
 #include "platform/win32/rebase_editor_path.h"
 #include "platform/win32/win32_diff_tool_launcher.h"
@@ -625,6 +626,13 @@ namespace cyella::win32 {
         if (const auto* const metrics { message.get<window_metrics_intent>() }; metrics != nullptr)
         {
             metrics_ = *metrics;
+            return true;
+        }
+        if (const auto* const placement { message.get<window_placement_intent>() }; placement != nullptr)
+        {
+            // 시작할 때 luil이 읽어 둔 배치를 그대로 되알리므로 같은 값은 다시 쓰지 않는다.
+            if (settings_files_ != nullptr && placement->placement != options_.window_placement && save_window_placement(*settings_files_, options_.settings_path, placement->placement))
+                options_.window_placement = placement->placement;
             return true;
         }
         if (const auto* const open { message.get<open_repository_intent>() }; open != nullptr)

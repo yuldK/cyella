@@ -143,7 +143,8 @@ cyella_add_source_filter(cyella_lib_files "domain/hosting"
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
 # UI 헤더를 include하지 않는다.
 cyella_add_source_filter(cyella_lib_files "application/logic"
-    application/app_messages.h)
+    application/app_messages.h
+    application/window_placement.h)
 
 cyella_add_source_filter(cyella_lib_files "application/process"
     application/cancellation_registry.cpp
@@ -256,7 +257,9 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/settings"
     infrastructure/json_app_settings_store.cpp
     infrastructure/json_app_settings_store.h
     infrastructure/json_text_catalog.cpp
-    infrastructure/json_text_catalog.h)
+    infrastructure/json_text_catalog.h
+    infrastructure/json_window_placement.cpp
+    infrastructure/json_window_placement.h)
 
 cyella_add_source_filter(cyella_lib_files "infrastructure/authentication"
     infrastructure/askpass_environment.cpp

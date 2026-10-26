@@ -28,6 +28,7 @@ namespace cyella::win32 {
         void on_started(luil::app_host& host) override;
         void execute_app_ui_command(luil::app_host& host, const luil::app_ui_command& command) override;
         [[nodiscard]] luil::app_message make_window_metrics_message(float width, float height, float scale) override;
+        [[nodiscard]] luil::app_message make_window_placement_message(const luil::window_placement& placement) override;
 
     private:
         operation_result_relay* relay_ { nullptr };

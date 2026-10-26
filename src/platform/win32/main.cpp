@@ -1,9 +1,11 @@
+#include "infrastructure/json_window_placement.h"
 #include "platform/win32/cyella_delegate.h"
 #include "platform/win32/cyella_driver.h"
 #include "platform/win32/resources/resource_ids.h"
 #include "platform/win32/utf8.h"
 #include "platform/win32/win32_app_settings_path.h"
 #include "platform/win32/win32_locale.h"
+#include "platform/win32/win32_settings_file_system.h"
 #include "presentation/ui/app_symbol.h"
 #include "presentation/ui/cyella_caption.h"
 #include "presentation/ui/cyella_policy.h"
@@ -107,6 +109,13 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
     config.initial_height = 720;
     config.minimum_client_width = 480;
     config.minimum_client_height = 320;
+    // 지난 실행의 창 배치로 연다. 모니터 구성이 바뀌어 화면 밖이면 luil이 버리고 처음 크기로 연다.
+    options.window_placement = cyella::load_window_placement(*cyella::win32::make_settings_file_system(), options.settings_path);
+    if (options.window_placement.has_value())
+    {
+        const cyella::saved_window_placement& saved { *options.window_placement };
+        config.initial_placement = luil::window_placement { .x = saved.x, .y = saved.y, .width = saved.width, .height = saved.height, .maximized = saved.maximized };
+    }
     config.resize_border_thickness = 4;
     config.resize_corner_thickness = 10;
 

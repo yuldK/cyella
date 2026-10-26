@@ -235,4 +235,11 @@ namespace cyella::win32 {
     {
         return luil::app_message { window_metrics_intent { width, height, scale } };
     }
+
+    luil::app_message cyella_delegate::make_window_placement_message(const luil::window_placement& placement)
+    {
+        // 전체 화면이면 사각형은 나왔을 때 돌아갈 자리다. cyella는 전체 화면으로 열지 않으므로 그 자리만 적는다.
+        const saved_window_placement saved { .x = placement.x, .y = placement.y, .width = placement.width, .height = placement.height, .maximized = placement.maximized };
+        return luil::app_message { window_placement_intent { saved } };
+    }
 } // namespace cyella::win32

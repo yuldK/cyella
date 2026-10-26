@@ -58,7 +58,7 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 
 ## 개인 정보와 자격 증명
 
-- 설정은 `%APPDATA%\cyella\settings.json`에 저장한다.
+- 설정은 `%APPDATA%\cyella\settings.json`에, 창 위치·크기·최대화는 같은 폴더의 `window-placement.json`에 저장한다.
 - 비밀번호·passphrase·호스팅 토큰은 파일에 쓰지 않는다. 토큰은 `git credential`(Git Credential Manager 등)에서 받아
   실행 중에만 메모리에 둔다.
 - 작성자 사진(Gravatar)은 기본으로 꺼져 있다. 켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 간다.

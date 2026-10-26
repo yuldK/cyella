@@ -73,7 +73,8 @@ cyella_add_source_filter(cyella_test_files "infrastructure"
     json_app_settings_store_tests.cpp
     secret_masking_tests.cpp
     ssh_operations_tests.cpp
-    ssh_tools_tests.cpp)
+    ssh_tools_tests.cpp
+    window_placement_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "presentation"
     diff_webview_tests.cpp

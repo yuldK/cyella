@@ -60,6 +60,8 @@ namespace cyella::win32 {
         bool hosting_system_proxy { true };
         // 비어 있지 않으면 "브라우저에서 열기"가 브라우저를 띄우지 않고 이 파일에 주소를 한 줄씩 적는다 (`--open-url-log=<경로>`, 검증용).
         std::u8string open_url_log {};
+        // 시작할 때 `window-placement.json`에서 읽은 주 창 배치다. 창을 만들 때 쓰고, 같은 값이 다시 알려지면 파일을 쓰지 않는다.
+        std::optional<saved_window_placement> window_placement {};
     };
 
     // luil logic thread에 꽂는 cyella 구동기다. 백엔드(workspace·scheduler·relay)와 설정을 조립하고, 화면은
