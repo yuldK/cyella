@@ -359,6 +359,22 @@ namespace cyella {
         return result;
     }
 
+    std::optional<hosting_repository> hosting_repository_for_host(const std::string_view host, const std::vector<hosting_host_setting>& hosts)
+    {
+        const std::string key { normalize_hosting_host(host) };
+        if (key.empty())
+            return std::nullopt;
+        // http로만 여는 내부 서버면 그 서버에 만든 저장소의 원격도 http다. 같은 규칙으로 풀리도록 scheme을 맞춘다.
+        const auto configured { std::ranges::find_if(hosts, [&key](const hosting_host_setting& setting) { return normalize_hosting_host(setting.host) == key; }) };
+        const bool http_only { configured != hosts.end() && starts_with(lower(std::string { trim(configured->api_base) }), "http://") };
+        std::optional<hosting_repository> resolved { resolve_hosting_repository(std::string { http_only ? "http://" : "https://" } + key + "/owner/name", {}, hosts) };
+        if (resolved.has_value() == false || resolved->supported() == false)
+            return std::nullopt;
+        resolved->owner.clear();
+        resolved->name.clear();
+        return resolved;
+    }
+
     std::optional<hosting_repository> pick_hosting_repository(const std::vector<hosting_remote_candidate>& remotes, const std::vector<hosting_host_setting>& hosts)
     {
         std::optional<hosting_repository> fallback {};

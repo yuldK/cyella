@@ -27,6 +27,8 @@ namespace cyella::win32 {
                 return failure_of<pull_request_page>(kind, std::move(message));
             if (std::holds_alternative<hosting_create_job>(job.work))
                 return failure_of<created_pull_request>(kind, std::move(message));
+            if (std::holds_alternative<hosting_create_repository_job>(job.work))
+                return failure_of<created_repository>(kind, std::move(message));
             return failure_of<ci_status_info>(kind, std::move(message));
         }
     } // namespace
@@ -119,6 +121,8 @@ namespace cyella::win32 {
             result.payload = service_->create_pull_request(job.context, create->params, cancellation);
         else if (const auto* const ci { std::get_if<hosting_ci_job>(&job.work) }; ci != nullptr)
             result.payload = service_->ci_status(job.context, ci->sha, cancellation);
+        else if (const auto* const repository { std::get_if<hosting_create_repository_job>(&job.work) }; repository != nullptr)
+            result.payload = service_->create_repository(job.context, repository->params, cancellation);
         result.signed_in = service_->signed_in(result.host_key);
         result.user = service_->signed_in_user(result.host_key);
         result.rate_limit = service_->last_rate_limit(result.host_key);

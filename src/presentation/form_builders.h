@@ -61,7 +61,9 @@ namespace cyella {
 
     // 원격 추가 상자가 낼 operation 열이다. `remote add`이고, 게시를 켰으면 성공한 뒤 `push --set-upstream`이 잇는다.
     [[nodiscard]] std::vector<git_operation> make_add_remote_operations(const dialog_state& dialog, const form_inputs& inputs);
-    // 원격 이름·URL을 쓸 수 없는 이유를 한 줄로 말한다. URL이 아직 비었으면 말하지 않고 단추만 끈다.
+    // 원격 추가 상자에서 URL 대신 호스팅 서버에 새 저장소를 만들기로 골랐다.
+    [[nodiscard]] bool add_remote_to_hosting(const dialog_state& dialog) noexcept;
+    // 원격 이름·URL(호스트를 골랐으면 저장소 이름·소유자)을 쓸 수 없는 이유를 한 줄로 말한다. 칸 1이 아직 비었으면 말하지 않고 단추만 끈다.
     [[nodiscard]] std::optional<std::u8string> add_remote_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
 
     // 조건 판정: 단추를 켤 수 있는가.

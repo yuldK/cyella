@@ -122,6 +122,23 @@ namespace cyella::ui {
         for (const form_note& note : form.notes)
             content.add_text(note.text, text_style { .size = note.code ? 11.0f : 12.0f, .color = note.warning ? warning_color : color_selector {}, .code = note.code });
 
+        const auto add_choices = [&form, &content] {
+            if (form.choices.empty())
+                return;
+            if (form.choices_label.empty() == false)
+                content.add(make_text(form.id + u8"-choices-label", form.choices_label, text_style { .size = 11.0f, .color = dim_color }), form_label_height);
+            luil::choice_group_config choices { .owner = form.id + u8"-choices", .style = luil::choice_style::radio, .name = form.choices_label };
+            for (std::size_t index { 0 }; index < form.choices.size(); ++index)
+                choices.items.push_back({ .value = number_text(index), .label = form.choices[index].label });
+            choices.selected = number_text(form.chosen);
+            choices.select = [](const std::u8string& value) { return message(form_choose_intent { index_of(value) }); };
+            const float height { luil::choice_group_element::height_for(choices) };
+            content.add(std::make_unique<luil::choice_group_element>(std::move(choices)), height);
+        };
+        // 선택지가 아래 칸의 뜻을 정하면(게시할 곳) 칸보다 먼저 보인다.
+        if (form.choices_first)
+            add_choices();
+
         luil::ui_element_id focus_entry {};
         for (std::size_t index { 0 }; index < form.fields.size(); ++index)
         {
@@ -141,18 +158,8 @@ namespace cyella::ui {
                 focus_entry = luil::ui_element_id { field_kind(index), owner };
         }
 
-        if (form.choices.empty() == false)
-        {
-            if (form.choices_label.empty() == false)
-                content.add(make_text(form.id + u8"-choices-label", form.choices_label, text_style { .size = 11.0f, .color = dim_color }), form_label_height);
-            luil::choice_group_config choices { .owner = form.id + u8"-choices", .style = luil::choice_style::radio, .name = form.choices_label };
-            for (std::size_t index { 0 }; index < form.choices.size(); ++index)
-                choices.items.push_back({ .value = number_text(index), .label = form.choices[index].label });
-            choices.selected = number_text(form.chosen);
-            choices.select = [](const std::u8string& value) { return message(form_choose_intent { index_of(value) }); };
-            const float height { luil::choice_group_element::height_for(choices) };
-            content.add(std::make_unique<luil::choice_group_element>(std::move(choices)), height);
-        }
+        if (form.choices_first == false)
+            add_choices();
 
         for (std::size_t index { 0 }; index < form.checks.size(); ++index)
         {

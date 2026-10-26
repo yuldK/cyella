@@ -695,3 +695,110 @@ TEST_CASE("the create dialog form validates the target and builds the request va
     dialog.flag_b = false;
     CHECK(build_create_pull_request_form(dialog, context).warnings.size() == 1);
 }
+
+TEST_CASE("publishing to a host signs in first, creates the repository and then adds the remote and pushes", "[hosting][publish]")
+{
+    harness test {};
+    // 원격이 없는 저장소다.
+    test.target().repository.reset();
+    publish_repository_request request {};
+    request.host = *hosting_repository_for_host("github.com", {});
+    request.params = { .name = "hello", .description = {}, .owner = {}, .is_private = true };
+    request.push_branch = "main";
+    test.controller.request_publish("repo-1", request);
+    CHECK(test.controller.publishing("repo-1"));
+    // 같은 저장소의 게시를 두 번 내지 않는다.
+    test.controller.request_publish("repo-1", request);
+    REQUIRE(test.jobs.size() == 1);
+    REQUIRE_FALSE(test.notices.empty());
+    CHECK(test.notices.back().second);
+    REQUIRE(std::holds_alternative<hosting_sign_in_job>(test.jobs[0].work));
+    CHECK(test.jobs[0].context.repository.host_key == "github.com");
+    CHECK(test.jobs[0].context.working_directory == "C:\\work\\hello");
+
+    test.deliver(test.jobs[0], hosting_result<std::string> { .value = std::string { "octocat" } });
+    REQUIRE(test.jobs.size() == 2);
+    REQUIRE(std::holds_alternative<hosting_create_repository_job>(test.jobs[1].work));
+    CHECK(std::get<hosting_create_repository_job>(test.jobs[1].work).params.name == "hello");
+    CHECK(std::get<hosting_create_repository_job>(test.jobs[1].work).params.is_private);
+    CHECK(test.git_submissions.empty());
+
+    created_repository created {
+        .full_name = "octocat/hello", .web_url = "https://github.com/octocat/hello", .https_url = "https://github.com/octocat/hello.git", .ssh_url = "git@github.com:octocat/hello.git"
+    };
+    test.deliver(test.jobs[1], hosting_result<created_repository> { .value = created });
+    CHECK_FALSE(test.controller.publishing("repo-1"));
+    REQUIRE(test.git_submissions.size() == 1);
+    const std::vector<git_operation>& operations { test.git_submissions[0].second };
+    REQUIRE(operations.size() == 2);
+    const auto* const add { std::get_if<add_remote_request>(&operations[0]) };
+    REQUIRE(add != nullptr);
+    CHECK(add->name == "origin");
+    CHECK(add->url == "https://github.com/octocat/hello.git");
+    const auto* const push { std::get_if<push_execute_request>(&operations[1]) };
+    REQUIRE(push != nullptr);
+    CHECK(push->remote == "origin");
+    CHECK(push->branch == "main");
+    CHECK(push->set_upstream);
+    CHECK_FALSE(test.notices.back().second);
+}
+
+TEST_CASE("publishing skips sign-in on a signed-in host, uses the ssh URL when asked and stops on a rejection", "[hosting][publish]")
+{
+    harness test {};
+    test.sign_in();
+    const std::size_t before { test.jobs.size() };
+    publish_repository_request request {};
+    request.host = *hosting_repository_for_host("github.com", {});
+    request.params = { .name = "hello", .owner = "octo", .is_private = false };
+    request.remote_name = "upstream";
+    request.use_ssh = true;
+    test.controller.request_publish("repo-1", request);
+    REQUIRE(test.jobs.size() == before + 1);
+    REQUIRE(std::holds_alternative<hosting_create_repository_job>(test.jobs.back().work));
+    test.deliver(test.jobs.back(),
+        hosting_result<created_repository> { .value = created_repository { .full_name = "octo/hello", .https_url = "https://github.com/octo/hello.git", .ssh_url = "git@github.com:octo/hello.git" } });
+    REQUIRE(test.git_submissions.size() == 1);
+    // push할 브랜치를 주지 않았으면 원격만 더한다.
+    REQUIRE(test.git_submissions[0].second.size() == 1);
+    CHECK(std::get<add_remote_request>(test.git_submissions[0].second[0]).name == "upstream");
+    CHECK(std::get<add_remote_request>(test.git_submissions[0].second[0]).url == "git@github.com:octo/hello.git");
+
+    // 서버가 거절하면 알리고 git 작업을 내지 않는다.
+    test.controller.request_publish("repo-1", request);
+    hosting_result<created_repository> rejected {};
+    rejected.error = hosting_error { .kind = hosting_error_kind::rejected, .status_code = 422, .message = "name already exists on this account" };
+    test.deliver(test.jobs.back(), rejected);
+    CHECK(test.git_submissions.size() == 1);
+    REQUIRE_FALSE(test.notices.empty());
+    CHECK(test.notices.back().second);
+    CHECK_FALSE(test.controller.publishing("repo-1"));
+
+    // 로그인이 실패해도 게시는 끝난다.
+    harness fresh {};
+    fresh.controller.request_publish("repo-1", request);
+    hosting_result<std::string> refused {};
+    refused.error.kind = hosting_error_kind::credential_unavailable;
+    fresh.deliver(fresh.jobs.back(), refused, false);
+    CHECK(fresh.jobs.size() == 1);
+    CHECK_FALSE(fresh.controller.publishing("repo-1"));
+}
+
+TEST_CASE("an overlapping sign-in for the same host creates the repository only once", "[hosting][publish]")
+{
+    harness test {};
+    // 사이드바의 로그인이 아직 끝나지 않았는데 게시를 골랐다.
+    test.controller.request_sign_in("repo-1");
+    publish_repository_request request {};
+    request.host = *hosting_repository_for_host("github.com", {});
+    request.params = { .name = "hello" };
+    test.controller.request_publish("repo-1", request);
+    REQUIRE(test.jobs.size() == 2);
+    const hosting_job first { test.jobs[0] };
+    const hosting_job second { test.jobs[1] };
+    test.deliver(first, hosting_result<std::string> { .value = std::string { "octocat" } });
+    test.deliver(second, hosting_result<std::string> { .value = std::string { "octocat" } });
+    const auto creates { std::ranges::count_if(test.jobs, [](const hosting_job& job) { return std::holds_alternative<hosting_create_repository_job>(job.work); }) };
+    CHECK(creates == 1);
+    CHECK(test.controller.publishing("repo-1"));
+}

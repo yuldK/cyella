@@ -101,7 +101,7 @@ namespace {
             bridge.stop();
         }
 
-        hosting_job job(const std::uint64_t serial, std::variant<hosting_sign_in_job, hosting_list_job, hosting_create_job, hosting_ci_job> work) const
+        hosting_job job(const std::uint64_t serial, std::variant<hosting_sign_in_job, hosting_list_job, hosting_create_job, hosting_ci_job, hosting_create_repository_job> work) const
         {
             hosting_job value {};
             value.serial = serial;

@@ -567,12 +567,48 @@ namespace cyella {
         dialog.flag_a = branch.empty() == false && summary.head_sha.empty() == false && summary.remotes.empty();
         // 첫 원격이면 git의 관례대로 origin을 제안한다. 이미 있으면 이름을 비워 사용자가 정하게 한다.
         const bool has_origin { std::ranges::any_of(summary.remotes, [](const remote_info& remote) { return remote.name == "origin"; }) };
+        // 게시할 곳: URL 직접 입력, 그리고 GitHub·GitLab(설정에 더한 내부 서버 포함)에 새 저장소 만들기다.
+        dialog.choices.push_back({});
+        dialog.lines.push_back(tr(u8"form.add_remote.url_choice"));
+        for (const hosting_host_row_view& row : hosting_.host_rows(settings().hosting.hosts))
+        {
+            if (hosting_repository_for_host(row.host, settings().hosting.hosts).has_value() == false)
+                continue;
+            std::u8string label { tr(u8"form.add_remote.host_choice", { { u8"service", hosting_provider_display_name(row.provider) }, { u8"host", row.host } }) };
+            if (row.signed_in)
+                label += tr(u8"form.add_remote.signed_in_suffix", { { u8"user", row.user } });
+            dialog.choices.push_back(row.host);
+            dialog.lines.push_back(std::move(label));
+        }
+        // 새 저장소는 비공개가 기본이다 (실수로 공개하지 않게).
+        dialog.flag_b = true;
+        // 새 저장소 이름의 처음 값은 저장소 폴더 이름이다.
+        const std::u8string& path { session->path() };
+        const std::size_t slash { path.find_last_of(u8"\\/") };
+        dialog.subject_label = slash == std::u8string::npos ? path : path.substr(slash + 1);
         clear_form_inputs();
         if (has_origin == false)
             set_form_field(0, u8"origin");
         ui_.form.identity = dialog_identity(dialog);
         ui_.dialog = std::move(dialog);
         ui_.menu.reset();
+    }
+
+    void shell_controller::submit_publish(const dialog_state& dialog)
+    {
+        const std::optional<hosting_repository> host { hosting_repository_for_host(dialog.choices[dialog.choice], settings().hosting.hosts) };
+        if (host.has_value() == false)
+            return;
+        publish_repository_request request {};
+        request.host = *host;
+        request.params.name = trimmed_text(ui_.form.fields[1].text);
+        request.params.owner = trimmed_text(ui_.form.fields[2].text);
+        request.params.is_private = dialog.flag_b;
+        request.remote_name = trimmed_text(ui_.form.fields[0].text);
+        request.use_ssh = dialog.flag_c;
+        if (dialog.flag_a)
+            request.push_branch = dialog.subject;
+        hosting_.request_publish(selected_repository_id(), std::move(request));
     }
 
     void shell_controller::open_set_upstream_dialog(const std::string& branch)
@@ -1202,11 +1238,17 @@ namespace cyella {
                 else if (index == 1 && ui_.dialog->flag_c)
                     ui_.dialog->flag_b = ui_.dialog->flag_b == false;
                 return;
-            case dialog_kind::add_remote:
-                // 게시할 브랜치가 없으면 체크 칸이 없다.
-                if (index == 0 && ui_.dialog->subject.empty() == false)
+            case dialog_kind::add_remote: {
+                // 체크 칸은 [push(게시할 브랜치가 있을 때)], 호스트를 골랐으면 [비공개, ssh 주소] 차례다.
+                const std::size_t offset { ui_.dialog->subject.empty() ? 0u : 1u };
+                if (index < offset)
                     ui_.dialog->flag_a = ui_.dialog->flag_a == false;
+                else if (add_remote_to_hosting(*ui_.dialog) && index == offset)
+                    ui_.dialog->flag_b = ui_.dialog->flag_b == false;
+                else if (add_remote_to_hosting(*ui_.dialog) && index == offset + 1)
+                    ui_.dialog->flag_c = ui_.dialog->flag_c == false;
                 return;
+            }
             case dialog_kind::add_worktree:
             case dialog_kind::lfs_track:
             case dialog_kind::set_upstream:
@@ -1241,6 +1283,17 @@ namespace cyella {
         }
         else if (ui_.dialog->kind == dialog_kind::add_worktree && index < 3)
             ui_.dialog->choice = index;
+        else if (ui_.dialog->kind == dialog_kind::add_remote && index < ui_.dialog->choices.size())
+        {
+            const bool was_hosting { add_remote_to_hosting(*ui_.dialog) };
+            ui_.dialog->choice = index;
+            // 칸 1의 뜻이 URL과 저장소 이름 사이에서 바뀐다. 다른 뜻의 글이 남지 않게 바꿀 때 채워 둔다.
+            if (was_hosting != add_remote_to_hosting(*ui_.dialog))
+            {
+                set_form_field(1, was_hosting ? std::u8string {} : ui_.dialog->subject_label);
+                set_form_field(2, {});
+            }
+        }
     }
 
     void shell_controller::handle_form_enter()
@@ -1321,7 +1374,10 @@ namespace cyella {
         case dialog_kind::add_remote:
             if (add_remote_ready(dialog, ui_.form, snapshot) == false)
                 return;
-            static_cast<void>(submit_sequence(make_add_remote_operations(dialog, ui_.form)));
+            if (add_remote_to_hosting(dialog))
+                submit_publish(dialog);
+            else
+                static_cast<void>(submit_sequence(make_add_remote_operations(dialog, ui_.form)));
             break;
         case dialog_kind::rename_branch:
             if (rename_branch_ready(dialog, ui_.form, snapshot) == false)

@@ -14,6 +14,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,19 @@ namespace cyella {
         std::string push_remote {};
         // 열 수 없는 이유다. 비어 있으면 열 수 있다.
         std::u8string blocked_reason {};
+    };
+
+    // 원격이 없는 저장소를 호스팅 서버의 새 저장소로 게시하는 요청이다 (VS Code의 "GitHub에 게시"와 같은 흐름).
+    struct publish_repository_request
+    {
+        // 소유자·이름이 빈 호스트 문맥이다 (`hosting_repository_for_host`).
+        hosting_repository host {};
+        create_repository_params params {};
+        std::string remote_name { "origin" };
+        // 원격 주소로 https 대신 ssh 주소를 쓴다.
+        bool use_ssh { false };
+        // 비어 있으면 원격만 더하고 push하지 않는다.
+        std::string push_branch {};
     };
 
     // GitHub·GitLab 화면의 상태와 규칙이다. `shell_controller`가 소유하고 logic thread에서만 쓴다.
@@ -108,6 +122,11 @@ namespace cyella {
         void request_sign_in(const std::string& repository_id);
         void sign_out(const std::string& host_key);
 
+        // 게시: 로그인하지 않은 호스트면 먼저 로그인하고(사용자가 게시를 고른 것이 로그인의 명시적 요청이다), 저장소를 만든 뒤
+        // `remote add` → `push --set-upstream`을 `submit_git`으로 잇는다. 같은 저장소의 게시가 진행 중이면 무시한다.
+        void request_publish(const std::string& repository_id, publish_repository_request request);
+        [[nodiscard]] bool publishing(const std::string& repository_id) const;
+
     private:
         struct host_session
         {
@@ -158,6 +177,7 @@ namespace cyella {
                 list,
                 create,
                 ci,
+                create_repository,
             };
 
             kind what { kind::list };
@@ -182,7 +202,7 @@ namespace cyella {
         [[nodiscard]] std::optional<hosting_target> supported_target(const std::string& repository_id, bool announce) const;
         // PR 만들기를 막는 이유다. 비어 있으면 만들 수 있다.
         [[nodiscard]] std::u8string create_blocked_reason(const hosting_target& target) const;
-        [[nodiscard]] hosting_job make_job(const hosting_target& target, std::variant<hosting_sign_in_job, hosting_list_job, hosting_create_job, hosting_ci_job> work);
+        [[nodiscard]] hosting_job make_job(const hosting_target& target, std::variant<hosting_sign_in_job, hosting_list_job, hosting_create_job, hosting_ci_job, hosting_create_repository_job> work);
 
         void request_list(const std::string& repository_id, std::uint32_t page, bool append);
         void request_ci(const std::string& repository_id, const std::string& sha, bool force);
@@ -195,6 +215,10 @@ namespace cyella {
         void apply_list(const hosting_result_intent& result, const pending_job& job);
         void apply_create(const hosting_result_intent& result, const pending_job& job);
         void apply_ci(const hosting_result_intent& result, const pending_job& job);
+        void apply_create_repository(const hosting_result_intent& result, const pending_job& job);
+        void send_create_repository(const std::string& repository_id);
+        // 게시 일감의 대상이다: 저장소 탭의 작업 폴더에 호스트 문맥을 얹는다.
+        [[nodiscard]] hosting_target publish_target(const std::string& repository_id) const;
         void update_host(const hosting_result_intent& result);
         [[nodiscard]] static bool is_stale_ci(const ci_entry& entry, std::int64_t now) noexcept;
         [[nodiscard]] ci_mark_view mark_of(const hosting_repository& repository, const ci_entry* entry) const;
@@ -208,6 +232,10 @@ namespace cyella {
         std::map<std::string, repository_state> repositories_ {};
         std::map<std::uint64_t, pending_job> pending_ {};
         std::map<operation_id, pending_create> pending_creates_ {};
+        // 저장소 id별로 진행 중인 게시다. 로그인 결과와 저장소 만들기 결과가 이것을 이어 간다.
+        std::map<std::string, publish_repository_request> publishes_ {};
+        // 저장소 만들기를 이미 보낸 게시다.
+        std::set<std::string> creating_ {};
         std::uint64_t next_serial_ { 1 };
     };
 } // namespace cyella

@@ -312,6 +312,11 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
 - upstream 설정은 `set_upstream` operation이다. 메뉴의 "upstream 설정…"은 원격과 원격 브랜치를 고르는 전용 상자이고 "upstream 해제"가 옆에 있다.
 - 원격이 없을 때 Push(툴바·팔레트·브랜치 메뉴)는 "원격에 게시" 상자(`dialog_kind::add_remote`)를 연다. 이름(기본 origin)과 URL을 받아 `add_remote` →
   `push_execute{set_upstream}`을 `submit_sequence`로 낸다. 팔레트의 "원격 추가"도 같은 상자이고, 원격이 이미 있으면 upstream을 옮기지 않게 게시를 꺼 둔다.
+  상자 맨 위 "게시할 곳"에서 github.com·gitlab.com과 설정의 내부 서버를 고르면 URL 대신 새 저장소 이름(처음 값은 폴더 이름)·소유자·그룹(비우면 내 계정)과
+  비공개(기본 켬)·SSH 주소를 받는다. [만들고 게시]는 `hosting_controller::request_publish`로 간다: 로그인하지 않은 호스트면 먼저 로그인하고
+  (게시를 고른 것이 로그인의 명시적 요청이다), 빈 저장소를 만든 뒤(GitHub `POST /user/repos`·`/orgs/<org>/repos`, GitLab `POST /projects`, 그룹은
+  `GET /namespaces/<경로>`로 id를 찾는다. README 같은 첫 커밋은 만들지 않는다) 받은 주소로 `add_remote` → `push_execute{set_upstream}`을 잇는다.
+  호스트 문맥은 `hosting_repository_for_host`가 짓고, 만든 저장소의 원격 URL을 풀면 같은 토큰 열쇠라 게시한 뒤 PR·CI가 그 로그인을 그대로 쓴다.
 - 사이드바 태그·stash 두 번 누름: 태그는 detached 체크아웃(경고 한 번, "다시 보지 않기"), stash는 apply다.
 
 ## submodule·worktree·Git LFS

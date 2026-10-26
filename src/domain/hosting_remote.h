@@ -91,6 +91,11 @@ namespace cyella {
     // 설정 표가 내장 호스트(github.com·gitlab.com)보다 먼저다 — 사용자가 같은 이름을 적었다면 그것이 뜻이다.
     [[nodiscard]] std::optional<hosting_repository> resolve_hosting_repository(std::string_view url, std::string_view remote_name, const std::vector<hosting_host_setting>& hosts);
 
+    // 원격이 아직 없는 저장소를 게시할 때 쓰는 호스트 문맥이다. 소유자·이름은 비어 있고 나머지(API·웹 주소, 자격 증명 호스트, 토큰 열쇠)는
+    // 그 호스트에 만든 저장소의 원격 URL을 `resolve_hosting_repository`로 푼 값과 같다 — 게시한 뒤 PR·CI가 같은 로그인을 쓴다.
+    // 서비스를 모르는 호스트면 값이 없다.
+    [[nodiscard]] std::optional<hosting_repository> hosting_repository_for_host(std::string_view host, const std::vector<hosting_host_setting>& hosts);
+
     // 호스팅 호출이 쓰는 문맥이다: 어느 호스팅 프로젝트이고, 어느 저장소 폴더의 git 설정으로 자격 증명을 물을지.
     struct hosting_context
     {

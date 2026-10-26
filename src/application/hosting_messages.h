@@ -31,6 +31,12 @@ namespace cyella {
         std::string sha {};
     };
 
+    // 빈 저장소를 만든다 (원격이 없는 저장소의 게시). `context.repository`는 소유자·이름이 빈 호스트 문맥이다.
+    struct hosting_create_repository_job
+    {
+        create_repository_params params {};
+    };
+
     struct hosting_job
     {
         // 결과가 같은 값으로 돌아온다. controller가 매번 올린다.
@@ -38,10 +44,11 @@ namespace cyella {
         // 이 일감을 낸 탭의 저장소 id다.
         std::string repository_id {};
         hosting_context context {};
-        std::variant<hosting_sign_in_job, hosting_list_job, hosting_create_job, hosting_ci_job> work {};
+        std::variant<hosting_sign_in_job, hosting_list_job, hosting_create_job, hosting_ci_job, hosting_create_repository_job> work {};
     };
 
-    using hosting_payload = std::variant<hosting_result<std::string>, hosting_result<pull_request_page>, hosting_result<created_pull_request>, hosting_result<ci_status_info>>;
+    using hosting_payload
+        = std::variant<hosting_result<std::string>, hosting_result<pull_request_page>, hosting_result<created_pull_request>, hosting_result<ci_status_info>, hosting_result<created_repository>>;
 
     // 일감의 결과다. 워커가 relay로 올리고 driver가 controller에 넘긴다.
     struct hosting_result_intent
@@ -49,7 +56,7 @@ namespace cyella {
         std::uint64_t serial { 0 };
         std::string repository_id {};
         std::string host_key {};
-        // 일감의 종류와 같은 갈래다 (sign_in → string, list → page, create → created, ci → status).
+        // 일감의 종류와 같은 갈래다 (sign_in → string, list → page, create → created, ci → status, create_repository → repository).
         hosting_payload payload {};
         // 호출이 끝난 뒤 이 호스트에 로그인한 상태인가와 그 계정이다. 401로 토큰을 잊었으면 거짓이다.
         bool signed_in { false };

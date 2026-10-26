@@ -58,7 +58,9 @@ namespace cyella {
         //  - create_branch: a=만든 뒤 체크아웃. create_tag: a=annotated.
         //  - push: a=upstream 설정, b=태그도 push, c=force-with-lease.
         //  - set_upstream: 플래그가 없다. subject=로컬 브랜치, choices=원격, 칸 0=원격 브랜치 이름.
-        //  - add_remote: subject=게시할 로컬 브랜치(비면 추가만 한다), a=추가한 뒤 push, 칸 0=원격 이름, 칸 1=URL.
+        //  - add_remote: subject=게시할 로컬 브랜치(비면 추가만 한다), subject_label=새 저장소 이름의 처음 값(폴더 이름),
+        //    choices=게시할 곳(첫째는 빈 값으로 "URL 직접 입력", 나머지는 호스트 열쇠), lines=그 선택지의 글, a=추가한 뒤 push.
+        //    URL: 칸 0=원격 이름, 칸 1=URL. 호스트: b=비공개, c=ssh 주소, 칸 0=원격 이름, 칸 1=저장소 이름, 칸 2=소유자·그룹.
         bool flag_a { false };
         bool flag_b { false };
         bool flag_c { false };

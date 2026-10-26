@@ -4,7 +4,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace cyella;
@@ -465,4 +468,95 @@ TEST_CASE("the current account response is parsed", "[hosting]")
     CHECK(*parse_current_user_response(hosting_provider::gitlab, make_response(200, R"({"username": "root", "id": 1})")).value == "root");
     CHECK(parse_current_user_response(hosting_provider::github, make_response(200, "{}")).error.kind == hosting_error_kind::invalid_response);
     CHECK(parse_current_user_response(hosting_provider::github, make_response(401, R"({"message": "Bad credentials"})")).error.kind == hosting_error_kind::unauthorized);
+}
+
+TEST_CASE("a host alone gives the same API context as a repository created on it", "[hosting][publish]")
+{
+    std::vector<hosting_host_setting> hosts {};
+    hosts.push_back({ .host = "127.0.0.1:8123", .provider = hosting_provider::gitlab, .api_base = "http://127.0.0.1:8123/api/v4" });
+    hosts.push_back({ .host = "git.example.com", .provider = hosting_provider::github, .api_base = {} });
+    std::vector<std::pair<std::string, std::string>> cases {};
+    cases.emplace_back("github.com", "https://github.com/me/new-app.git");
+    cases.emplace_back("gitlab.com", "https://gitlab.com/me/new-app.git");
+    cases.emplace_back("127.0.0.1:8123", "http://127.0.0.1:8123/root/new-app.git");
+    cases.emplace_back("git.example.com", "git@git.example.com:me/new-app.git");
+    for (const auto& [host, created_url] : cases)
+    {
+        INFO(host);
+        const std::optional<hosting_repository> context { hosting_repository_for_host(host, hosts) };
+        REQUIRE(context.has_value());
+        CHECK(context->owner.empty());
+        CHECK(context->name.empty());
+        // 게시한 뒤 원격에서 푼 문맥과 열쇠가 같아야 로그인·PR·CI가 이어진다.
+        const std::optional<hosting_repository> published { resolve_hosting_repository(created_url, "origin", hosts) };
+        REQUIRE(published.has_value());
+        CHECK(published->host_key == context->host_key);
+        CHECK(published->api_base == context->api_base);
+        CHECK(published->credential_host == context->credential_host);
+        CHECK(published->credential_protocol == context->credential_protocol);
+        CHECK(published->provider == context->provider);
+    }
+    CHECK_FALSE(hosting_repository_for_host("bitbucket.org", hosts).has_value());
+    CHECK_FALSE(hosting_repository_for_host("", hosts).has_value());
+}
+
+TEST_CASE("repository creation requests go to the account or the organization without a first commit", "[hosting][publish]")
+{
+    const hosting_repository github { *hosting_repository_for_host("github.com", {}) };
+    const hosting_http_request mine { make_create_repository_request(github, { .name = "new-app", .description = "desc", .owner = {}, .is_private = true }, std::nullopt) };
+    CHECK(mine.method == hosting_http_method::post);
+    CHECK(mine.url == "https://api.github.com/user/repos");
+    CHECK(nlohmann::json::parse(mine.body) == nlohmann::json { { "name", "new-app" }, { "private", true }, { "description", "desc" } });
+    const hosting_http_request org { make_create_repository_request(github, { .name = "new-app", .owner = "my org", .is_private = false }, std::nullopt) };
+    CHECK(org.url == "https://api.github.com/orgs/my%20org/repos");
+    CHECK(nlohmann::json::parse(org.body) == nlohmann::json { { "name", "new-app" }, { "private", false } });
+
+    const hosting_repository gitlab { *hosting_repository_for_host("gitlab.com", {}) };
+    const hosting_http_request project { make_create_repository_request(gitlab, { .name = "new-app", .owner = "group/sub", .is_private = true }, 42u) };
+    CHECK(project.url == "https://gitlab.com/api/v4/projects");
+    CHECK(nlohmann::json::parse(project.body) == nlohmann::json { { "name", "new-app" }, { "path", "new-app" }, { "visibility", "private" }, { "namespace_id", 42 } });
+    const nlohmann::json personal { nlohmann::json::parse(make_create_repository_request(gitlab, { .name = "x", .is_private = false }, std::nullopt).body) };
+    CHECK(personal.contains("namespace_id") == false);
+    CHECK(personal["visibility"] == "public");
+    CHECK(make_namespace_request(gitlab, "group/sub").url == "https://gitlab.com/api/v4/namespaces/group%2Fsub");
+}
+
+TEST_CASE("repository creation responses give the clone URLs and rejections carry the reason", "[hosting][publish]")
+{
+    const char* const github_body {
+        R"({ "full_name": "me/new-app", "html_url": "https://github.com/me/new-app", "clone_url": "https://github.com/me/new-app.git", "ssh_url": "git@github.com:me/new-app.git" })"
+    };
+    const hosting_result<created_repository> github { parse_create_repository_response(hosting_provider::github, make_response(201, github_body)) };
+    REQUIRE(github.ok());
+    CHECK(github.value->full_name == "me/new-app");
+    CHECK(github.value->web_url == "https://github.com/me/new-app");
+    CHECK(github.value->https_url == "https://github.com/me/new-app.git");
+    CHECK(github.value->ssh_url == "git@github.com:me/new-app.git");
+
+    const char* const gitlab_body {
+        R"({ "path_with_namespace": "group/sub/new-app", "web_url": "https://gitlab.com/group/sub/new-app", "http_url_to_repo": "https://gitlab.com/group/sub/new-app.git", "ssh_url_to_repo": "git@gitlab.com:group/sub/new-app.git" })"
+    };
+    const hosting_result<created_repository> gitlab { parse_create_repository_response(hosting_provider::gitlab, make_response(201, gitlab_body)) };
+    REQUIRE(gitlab.ok());
+    CHECK(gitlab.value->full_name == "group/sub/new-app");
+    CHECK(gitlab.value->https_url == "https://gitlab.com/group/sub/new-app.git");
+
+    // 주소가 없는 2xx는 게시를 이을 수 없다.
+    CHECK(parse_create_repository_response(hosting_provider::github, make_response(201, R"({ "full_name": "me/x" })")).error.kind == hosting_error_kind::invalid_response);
+
+    const char* const taken_body {
+        R"({ "message": "Repository creation failed.", "errors": [ { "resource": "Repository", "code": "custom", "field": "name", "message": "name already exists on this account" } ] })"
+    };
+    const hosting_result<created_repository> taken { parse_create_repository_response(hosting_provider::github, make_response(422, taken_body)) };
+    CHECK(taken.error.kind == hosting_error_kind::rejected);
+    CHECK(taken.error.message.find("name already exists on this account") != std::string::npos);
+    const char* const gitlab_taken_body { R"({ "message": { "name": [ "has already been taken" ] } })" };
+    const hosting_result<created_repository> gitlab_taken { parse_create_repository_response(hosting_provider::gitlab, make_response(400, gitlab_taken_body)) };
+    CHECK(gitlab_taken.error.kind == hosting_error_kind::rejected);
+    CHECK(gitlab_taken.error.message.find("has already been taken") != std::string::npos);
+
+    const hosting_result<std::uint64_t> group { parse_namespace_response(hosting_provider::gitlab, make_response(200, R"({ "id": 42, "full_path": "group/sub" })")) };
+    REQUIRE(group.ok());
+    CHECK(*group.value == 42u);
+    CHECK(parse_namespace_response(hosting_provider::gitlab, make_response(404, R"({ "message": "404 Namespace Not Found" })")).error.kind == hosting_error_kind::not_found);
 }

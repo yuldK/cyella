@@ -76,6 +76,8 @@ namespace cyella {
         [[nodiscard]] hosting_result<pull_request_page> list_pull_requests(const hosting_context& context, const pull_request_query& query, const process_cancellation_token& cancellation);
         [[nodiscard]] hosting_result<created_pull_request> create_pull_request(
             const hosting_context& context, const create_pull_request_params& params, const process_cancellation_token& cancellation);
+        // 빈 저장소를 만든다. 로그인한 호스트에서만 보낸다 — 로그인은 controller가 먼저 `sign_in`으로 한다.
+        [[nodiscard]] hosting_result<created_repository> create_repository(const hosting_context& context, create_repository_params params, const process_cancellation_token& cancellation);
         [[nodiscard]] hosting_result<ci_status_info> ci_status(const hosting_context& context, const std::string& sha, const process_cancellation_token& cancellation);
 
     private:

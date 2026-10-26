@@ -153,6 +153,16 @@ int main(const int count, char** const arguments)
     if (const std::string limit { argument_value(count, arguments, "rate-limit-after") }; limit.empty() == false)
         api.rate_limit_after(std::stoi(limit));
 
+    // `--clone-root=<폴더>`면 저장소 만들기가 그 폴더 아래에 실제 bare 저장소를 만들고 그 경로를 https 주소로 돌려준다 (게시의 push를 받는다).
+    if (const std::string clone_root { argument_value(count, arguments, "clone-root") }; clone_root.empty() == false)
+    {
+        api.set_clone_root(clone_root);
+        api.on_repository_created([clone_root, git = argument_value(count, arguments, "git", "git")](const std::string& full_name) {
+            const std::string target { clone_root + "/" + full_name + ".git" };
+            const std::string command { "\"\"" + git + "\" init -q --bare \"" + target + "\" > NUL 2> NUL\"" };
+            static_cast<void>(std::system(command.c_str()));
+        });
+    }
     git_http_backend backend { argument_value(count, arguments, "git", "git"), argument_value(count, arguments, "git-repo") };
     std::mutex log_mutex {};
     const auto serve = [&](const fake_request& request) {

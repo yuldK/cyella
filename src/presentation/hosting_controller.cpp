@@ -137,7 +137,7 @@ namespace cyella {
         return target;
     }
 
-    hosting_job hosting_controller::make_job(const hosting_target& target, std::variant<hosting_sign_in_job, hosting_list_job, hosting_create_job, hosting_ci_job> work)
+    hosting_job hosting_controller::make_job(const hosting_target& target, std::variant<hosting_sign_in_job, hosting_list_job, hosting_create_job, hosting_ci_job, hosting_create_repository_job> work)
     {
         hosting_job job {};
         job.serial = next_serial_++;
@@ -337,6 +337,105 @@ namespace cyella {
         repositories_.erase(repository_id);
         std::erase_if(pending_, [&repository_id](const auto& entry) { return entry.second.repository_id == repository_id; });
         std::erase_if(pending_creates_, [&repository_id](const auto& entry) { return entry.second.repository_id == repository_id; });
+        publishes_.erase(repository_id);
+        creating_.erase(repository_id);
+    }
+
+    // ------------------------------------------------------------------ 게시
+
+    void hosting_controller::request_publish(const std::string& repository_id, publish_repository_request request)
+    {
+        if (dependencies_.submit_job == nullptr || request.host.supported() == false)
+            return;
+        if (publishes_.contains(repository_id))
+        {
+            if (dependencies_.notice != nullptr)
+                dependencies_.notice(tr(u8"hosting.publish.in_progress"), true);
+            return;
+        }
+        const std::string host_key { request.host.host_key };
+        publishes_[repository_id] = std::move(request);
+        if (const host_session* const host { find_session(host_key) }; host != nullptr && host->signed_in)
+        {
+            send_create_repository(repository_id);
+            return;
+        }
+        host_session& host { session_of(host_key) };
+        host.signing_in = true;
+        host.error_text.clear();
+        hosting_job job { make_job(publish_target(repository_id), hosting_sign_in_job {}) };
+        pending_[job.serial] = { .what = pending_job::kind::sign_in, .repository_id = repository_id, .host_key = host_key };
+        dependencies_.submit_job(std::move(job));
+    }
+
+    bool hosting_controller::publishing(const std::string& repository_id) const
+    {
+        return publishes_.contains(repository_id);
+    }
+
+    hosting_target hosting_controller::publish_target(const std::string& repository_id) const
+    {
+        hosting_target target {};
+        if (dependencies_.target_of != nullptr)
+            if (std::optional<hosting_target> found { dependencies_.target_of(repository_id) }; found.has_value())
+                target = std::move(*found);
+        target.repository_id = repository_id;
+        if (const auto found { publishes_.find(repository_id) }; found != publishes_.end())
+            target.repository = found->second.host;
+        return target;
+    }
+
+    void hosting_controller::send_create_repository(const std::string& repository_id)
+    {
+        const auto found { publishes_.find(repository_id) };
+        // 같은 호스트의 로그인이 둘 겹쳐 끝나도(사이드바 로그인과 게시) 저장소는 한 번만 만든다.
+        if (found == publishes_.end() || dependencies_.submit_job == nullptr || creating_.insert(repository_id).second == false)
+            return;
+        const publish_repository_request& publish { found->second };
+        if (dependencies_.notice != nullptr)
+            dependencies_.notice(tr(u8"hosting.publish.creating", { { u8"host", publish.host.host_key }, { u8"name", publish.params.name } }), false);
+        hosting_job job { make_job(publish_target(repository_id), hosting_create_repository_job { publish.params }) };
+        pending_[job.serial] = { .what = pending_job::kind::create_repository, .repository_id = repository_id, .host_key = publish.host.host_key };
+        dependencies_.submit_job(std::move(job));
+    }
+
+    void hosting_controller::apply_create_repository(const hosting_result_intent& result, const pending_job& job)
+    {
+        const auto found { publishes_.find(job.repository_id) };
+        if (found == publishes_.end())
+            return;
+        const publish_repository_request publish { std::move(found->second) };
+        publishes_.erase(found);
+        creating_.erase(job.repository_id);
+        const auto* const payload { std::get_if<hosting_result<created_repository>>(&result.payload) };
+        if (payload == nullptr)
+            return;
+        if (payload->ok() == false)
+        {
+            if (dependencies_.notice != nullptr)
+                dependencies_.notice(tr(u8"hosting.publish.failed", { { u8"host", publish.host.host_key }, { u8"error", describe_hosting_error(payload->error, result.at) } }), true);
+            return;
+        }
+        const created_repository& created { *payload->value };
+        // 고른 쪽 주소가 비었으면(서버가 ssh를 끈 경우 등) 다른 쪽을 쓴다.
+        const bool ssh { publish.use_ssh ? created.ssh_url.empty() == false : created.https_url.empty() };
+        std::vector<git_operation> operations {};
+        operations.push_back(add_remote_request { .name = publish.remote_name, .url = ssh ? created.ssh_url : created.https_url });
+        if (publish.push_branch.empty() == false)
+        {
+            push_execute_request push {};
+            push.remote = publish.remote_name;
+            push.branch = publish.push_branch;
+            push.remote_branch = publish.push_branch;
+            push.set_upstream = true;
+            operations.push_back(std::move(push));
+        }
+        if (dependencies_.notice != nullptr && publish.push_branch.empty())
+            dependencies_.notice(tr(u8"hosting.publish.created_remote_only", { { u8"host", publish.host.host_key }, { u8"name", created.full_name }, { u8"url", created.web_url } }), false);
+        else if (dependencies_.notice != nullptr)
+            dependencies_.notice(tr(u8"hosting.publish.created", { { u8"host", publish.host.host_key }, { u8"name", created.full_name }, { u8"url", created.web_url } }), false);
+        if (dependencies_.submit_git != nullptr)
+            static_cast<void>(dependencies_.submit_git(job.repository_id, std::move(operations)));
     }
 
     void hosting_controller::on_commit_selected(const std::string& repository_id, const std::string& sha)
@@ -542,6 +641,9 @@ namespace cyella {
         case pending_job::kind::ci:
             apply_ci(result, job);
             break;
+        case pending_job::kind::create_repository:
+            apply_create_repository(result, job);
+            break;
         }
     }
 
@@ -552,16 +654,27 @@ namespace cyella {
         const auto* const payload { std::get_if<hosting_result<std::string>>(&result.payload) };
         if (payload == nullptr)
             return;
+        // 게시가 이 로그인을 기다리고 있었는가.
+        const auto publish { publishes_.find(job.repository_id) };
+        const bool for_publish { publish != publishes_.end() && publish->second.host.host_key == job.host_key };
         if (payload->ok() == false)
         {
             host.error_text = describe_hosting_error(payload->error, result.at);
             if (dependencies_.notice != nullptr)
                 dependencies_.notice(to_u8(host.error_text), true);
+            // 겹친 다른 로그인이 이미 저장소 만들기를 보냈으면 그 결과가 게시를 끝낸다.
+            if (for_publish && creating_.contains(job.repository_id) == false)
+                publishes_.erase(publish);
             return;
         }
         host.error_text.clear();
         if (dependencies_.notice != nullptr)
             dependencies_.notice(tr(u8"hosting.signed_in", { { u8"host", job.host_key }, { u8"user", *payload->value } }), false);
+        if (for_publish)
+        {
+            send_create_repository(job.repository_id);
+            return;
+        }
         request_list(job.repository_id, 1, false);
         if (const std::optional<hosting_target> target { dependencies_.target_of != nullptr ? dependencies_.target_of(job.repository_id) : std::nullopt }; target.has_value())
             request_ci(job.repository_id, target->selected_sha, false);

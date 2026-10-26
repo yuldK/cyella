@@ -362,6 +362,40 @@ namespace cyella {
         return request;
     }
 
+    hosting_http_request make_create_repository_request(const hosting_repository& repository, const create_repository_params& params, const std::optional<std::uint64_t> namespace_id)
+    {
+        json body { json::object() };
+        hosting_http_request request {};
+        if (repository.provider == hosting_provider::gitlab)
+        {
+            request = base_request(repository.provider, hosting_http_method::post, repository.api_base + "/projects");
+            body["name"] = params.name;
+            body["path"] = params.name;
+            body["visibility"] = params.is_private ? "private" : "public";
+            if (namespace_id.has_value())
+                body["namespace_id"] = *namespace_id;
+            if (params.description.empty() == false)
+                body["description"] = params.description;
+        }
+        else
+        {
+            const std::string url { params.owner.empty() ? repository.api_base + "/user/repos" : repository.api_base + "/orgs/" + percent_encode_component(params.owner) + "/repos" };
+            request = base_request(repository.provider, hosting_http_method::post, url);
+            body["name"] = params.name;
+            body["private"] = params.is_private;
+            if (params.description.empty() == false)
+                body["description"] = params.description;
+        }
+        request.body = body.dump(-1, ' ', false, json::error_handler_t::replace);
+        request.content_type = "application/json";
+        return request;
+    }
+
+    hosting_http_request make_namespace_request(const hosting_repository& repository, const std::string_view path)
+    {
+        return base_request(repository.provider, hosting_http_method::get, repository.api_base + "/namespaces/" + percent_encode_component(path));
+    }
+
     std::vector<hosting_http_request> make_ci_status_requests(const hosting_repository& repository, const std::string_view sha)
     {
         std::vector<hosting_http_request> requests {};
@@ -526,6 +560,55 @@ namespace cyella {
             return result;
         }
         result.value = std::move(created);
+        return result;
+    }
+
+    hosting_result<created_repository> parse_create_repository_response(const hosting_provider provider, const hosting_http_response& response)
+    {
+        if (success_status(response) == false)
+            return failure<created_repository>(provider, response);
+        hosting_result<created_repository> result {};
+        result.rate_limit = read_rate_limit(response);
+        const json root { json::parse(response.body.begin(), response.body.end(), nullptr, false) };
+        created_repository created {};
+        if (provider == hosting_provider::gitlab)
+        {
+            created.full_name = string_of(root, "path_with_namespace");
+            created.web_url = string_of(root, "web_url");
+            created.https_url = string_of(root, "http_url_to_repo");
+            created.ssh_url = string_of(root, "ssh_url_to_repo");
+        }
+        else
+        {
+            created.full_name = string_of(root, "full_name");
+            created.web_url = string_of(root, "html_url");
+            created.https_url = string_of(root, "clone_url");
+            created.ssh_url = string_of(root, "ssh_url");
+        }
+        // 원격으로 더할 주소가 없으면 게시를 이을 수 없다.
+        if (created.https_url.empty() && created.ssh_url.empty())
+        {
+            result.error = invalid_response_error(response);
+            return result;
+        }
+        result.value = std::move(created);
+        return result;
+    }
+
+    hosting_result<std::uint64_t> parse_namespace_response(const hosting_provider provider, const hosting_http_response& response)
+    {
+        if (success_status(response) == false)
+            return failure<std::uint64_t>(provider, response);
+        hosting_result<std::uint64_t> result {};
+        result.rate_limit = read_rate_limit(response);
+        const json root { json::parse(response.body.begin(), response.body.end(), nullptr, false) };
+        const std::uint64_t id { unsigned_of(root, "id") };
+        if (id == 0)
+        {
+            result.error = invalid_response_error(response);
+            return result;
+        }
+        result.value = id;
         return result;
     }
 

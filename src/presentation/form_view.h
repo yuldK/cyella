@@ -75,6 +75,8 @@ namespace cyella {
         std::u8string choices_label {};
         std::vector<form_choice> choices {};
         std::size_t chosen { 0 };
+        // 선택지가 칸의 뜻을 정하면(원격 추가의 "게시할 곳") 칸보다 앞에 둔다. 아니면 칸 뒤다.
+        bool choices_first { false };
         std::vector<form_check> checks {};
         // 선택지·체크 아래의 경고나 안내다.
         std::vector<form_note> warnings {};

@@ -6,6 +6,7 @@
 #include "presentation/ui_state.h"
 
 #include <algorithm>
+#include <cctype>
 #include <utility>
 
 namespace cyella {
@@ -402,7 +403,12 @@ namespace cyella {
         return operations;
     }
 
-    std::optional<std::u8string> add_remote_error(const dialog_state&, const form_inputs& inputs, const repository_snapshot& snapshot)
+    bool add_remote_to_hosting(const dialog_state& dialog) noexcept
+    {
+        return dialog.choice > 0 && dialog.choice < dialog.choices.size();
+    }
+
+    std::optional<std::u8string> add_remote_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot)
     {
         const std::string name { field_text(inputs, 0) };
         if (const std::optional<ref_name_problem> problem { find_ref_name_problem(name) }; problem.has_value())
@@ -410,6 +416,18 @@ namespace cyella {
         for (const remote_info& remote : snapshot.summary.remotes)
             if (remote.name == name)
                 return tr(u8"form.add_remote.exists", { { u8"name", name } });
+        if (add_remote_to_hosting(dialog))
+        {
+            // 서버가 더 좁게 거절할 수 있다. 여기서는 URL 경로에 그대로 설 수 있는 글자만 받는다 (서버의 이유는 실패 알림이 보인다).
+            const auto path_character = [](const char value) { return std::isalnum(static_cast<unsigned char>(value)) != 0 || value == '-' || value == '_' || value == '.'; };
+            const std::string repository { field_text(inputs, 1) };
+            if (std::ranges::all_of(repository, path_character) == false || repository == "." || repository == "..")
+                return tr(u8"form.add_remote.repository_invalid");
+            const std::string owner { field_text(inputs, 2) };
+            if (std::ranges::all_of(owner, [&path_character](const char value) { return path_character(value) || value == '/'; }) == false || owner.starts_with('/') || owner.ends_with('/'))
+                return tr(u8"form.add_remote.owner_invalid");
+            return std::nullopt;
+        }
         const std::string url { field_text(inputs, 1) };
         if (url.empty() == false && url.front() == '-')
             return tr(u8"form.add_remote.url_dash");
@@ -428,26 +446,50 @@ namespace cyella {
         const repository_snapshot& snapshot { *context.snapshot };
         const bool publishable { dialog.subject.empty() == false };
         const bool publish { publishable && dialog.flag_a };
+        const bool hosting { add_remote_to_hosting(dialog) };
         form_view form {};
         form.id = u8"add-remote-dialog";
         form.title = publishable ? tr(u8"form.add_remote.publish_title") : tr(u8"form.add_remote.title");
         if (publishable)
             form.notes.push_back({ .text = tr(u8"form.add_remote.branch_note", { { u8"branch", dialog.subject } }) });
+        if (dialog.choices.size() > 1)
+        {
+            form.choices_label = tr(u8"form.add_remote.where_label");
+            for (std::size_t index { 0 }; index < dialog.choices.size(); ++index)
+                form.choices.push_back({ .label = index < dialog.lines.size() ? dialog.lines[index] : to_u8(dialog.choices[index]) });
+            form.chosen = dialog.choice;
+            form.choices_first = true;
+        }
         form.fields.push_back(make_field(context, 0, tr(u8"form.add_remote.name_label"), u8"origin"));
-        form.fields.push_back(make_field(context, 1, tr(u8"form.add_remote.url_label"), u8"https://github.com/user/repo.git", false, true));
+        if (hosting)
+        {
+            form.fields.push_back(make_field(context, 1, tr(u8"form.add_remote.repository_label"), dialog.subject_label, false, true));
+            form.fields.push_back(make_field(context, 2, tr(u8"form.add_remote.owner_label"), tr(u8"form.add_remote.owner_placeholder")));
+        }
+        else
+            form.fields.push_back(make_field(context, 1, tr(u8"form.add_remote.url_label"), u8"https://github.com/user/repo.git", false, true));
         if (publishable)
             form.checks.push_back({ .label = tr(u8"form.add_remote.push_check", { { u8"branch", dialog.subject } }), .checked = dialog.flag_a });
+        if (hosting)
+        {
+            form.checks.push_back({ .label = tr(u8"form.add_remote.private_check"), .checked = dialog.flag_b });
+            form.checks.push_back({ .label = tr(u8"form.add_remote.ssh_check"), .checked = dialog.flag_c });
+            form.warnings.push_back({ .text = tr(u8"form.add_remote.hosting_note", { { u8"host", dialog.choices[dialog.choice] } }) });
+        }
         if (const auto error { add_remote_error(dialog, *context.inputs, snapshot) }; error.has_value())
             form.error = *error;
         const std::string name { field_text(*context.inputs, 0) };
-        const std::string url { field_text(*context.inputs, 1) };
-        std::string preview { "git remote add " + (name.empty() ? tr_narrow(u8"form.preview_remote") : name) + " " + (url.empty() ? std::string { "<url>" } : url) };
+        const std::string remote { name.empty() ? tr_narrow(u8"form.preview_remote") : name };
+        const std::string url { hosting ? tr_narrow(u8"form.add_remote.preview_new_url") : field_text(*context.inputs, 1) };
+        std::string preview { "git remote add " + remote + " " + (url.empty() ? std::string { "<url>" } : url) };
         if (publish)
-            preview += " && git push --set-upstream " + (name.empty() ? tr_narrow(u8"form.preview_remote") : name) + " " + dialog.subject + ":" + dialog.subject;
+            preview += " && git push --set-upstream " + remote + " " + dialog.subject + ":" + dialog.subject;
         form.preview = to_u8(preview);
         form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
-        form.buttons.push_back(
-            make_button(u8"submit", publish ? tr(u8"form.add_remote.publish_submit") : tr(u8"form.add_remote.submit"), form_tone::accent, add_remote_ready(dialog, *context.inputs, snapshot), true));
+        std::u8string submit { publish ? tr(u8"form.add_remote.publish_submit") : tr(u8"form.add_remote.submit") };
+        if (hosting)
+            submit = publish ? tr(u8"form.add_remote.create_publish_submit") : tr(u8"form.add_remote.create_submit");
+        form.buttons.push_back(make_button(u8"submit", submit, form_tone::accent, add_remote_ready(dialog, *context.inputs, snapshot), true));
         form.dismiss_key = u8"cancel";
         return form;
     }

@@ -1,9 +1,18 @@
 #include "infrastructure/hosting_service.h"
 
 #include <algorithm>
+#include <cctype>
 #include <utility>
 
 namespace cyella {
+    namespace {
+        // 계정·조직 이름은 대소문자를 가리지 않는다 (GitHub·GitLab 모두).
+        bool same_account(const std::string_view left, const std::string_view right)
+        {
+            return std::ranges::equal(left, right, [](const char a, const char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
+        }
+    } // namespace
+
     hosting_token_store::~hosting_token_store()
     {
         forget_all();
@@ -256,6 +265,34 @@ namespace cyella {
         if (attempt.preflight.empty() == false)
             return preflight_failure<created_pull_request>(attempt);
         return parse_create_pull_request_response(context.repository.provider, attempt.response);
+    }
+
+    hosting_result<created_repository> hosting_service::create_repository(const hosting_context& context, create_repository_params params, const process_cancellation_token& cancellation)
+    {
+        // 내 계정 이름을 소유자로 적었으면 내 계정 아래다 (GitHub의 `/orgs/<내 이름>`은 404다).
+        const std::string user { tokens_.username(context.repository.host_key) };
+        if (user.empty() == false && same_account(params.owner, user))
+            params.owner.clear();
+        std::optional<std::uint64_t> namespace_id {};
+        if (context.repository.provider == hosting_provider::gitlab && params.owner.empty() == false)
+        {
+            const outcome lookup { send(context, make_namespace_request(context.repository, params.owner), cancellation) };
+            if (lookup.preflight.empty() == false)
+                return preflight_failure<created_repository>(lookup);
+            hosting_result<std::uint64_t> found { parse_namespace_response(context.repository.provider, lookup.response) };
+            if (found.ok() == false)
+            {
+                hosting_result<created_repository> result {};
+                result.error = found.error;
+                result.rate_limit = found.rate_limit;
+                return result;
+            }
+            namespace_id = found.value;
+        }
+        const outcome attempt { send(context, make_create_repository_request(context.repository, params, namespace_id), cancellation) };
+        if (attempt.preflight.empty() == false)
+            return preflight_failure<created_repository>(attempt);
+        return parse_create_repository_response(context.repository.provider, attempt.response);
     }
 
     hosting_result<ci_status_info> hosting_service::ci_status(const hosting_context& context, const std::string& sha, const process_cancellation_token& cancellation)

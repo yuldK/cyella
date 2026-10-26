@@ -437,3 +437,66 @@ TEST_CASE("integration: a fake GitLab serves merge request list, create and pipe
     CHECK(limited.error.status_code == 429);
     CHECK(limited.error.rate_limit.retry_after_seconds == 30);
 }
+
+TEST_CASE("integration: publishing creates an empty repository on a fake GitHub and GitLab", "[hosting][integration][publish]")
+{
+    for (const fake_hosting_api::flavor flavor : { fake_hosting_api::flavor::github, fake_hosting_api::flavor::gitlab })
+    {
+        const bool github { flavor == fake_hosting_api::flavor::github };
+        INFO((github ? "github" : "gitlab"));
+        temporary_directory directory { github ? "hosting-publish-github" : "hosting-publish-gitlab" };
+        live_api live { flavor };
+        const std::filesystem::path credentials_file { directory.path() / "creds" };
+        write_file(credentials_file, "http://octocat:test-token@" + live.host() + "\n");
+        isolated_git git { directory.path(), "\thelper = store --file " + slashes(credentials_file) + "\n" };
+        if (git.available() == false)
+            SKIP("git is not installed");
+        git_credential_source credentials { *git.runner, git.options() };
+        hosting_service service { *live.transport, credentials, now_seconds };
+        live.api->add_namespace("team/apps", 42);
+
+        // 원격이 없는 저장소의 문맥은 호스트만 있다.
+        const std::vector<hosting_host_setting> hosts { { live.host(), github ? hosting_provider::github : hosting_provider::gitlab, live.server->origin() } };
+        const std::optional<hosting_repository> host { hosting_repository_for_host(live.host(), hosts) };
+        REQUIRE(host.has_value());
+        const hosting_context context { *host, directory.path().string() };
+
+        // 로그인 전에는 만들지 않는다.
+        CHECK(service.create_repository(context, { .name = "early" }, {}).error.kind == hosting_error_kind::not_signed_in);
+        REQUIRE(service.sign_in(context, {}).ok());
+
+        const auto mine { service.create_repository(context, { .name = "new-app", .description = "made by cyella", .owner = {}, .is_private = true }, {}) };
+        INFO(mine.error.message);
+        REQUIRE(mine.ok());
+        CHECK(mine.value->full_name == "octocat/new-app");
+        // 만든 저장소의 주소를 원격으로 풀면 같은 로그인 열쇠다.
+        const std::optional<hosting_repository> published { resolve_hosting_repository(mine.value->https_url, "origin", hosts) };
+        REQUIRE(published.has_value());
+        CHECK(published->host_key == context.repository.host_key);
+        CHECK(published->full_name() == "octocat/new-app");
+
+        // 내 계정 이름을 소유자로 적어도 내 계정 아래다. 그룹·조직 아래에도 만든다.
+        CHECK(service.create_repository(context, { .name = "second", .owner = "OctoCat" }, {}).value->full_name == "octocat/second");
+        const auto team { service.create_repository(context, { .name = "tool", .owner = "team/apps" }, {}) };
+        if (github)
+            // GitHub 조직 이름에는 `/`가 없다. 가짜 서버는 경로를 그대로 소유자로 쓴다.
+            CHECK(team.ok());
+        else
+        {
+            REQUIRE(team.ok());
+            CHECK(team.value->full_name == "team/apps/tool");
+            CHECK(service.create_repository(context, { .name = "tool", .owner = "nobody/here" }, {}).error.kind == hosting_error_kind::not_found);
+        }
+
+        // 같은 이름은 서버가 이유와 함께 거절한다.
+        const auto again { service.create_repository(context, { .name = "new-app" }, {}) };
+        CHECK(again.error.kind == hosting_error_kind::rejected);
+        CHECK(again.error.message.empty() == false);
+        // 요청 본문에 첫 커밋을 만드는 값이 없다 (push가 non-fast-forward로 막히지 않게).
+        for (const fake_recorded_request& request : live.api->requests())
+        {
+            CHECK(request.body.find("auto_init") == std::string::npos);
+            CHECK(request.body.find("initialize_with_readme") == std::string::npos);
+        }
+    }
+}

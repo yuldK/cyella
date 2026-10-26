@@ -520,3 +520,75 @@ TEST_CASE("running the hosting commands does what the sidebar rows do", "[hostin
     REQUIRE(test.view().settings.has_value());
     CHECK(test.view().settings->page == settings_page::hosting);
 }
+
+TEST_CASE("the publish dialog creates a repository on a chosen host instead of taking a URL", "[hosting][publish]")
+{
+    harness test {};
+    repository_session& session { *test.workspace.find_session(test.repository) };
+    repository_snapshot snapshot { session.snapshot() };
+    snapshot.summary.remotes.clear();
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
+    REQUIRE(session.apply(commits_loaded { .generation = generation, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
+    test.controller.after_events();
+
+    test.send(run_command_intent { "git.push" });
+    view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->id == u8"add-remote-dialog");
+    // URL 직접 입력과 내장 호스트(github.com, gitlab.com)다. 처음은 URL이다.
+    REQUIRE(view.form->choices.size() == 3);
+    CHECK(view.form->chosen == 0);
+    CHECK(view.form->choices[1].label.find(u8"github.com") != std::u8string::npos);
+    CHECK(view.form->fields.size() == 2);
+
+    test.send(form_choose_intent { 1 });
+    view = test.view();
+    REQUIRE(view.form->fields.size() == 3);
+    // 저장소 이름은 폴더 이름에서 시작하고, 비공개가 기본이다.
+    CHECK(view.form->fields[1].view.text == u8"repo");
+    REQUIRE(view.form->checks.size() == 3);
+    CHECK(view.form->checks[0].checked);
+    CHECK(view.form->checks[1].checked);
+    CHECK_FALSE(view.form->checks[2].checked);
+    REQUIRE(view.form->buttons.back().enabled);
+
+    // 경로에 쓸 수 없는 이름은 막는다.
+    luil::text_edit_request clear {};
+    clear.target = to_luil_target(text_target::form_field_1);
+    clear.command = luil::text::text_edit_command::clear;
+    test.send(edit_text_intent { clear });
+    luil::text_edit_request insert {};
+    insert.target = to_luil_target(text_target::form_field_1);
+    insert.command = luil::text::text_edit_command::insert;
+    insert.text = u8"my repo";
+    test.send(edit_text_intent { insert });
+    view = test.view();
+    CHECK_FALSE(view.form->error.empty());
+    CHECK_FALSE(view.form->buttons.back().enabled);
+    test.send(edit_text_intent { clear });
+    insert.text = u8"my-repo";
+    test.send(edit_text_intent { insert });
+
+    // URL로 돌아가면 칸 1은 비고, 다시 호스트로 오면 폴더 이름이다.
+    test.send(form_choose_intent { 0 });
+    CHECK(test.view().form->fields[1].view.text.empty());
+    test.send(form_choose_intent { 1 });
+    CHECK(test.view().form->fields[1].view.text == u8"repo");
+    test.send(edit_text_intent { clear });
+    test.send(edit_text_intent { insert });
+
+    const std::size_t before { test.jobs.size() };
+    test.send(form_button_intent { u8"submit" });
+    CHECK_FALSE(test.controller.state().dialog.has_value());
+    // 로그인하지 않은 호스트라 로그인부터 한다.
+    REQUIRE(test.jobs.size() == before + 1);
+    REQUIRE(std::holds_alternative<hosting_sign_in_job>(test.jobs.back().work));
+    CHECK(test.jobs.back().context.repository.host_key == "github.com");
+    test.deliver(test.jobs.back(), hosting_result<std::string> { .value = std::string { "octocat" } });
+    REQUIRE(std::holds_alternative<hosting_create_repository_job>(test.jobs.back().work));
+    const create_repository_params& params { std::get<hosting_create_repository_job>(test.jobs.back().work).params };
+    CHECK(params.name == "my-repo");
+    CHECK(params.owner.empty());
+    CHECK(params.is_private);
+}

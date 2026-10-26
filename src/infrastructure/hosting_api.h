@@ -20,6 +20,11 @@ namespace cyella {
     [[nodiscard]] hosting_http_request make_current_user_request(const hosting_repository& repository);
     [[nodiscard]] hosting_http_request make_list_pull_requests_request(const hosting_repository& repository, const pull_request_query& query);
     [[nodiscard]] hosting_http_request make_create_pull_request_request(const hosting_repository& repository, const create_pull_request_params& params);
+    // 저장소 만들기다. GitHub는 `owner`가 비면 `POST /user/repos`, 있으면 `POST /orgs/<owner>/repos`다. GitLab은 `POST /projects`이고
+    // 그룹 아래면 `namespace_id`가 있어야 한다 (`make_namespace_request`로 먼저 찾는다).
+    [[nodiscard]] hosting_http_request make_create_repository_request(const hosting_repository& repository, const create_repository_params& params, std::optional<std::uint64_t> namespace_id);
+    // GitLab 그룹 경로의 id를 묻는다 (`GET /namespaces/<경로>`).
+    [[nodiscard]] hosting_http_request make_namespace_request(const hosting_repository& repository, std::string_view path);
     // GitHub는 combined status와 check-runs 둘, GitLab은 파이프라인 목록 하나다.
     [[nodiscard]] std::vector<hosting_http_request> make_ci_status_requests(const hosting_repository& repository, std::string_view sha);
 
@@ -31,6 +36,8 @@ namespace cyella {
     [[nodiscard]] hosting_result<std::string> parse_current_user_response(hosting_provider provider, const hosting_http_response& response);
     [[nodiscard]] hosting_result<pull_request_page> parse_pull_request_list_response(hosting_provider provider, const hosting_http_response& response, std::uint32_t page);
     [[nodiscard]] hosting_result<created_pull_request> parse_create_pull_request_response(hosting_provider provider, const hosting_http_response& response);
+    [[nodiscard]] hosting_result<created_repository> parse_create_repository_response(hosting_provider provider, const hosting_http_response& response);
+    [[nodiscard]] hosting_result<std::uint64_t> parse_namespace_response(hosting_provider provider, const hosting_http_response& response);
     // `responses`는 `make_ci_status_requests`와 같은 순서다.
     [[nodiscard]] hosting_result<ci_status_info> parse_ci_status_responses(const hosting_repository& repository, std::string_view sha, const std::vector<hosting_http_response>& responses);
 } // namespace cyella

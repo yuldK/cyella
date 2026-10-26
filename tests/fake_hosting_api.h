@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -103,6 +104,30 @@ namespace cyella::test {
         {
             const std::lock_guard<std::mutex> lock { mutex_ };
             create_error_ = std::move(message);
+        }
+
+        // 저장소 만들기가 돌려줄 https 주소의 뿌리다. 비우면 서버 출처(`http://127.0.0.1:port/<이름>.git`)다. 검증 도구는 로컬 폴더를 주고
+        // `on_repository_created`에서 그 자리에 bare 저장소를 만들어 실제 push를 받는다.
+        void set_clone_root(std::string root)
+        {
+            const std::lock_guard<std::mutex> lock { mutex_ };
+            clone_root_ = std::move(root);
+        }
+        void on_repository_created(std::function<void(const std::string& full_name)> callback)
+        {
+            const std::lock_guard<std::mutex> lock { mutex_ };
+            repository_created_ = std::move(callback);
+        }
+        // GitLab 그룹 경로와 id다. 여기 없는 그룹은 404다.
+        void add_namespace(std::string path, const std::uint64_t id)
+        {
+            const std::lock_guard<std::mutex> lock { mutex_ };
+            namespaces_[std::move(path)] = id;
+        }
+        [[nodiscard]] std::vector<std::string> created_repositories() const
+        {
+            const std::lock_guard<std::mutex> lock { mutex_ };
+            return created_repositories_;
         }
 
         // ---- 기록
@@ -222,6 +247,20 @@ namespace cyella::test {
             const std::string path { request.path() };
             if (path == "/user")
                 return json_response(kind_ == flavor::github ? nlohmann::json { { "login", user_ }, { "id", 1 } } : nlohmann::json { { "username", user_ }, { "id", 1 } });
+            if (kind_ == flavor::github && request.method == "POST" && path == "/user/repos")
+                return create_repository(request, user_);
+            if (kind_ == flavor::github && request.method == "POST" && path.rfind("/orgs/", 0) == 0 && path.ends_with("/repos"))
+                return create_repository(request, path.substr(6, path.size() - 6 - 6));
+            if (kind_ == flavor::gitlab && request.method == "POST" && path == "/projects")
+                return create_repository(request, {});
+            if (kind_ == flavor::gitlab && request.method == "GET" && path.rfind("/namespaces/", 0) == 0)
+            {
+                const std::string wanted { decode_path(path.substr(12)) };
+                const auto found { namespaces_.find(wanted) };
+                if (found == namespaces_.end())
+                    return json_response({ { "message", "404 Namespace Not Found" } }, 404);
+                return json_response({ { "id", found->second }, { "full_path", found->first }, { "kind", "group" } });
+            }
             const std::string base { kind_ == flavor::github ? "/repos/" + project_ : "/projects/" + encode_project(project_) };
             if (path == base + (kind_ == flavor::github ? "/pulls" : "/merge_requests"))
                 return request.method == "POST" ? create(request) : list(request);
@@ -273,6 +312,84 @@ namespace cyella::test {
                 return json_response(list);
             }
             return not_found();
+        }
+
+        [[nodiscard]] static std::string decode_path(const std::string& text)
+        {
+            std::string result {};
+            for (std::size_t index { 0 }; index < text.size(); ++index)
+                if (text[index] == '%' && index + 2 < text.size())
+                {
+                    result.push_back(static_cast<char>(std::stoi(text.substr(index + 1, 2), nullptr, 16)));
+                    index += 2;
+                }
+                else
+                    result.push_back(text[index]);
+            return result;
+        }
+
+        // GitHub는 `owner`가 URL에서 오고, GitLab은 본문의 `namespace_id`(없으면 내 계정)에서 온다. 첫 커밋을 만들지 않는 빈 저장소다.
+        [[nodiscard]] fake_response create_repository(const fake_request& request, std::string owner)
+        {
+            const nlohmann::json body { nlohmann::json::parse(request.body, nullptr, false) };
+            if (body.is_discarded() || body.is_object() == false || body.contains("name") == false)
+                return json_response({ { "message", "Problems parsing JSON" } }, 400);
+            const std::string name { body.value("name", "") };
+            const bool github { kind_ == flavor::github };
+            if (github == false)
+            {
+                owner = user_;
+                if (const auto id { body.find("namespace_id") }; id != body.end() && id->is_number_unsigned())
+                    for (const auto& [group, group_id] : namespaces_)
+                        if (group_id == id->get<std::uint64_t>())
+                            owner = group;
+            }
+            const std::string full { owner + "/" + name };
+            if (std::ranges::find(created_repositories_, full) != created_repositories_.end())
+            {
+                if (github)
+                {
+                    nlohmann::json error = nlohmann::json::object();
+                    error["resource"] = "Repository";
+                    error["code"] = "custom";
+                    error["field"] = "name";
+                    error["message"] = "name already exists on this account";
+                    nlohmann::json rejected = nlohmann::json::object();
+                    rejected["message"] = "Repository creation failed.";
+                    rejected["errors"] = nlohmann::json::array({ error });
+                    return json_response(rejected, 422);
+                }
+                nlohmann::json reasons = nlohmann::json::object();
+                reasons["name"] = nlohmann::json::array({ "has already been taken" });
+                reasons["path"] = nlohmann::json::array({ "has already been taken" });
+                return json_response({ { "message", reasons } }, 400);
+            }
+            created_repositories_.push_back(full);
+            if (repository_created_ != nullptr)
+                repository_created_(full);
+            const std::string https { (clone_root_.empty() ? origin_ : clone_root_) + "/" + full + ".git" };
+            const std::string ssh { "ssh://git@127.0.0.1/" + full + ".git" };
+            const std::string web { origin_ + "/" + full };
+            const bool is_private { github ? body.value("private", false) : body.value("visibility", "private") == "private" };
+            nlohmann::json created = nlohmann::json::object();
+            created["name"] = name;
+            if (github)
+            {
+                created["full_name"] = full;
+                created["private"] = is_private;
+                created["html_url"] = web;
+                created["clone_url"] = https;
+                created["ssh_url"] = ssh;
+            }
+            else
+            {
+                created["path_with_namespace"] = full;
+                created["visibility"] = is_private ? "private" : "public";
+                created["web_url"] = web;
+                created["http_url_to_repo"] = https;
+                created["ssh_url_to_repo"] = ssh;
+            }
+            return json_response(created, 201);
         }
 
         // 이름을 정한 커밋이 아니면 기본 CI를 그 커밋의 것으로 돌려준다.
@@ -361,5 +478,9 @@ namespace cyella::test {
         std::size_t seen_ { 0 };
         int rate_limit_after_ { 0 };
         std::string create_error_ {};
+        std::string clone_root_ {};
+        std::function<void(const std::string&)> repository_created_ {};
+        std::map<std::string, std::uint64_t> namespaces_ {};
+        std::vector<std::string> created_repositories_ {};
     };
 } // namespace cyella::test

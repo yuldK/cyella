@@ -242,6 +242,8 @@ namespace cyella {
         void open_set_upstream_dialog(const std::string& branch);
         // 원격 추가 상자다. branch가 있으면 추가한 뒤 그 브랜치를 게시(`push --set-upstream`)하는 체크 칸이 붙는다.
         void open_add_remote_dialog(const std::string& branch);
+        // 원격 추가 상자에서 호스트를 골랐을 때의 [만들고 게시]다.
+        void submit_publish(const dialog_state& dialog);
         void open_confirm(dialog_state dialog);
         void request_detached_checkout(const std::string& revision, std::u8string label);
         void request_rebase(const std::string& branch, const std::string& onto);

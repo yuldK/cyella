@@ -173,6 +173,26 @@ namespace cyella {
         std::string head_sha {};
     };
 
+    // 호스팅 서버에 빈 저장소를 새로 만든다 (로컬 저장소를 게시하기 전). 첫 커밋(README)을 만들지 않는다 — 서버에 커밋이 생기면
+    // 이어서 낼 push가 non-fast-forward로 거절된다.
+    struct create_repository_params
+    {
+        std::string name {};
+        std::string description {};
+        // GitHub의 조직, GitLab의 그룹 경로(`group/sub`)다. 비우거나 내 계정 이름이면 내 계정 아래다.
+        std::string owner {};
+        bool is_private { true };
+    };
+
+    struct created_repository
+    {
+        // `owner/name`(GitLab은 `group/sub/name`)이다.
+        std::string full_name {};
+        std::string web_url {};
+        std::string https_url {};
+        std::string ssh_url {};
+    };
+
     // 사람에게 보일 한 줄이다. `now`(유닉스 초)로 한도 초기화까지 남은 시간을 말한다 (호출 한도 오류가 아니면 쓰지 않는다).
     [[nodiscard]] std::string describe_hosting_error(const hosting_error& error, std::int64_t now);
     // "N분 후"처럼 남은 시간을 말한다. 이미 지났으면 "곧"이다.
