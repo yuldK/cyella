@@ -93,6 +93,7 @@ namespace cyella {
         void request_ssh_info();
         // 호스팅 화면의 메시지면 처리하고 true다 (`hosting_settings.cpp`).
         bool handle_hosting(const luil::app_message& message);
+        bool handle_web_links(const luil::app_message& message);
         void create_ssh_key();
         void test_ssh_connection();
         void copy_public_key(const std::u8string& name);

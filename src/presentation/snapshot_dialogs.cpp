@@ -1,7 +1,9 @@
 #include "presentation/snapshot_dialogs.h"
 
+#include "domain/remote_web_link.h"
 #include "domain/text_catalog.h"
 #include "presentation/build_view_snapshot.h"
+#include "presentation/codicon_names.h"
 #include "presentation/form_builders.h"
 #include "presentation/form_extension.h"
 #include "presentation/form_hosting.h"
@@ -269,6 +271,28 @@ namespace cyella {
             }
             if (matched > selector_visible_limit)
                 view.entries.push_back({ .key = u8"more", .label = tr(u8"dialog.selector.type_to_find_app"), .enabled = false });
+            // 원격마다 웹 페이지 링크다 (설정의 웹 링크 표 → 호스팅 표 → 알려진 서비스).
+            bool first_link { true };
+            if (session != nullptr)
+                for (const remote_info& remote : session->snapshot().summary.remotes)
+                {
+                    const std::string url { remote.fetch_url.empty() ? remote.push_url : remote.fetch_url };
+                    const std::optional<remote_web_link> link { resolve_remote_web_link(url, settings.hosting.web_links, settings.hosting.hosts) };
+                    if (link.has_value() == false)
+                        continue;
+                    const std::string service { web_link_service_display_name(link->service) };
+                    const std::u8string label { tr(u8"dialog.selector.open_web_link", { { u8"service", service.empty() ? link->host : service }, { u8"remote", remote.name } }) };
+                    if (selector_matches(label, query) == false)
+                        continue;
+                    const char32_t glyph { find_codicon(link->icon) };
+                    menu_entry entry {};
+                    entry.key = std::u8string { selector_web_link_key_prefix } + to_u8(remote.name);
+                    entry.label = label;
+                    entry.icon = glyph != 0 ? glyph : luil::codicons::icon_link_external;
+                    entry.separator_above = first_link;
+                    view.entries.push_back(std::move(entry));
+                    first_link = false;
+                }
             view.entries.push_back({ .key = u8"file-app-settings", .label = tr(u8"dialog.selector.edit_apps"), .separator_above = true });
             return view;
         }

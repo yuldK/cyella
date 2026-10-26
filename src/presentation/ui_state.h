@@ -55,6 +55,10 @@ namespace cyella {
         // 환경 설정 "호스팅" 화면의 호스트·API 주소 칸이다. 다른 칸과 겹치지 않게 500부터 쓴다.
         settings_hosting_host = 500,
         settings_hosting_api_base,
+        // 같은 화면의 웹 링크 표에 더할 호스트·웹 주소·아이콘 이름 칸이다.
+        settings_web_link_host,
+        settings_web_link_base,
+        settings_web_link_icon,
         // 명령 팔레트의 거르기 칸, 환경 설정의 단축키 입력 칸, 사용자 프로필·규칙 입력 칸이다. 다른 칸과 겹치지 않게 300부터 쓴다.
         palette_filter = 300,
         settings_shortcut_input,
@@ -350,7 +354,7 @@ namespace cyella {
         const bool rebase { value >= static_cast<std::uint32_t>(text_target::rebase_message_subject) && value <= static_cast<std::uint32_t>(text_target::rebase_message_body) };
         const bool selector { value == static_cast<std::uint32_t>(text_target::selector_filter) };
         const bool signing { value >= static_cast<std::uint32_t>(text_target::settings_signing_gpg_program) && value <= static_cast<std::uint32_t>(text_target::settings_signing_allowed_signers) };
-        const bool hosting { value >= static_cast<std::uint32_t>(text_target::settings_hosting_host) && value <= static_cast<std::uint32_t>(text_target::settings_hosting_api_base) };
+        const bool hosting { value >= static_cast<std::uint32_t>(text_target::settings_hosting_host) && value <= static_cast<std::uint32_t>(text_target::settings_web_link_icon) };
         const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_rule_prefix) };
         const bool fonts { value >= static_cast<std::uint32_t>(text_target::settings_ui_font) && value <= static_cast<std::uint32_t>(text_target::settings_code_font) };
         return basic || form || rebase || selector || hosting || commands || signing || fonts ? static_cast<text_target>(value) : text_target::none;

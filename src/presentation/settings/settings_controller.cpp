@@ -126,6 +126,12 @@ namespace cyella {
             return &state.hosting_host;
         case text_target::settings_hosting_api_base:
             return &state.hosting_api_base;
+        case text_target::settings_web_link_host:
+            return &state.web_link_host;
+        case text_target::settings_web_link_base:
+            return &state.web_link_base;
+        case text_target::settings_web_link_icon:
+            return &state.web_link_icon;
         case text_target::settings_shortcut_input:
             return state.shortcut_edit.has_value() ? &state.shortcut_edit->text : nullptr;
         case text_target::settings_profile_name:
@@ -372,6 +378,8 @@ namespace cyella {
             return true;
         }
         if (handle_hosting(message))
+            return true;
+        if (handle_web_links(message))
             return true;
         // 단축키와 사용자 프로필 쪽의 메시지다 (화면이 닫힌 뒤에 늦게 온 것은 삼킨다).
         if (is_shortcut_message(message))

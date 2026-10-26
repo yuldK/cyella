@@ -233,6 +233,12 @@ namespace cyella {
         sidebar_section section { sidebar_section::local };
     };
 
+    // 원격의 웹 페이지를 브라우저로 연다 (사이드바 원격 묶음 머리의 링크 단추). 주소는 지금 설정의 규칙으로 다시 푼다.
+    struct open_remote_web_link_intent
+    {
+        std::string remote {};
+    };
+
     struct select_sidebar_item_intent
     {
         std::u8string key {};

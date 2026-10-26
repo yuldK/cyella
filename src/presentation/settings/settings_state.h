@@ -2,6 +2,7 @@
 
 #include "application/git_operation.h"
 #include "domain/hosting_remote.h"
+#include "domain/remote_web_link.h"
 #include "infrastructure/ssh_info.h"
 
 #include "luil/text/text_edit.h"
@@ -109,6 +110,12 @@ namespace cyella {
         hosting_provider hosting_new_provider { hosting_provider::github };
         // 마지막으로 더하려다 막힌 이유다.
         std::u8string hosting_error {};
+        // 웹 링크: 표에 더할 호스트·웹 주소·아이콘 이름의 입력 초안과 고른 서비스 종류, 마지막으로 막힌 이유다.
+        luil::text::text_edit_state web_link_host {};
+        luil::text::text_edit_state web_link_base {};
+        luil::text::text_edit_state web_link_icon {};
+        web_link_service web_link_new_service { web_link_service::gitea };
+        std::u8string web_link_error {};
         // 단축키 쪽에서 고치는 중인 명령과, 사용자 프로필 쪽의 고치는 줄·규칙 입력이다.
         std::optional<shortcut_edit_state> shortcut_edit {};
         std::optional<profile_edit_state> profile_edit {};

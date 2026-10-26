@@ -138,7 +138,9 @@ cyella_add_source_filter(cyella_lib_files "domain/hosting"
     domain/hosting_models.cpp
     domain/hosting_models.h
     domain/hosting_remote.cpp
-    domain/hosting_remote.h)
+    domain/hosting_remote.h
+    domain/remote_web_link.cpp
+    domain/remote_web_link.h)
 
 # application: 상태 소유와 계약(interface)이다. OS API를 직접 부르지 않고 luil
 # UI 헤더를 include하지 않는다.
@@ -310,6 +312,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/extensions"
 
 # GitHub·GitLab 화면: 컨트롤러, 사이드바 구역, PR 만들기 대화 상자, 상세 판이다. luil 없이 test한다.
 cyella_add_source_filter(cyella_lib_files "presentation/hosting"
+    presentation/codicon_names.cpp
+    presentation/codicon_names.h
     presentation/form_hosting.cpp
     presentation/form_hosting.h
     presentation/hosting_controller.cpp
@@ -641,6 +645,10 @@ add_library(cyella_lib STATIC ${cyella_lib_files})
 target_include_directories(cyella_lib
     PUBLIC
         "${CYELLA_SOURCE_DIRECTORY}")
+# 설정에 적은 Codicons 이름을 글리프로 바꾸는 표다 (presentation/codicon_names.cpp).
+include("${PROJECT_SOURCE_DIR}/cmake/codicon_names.cmake")
+cyella_generate_codicon_names("${PROJECT_SOURCE_DIR}/third_party/luil/assets/codicons/mapping.json" "${CMAKE_CURRENT_BINARY_DIR}/generated/codicon_names.inc")
+target_include_directories(cyella_lib PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 # 환경 설정에 보이는 앱 판이다 (presentation/ui/app_symbol.cpp).
 target_compile_definitions(cyella_lib
     PRIVATE

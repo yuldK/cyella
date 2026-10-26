@@ -220,6 +220,8 @@ namespace cyella {
         void close_selector(bool dismissed);
         void select_from_selector(const std::u8string& key);
         // 지금 탭의 저장소 폴더를 `repository_open_apps`의 `index`번째 앱으로 연다. 저장소 탭이 아니면 아무 일도 하지 않는다.
+        // 원격의 웹 페이지를 브라우저로 연다 ("열기"의 링크, 사이드바 원격 행의 링크 단추). 링크 규칙이 없으면 아무것도 하지 않는다.
+        void open_remote_web_link(const std::string& remote_name);
         void open_repository_in_app(std::size_t index);
         // 폴더를 `repository_open_apps`의 `index`번째 앱으로 연다. 탭 메뉴는 고르지 않은 탭의 폴더도 연다.
         void open_folder_in_app(std::size_t index, const std::u8string& folder);

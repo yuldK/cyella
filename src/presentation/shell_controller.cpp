@@ -431,6 +431,9 @@ namespace cyella {
         case text_target::settings_signing_allowed_signers:
         case text_target::settings_hosting_host:
         case text_target::settings_hosting_api_base:
+        case text_target::settings_web_link_host:
+        case text_target::settings_web_link_base:
+        case text_target::settings_web_link_icon:
         case text_target::settings_shortcut_input:
         case text_target::settings_profile_name:
         case text_target::settings_profile_user_name:
@@ -1005,6 +1008,11 @@ namespace cyella {
         {
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
                 tab->collapsed_sections ^= static_cast<std::uint8_t>(1u << static_cast<unsigned>(intent->section));
+            return true;
+        }
+        if (const auto* const intent { message.get<open_remote_web_link_intent>() }; intent != nullptr)
+        {
+            open_remote_web_link(intent->remote);
             return true;
         }
         if (const auto* const intent { message.get<select_sidebar_item_intent>() }; intent != nullptr)

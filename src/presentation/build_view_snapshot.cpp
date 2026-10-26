@@ -1,7 +1,9 @@
 #include "presentation/build_view_snapshot.h"
 
+#include "domain/remote_web_link.h"
 #include "domain/repository_path.h"
 #include "domain/text_catalog.h"
+#include "presentation/codicon_names.h"
 #include "presentation/diff_special.h"
 #include "presentation/hosting_sidebar.h"
 #include "presentation/sidebar_extension.h"
@@ -631,7 +633,7 @@ namespace cyella {
                 view.load_error = load_error_of(operations);
 
             view.sidebar_filter = luil::make_text_input_view(tab_state.sidebar_filter, ui.composition, to_luil_target(text_target::sidebar_filter));
-            sidebar_rows sidebar { build_sidebar_rows(snapshot, view.sidebar_filter.displayed_text(), tab_state.collapsed_sections) };
+            sidebar_rows sidebar { build_sidebar_rows(snapshot, view.sidebar_filter.displayed_text(), tab_state.collapsed_sections, inputs.settings != nullptr ? &inputs.settings->hosting : nullptr) };
             std::optional<hosting_repository_view> hosting {};
             if (inputs.hosting_view != nullptr)
             {
@@ -882,7 +884,7 @@ namespace cyella {
         return changed_file_count > 0 ? tab_marker::changes : tab_marker::none;
     }
 
-    sidebar_rows build_sidebar_rows(const repository_snapshot& snapshot, const std::u8string_view filter, const std::uint8_t collapsed_sections)
+    sidebar_rows build_sidebar_rows(const repository_snapshot& snapshot, const std::u8string_view filter, const std::uint8_t collapsed_sections, const hosting_settings* const hosting)
     {
         sidebar_rows result {};
         const auto collapsed = [collapsed_sections](const sidebar_section section) { return (collapsed_sections & (1u << static_cast<unsigned>(section))) != 0; };
@@ -960,7 +962,17 @@ namespace cyella {
                 group.label = to_u8(remote);
                 for (const remote_info& info : snapshot.summary.remotes)
                     if (info.name == remote)
+                    {
                         group.detail = to_u8(info.fetch_url);
+                        // 웹 페이지가 있는 원격은 서비스 아이콘으로 그리고 주소 뒤에 링크 단추를 단다.
+                        const std::string url { info.fetch_url.empty() ? info.push_url : info.fetch_url };
+                        const std::optional<remote_web_link> link { hosting != nullptr ? resolve_remote_web_link(url, hosting->web_links, hosting->hosts) : std::nullopt };
+                        if (link.has_value())
+                        {
+                            group.web_link = to_u8(link->url);
+                            group.web_icon = find_codicon(link->icon);
+                        }
+                    }
                 group.tooltip = group.detail.empty() ? group.label : group.label + u8"\n" + group.detail;
                 result.rows.push_back(std::move(group));
                 for (const ref* value : branches)

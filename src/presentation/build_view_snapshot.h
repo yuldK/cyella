@@ -72,7 +72,8 @@ namespace cyella {
         // 거른 뒤의 구역별 항목 수다.
         std::array<std::uint32_t, sidebar_section_count> counts {};
     };
-    [[nodiscard]] sidebar_rows build_sidebar_rows(const repository_snapshot& snapshot, std::u8string_view filter, std::uint8_t collapsed_sections);
+    // `hosting`이 있으면 원격 묶음 머리에 웹 링크(서비스 아이콘과 링크 단추)를 붙인다.
+    [[nodiscard]] sidebar_rows build_sidebar_rows(const repository_snapshot& snapshot, std::u8string_view filter, std::uint8_t collapsed_sections, const hosting_settings* hosting = nullptr);
 
     // 그래프 목록 모델이다. 키는 `graph_item_key`, 높이는 기본 행 높이다.
     [[nodiscard]] std::vector<luil::virtual_list_item> build_graph_items(const std::vector<commit_info>& commits);

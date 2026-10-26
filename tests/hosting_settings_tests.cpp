@@ -1,5 +1,6 @@
 // 환경 설정 "호스팅" 화면: 호스트 표 고치기, 검사, 로그인 상태 표시, 로그아웃이다. 설정은 메모리 저장소로 세우고 workspace는 쓰지 않는다.
 #include "application/app_settings_service.h"
+#include "presentation/codicon_names.h"
 #include "presentation/hosting_controller.h"
 #include "presentation/settings/settings_controller.h"
 #include "presentation/settings/settings_intents.h"
@@ -212,4 +213,54 @@ TEST_CASE("hosting messages that arrive after the settings screen closed are swa
     CHECK(test.controller->is_open() == false);
     CHECK(test.controller->handle(luil::app_message { add_hosting_host_intent {} }));
     CHECK(test.service.settings().hosting.hosts.empty());
+}
+
+TEST_CASE("the web link table lists the built-in services and saves, overrides and removes custom rules", "[hosting][settings][web_link]")
+{
+    harness test {};
+    settings_view view { test.view() };
+    REQUIRE(view.hosting.web_links.size() == 5);
+    CHECK(view.hosting.web_links[0].host == "github.com");
+    CHECK(view.hosting.web_links[0].builtin);
+    CHECK(view.hosting.web_links[0].glyph == find_codicon("github"));
+    CHECK(view.hosting.can_add_link == false);
+    CHECK(view.hosting.link_error.empty());
+
+    // 모르는 아이콘 이름은 막고, 미리보기는 서비스 기본 아이콘에서 시작한다.
+    test.type(text_target::settings_web_link_host, u8"ssh.code.example");
+    test.type(text_target::settings_web_link_base, u8"https://code.example/");
+    test.type(text_target::settings_web_link_icon, u8"not-an-icon");
+    view = test.view();
+    CHECK(view.hosting.can_add_link == false);
+    CHECK(view.hosting.link_error.empty() == false);
+    CHECK(view.hosting.link_icon_preview == 0);
+    test.type(text_target::settings_web_link_icon, u8"");
+    CHECK(test.view().hosting.link_icon_preview == find_codicon("repo"));
+    test.type(text_target::settings_web_link_icon, u8"server");
+    view = test.view();
+    CHECK(view.hosting.can_add_link);
+    CHECK(view.hosting.link_icon_preview == find_codicon("server"));
+
+    test.send(set_new_web_link_service_intent { web_link_service::gitea });
+    test.send(add_web_link_intent {});
+    REQUIRE(test.service.settings().hosting.web_links.size() == 1);
+    const web_link_setting& added { test.service.settings().hosting.web_links[0] };
+    CHECK(added.host == "ssh.code.example");
+    CHECK(added.service == web_link_service::gitea);
+    CHECK(added.web_base == "https://code.example");
+    CHECK(added.icon == "server");
+    CHECK(test.store.saved.hosting.web_links.size() == 1);
+    CHECK(test.view().hosting.link_host.displayed_text().empty());
+
+    // 내장 서비스와 같은 호스트를 더하면 그 줄이 내장 줄을 대신한다.
+    test.type(text_target::settings_web_link_host, u8"github.com");
+    test.send(set_new_web_link_service_intent { web_link_service::other });
+    test.send(add_web_link_intent {});
+    view = test.view();
+    CHECK(std::ranges::count_if(view.hosting.web_links, [](const web_link_row_view& row) { return row.host == "github.com"; }) == 1);
+    CHECK(std::ranges::find_if(view.hosting.web_links, [](const web_link_row_view& row) { return row.host == "github.com"; })->builtin == false);
+
+    test.send(remove_web_link_intent { "ssh.code.example" });
+    REQUIRE(test.service.settings().hosting.web_links.size() == 1);
+    CHECK(test.service.settings().hosting.web_links[0].host == "github.com");
 }

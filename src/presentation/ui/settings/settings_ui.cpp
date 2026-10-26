@@ -509,6 +509,8 @@ namespace cyella::ui {
 
         // ------------------------------------------------------------------ 호스팅
 
+        void build_web_links(page_column& page, const hosting_settings_page_view& hosting, float content_width);
+
         void build_hosting(page_column& page, const settings_view& view, const float content_width)
         {
             const bool stacked { content_width < 560.0f };
@@ -576,6 +578,68 @@ namespace cyella::ui {
             page.add(help_line(u8"settings-hosting-error", hosting.error, tone_color(tone::bad)), line_height);
             auto add_row { make_row(u8"settings-hosting-add-row") };
             add_row->add(button_of(u8"settings-hosting-add", tr(u8"settings.hosting.add"), message(add_hosting_host_intent {}), hosting.can_add, luil::text_button_visual::accent),
+                { .length = 100.0f, .cross_length = button_height });
+            page.add(std::move(add_row), input_height);
+            page.gap(large_gap);
+            build_web_links(page, hosting, content_width);
+        }
+
+        std::u8string web_link_service_label(const web_link_service service)
+        {
+            const std::string name { web_link_service_display_name(service) };
+            return name.empty() ? tr(u8"settings.web_link.other") : to_u8(name);
+        }
+
+        // 웹 링크 표다: 원격 URL의 호스트 → 브라우저로 여는 웹 주소와 "열기"·사이드바에 그릴 codicon이다.
+        void build_web_links(page_column& page, const hosting_settings_page_view& hosting, const float content_width)
+        {
+            page.add(section_title(u8"settings-section-web-links", tr(u8"settings.web_link.section")), section_height);
+            add_help(page, u8"settings-web-links-help", tr(u8"settings.web_link.help"), content_width);
+            page.gap(small_gap);
+            for (const web_link_row_view& link : hosting.web_links)
+            {
+                const std::u8string name { to_u8(link.host) };
+                auto row { make_row(u8"settings-web-link-row-" + name, 8.0f) };
+                row->add(
+                    std::make_unique<icon_element>(luil::ui_element_id { kind_label, u8"settings-web-link-icon-" + name }, link.glyph != 0 ? link.glyph : codicons::icon_link_external, dim), 18.0f);
+                row->add(make_text(u8"settings-web-link-host-" + name, name, text_style { .size = 12.0f, .bold = true }), content_width < 560.0f ? 120.0f : 170.0f);
+                const std::u8string base { link.web_base.empty() ? u8"https://" + name : to_u8(link.web_base) };
+                row->add_flexible(
+                    make_text(u8"settings-web-link-kind-" + name, web_link_service_label(link.service) + u8" · " + base + u8" · " + to_u8(link.icon), text_style { .size = 11.0f, .color = dim }));
+                if (link.builtin == false)
+                    row->add(button_of(u8"settings-web-link-remove-" + name, tr(u8"settings.common.delete"), message(remove_web_link_intent { link.host }), true, luil::text_button_visual::danger),
+                        { .length = 56.0f, .cross_length = button_height });
+                page.add(std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"settings-web-link-bar-" + name }, bar_style { .divider_bottom = true }, std::move(row)), row_height);
+            }
+            page.gap(large_gap);
+
+            page.add(section_title(u8"settings-section-web-link-add", tr(u8"settings.web_link.add_section")), section_height);
+            add_help(page, u8"settings-web-link-add-help", tr(u8"settings.web_link.add_help"), content_width);
+            page.add(field_label(u8"settings-web-link-host-label", tr(u8"settings.web_link.host_label")), label_height);
+            page.add(input_of(kind_settings_web_link_host_input, u8"settings-web-link-host-input", hosting.link_host, u8"git.example.com"), input_height);
+            page.add(field_label(u8"settings-web-link-service-label", tr(u8"settings.web_link.service_label")), label_height);
+            std::vector<segment_option> services {};
+            for (const web_link_service service : { web_link_service::github, web_link_service::gitlab, web_link_service::gitea, web_link_service::bitbucket, web_link_service::other })
+                services.push_back({ to_u8(web_link_service_name(service)), web_link_service_label(service) });
+            page.add(std::make_unique<segmented_control_element>(u8"settings-web-link-service", tr(u8"settings.web_link.service_label"), std::move(services),
+                         to_u8(web_link_service_name(hosting.new_link_service)),
+                         [](const std::u8string& value) {
+                             const std::optional<web_link_service> service { parse_web_link_service(std::string { value.begin(), value.end() }) };
+                             return message(set_new_web_link_service_intent { service.value_or(web_link_service::other) });
+                         }),
+                input_height);
+            page.add(field_label(u8"settings-web-link-base-label", tr(u8"settings.web_link.base_label")), label_height);
+            page.add(input_of(kind_settings_web_link_base_input, u8"settings-web-link-base-input", hosting.link_base, u8"https://git.example.com"), input_height);
+            page.add(field_label(u8"settings-web-link-icon-label", tr(u8"settings.web_link.icon_label")), label_height);
+            auto icon_row { make_row(u8"settings-web-link-icon-row", 8.0f) };
+            icon_row->add(std::make_unique<icon_element>(
+                              luil::ui_element_id { kind_label, u8"settings-web-link-icon-preview" }, hosting.link_icon_preview != 0 ? hosting.link_icon_preview : codicons::icon_question, dim, 16.0f),
+                20.0f);
+            icon_row->add_flexible(input_of(kind_settings_web_link_icon_input, u8"settings-web-link-icon-input", hosting.link_icon, tr(u8"settings.web_link.icon_placeholder")));
+            page.add(std::move(icon_row), input_height);
+            page.add(help_line(u8"settings-web-link-error", hosting.link_error, tone_color(tone::bad)), line_height);
+            auto add_row { make_row(u8"settings-web-link-add-row") };
+            add_row->add(button_of(u8"settings-web-link-add", tr(u8"settings.web_link.add"), message(add_web_link_intent {}), hosting.can_add_link, luil::text_button_visual::accent),
                 { .length = 100.0f, .cross_length = button_height });
             page.add(std::move(add_row), input_height);
         }

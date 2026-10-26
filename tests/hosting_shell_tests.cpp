@@ -4,11 +4,13 @@
 #include "application/app_messages.h"
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "presentation/codicon_names.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/commands/command_registry.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/extension_intents.h"
 #include "presentation/hosting_intents.h"
+#include "presentation/selector_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/shell_controller.h"
 #include "presentation/ui/build_ui_tree.h"
@@ -591,4 +593,41 @@ TEST_CASE("the publish dialog creates a repository on a chosen host instead of t
     CHECK(params.name == "my-repo");
     CHECK(params.owner.empty());
     CHECK(params.is_private);
+}
+
+TEST_CASE("a GitHub remote gets a browser link in Open and a link button on its sidebar row", "[hosting][web_link]")
+{
+    harness test {};
+    test.send(open_selector_intent { .kind = selector_kind::repository_app, .x = 0.0f, .y = 0.0f, .width = 320.0f });
+    view_snapshot view { test.view() };
+    REQUIRE(view.selector.has_value());
+    const auto link { std::ranges::find_if(view.selector->entries, [](const menu_entry& entry) { return entry.key == u8"web-link:origin"; }) };
+    REQUIRE(link != view.selector->entries.end());
+    CHECK(link->label.find(u8"GitHub") != std::u8string::npos);
+    CHECK(link->icon == find_codicon("github"));
+    CHECK(link->separator_above);
+    test.send(selector_select_intent { link->key });
+    REQUIRE(test.opened.size() == 1);
+    CHECK(test.opened[0] == "https://github.com/octo/hello");
+
+    // 사이드바의 원격 묶음 머리는 GitHub 아이콘과 링크를 가진다. 링크 단추는 같은 주소를 연다.
+    const sidebar_row_view* const remote { test.row(u8"r:origin") };
+    REQUIRE(remote != nullptr);
+    CHECK(remote->web_link == u8"https://github.com/octo/hello");
+    CHECK(remote->web_icon == find_codicon("github"));
+    test.send(open_remote_web_link_intent { "origin" });
+    REQUIRE(test.opened.size() == 2);
+    CHECK(test.opened[1] == "https://github.com/octo/hello");
+}
+
+TEST_CASE("a remote on an unknown host gets no browser link", "[hosting][web_link]")
+{
+    harness test { "ssh://git@git.unknown.example/team/app.git" };
+    test.send(open_selector_intent { .kind = selector_kind::repository_app, .x = 0.0f, .y = 0.0f, .width = 320.0f });
+    const view_snapshot view { test.view() };
+    REQUIRE(view.selector.has_value());
+    CHECK(std::ranges::none_of(view.selector->entries, [](const menu_entry& entry) { return entry.key.starts_with(u8"web-link:"); }));
+    const sidebar_row_view* const remote { test.row(u8"r:origin") };
+    REQUIRE(remote != nullptr);
+    CHECK(remote->web_link.empty());
 }

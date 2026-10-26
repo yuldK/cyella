@@ -144,6 +144,17 @@ namespace cyella {
 
     // ------------------------------------------------------------------ 호스팅
 
+    struct web_link_row_view
+    {
+        std::string host {};
+        web_link_service service { web_link_service::other };
+        std::string web_base {};
+        std::string icon {};
+        char32_t glyph { 0 };
+        // 내장 서비스면 표에서 지울 수 없다.
+        bool builtin { false };
+    };
+
     struct hosting_settings_page_view
     {
         // 내장 호스트(github.com·gitlab.com)에 설정의 표를 더한 줄들이다. 로그인 상태는 이번 실행의 메모리 값이다.
@@ -153,6 +164,16 @@ namespace cyella {
         hosting_provider new_provider { hosting_provider::github };
         std::u8string error {};
         bool can_add { false };
+        // 웹 링크 표: 내장 서비스(설정이 덮지 않은 것)와 설정의 줄이다.
+        std::vector<web_link_row_view> web_links {};
+        luil::text_input_view link_host {};
+        luil::text_input_view link_base {};
+        luil::text_input_view link_icon {};
+        web_link_service new_link_service { web_link_service::gitea };
+        // 입력한 아이콘 이름(비면 서비스 기본)의 글리프다. 모르는 이름이면 0이다.
+        char32_t link_icon_preview { 0 };
+        std::u8string link_error {};
+        bool can_add_link { false };
     };
 
     struct settings_view
@@ -242,6 +263,8 @@ namespace cyella {
 
     // 호스팅 표에 더할 줄의 검사 결과다. 비어 있으면 더할 수 있다. 호스트 형식, API 주소 형식, 이미 있는 호스트를 가린다.
     [[nodiscard]] std::u8string check_hosting_draft(std::u8string_view host, hosting_provider provider, std::u8string_view api_base, const std::vector<hosting_host_setting>& existing);
+    // 웹 링크 표에 더할 줄의 검사 결과다. 호스트·웹 주소 형식, codicon에 없는 아이콘 이름, 이미 있는 호스트를 가린다.
+    [[nodiscard]] std::u8string check_web_link_draft(std::u8string_view host, std::u8string_view web_base, std::u8string_view icon, const std::vector<web_link_setting>& existing);
 
     // ------------------------------------------------------------------ snapshot
 

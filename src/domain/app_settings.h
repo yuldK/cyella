@@ -2,6 +2,7 @@
 
 #include "domain/external_diff_tool.h"
 #include "domain/hosting_remote.h"
+#include "domain/remote_web_link.h"
 #include "domain/text_catalog.h"
 #include "domain/user_profile.h"
 
@@ -141,6 +142,8 @@ namespace cyella {
     struct hosting_settings
     {
         std::vector<hosting_host_setting> hosts {};
+        // 원격의 웹 페이지 주소 규칙이다 ("열기"의 브라우저 링크). API 연동이 없는 서비스도 둔다.
+        std::vector<web_link_setting> web_links {};
 
         [[nodiscard]] bool operator==(const hosting_settings&) const noexcept = default;
     };

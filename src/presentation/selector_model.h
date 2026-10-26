@@ -32,6 +32,8 @@ namespace cyella {
     inline constexpr std::u8string_view selector_recent_key_prefix { u8"recent:" };
     inline constexpr std::u8string_view selector_branch_key_prefix { u8"branch:" };
     inline constexpr std::u8string_view selector_repository_app_key_prefix { u8"repository-app:" };
+    // "열기"의 브라우저 링크다. 뒤에 원격 이름이 붙는다.
+    inline constexpr std::u8string_view selector_web_link_key_prefix { u8"web-link:" };
     inline constexpr std::u8string_view selector_open_folder_key { u8"open_folder" };
     inline constexpr std::u8string_view selector_more_key { u8"more" };
     inline constexpr std::u8string_view selector_empty_key { u8"none" };

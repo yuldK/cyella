@@ -29,6 +29,7 @@ cyella_add_source_filter(cyella_test_files "platform/watching"
 
 cyella_add_source_filter(cyella_test_files "domain/hosting"
     hosting_remote_tests.cpp
+    remote_web_link_tests.cpp
     hosting_models_tests.cpp)
 
 # GitHub·GitLab 연동: 가짜 API 서버(127.0.0.1)와 격리한 git 설정으로만 돈다.

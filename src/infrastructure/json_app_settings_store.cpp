@@ -483,6 +483,54 @@ namespace cyella {
             }
         }
 
+        // `hosting.web_links[]`: 원격의 웹 페이지 주소 규칙이다. 틀린 줄과 겹치는 호스트만 건너뛴다.
+        void parse_web_links(const json& hosting, app_settings_load_result& result)
+        {
+            const auto links { hosting.find("web_links") };
+            if (links == hosting.end() || links->is_null())
+                return;
+            if (links->is_array() == false)
+            {
+                warn(result, tr(u8"app_settings.web_links_not_array"));
+                return;
+            }
+            bool skipped { false };
+            for (const json& entry : *links)
+            {
+                const auto host { entry.is_object() ? entry.find("host") : entry.end() };
+                if (entry.is_object() == false || host == entry.end() || host->is_string() == false)
+                {
+                    skipped = true;
+                    continue;
+                }
+                web_link_setting setting {};
+                setting.host = normalize_hosting_host(host->get_ref<const std::string&>());
+                if (const auto service { entry.find("service") }; service != entry.end() && service->is_string())
+                {
+                    const std::optional<web_link_service> parsed { parse_web_link_service(service->get_ref<const std::string&>()) };
+                    if (parsed.has_value() == false)
+                    {
+                        skipped = true;
+                        continue;
+                    }
+                    setting.service = *parsed;
+                }
+                if (const auto web_base { entry.find("web_base") }; web_base != entry.end() && web_base->is_string())
+                    setting.web_base = web_base->get<std::string>();
+                if (const auto icon { entry.find("icon") }; icon != entry.end() && icon->is_string())
+                    setting.icon = icon->get<std::string>();
+                if (validate_web_link_setting(setting).has_value()
+                    || std::ranges::any_of(result.settings.hosting.web_links, [&setting](const web_link_setting& other) { return other.host == setting.host; }))
+                {
+                    skipped = true;
+                    continue;
+                }
+                result.settings.hosting.web_links.push_back(std::move(setting));
+            }
+            if (skipped)
+                warn(result, tr(u8"app_settings.web_links_invalid"));
+        }
+
         // `hosting.hosts[]`: 자체 호스팅 서버 표다. 틀린 줄만 건너뛴다.
         void parse_hosting(const json& root, app_settings_load_result& result)
         {
@@ -494,6 +542,7 @@ namespace cyella {
                 warn(result, tr(u8"app_settings.hosting_not_object"));
                 return;
             }
+            parse_web_links(*source, result);
             const auto hosts { source->find("hosts") };
             if (hosts == source->end() || hosts->is_null())
                 return;
@@ -667,8 +716,8 @@ namespace cyella {
             root["ui"] = std::move(ui);
         }
 
-        // hosting 객체는 호스트 표가 있을 때만 쓴다. 알 수 없는 키는 보존한다.
-        if (settings.hosting.hosts.empty() == false)
+        // hosting 객체는 호스트 표나 웹 링크 표가 있을 때만 쓴다. 빈 표의 키는 지우고, 알 수 없는 키는 보존한다.
+        if (settings.hosting.hosts.empty() == false || settings.hosting.web_links.empty() == false)
         {
             json hosting { existing_object(root, "hosting") };
             json hosts { json::array() };
@@ -680,12 +729,30 @@ namespace cyella {
                 entry["api_base"] = host.api_base;
                 hosts.push_back(std::move(entry));
             }
-            hosting["hosts"] = std::move(hosts);
+            json links { json::array() };
+            for (const web_link_setting& link : settings.hosting.web_links)
+            {
+                json entry { json::object() };
+                entry["host"] = link.host;
+                entry["service"] = std::string { web_link_service_name(link.service) };
+                entry["web_base"] = link.web_base;
+                entry["icon"] = link.icon;
+                links.push_back(std::move(entry));
+            }
+            if (hosts.empty())
+                hosting.erase("hosts");
+            else
+                hosting["hosts"] = std::move(hosts);
+            if (links.empty())
+                hosting.erase("web_links");
+            else
+                hosting["web_links"] = std::move(links);
             root["hosting"] = std::move(hosting);
         }
         else if (root.contains("hosting") && root["hosting"].is_object())
         {
             root["hosting"].erase("hosts");
+            root["hosting"].erase("web_links");
             if (root["hosting"].empty())
                 root.erase("hosting");
         }

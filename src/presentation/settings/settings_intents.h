@@ -199,4 +199,20 @@ namespace cyella {
     {
         hosting_provider provider { hosting_provider::github };
     };
+
+    // 입력한 호스트·웹 주소·아이콘을 웹 링크 표에 더한다.
+    struct add_web_link_intent
+    {};
+
+    // 웹 링크 표에서 호스트 한 줄을 지운다 (내장 서비스는 지울 수 없다).
+    struct remove_web_link_intent
+    {
+        std::string host {};
+    };
+
+    // 새로 더할 웹 링크의 서비스 종류를 고른다.
+    struct set_new_web_link_service_intent
+    {
+        web_link_service service { web_link_service::gitea };
+    };
 } // namespace cyella

@@ -1,3 +1,4 @@
+#include "domain/remote_web_link.h"
 #include "domain/repository_path.h"
 #include "domain/text_catalog.h"
 #include "presentation/selector_intents.h"
@@ -86,6 +87,11 @@ namespace cyella {
                 open_repository_in_app(index);
             return;
         }
+        if (const std::optional<std::u8string> remote { key_argument(key, selector_web_link_key_prefix) }; remote.has_value())
+        {
+            open_remote_web_link(to_text(*remote));
+            return;
+        }
         if (const std::optional<std::u8string> name { key_argument(key, selector_branch_key_prefix) }; name.has_value())
         {
             const repository_session* const session { selected_session() };
@@ -96,6 +102,22 @@ namespace cyella {
             // 이미 그 브랜치에 있으면 할 일이 없다. 나머지는 사이드바 더블클릭과 같은 체크아웃이다 (작업 트리가 막으면 정책 대화 상자가 뜬다).
             if (summary.is_detached || branch != summary.current_branch)
                 static_cast<void>(submit(checkout_branch_request { branch }));
+        }
+    }
+
+    void shell_controller::open_remote_web_link(const std::string& remote_name)
+    {
+        const repository_session* const session { selected_session() };
+        if (session == nullptr || dependencies_.open_url == nullptr)
+            return;
+        for (const remote_info& remote : session->snapshot().summary.remotes)
+        {
+            if (remote.name != remote_name)
+                continue;
+            const std::string url { remote.fetch_url.empty() ? remote.push_url : remote.fetch_url };
+            if (const std::optional<remote_web_link> link { resolve_remote_web_link(url, settings().hosting.web_links, settings().hosting.hosts) }; link.has_value())
+                dependencies_.open_url(link->url);
+            return;
         }
     }
 

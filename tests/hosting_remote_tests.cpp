@@ -263,3 +263,35 @@ TEST_CASE("the hosting table is read from and written to the settings file", "[h
     // 표가 없는 파일은 hosting 키를 만들지 않는다.
     CHECK(serialize_app_settings_json(app_settings {}, u8"").find(u8"hosting") == std::u8string::npos);
 }
+
+TEST_CASE("the web link table is read from and written to the settings file next to the hosts", "[hosting][settings][web_link]")
+{
+    const std::u8string source = u8R"({
+        "schema_version": 1,
+        "hosting": { "web_links": [
+            { "host": "SSH.Code.Example", "service": "gitea", "web_base": "https://code.example", "icon": "server" },
+            { "host": "127.0.0.1:3000" },
+            { "host": "bad host", "service": "gitea" },
+            { "host": "x.example", "service": "svn" },
+            { "host": "x2.example", "web_base": "ftp://x2.example" },
+            { "host": "ssh.code.example", "service": "other" },
+            "nope"
+        ] }
+    })";
+    const app_settings_load_result loaded = parse_app_settings_json(source);
+    REQUIRE(loaded.settings.hosting.web_links.size() == 2);
+    CHECK(loaded.settings.hosting.web_links[0].host == "ssh.code.example");
+    CHECK(loaded.settings.hosting.web_links[0].service == web_link_service::gitea);
+    CHECK(loaded.settings.hosting.web_links[0].icon == "server");
+    // 서비스를 적지 않으면 기타다.
+    CHECK(loaded.settings.hosting.web_links[1].service == web_link_service::other);
+    CHECK(loaded.diagnostics.empty() == false);
+
+    const std::u8string written = serialize_app_settings_json(loaded.settings, loaded.shadow_source_json);
+    CHECK(parse_app_settings_json(written).settings.hosting == loaded.settings.hosting);
+    // 호스트 표가 없어도 웹 링크 표만으로 hosting을 쓰고, 둘 다 비우면 hosting을 지운다.
+    CHECK(written.find(u8"\"hosts\"") == std::u8string::npos);
+    app_settings emptied { loaded.settings };
+    emptied.hosting.web_links.clear();
+    CHECK(serialize_app_settings_json(emptied, loaded.shadow_source_json).find(u8"hosting") == std::u8string::npos);
+}

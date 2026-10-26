@@ -69,6 +69,9 @@ namespace cyella::ui {
     // 환경 설정 "호스팅" 화면의 호스트·API 주소 칸이다. 500부터 쓴다.
     inline constexpr luil::ui_element_kind kind_settings_hosting_host_input { luil::application_element_kind(500) };
     inline constexpr luil::ui_element_kind kind_settings_hosting_api_input { luil::application_element_kind(501) };
+    inline constexpr luil::ui_element_kind kind_settings_web_link_host_input { luil::application_element_kind(502) };
+    inline constexpr luil::ui_element_kind kind_settings_web_link_base_input { luil::application_element_kind(503) };
+    inline constexpr luil::ui_element_kind kind_settings_web_link_icon_input { luil::application_element_kind(504) };
     // 명령 팔레트의 거르기 칸·목록 행, 환경 설정의 단축키 입력 칸과 사용자 프로필·규칙 입력 칸이다. 300부터 쓴다.
     inline constexpr luil::ui_element_kind kind_palette_filter_input { luil::application_element_kind(300) };
     inline constexpr luil::ui_element_kind kind_palette_row { luil::application_element_kind(301) };
