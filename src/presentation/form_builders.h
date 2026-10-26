@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace cyella {
     // 상태에서 `form_view`를 짓는 순수 함수들이다. UI 요소도 시계도 모른다 — 같은 입력이면 같은 값이다.
@@ -34,6 +35,7 @@ namespace cyella {
     [[nodiscard]] form_view build_create_tag_form(const dialog_state& dialog, const form_build_context& context);
     [[nodiscard]] form_view build_push_form(const dialog_state& dialog, const form_build_context& context);
     [[nodiscard]] form_view build_set_upstream_form(const dialog_state& dialog, const form_build_context& context);
+    [[nodiscard]] form_view build_add_remote_form(const dialog_state& dialog, const form_build_context& context);
     [[nodiscard]] form_view build_rename_branch_form(const dialog_state& dialog, const form_build_context& context);
     [[nodiscard]] form_view build_confirm_form(const dialog_state& dialog, const form_build_context& context);
 
@@ -57,10 +59,16 @@ namespace cyella {
     // (`git branch --set-upstream-to`가 거절한다 - 먼저 fetch하거나 push --set-upstream으로 원격 브랜치를 만들어야 한다).
     [[nodiscard]] std::optional<std::u8string> set_upstream_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
 
+    // 원격 추가 상자가 낼 operation 열이다. `remote add`이고, 게시를 켰으면 성공한 뒤 `push --set-upstream`이 잇는다.
+    [[nodiscard]] std::vector<git_operation> make_add_remote_operations(const dialog_state& dialog, const form_inputs& inputs);
+    // 원격 이름·URL을 쓸 수 없는 이유를 한 줄로 말한다. URL이 아직 비었으면 말하지 않고 단추만 끈다.
+    [[nodiscard]] std::optional<std::u8string> add_remote_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
+
     // 조건 판정: 단추를 켤 수 있는가.
     [[nodiscard]] bool create_branch_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
     [[nodiscard]] bool create_tag_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
     [[nodiscard]] bool rename_branch_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
     [[nodiscard]] bool push_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
     [[nodiscard]] bool set_upstream_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
+    [[nodiscard]] bool add_remote_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
 } // namespace cyella

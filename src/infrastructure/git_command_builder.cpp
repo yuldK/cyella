@@ -324,6 +324,21 @@ namespace cyella {
         return arguments;
     }
 
+    git_arguments make_git_remote_add_args(const std::string_view name, const std::string_view url)
+    {
+        // 원격 이름은 `refs/remotes/<name>/` 아래 ref가 되므로 ref 이름 규칙을 지켜야 한다.
+        const std::string_view checked_name { require_new_ref_name(name, "remote") };
+        if (url.empty())
+            reject("remote url", "url is empty");
+        if (url.front() == '-')
+            reject("remote url", "url looks like an option");
+        if (std::any_of(url.begin(), url.end(), [](const char value) { return static_cast<unsigned char>(value) < 0x20 || value == 0x7f; }))
+            reject("remote url", "url contains a control character");
+        git_arguments arguments {};
+        push_all(arguments, { "remote", "add", "--", checked_name, url });
+        return arguments;
+    }
+
     // ------------------------------------------------------------------ 커밋과 index
 
     git_arguments make_git_commit_args(const git_commit_options& options)

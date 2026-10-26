@@ -633,6 +633,45 @@ TEST_CASE("integration: set_upstream refuses a remote branch that does not exist
     CHECK(find_ref(live.session(repo), "refs/heads/main")->upstream == "origin/main");
 }
 
+TEST_CASE("integration: add_remote registers a remote and the chained push publishes the branch with an upstream", "[session][integration][upstream]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    test::temp_directory directory {};
+    const std::filesystem::path bare { directory.path() / "published.git" };
+    git_ok(directory.path(), { "init", "-q", "--bare", "-b", "main", bare.string() });
+    const std::filesystem::path repo_path { make_repository(directory.path() / "local") };
+    commit_file(repo_path, "a.txt", "one\n", "first");
+    live_workspace live {};
+    const std::string repo { live.open(repo_path) };
+    CHECK(live.session(repo).snapshot().summary.remotes.empty());
+
+    live.require_succeeded(live.run(repo, add_remote_request { .name = "origin", .url = bare.string() }));
+    const std::vector<remote_info>& remotes { live.session(repo).snapshot().summary.remotes };
+    REQUIRE(remotes.size() == 1);
+    CHECK(remotes.front().name == "origin");
+    // 추가만 했고 아직 push하지 않았다.
+    CHECK(git_text(bare, { "for-each-ref", "refs/heads" }).empty());
+
+    live.require_succeeded(live.run(repo, push_execute_request { .remote = "origin", .branch = "main", .remote_branch = "main", .set_upstream = true }));
+    CHECK(git_text(bare, { "rev-parse", "refs/heads/main" }) == git_text(repo_path, { "rev-parse", "HEAD" }));
+    const ref* const main { find_ref(live.session(repo), "refs/heads/main") };
+    REQUIRE(main != nullptr);
+    CHECK(main->upstream == "origin/main");
+    CHECK(live.session(repo).snapshot().summary.has_upstream);
+
+    // 같은 이름은 git이 거절하고, 옵션처럼 보이는 이름·URL은 git을 부르기 전에 거절한다.
+    const operation_id duplicate { live.run(repo, add_remote_request { .name = "origin", .url = bare.string() }) };
+    CHECK(live.status(duplicate).state == operation_state::failed);
+    const operation_id option_name { live.run(repo, add_remote_request { .name = "--evil", .url = bare.string() }) };
+    REQUIRE(live.status(option_name).failure.has_value());
+    CHECK(live.status(option_name).failure->kind == failure_kind::invalid_request);
+    const operation_id option_url { live.run(repo, add_remote_request { .name = "mirror", .url = "--upload-pack=evil" }) };
+    REQUIRE(live.status(option_url).failure.has_value());
+    CHECK(live.status(option_url).failure->kind == failure_kind::invalid_request);
+    CHECK(live.session(repo).snapshot().summary.remotes.size() == 1);
+}
+
 TEST_CASE("integration: a file with a textconv diff driver is flagged and diffed with the configured context", "[session][integration][textconv]")
 {
     if (test::git_is_available() == false)

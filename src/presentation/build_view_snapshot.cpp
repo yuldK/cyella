@@ -732,7 +732,8 @@ namespace cyella {
             const bool ready { git_usable && session.loaded() };
             toolbar.fetch_enabled = ready && summary.remotes.empty() == false;
             toolbar.pull_enabled = ready && summary.has_upstream;
-            toolbar.push_enabled = ready && summary.remotes.empty() == false && summary.is_detached == false && summary.current_branch.empty() == false;
+            // 원격이 없어도 켠다. 누르면 원격을 더하고 게시하는 상자가 열린다.
+            toolbar.push_enabled = ready && summary.is_detached == false && summary.current_branch.empty() == false;
             toolbar.push_needs_dialog = summary.has_upstream == false;
             toolbar.fetch_hint = summary.remotes.empty() ? tr(u8"snapshot.toolbar.fetch_no_remote") : tr(u8"snapshot.toolbar.fetch_hint");
             toolbar.pull_hint = summary.has_upstream ? tr(u8"snapshot.toolbar.pull_hint") : tr(u8"snapshot.toolbar.pull_no_upstream");
@@ -1178,6 +1179,8 @@ namespace cyella {
             return tr(u8"snapshot.operation_name.trash_files");
         case operation_kind::show_range:
             return tr(u8"snapshot.operation_name.show_range");
+        case operation_kind::add_remote:
+            return tr(u8"snapshot.operation_name.add_remote");
         default:
             break;
         }

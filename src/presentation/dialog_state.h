@@ -33,6 +33,8 @@ namespace cyella {
         set_upstream,
         // GitHub·GitLab에 PR·MR을 만든다 (`form_hosting.h`가 `dialog_state` 필드의 쓰임을 정한다).
         create_pull_request,
+        // 원격 추가와 게시: `remote add`를 내고, 켜 두면 이어서 현재 브랜치를 `push --set-upstream`한다.
+        add_remote,
     };
 
     // 확인 뒤에 낼 operation 열이다. 둘째부터는 앞이 **성공해야** 이어서 낸다 (원격 태그를 먼저 지우고 로컬을 지운다,
@@ -56,6 +58,7 @@ namespace cyella {
         //  - create_branch: a=만든 뒤 체크아웃. create_tag: a=annotated.
         //  - push: a=upstream 설정, b=태그도 push, c=force-with-lease.
         //  - set_upstream: 플래그가 없다. subject=로컬 브랜치, choices=원격, 칸 0=원격 브랜치 이름.
+        //  - add_remote: subject=게시할 로컬 브랜치(비면 추가만 한다), a=추가한 뒤 push, 칸 0=원격 이름, 칸 1=URL.
         bool flag_a { false };
         bool flag_b { false };
         bool flag_c { false };

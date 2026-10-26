@@ -533,6 +533,13 @@ namespace cyella {
         std::string branch {};
     };
 
+    // `remote add -- <name> <url>`. 원격을 등록만 하고 fetch·push는 하지 않는다. 게시 상자는 뒤에 `push_execute{set_upstream}`을 잇는다.
+    struct add_remote_request
+    {
+        std::string name {};
+        std::string url {};
+    };
+
     // 추적하지 않는 파일을 휴지통으로 보낸다(되돌릴 수 있다). 추적 파일은 `discard_files_request`(`restore`)가 맡는다.
     // 경로는 저장소 루트 기준이고 저장소 밖을 가리키면 거절한다.
     struct trash_files_request
@@ -557,7 +564,7 @@ namespace cyella {
         push_tags_request, delete_tag_request, delete_remote_tag_request, sequence_control_request, resolve_file_request, mark_resolved_request, remove_stale_index_lock_request, clone_request,
         init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
         worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request, refresh_status_request, set_upstream_request,
-        unset_upstream_request, trash_files_request, verify_signatures_request, show_range_request>;
+        unset_upstream_request, trash_files_request, verify_signatures_request, show_range_request, add_remote_request>;
 
     // 실행 lane이다.
     enum class operation_lane

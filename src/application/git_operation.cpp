@@ -129,6 +129,8 @@ namespace cyella {
                 return operation_kind::verify_signatures;
             else if constexpr (std::is_same_v<request_type, show_range_request>)
                 return operation_kind::show_range;
+            else if constexpr (std::is_same_v<request_type, add_remote_request>)
+                return operation_kind::add_remote;
             else
                 return operation_kind::refresh;
         }

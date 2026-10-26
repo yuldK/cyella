@@ -107,6 +107,8 @@ namespace cyella {
         verify_signatures,
         // 여러 커밋을 고른 비교의 변경 파일을 읽는다(읽기 lane). 결과는 `range_detail_loaded` 사건이다.
         show_range,
+        // 원격을 등록한다 (`remote add`).
+        add_remote,
     };
 
     enum class operation_state

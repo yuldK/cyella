@@ -160,6 +160,8 @@ namespace cyella {
             return "verify_signatures";
         case operation_kind::show_range:
             return "show_range";
+        case operation_kind::add_remote:
+            return "add_remote";
         }
         return "unknown";
     }

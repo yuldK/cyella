@@ -124,6 +124,9 @@ namespace cyella {
     // `branch --unset-upstream -- <branch>`.
     [[nodiscard]] git_arguments make_git_branch_unset_upstream_args(std::string_view branch);
 
+    // `remote add -- <name> <url>`. 이름이 잘못된 ref 이름이거나 URL이 비었거나 옵션처럼 보이거나 제어 문자를 품으면 `std::invalid_argument`다.
+    [[nodiscard]] git_arguments make_git_remote_add_args(std::string_view name, std::string_view url);
+
     // ------------------------------------------------------------------ 커밋과 index
 
     struct git_commit_options

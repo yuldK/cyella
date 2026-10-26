@@ -239,7 +239,7 @@ TEST_CASE("the palette opens from its button intent and lists what the repositor
     CHECK_FALSE(test.controller.state().palette.has_value());
 }
 
-TEST_CASE("a repository without remotes cannot push from either toolbar or commands", "[commands][controller]")
+TEST_CASE("a repository without remotes publishes from either toolbar or commands through the add remote dialog", "[commands][controller]")
 {
     p6_harness test {};
     repository_session& session { *test.workspace.find_session(test.repository) };
@@ -253,14 +253,17 @@ TEST_CASE("a repository without remotes cannot push from either toolbar or comma
     REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
     REQUIRE(session.apply(commits_loaded { .generation = generation, .commits = std::move(commits), .page_complete = true, .history_complete = true }));
     test.controller.after_events();
-    CHECK_FALSE(test.view().toolbar.push_enabled);
+    CHECK(test.view().toolbar.push_enabled);
     test.send(open_palette_intent {});
     test.type(text_target::palette_filter, u8"push");
-    CHECK_FALSE(test.palette_has(u8"cmd:git.push"));
+    CHECK(test.palette_has(u8"cmd:git.push"));
+    test.send(close_palette_intent {});
+    // 원격이 없으면 push 대신 원격을 더하고 게시하는 상자가 열리고, 바로 operation을 내지 않는다.
     const std::size_t before { test.dispatcher.pending() };
     test.send(run_command_intent { "git.push" });
     CHECK(test.dispatcher.pending() == before);
-    CHECK_FALSE(test.controller.state().dialog.has_value());
+    REQUIRE(test.controller.state().dialog.has_value());
+    CHECK(test.controller.state().dialog->kind == dialog_kind::add_remote);
 }
 
 TEST_CASE("typing initial consonants finds a command and picking it runs it and remembers it", "[palette][controller]")

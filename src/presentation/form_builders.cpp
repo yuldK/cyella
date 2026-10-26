@@ -383,6 +383,75 @@ namespace cyella {
         return form;
     }
 
+    // ---------------------------------------------------------------- 원격 추가와 게시
+
+    std::vector<git_operation> make_add_remote_operations(const dialog_state& dialog, const form_inputs& inputs)
+    {
+        const std::string name { field_text(inputs, 0) };
+        std::vector<git_operation> operations {};
+        operations.push_back(add_remote_request { .name = name, .url = field_text(inputs, 1) });
+        if (dialog.flag_a && dialog.subject.empty() == false)
+        {
+            push_execute_request push {};
+            push.remote = name;
+            push.branch = dialog.subject;
+            push.remote_branch = dialog.subject;
+            push.set_upstream = true;
+            operations.push_back(std::move(push));
+        }
+        return operations;
+    }
+
+    std::optional<std::u8string> add_remote_error(const dialog_state&, const form_inputs& inputs, const repository_snapshot& snapshot)
+    {
+        const std::string name { field_text(inputs, 0) };
+        if (const std::optional<ref_name_problem> problem { find_ref_name_problem(name) }; problem.has_value())
+            return problem_text(*problem);
+        for (const remote_info& remote : snapshot.summary.remotes)
+            if (remote.name == name)
+                return tr(u8"form.add_remote.exists", { { u8"name", name } });
+        const std::string url { field_text(inputs, 1) };
+        if (url.empty() == false && url.front() == '-')
+            return tr(u8"form.add_remote.url_dash");
+        if (std::ranges::any_of(url, [](const char value) { return static_cast<unsigned char>(value) < 0x20 || value == 0x7f; }))
+            return tr(u8"form.add_remote.url_control");
+        return std::nullopt;
+    }
+
+    bool add_remote_ready(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot)
+    {
+        return field_text(inputs, 1).empty() == false && add_remote_error(dialog, inputs, snapshot).has_value() == false;
+    }
+
+    form_view build_add_remote_form(const dialog_state& dialog, const form_build_context& context)
+    {
+        const repository_snapshot& snapshot { *context.snapshot };
+        const bool publishable { dialog.subject.empty() == false };
+        const bool publish { publishable && dialog.flag_a };
+        form_view form {};
+        form.id = u8"add-remote-dialog";
+        form.title = publishable ? tr(u8"form.add_remote.publish_title") : tr(u8"form.add_remote.title");
+        if (publishable)
+            form.notes.push_back({ .text = tr(u8"form.add_remote.branch_note", { { u8"branch", dialog.subject } }) });
+        form.fields.push_back(make_field(context, 0, tr(u8"form.add_remote.name_label"), u8"origin"));
+        form.fields.push_back(make_field(context, 1, tr(u8"form.add_remote.url_label"), u8"https://github.com/user/repo.git", false, true));
+        if (publishable)
+            form.checks.push_back({ .label = tr(u8"form.add_remote.push_check", { { u8"branch", dialog.subject } }), .checked = dialog.flag_a });
+        if (const auto error { add_remote_error(dialog, *context.inputs, snapshot) }; error.has_value())
+            form.error = *error;
+        const std::string name { field_text(*context.inputs, 0) };
+        const std::string url { field_text(*context.inputs, 1) };
+        std::string preview { "git remote add " + (name.empty() ? tr_narrow(u8"form.preview_remote") : name) + " " + (url.empty() ? std::string { "<url>" } : url) };
+        if (publish)
+            preview += " && git push --set-upstream " + (name.empty() ? tr_narrow(u8"form.preview_remote") : name) + " " + dialog.subject + ":" + dialog.subject;
+        form.preview = to_u8(preview);
+        form.buttons.push_back(make_button(u8"cancel", tr(u8"form.cancel")));
+        form.buttons.push_back(
+            make_button(u8"submit", publish ? tr(u8"form.add_remote.publish_submit") : tr(u8"form.add_remote.submit"), form_tone::accent, add_remote_ready(dialog, *context.inputs, snapshot), true));
+        form.dismiss_key = u8"cancel";
+        return form;
+    }
+
     // ---------------------------------------------------------------- 확인
 
     form_view build_confirm_form(const dialog_state& dialog, const form_build_context&)

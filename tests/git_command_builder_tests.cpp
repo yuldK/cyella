@@ -89,6 +89,8 @@ TEST_CASE("branch builders put the names after double dash", "[git][builder]")
     CHECK(to_text(make_git_branch_delete_args("old", true)) == text_list { "branch", "-D", "--", "old" });
     CHECK(to_text(make_git_branch_set_upstream_args("feature/x", "origin", "release/1.0")) == text_list { "branch", "--set-upstream-to=origin/release/1.0", "--", "feature/x" });
     CHECK(to_text(make_git_branch_unset_upstream_args("feature/x")) == text_list { "branch", "--unset-upstream", "--", "feature/x" });
+    CHECK(to_text(make_git_remote_add_args("origin", "git@github.com:me/repo.git")) == text_list { "remote", "add", "--", "origin", "git@github.com:me/repo.git" });
+    CHECK(to_text(make_git_remote_add_args("upstream", "C:\\My Repos\\shared.git")) == text_list { "remote", "add", "--", "upstream", "C:\\My Repos\\shared.git" });
 }
 
 TEST_CASE("commit builders read the message from stdin", "[git][builder]")
@@ -266,6 +268,12 @@ TEST_CASE("builders reject names that git would read as options", "[git][builder
     CHECK_THROWS_AS(make_git_branch_set_upstream_args("x", "origin", "--main"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_branch_set_upstream_args("x", "", "main"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_branch_unset_upstream_args("--all"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_remote_add_args("-x", "https://example.com/repo.git"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_remote_add_args("", "https://example.com/repo.git"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_remote_add_args("my remote", "https://example.com/repo.git"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_remote_add_args("origin", ""), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_remote_add_args("origin", "--upload-pack=evil"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_remote_add_args("origin", "https://example.com/a\nb"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_merge_args("--abort"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_rebase_args("--root"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_reset_args(git_reset_mode::hard, "--help"), std::invalid_argument);

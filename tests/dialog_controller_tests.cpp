@@ -541,6 +541,123 @@ TEST_CASE("unsetting the upstream goes straight to a branch operation", "[presen
     CHECK(request->branch == "main");
 }
 
+TEST_CASE("pushing without a remote opens the publish dialog that adds the remote and then pushes", "[presentation][dialogs]")
+{
+    harness test {};
+    repository_session& session { test.load() };
+    repository_snapshot snapshot { session.snapshot() };
+    snapshot.summary.remotes.clear();
+    snapshot.summary.has_upstream = false;
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
+    REQUIRE(session.apply(commits_loaded { .generation = generation, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
+    test.controller.after_events();
+
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "main", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"push" });
+    view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->id == u8"add-remote-dialog");
+    REQUIRE(view.form->fields.size() == 2);
+    CHECK(view.form->fields[0].view.text == u8"origin");
+    REQUIRE(view.form->checks.size() == 1);
+    CHECK(view.form->checks[0].checked);
+    // URL이 비면 단추만 꺼지고 오류 글은 없다.
+    CHECK(view.form->error.empty());
+    CHECK_FALSE(view.form->buttons.back().enabled);
+
+    test.type(1, u8"-upload-pack=evil");
+    view = test.view();
+    CHECK_FALSE(view.form->error.empty());
+    CHECK_FALSE(view.form->buttons.back().enabled);
+
+    test.press(u8"cancel");
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "main", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"push" });
+    test.type(1, u8"https://example.com/repo.git");
+    view = test.view();
+    REQUIRE(view.form->buttons.back().enabled);
+    CHECK(view.form->preview == u8"git remote add origin https://example.com/repo.git && git push --set-upstream origin main:main");
+
+    const std::size_t before { test.operation_count() };
+    test.press(u8"submit");
+    CHECK_FALSE(test.controller.state().dialog.has_value());
+    // 원격 추가가 먼저 나가고, 성공해야 push가 잇는다.
+    REQUIRE(test.operation_count() == before + 1);
+    const auto* const add { test.last_request<add_remote_request>() };
+    REQUIRE(add != nullptr);
+    CHECK(add->name == "origin");
+    CHECK(add->url == "https://example.com/repo.git");
+    const operation_id adding { test.last_operation() };
+    test.start(adding);
+    test.finish(adding, operation_state::succeeded);
+    REQUIRE(test.operation_count() == before + 2);
+    const auto* const push { test.last_request<push_execute_request>() };
+    REQUIRE(push != nullptr);
+    CHECK(push->remote == "origin");
+    CHECK(push->branch == "main");
+    CHECK(push->remote_branch == "main");
+    CHECK(push->set_upstream);
+}
+
+TEST_CASE("the publish dialog only adds the remote when publishing is off and stops when adding fails", "[presentation][dialogs]")
+{
+    harness test {};
+    repository_session& session { test.load() };
+    repository_snapshot snapshot { session.snapshot() };
+    snapshot.summary.remotes.clear();
+    snapshot.summary.has_upstream = false;
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
+    REQUIRE(session.apply(commits_loaded { .generation = generation, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
+    test.controller.after_events();
+
+    test.send(run_command_intent { "git.push" });
+    REQUIRE(test.view().form.has_value());
+    test.type(1, u8"git@example.com:me/repo.git");
+    test.send(form_check_intent { 0 });
+    view_snapshot view { test.view() };
+    CHECK(view.form->preview == u8"git remote add origin git@example.com:me/repo.git");
+    std::size_t before { test.operation_count() };
+    test.press(u8"submit");
+    REQUIRE(test.operation_count() == before + 1);
+    operation_id adding { test.last_operation() };
+    test.start(adding);
+    test.finish(adding, operation_state::succeeded);
+    CHECK(test.operation_count() == before + 1);
+    CHECK(test.last_request<push_execute_request>() == nullptr);
+
+    // 추가가 실패하면 뒤의 push는 버린다.
+    test.send(run_command_intent { "git.push" });
+    test.type(1, u8"https://example.com/repo.git");
+    before = test.operation_count();
+    test.press(u8"submit");
+    adding = test.last_operation();
+    test.start(adding);
+    test.finish(adding, operation_state::failed, operation_failure { failure_kind::other, u8"error: remote origin already exists.", {} });
+    CHECK(test.operation_count() == before + 1);
+    CHECK(test.last_request<push_execute_request>() == nullptr);
+}
+
+TEST_CASE("the add remote command refuses a remote name that already exists and does not publish by default", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load();
+    test.send(run_command_intent { "git.remote.add" });
+    view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->id == u8"add-remote-dialog");
+    // origin이 이미 있어 이름을 비워 둔다. 원격이 이미 있으면 upstream을 옮기지 않게 게시는 꺼 둔다.
+    CHECK(view.form->fields[0].view.text.empty());
+    REQUIRE(view.form->checks.size() == 1);
+    CHECK_FALSE(view.form->checks[0].checked);
+    test.type(0, u8"origin");
+    test.type(1, u8"https://example.com/other.git");
+    view = test.view();
+    CHECK_FALSE(view.form->error.empty());
+    CHECK_FALSE(view.form->buttons.back().enabled);
+}
+
 TEST_CASE("an untracked file goes to the recycle bin after a confirmation that says so", "[presentation][dialogs]")
 {
     harness test {};

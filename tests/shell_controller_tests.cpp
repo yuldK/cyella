@@ -569,18 +569,20 @@ TEST_CASE("the commit body preserves line breaks and moves to the current line e
     CHECK(tabs.begin()->second.commit_body.caret == 0);
 }
 
-TEST_CASE("toolbar actions without a dialog submit operations and the rest show a notice", "[presentation][controller]")
+TEST_CASE("toolbar actions without a dialog submit operations and push without a remote opens the add remote dialog", "[presentation][controller]")
 {
     controller_harness test {};
     test.controller.open_repository(u8"C:\\work\\repo");
     const std::size_t before { test.dispatcher.pending() };
     REQUIRE(test.send(toolbar_intent { toolbar_action::fetch }));
     CHECK(test.dispatcher.pending() == before + 1);
-    // upstream이 없는 Push는 대화 상자가 필요하다. 이 저장소는 원격이 없어 안내가 뜬다.
+    // upstream이 없는 Push는 대화 상자가 필요하다. 이 저장소는 원격이 없어 원격을 더하는 상자가 열린다.
     REQUIRE(test.send(toolbar_intent { toolbar_action::push }));
     CHECK(test.dispatcher.pending() == before + 1);
+    REQUIRE(test.controller.state().dialog.has_value());
+    CHECK(test.controller.state().dialog->kind == dialog_kind::add_remote);
+    REQUIRE(test.send(show_notice_intent { u8"원격을 더하세요.", false }));
     REQUIRE(test.controller.state().latest_notification() != nullptr);
-    CHECK(test.controller.state().latest_notification()->text.find(u8"원격이 없어") != std::u8string::npos);
     // ×로 닫은 토스트는 물러난 뒤 지워진다.
     REQUIRE(test.send(dismiss_notification_intent {}));
     test.controller.tick(test.steady() + toast_leave_duration);

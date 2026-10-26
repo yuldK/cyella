@@ -79,7 +79,8 @@ TEST_CASE("remote toolbar explains unavailable synchronization actions", "[prese
     const toolbar_view no_remote { harness.build().toolbar };
     CHECK_FALSE(no_remote.fetch_enabled);
     CHECK_FALSE(no_remote.pull_enabled);
-    CHECK_FALSE(no_remote.push_enabled);
+    // 원격이 없어도 push 단추는 켜진다. 누르면 원격을 더하고 게시하는 상자가 열린다.
+    CHECK(no_remote.push_enabled);
     CHECK(no_remote.push_hint.find(u8"원격") != std::u8string::npos);
 
     snapshot.summary.remotes.push_back({ .name = "origin", .fetch_url = "https://example.com/repo.git" });

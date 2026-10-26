@@ -310,6 +310,8 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
   `stale_info` → fetch, ff-only pull 실패 → "rebase로 Pull", 안 합쳐진 브랜치 삭제 실패 → 강제 삭제 확인, `index_lock` → 잠금 지우기.
 - 앞 operation이 성공해야 이어 내는 열(`submit_sequence`)은 원격 태그를 먼저 지우고 로컬을 지울 때(`delete_remote_tag` → `delete_tag`)도 쓴다.
 - upstream 설정은 `set_upstream` operation이다. 메뉴의 "upstream 설정…"은 원격과 원격 브랜치를 고르는 전용 상자이고 "upstream 해제"가 옆에 있다.
+- 원격이 없을 때 Push(툴바·팔레트·브랜치 메뉴)는 "원격에 게시" 상자(`dialog_kind::add_remote`)를 연다. 이름(기본 origin)과 URL을 받아 `add_remote` →
+  `push_execute{set_upstream}`을 `submit_sequence`로 낸다. 팔레트의 "원격 추가"도 같은 상자이고, 원격이 이미 있으면 upstream을 옮기지 않게 게시를 꺼 둔다.
 - 사이드바 태그·stash 두 번 누름: 태그는 detached 체크아웃(경고 한 번, "다시 보지 않기"), stash는 apply다.
 
 ## submodule·worktree·Git LFS

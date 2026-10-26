@@ -517,9 +517,10 @@ namespace cyella {
         if (session == nullptr)
             return;
         const repository_snapshot& snapshot { session->snapshot() };
+        // 원격이 없으면 push할 곳부터 만든다. 원격을 더하고 이어서 이 브랜치를 게시한다.
         if (snapshot.summary.remotes.empty())
         {
-            show_notice(tr(u8"shell.push.no_remote"), true);
+            open_add_remote_dialog(branch);
             return;
         }
         dialog_state dialog {};
@@ -547,6 +548,28 @@ namespace cyella {
         dialog.flag_a = set_upstream || has_upstream == false;
         clear_form_inputs();
         set_form_field(0, to_u8(remote_branch));
+        ui_.form.identity = dialog_identity(dialog);
+        ui_.dialog = std::move(dialog);
+        ui_.menu.reset();
+    }
+
+    void shell_controller::open_add_remote_dialog(const std::string& branch)
+    {
+        repository_session* const session { selected_session() };
+        if (session == nullptr)
+            return;
+        const repository_summary& summary { session->snapshot().summary };
+        dialog_state dialog {};
+        dialog.kind = dialog_kind::add_remote;
+        dialog.serial = ++ui_.dialog_serial;
+        dialog.subject = branch;
+        // 첫 원격일 때만 게시를 켜 둔다. 이미 원격이 있으면 upstream을 새 원격으로 옮기지 않게 끄고, 커밋이 없는 브랜치는 push할 것이 없다.
+        dialog.flag_a = branch.empty() == false && summary.head_sha.empty() == false && summary.remotes.empty();
+        // 첫 원격이면 git의 관례대로 origin을 제안한다. 이미 있으면 이름을 비워 사용자가 정하게 한다.
+        const bool has_origin { std::ranges::any_of(summary.remotes, [](const remote_info& remote) { return remote.name == "origin"; }) };
+        clear_form_inputs();
+        if (has_origin == false)
+            set_form_field(0, u8"origin");
         ui_.form.identity = dialog_identity(dialog);
         ui_.dialog = std::move(dialog);
         ui_.menu.reset();
@@ -1179,6 +1202,11 @@ namespace cyella {
                 else if (index == 1 && ui_.dialog->flag_c)
                     ui_.dialog->flag_b = ui_.dialog->flag_b == false;
                 return;
+            case dialog_kind::add_remote:
+                // 게시할 브랜치가 없으면 체크 칸이 없다.
+                if (index == 0 && ui_.dialog->subject.empty() == false)
+                    ui_.dialog->flag_a = ui_.dialog->flag_a == false;
+                return;
             case dialog_kind::add_worktree:
             case dialog_kind::lfs_track:
             case dialog_kind::set_upstream:
@@ -1289,6 +1317,11 @@ namespace cyella {
             if (set_upstream_ready(dialog, ui_.form, snapshot) == false)
                 return;
             static_cast<void>(submit(make_set_upstream_request(dialog, ui_.form)));
+            break;
+        case dialog_kind::add_remote:
+            if (add_remote_ready(dialog, ui_.form, snapshot) == false)
+                return;
+            static_cast<void>(submit_sequence(make_add_remote_operations(dialog, ui_.form)));
             break;
         case dialog_kind::rename_branch:
             if (rename_branch_ready(dialog, ui_.form, snapshot) == false)

@@ -117,7 +117,7 @@ namespace cyella {
         availability.repository = true;
         availability.fetch = ready && summary.remotes.empty() == false;
         availability.pull = ready && summary.has_upstream;
-        availability.push = ready && summary.remotes.empty() == false && summary.is_detached == false && summary.current_branch.empty() == false;
+        availability.push = ready && summary.is_detached == false && summary.current_branch.empty() == false;
         availability.branch = ready;
         availability.stash = ready && summary.changed_file_count > 0;
         availability.pop = ready && session->snapshot().stashes.empty() == false;
@@ -186,6 +186,12 @@ namespace cyella {
             handle_toolbar(toolbar_action::pull);
         else if (id == "git.push")
             handle_toolbar(toolbar_action::push);
+        else if (id == "git.remote.add")
+        {
+            const repository_session* const session { selected_session() };
+            if (session != nullptr)
+                open_add_remote_dialog(session->snapshot().summary.is_detached ? std::string {} : session->snapshot().summary.current_branch);
+        }
         else if (id == "git.branch.new")
             handle_toolbar(toolbar_action::branch);
         else if (id == "git.branch.checkout")

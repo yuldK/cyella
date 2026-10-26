@@ -50,6 +50,7 @@ namespace cyella {
             list.push_back(make("git.fetch", tr(u8"command.git.fetch"), u8"fetch remote download update", group::git));
             list.push_back(make("git.pull", tr(u8"command.git.pull"), u8"pull merge remote update", group::git));
             list.push_back(make("git.push", tr(u8"command.git.push"), u8"push upload remote publish", group::git));
+            list.push_back(make("git.remote.add", tr(u8"command.git.remote.add"), u8"remote add origin url publish", group::git));
             list.push_back(make("git.branch.new", tr(u8"command.git.branch.new"), u8"branch create new", group::git));
             list.push_back(make("git.branch.checkout", tr(u8"command.git.branch.checkout"), u8"branch checkout switch go", group::git));
             list.push_back(make("git.tag.new", tr(u8"command.git.tag.new"), u8"tag create new release", group::git));
@@ -155,7 +156,7 @@ namespace cyella {
             return availability.pull;
         if (id == "git.push")
             return availability.push;
-        if (id == "git.branch.new" || id == "git.tag.new")
+        if (id == "git.branch.new" || id == "git.tag.new" || id == "git.remote.add")
             return availability.branch;
         if (id == "git.branch.checkout")
             return availability.repository;
