@@ -47,6 +47,21 @@ namespace cyella {
             builtin_link { "bitbucket.org", web_link_service::bitbucket },
         };
 
+        // 규칙에 없는 호스트의 서비스를 이름으로 짐작한다 (`gitlab.corp.example`은 GitLab). 이름표와 기본 아이콘만 정하므로 틀려도 주소는 같다.
+        web_link_service guess_service(const std::string_view host)
+        {
+            const auto has = [host](const std::string_view word) { return host.find(word) != std::string_view::npos; };
+            if (has("github"))
+                return web_link_service::github;
+            if (has("gitlab"))
+                return web_link_service::gitlab;
+            if (has("gitea") || has("forgejo") || has("codeberg"))
+                return web_link_service::gitea;
+            if (has("bitbucket"))
+                return web_link_service::bitbucket;
+            return web_link_service::other;
+        }
+
         remote_web_link make_link(const std::string& base, const std::string& path, const web_link_service service, std::string host, const std::string_view icon)
         {
             remote_web_link link {};
@@ -145,12 +160,15 @@ namespace cyella {
             const web_link_service service { repository->provider == hosting_provider::gitlab ? web_link_service::gitlab : web_link_service::github };
             return make_link(repository->web_base, location->path, service, repository->host_key, {});
         }
-        if (port_key != bare_host)
-            return std::nullopt;
-        const auto builtin { std::ranges::find_if(builtin_links, [&bare_host](const builtin_link& link) { return link.host == bare_host; }) };
-        if (builtin == builtin_links.end())
-            return std::nullopt;
-        return make_link("https://" + bare_host, location->path, builtin->service, bare_host, {});
+        // 내장 서비스는 기본 포트에서만 그 서비스다. 다른 포트는 아래처럼 원격의 출처를 그대로 쓴다.
+        if (port_key == bare_host)
+        {
+            const auto builtin { std::ranges::find_if(builtin_links, [&bare_host](const builtin_link& link) { return link.host == bare_host; }) };
+            if (builtin != builtin_links.end())
+                return make_link("https://" + bare_host, location->path, builtin->service, bare_host, {});
+        }
+        // 어느 규칙에도 없는 호스트도 대개 같은 호스트에 웹 페이지가 있다. 다르면 웹 링크 표에 적는다.
+        return make_link(site_origin, location->path, guess_service(bare_host), port_key, {});
     }
 
     std::vector<web_link_setting> builtin_web_links()

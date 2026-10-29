@@ -35,11 +35,33 @@ TEST_CASE("known public services turn https, ssh and scp remotes into the reposi
     CHECK(github->icon == "github");
     CHECK(resolve_remote_web_link("git@gitea.com:me/tool.git", {}, {})->service == web_link_service::gitea);
 
-    // 로컬 경로, 모르는 호스트, 내장 서비스의 다른 포트는 링크가 없다.
+    // 로컬 경로는 링크가 없다.
     CHECK(url_of("C:\\repos\\shared.git") == "(none)");
     CHECK(url_of("../other") == "(none)");
-    CHECK(url_of("https://git.unknown.example/me/x.git") == "(none)");
-    CHECK(url_of("https://github.com:8443/octo/hello.git") == "(none)");
+}
+
+TEST_CASE("a host no rule knows still links to the same host and guesses its service from the name", "[web_link]")
+{
+    CHECK(url_of("https://git.unknown.example/me/x.git") == "https://git.unknown.example/me/x");
+    CHECK(url_of("git@git.unknown.example:me/x.git") == "https://git.unknown.example/me/x");
+    // ssh 포트는 웹 주소에 남지 않고, http(s) 포트는 남는다. 내장 서비스도 다른 포트면 그 출처다.
+    CHECK(url_of("ssh://git@git.unknown.example:2222/me/x.git") == "https://git.unknown.example/me/x");
+    CHECK(url_of("http://192.168.0.10:8080/me/x.git") == "http://192.168.0.10:8080/me/x");
+    CHECK(url_of("https://github.com:8443/octo/hello.git") == "https://github.com:8443/octo/hello");
+
+    const std::optional<remote_web_link> gitlab { resolve_remote_web_link("git@gitlab.corp.example:team/sub/app.git", {}, {}) };
+    REQUIRE(gitlab.has_value());
+    CHECK(gitlab->url == "https://gitlab.corp.example/team/sub/app");
+    CHECK(gitlab->service == web_link_service::gitlab);
+    CHECK(gitlab->icon == "repo");
+    CHECK(gitlab->host == "gitlab.corp.example");
+    CHECK(resolve_remote_web_link("https://forgejo.example/me/x", {}, {})->service == web_link_service::gitea);
+
+    const std::optional<remote_web_link> other { resolve_remote_web_link("https://git.unknown.example:8443/me/x.git", {}, {}) };
+    REQUIRE(other.has_value());
+    CHECK(other->service == web_link_service::other);
+    CHECK(other->icon == "link-external");
+    CHECK(other->host == "git.unknown.example:8443");
 }
 
 TEST_CASE("configured rules come before the hosting table and the built-in services", "[web_link]")

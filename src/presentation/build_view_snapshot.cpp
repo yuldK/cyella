@@ -970,7 +970,9 @@ namespace cyella {
                         if (link.has_value())
                         {
                             group.web_link = to_u8(link->url);
-                            group.web_icon = find_codicon(link->icon);
+                            // 서비스를 모르는 기본 아이콘보다 https·ssh를 가르는 원래 아이콘이 낫다.
+                            if (link->service != web_link_service::other || link->icon != default_web_link_icon(web_link_service::other))
+                                group.web_icon = find_codicon(link->icon);
                         }
                     }
                 group.tooltip = group.detail.empty() ? group.label : group.label + u8"\n" + group.detail;

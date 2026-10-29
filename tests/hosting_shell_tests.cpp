@@ -620,14 +620,38 @@ TEST_CASE("a GitHub remote gets a browser link in Open and a link button on its 
     CHECK(test.opened[1] == "https://github.com/octo/hello");
 }
 
-TEST_CASE("a remote on an unknown host gets no browser link", "[hosting][web_link]")
+TEST_CASE("a remote on an unknown host links to the same host and keeps its sidebar icon", "[hosting][web_link]")
 {
     harness test { "ssh://git@git.unknown.example/team/app.git" };
     test.send(open_selector_intent { .kind = selector_kind::repository_app, .x = 0.0f, .y = 0.0f, .width = 320.0f });
     const view_snapshot view { test.view() };
     REQUIRE(view.selector.has_value());
-    CHECK(std::ranges::none_of(view.selector->entries, [](const menu_entry& entry) { return entry.key.starts_with(u8"web-link:"); }));
+    const auto link { std::ranges::find_if(view.selector->entries, [](const menu_entry& entry) { return entry.key == u8"web-link:origin"; }) };
+    REQUIRE(link != view.selector->entries.end());
+    // 서비스를 모르면 호스트 이름을 보인다.
+    CHECK(link->label.find(u8"git.unknown.example") != std::u8string::npos);
+    CHECK(link->icon == find_codicon("link-external"));
+    test.send(selector_select_intent { link->key });
+    REQUIRE(test.opened.size() == 1);
+    CHECK(test.opened[0] == "https://git.unknown.example/team/app");
+
     const sidebar_row_view* const remote { test.row(u8"r:origin") };
     REQUIRE(remote != nullptr);
-    CHECK(remote->web_link.empty());
+    CHECK(remote->web_link == u8"https://git.unknown.example/team/app");
+    CHECK(remote->web_icon == 0);
+}
+
+TEST_CASE("a self-hosted GitLab remote gets a GitLab browser link without any settings", "[hosting][web_link]")
+{
+    harness test { "git@gitlab.corp.example:team/app.git" };
+    test.send(open_selector_intent { .kind = selector_kind::repository_app, .x = 0.0f, .y = 0.0f, .width = 320.0f });
+    const view_snapshot view { test.view() };
+    REQUIRE(view.selector.has_value());
+    const auto link { std::ranges::find_if(view.selector->entries, [](const menu_entry& entry) { return entry.key == u8"web-link:origin"; }) };
+    REQUIRE(link != view.selector->entries.end());
+    CHECK(link->label.find(u8"GitLab") != std::u8string::npos);
+    const sidebar_row_view* const remote { test.row(u8"r:origin") };
+    REQUIRE(remote != nullptr);
+    CHECK(remote->web_link == u8"https://gitlab.corp.example/team/app");
+    CHECK(remote->web_icon == find_codicon("repo"));
 }

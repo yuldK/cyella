@@ -1615,9 +1615,11 @@ TEST_CASE("the open button lists apps for the repository folder and opens the pi
     const view_snapshot view { test.view() };
     REQUIRE(view.selector.has_value());
     CHECK(view.selector->kind == selector_kind::repository_app);
-    CHECK(selector_keys(view) == std::vector<std::u8string> { u8"repository-app:0", u8"repository-app:1", u8"file-app-settings" });
+    // 원격(https://example.com/repo.git)의 웹 페이지 링크가 앱 목록 뒤에 선다.
+    CHECK(selector_keys(view) == std::vector<std::u8string> { u8"repository-app:0", u8"repository-app:1", u8"web-link:origin", u8"file-app-settings" });
     CHECK(view.selector->entries[0].label == u8"Windows 탐색기");
     CHECK(view.selector->entries[1].label == u8"Visual Studio Code");
+    CHECK(view.selector->entries[2].label == u8"example.com에서 열기 (origin)");
 
     test.send(selector_select_intent { u8"repository-app:1" });
     CHECK_FALSE(test.view().selector.has_value());

@@ -56,7 +56,8 @@ namespace cyella {
     };
 
     // 원격 URL 하나의 웹 주소다. 규칙은 웹 링크 표 → 호스팅 표(GitHub·GitLab API 서버) → 내장(github.com, gitlab.com, gitea.com,
-    // codeberg.org, bitbucket.org) 차례로 찾는다. 로컬 경로이거나 어느 규칙에도 없는 호스트면 값이 없다.
+    // codeberg.org, bitbucket.org) 차례로 찾는다. 어느 규칙에도 없는 호스트는 원격이 http(s)면 그 출처, 아니면 `https://<호스트>`에 경로를
+    // 붙이고 서비스는 호스트 이름으로 짐작한다. 로컬 경로면 값이 없다.
     [[nodiscard]] std::optional<remote_web_link> resolve_remote_web_link(std::string_view remote_url, const std::vector<web_link_setting>& links, const std::vector<hosting_host_setting>& hosts);
 
     // 내장 규칙(github.com, gitlab.com, gitea.com, codeberg.org, bitbucket.org)이다. 설정 화면이 표 위에 보인다.
