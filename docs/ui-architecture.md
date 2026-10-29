@@ -470,8 +470,8 @@ ui::build_pull_request_detail / build_commit_ci_line (presentation/ui/hosting_ui
 - **원격의 웹 링크**(`domain/remote_web_link`): 원격 URL(https·ssh·scp 꼴)을 저장소 페이지 주소로 바꾼다. 규칙은 설정의 "웹 링크" 표(`hosting.web_links`: 원격 호스트,
   서비스 GitHub·GitLab·Gitea·Bitbucket·기타, 웹 주소(비우면 `https://<호스트>`), codicon 이름) → 호스팅 표의 서버 → 내장(github.com, gitlab.com, gitea.com,
   codeberg.org, bitbucket.org) 차례다. 어느 규칙에도 없는 호스트는 원격이 http(s)면 그 출처(포트 포함), 아니면 `https://<호스트>`에 경로를 붙이고,
-  서비스는 호스트 이름(`gitlab`·`gitea`·`forgejo`·`bitbucket` 등)으로 짐작한다. 짐작이 안 되면 이름표는 호스트, 사이드바 아이콘은 원래의 globe·key다. 툴바 "열기" 목록 끝에 원격마다 "GitHub에서 열기 (origin)"이 서고, 사이드바 원격 묶음 머리는 서비스 아이콘으로 그리며 주소 뒤에
-  `$(link)` 단추를 단다. 아이콘은 codicon만 쓴다(luil 메뉴 항목이 글리프만 받는다). 이름표는 configure가 luil의 `mapping.json`에서 만든다(`cmake/codicon_names.cmake`).
+  서비스는 호스트 이름(`gitlab`·`gitea`·`forgejo`·`bitbucket` 등)으로 짐작한다. 짐작이 안 되면 이름표는 호스트, 사이드바 아이콘은 원래의 globe·key다. 툴바 "열기" 목록 끝에 원격마다 "GitHub에서 열기 (origin)"이 서고, 사이드바 원격 묶음 머리는 서비스 아이콘으로 그리며 주소
+  글을 강조색 밑줄 링크로 그린다(보이는 글은 원격 URL, 여는 곳은 웹 주소라 머무름 tooltip이 웹 주소를 보이고, 보조 기술에는 Hyperlink로 선다). 아이콘은 codicon만 쓴다(luil 메뉴 항목이 글리프만 받는다). 이름표는 configure가 luil의 `mapping.json`에서 만든다(`cmake/codicon_names.cmake`).
   GitHub 말고는 codicon에 서비스 아이콘이 없어 기본은 `repo`(기타는 `link-external`)다. 브라우저는 http(s)만 연다.
 - 브라우저 열기, 행 더블클릭 몸짓(UIA의 Invoke는 같은 `activate` 동작을 부른다), 한도가 풀린 뒤의 재시도는
   `tests/hosting_shell_tests.cpp`·`tests/hosting_controller_tests.cpp`가 controller 수준에서 확인한다.

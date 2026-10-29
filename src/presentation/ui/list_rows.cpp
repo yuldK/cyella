@@ -22,6 +22,8 @@ namespace cyella::ui {
         constexpr float icon_size { 14.0f };
         constexpr float indent_step { 14.0f };
         constexpr float row_button_size { 22.0f };
+        // 원격 묶음 머리의 이름과 주소 사이다.
+        constexpr float detail_gap { 8.0f };
         constexpr float start_corner_radius { 6.0f };
         constexpr float start_icon_size { 32.0f };
         constexpr float start_row_inset { 12.0f };
@@ -35,6 +37,39 @@ namespace cyella::ui {
             paint.setAntiAlias(true);
             canvas.drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), radius, radius), paint);
         }
+
+        // 행이 그린 글 위의 링크 자리다. 글자와 밑줄은 행이 그리고, 이것은 누름·머무름 tooltip·손 모양·보조 기술의 Hyperlink를 맡는다.
+        class row_link_element final : public luil::ui_element
+        {
+        public:
+            row_link_element(luil::ui_element_id id, std::u8string name, std::u8string destination, luil::input_action open)
+                : ui_element { std::move(id) }
+                , name_ { std::move(name) }
+                , destination_ { std::move(destination) }
+            {
+                set_text_tooltip(*this, tr(u8"list.open_web_link", { { u8"url", destination_ } }));
+                set_action(luil::ui_trigger::left_click, action_of(std::move(open)));
+                set_cursor(luil::ui_cursor::hand);
+                set_tab_stop(false);
+            }
+
+            void arrange(const luil::arrange_context& context) override
+            {
+                set_bounds(context.slot);
+            }
+
+            void draw(luil::draw_context&, const luil::interaction_snapshot&) const override
+            {}
+
+            [[nodiscard]] luil::access_info accessibility() const override
+            {
+                return { .role = luil::access_role::link, .name = name_, .value = destination_ };
+            }
+
+        private:
+            std::u8string name_ {};
+            std::u8string destination_ {};
+        };
 
         // 개수를 담은 작은 알약이다 (사이드바 머리·작업 영역 머리).
         float draw_count_pill(luil::draw_context& context, const std::u8string& text, const float right, const luil::rect_f& box)
@@ -112,15 +147,10 @@ namespace cyella::ui {
     {
         if (row_.tooltip.empty() == false)
             set_text_tooltip(*this, row_.tooltip);
-        // 웹 페이지가 있는 원격 묶음 머리는 주소 뒤(오른쪽 끝)에 링크 단추를 단다.
-        if (row_.group && row_.web_link.empty() == false)
-        {
-            std::u8string tooltip { tr(u8"list.open_web_link", { { u8"url", row_.web_link } }) };
-            luil::input_action open { message(open_remote_web_link_intent { to_text(row_.label) }) };
-            auto link { make_icon_button(u8"web-link:" + row_.label, codicons::icon_link, std::move(tooltip), std::move(open), true, false, 13.0f) };
-            link->set_tab_stop(false);
-            add_child(std::move(link));
-        }
+        // 웹 페이지가 있는 원격 묶음 머리는 주소 글이 곧 링크다. 보이는 글(원격 URL)과 여는 주소가 달라 tooltip이 여는 주소를 보인다.
+        if (row_.group && row_.web_link.empty() == false && row_.detail.empty() == false)
+            add_child(std::make_unique<row_link_element>(
+                luil::ui_element_id { kind_sidebar_link, u8"web-link:" + row_.label }, row_.detail, row_.web_link, message(open_remote_web_link_intent { to_text(row_.label) })));
         if (select.has_value() == false && activate.has_value() == false && menu.has_value() == false)
         {
             set_hit_opaque(false);
@@ -185,9 +215,19 @@ namespace cyella::ui {
     void sidebar_row_element::arrange(const luil::arrange_context& context)
     {
         set_bounds(context.slot);
-        const float size { row_button_size * context.scale };
+        if (children().empty())
+            return;
+        // 주소 링크는 그리기와 같은 자리 계산으로 이름 뒤에 선다. 그리기는 이 자리에 주소를 그린다.
+        const float scale { context.scale };
+        const luil::text_measurer& measure { context.measurer != nullptr ? *context.measurer : luil::default_text_measurer() };
+        const float left { context.slot.x + (row_padding + 20.0f + static_cast<float>(row_.depth) * indent_step + icon_size + 6.0f) * scale };
+        const float right { context.slot.x + context.slot.width - row_padding * scale };
+        const float label { std::min(measure(row_.label, luil::scaled_font_size(12.0f, scale)), std::max(right - left, 0.0f)) };
+        const float detail_x { std::min(left + label + detail_gap * scale, right) };
+        const float width { std::min(measure(row_.detail, luil::scaled_font_size(11.0f, scale)), right - detail_x) };
+        const float height { 16.0f * scale };
         for (const auto& child : children())
-            child->arrange(context.for_child({ context.slot.x + context.slot.width - row_padding * context.scale - size, context.slot.y + (context.slot.height - size) / 2.0f, size, size }));
+            child->arrange(context.for_child({ detail_x, context.slot.y + (context.slot.height - height) / 2.0f, width, height }));
     }
 
     luil::access_info sidebar_row_element::accessibility() const
@@ -237,10 +277,8 @@ namespace cyella::ui {
         luil::draw_centered_glyph(context.canvas, sidebar_glyph(row_), { x, box.y, icon_size * scale, box.height }, icon_font(context, 13.0f), luil::solid_paint(icon_color));
         x += (icon_size + 6.0f) * scale;
 
-        // 오른쪽 꼬리: ↑앞섬 ↓뒤처짐, upstream 없음·원격에 없는 태그의 구름 아이콘이다. 링크 단추가 있으면 그 앞에서 끝난다.
+        // 오른쪽 꼬리: ↑앞섬 ↓뒤처짐, upstream 없음·원격에 없는 태그의 구름 아이콘이다.
         float right { box.x + box.width - row_padding * scale };
-        if (children().empty() == false)
-            right -= (row_button_size + 2.0f) * scale;
         // 다른 worktree가 체크아웃한 브랜치다. git이 이 브랜치로 옮기는 것을 거절한다.
         if (row_.worktree_path.empty() == false)
             right -= draw_worktree_marker(context, box, right);
@@ -266,9 +304,20 @@ namespace cyella::ui {
         const SkFont font { ui_font(context, 12.0f, row_.current) };
         const float baseline { box.y + luil::centered_text_baseline(font, box.height) };
         const float drawn { luil::draw_text_within(context.canvas, row_.label, x, baseline, std::max(right - x, 0.0f), font, luil::solid_paint(palette.primary_foreground)) };
-        if (row_.group && row_.detail.empty() == false)
+        if (row_.group && children().empty() == false)
         {
-            const float detail_x { x + drawn + 8.0f * scale };
+            // 주소 링크다. 강조색 글자와 밑줄이고, 올리면 밑줄이 굵어진다.
+            const luil::ui_element& link { *children().front() };
+            const luil::rect_f slot { link.bounds() };
+            const float detail_baseline { box.y + luil::centered_text_baseline(small, box.height) };
+            const SkPaint accent { luil::solid_paint(palette.accent) };
+            const float width { luil::draw_text_within(context.canvas, row_.detail, slot.x, detail_baseline, slot.width, small, accent) };
+            const float thickness { (interaction.hovered == link.id() ? 2.0f : 1.0f) * scale };
+            context.canvas.drawRect(SkRect::MakeXYWH(slot.x, detail_baseline + 2.0f * scale, width, thickness), accent);
+        }
+        else if (row_.group && row_.detail.empty() == false)
+        {
+            const float detail_x { x + drawn + detail_gap * scale };
             if (right - detail_x > 0.0f)
                 static_cast<void>(luil::draw_text_within(
                     context.canvas, row_.detail, detail_x, box.y + luil::centered_text_baseline(small, box.height), right - detail_x, small, luil::solid_paint(palette.secondary_foreground)));
@@ -280,8 +329,6 @@ namespace cyella::ui {
                 static_cast<void>(luil::draw_text_within(
                     context.canvas, row_.detail, detail_x, box.y + luil::centered_text_baseline(small, box.height), right - detail_x, small, luil::solid_paint(palette.secondary_foreground)));
         }
-        // 원격 묶음 머리의 링크 단추다.
-        draw_children(context, interaction);
     }
 
     // ---------------------------------------------------------------- file_row_element

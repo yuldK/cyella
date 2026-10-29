@@ -618,6 +618,26 @@ TEST_CASE("a GitHub remote gets a browser link in Open and a link button on its 
     test.send(open_remote_web_link_intent { "origin" });
     REQUIRE(test.opened.size() == 2);
     CHECK(test.opened[1] == "https://github.com/octo/hello");
+
+    // 주소 글이 곧 링크다: 이름 뒤에 서고, 보조 기술에는 Hyperlink로 보이는 글(원격 URL)과 여는 주소를 낸다.
+    const ui::built_tree built { ui::build_ui_tree(test.view()) };
+    const luil::ui_element* const row { built.tree->find({ ui::kind_sidebar_row, u8"row-r:origin" }) };
+    const luil::ui_element* const address { built.tree->find({ ui::kind_sidebar_link, u8"web-link:origin" }) };
+    REQUIRE(row != nullptr);
+    REQUIRE(address != nullptr);
+    CHECK(address->accessibility().role == luil::access_role::link);
+    CHECK(address->accessibility().name == u8"git@github.com:octo/hello.git");
+    CHECK(address->accessibility().value == u8"https://github.com/octo/hello");
+    CHECK(address->bounds().x > row->bounds().x + 40.0f);
+    CHECK(address->bounds().x + address->bounds().width <= row->bounds().x + row->bounds().width);
+    CHECK(address->bounds().width > 0.0f);
+    REQUIRE(address->action(luil::ui_trigger::left_click) != nullptr);
+    const auto actions { (*address->action(luil::ui_trigger::left_click))({}) };
+    REQUIRE(actions.size() == 1);
+    const auto* const open { std::get<luil::app_message>(actions.front()).get<open_remote_web_link_intent>() };
+    REQUIRE(open != nullptr);
+    CHECK(open->remote == "origin");
+    CHECK(built.tree->duplicate_ids().empty());
 }
 
 TEST_CASE("a remote on an unknown host links to the same host and keeps its sidebar icon", "[hosting][web_link]")

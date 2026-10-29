@@ -225,7 +225,7 @@ namespace cyella {
         std::u8string label {};
         // 원격 묶음 머리의 URL처럼 흐리게 붙는 글이다.
         std::u8string detail {};
-        // 원격 묶음 머리의 웹 페이지 주소다 (`resolve_remote_web_link`). 있으면 주소 뒤에 링크 단추가 서고, `web_icon`이 0이 아니면 그 글리프로 그린다.
+        // 원격 묶음 머리의 웹 페이지 주소다 (`resolve_remote_web_link`). 있으면 주소 글이 그 링크가 되고, `web_icon`이 0이 아니면 그 글리프로 그린다.
         std::u8string web_link {};
         char32_t web_icon { 0 };
         // 머리 줄의 항목 수다.

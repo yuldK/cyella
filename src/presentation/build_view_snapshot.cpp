@@ -964,7 +964,7 @@ namespace cyella {
                     if (info.name == remote)
                     {
                         group.detail = to_u8(info.fetch_url);
-                        // 웹 페이지가 있는 원격은 서비스 아이콘으로 그리고 주소 뒤에 링크 단추를 단다.
+                        // 웹 페이지가 있는 원격은 서비스 아이콘으로 그리고 주소 글을 링크로 그린다.
                         const std::string url { info.fetch_url.empty() ? info.push_url : info.fetch_url };
                         const std::optional<remote_web_link> link { hosting != nullptr ? resolve_remote_web_link(url, hosting->web_links, hosting->hosts) : std::nullopt };
                         if (link.has_value())

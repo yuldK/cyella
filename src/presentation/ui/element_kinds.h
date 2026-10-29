@@ -45,6 +45,8 @@ namespace cyella::ui {
     inline constexpr luil::ui_element_kind kind_progress { luil::application_element_kind(23) };
     inline constexpr luil::ui_element_kind kind_graph_header { luil::application_element_kind(24) };
     inline constexpr luil::ui_element_kind kind_image { luil::application_element_kind(25) };
+    // 사이드바 원격 묶음 머리의 주소 링크다.
+    inline constexpr luil::ui_element_kind kind_sidebar_link { luil::application_element_kind(26) };
     // 환경 설정 화면의 입력 칸이다. 다른 화면(대화 상자)이 번호를 더해도 부딪치지 않게 40번부터 쓴다.
     inline constexpr luil::ui_element_kind kind_settings_git_path_input { luil::application_element_kind(40) };
     inline constexpr luil::ui_element_kind kind_settings_tool_extensions_input { luil::application_element_kind(41) };
