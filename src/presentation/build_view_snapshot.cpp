@@ -1195,6 +1195,8 @@ namespace cyella {
             return tr(u8"snapshot.operation_name.show_range");
         case operation_kind::add_remote:
             return tr(u8"snapshot.operation_name.add_remote");
+        case operation_kind::create_ssh_repository:
+            return tr(u8"snapshot.operation_name.create_ssh_repository");
         default:
             break;
         }

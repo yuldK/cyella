@@ -46,7 +46,8 @@ cyella_add_source_filter(cyella_test_files "infrastructure/hosting"
     hosting_service_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "domain/authentication"
-    credential_prompt_tests.cpp)
+    credential_prompt_tests.cpp
+    ssh_remote_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "platform/authentication"
     askpass_git_integration_tests.cpp

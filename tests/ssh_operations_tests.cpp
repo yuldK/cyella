@@ -9,7 +9,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -394,4 +396,133 @@ TEST_CASE("an unreachable agent and a missing ssh-add are told apart", "[ssh][in
         ssh_info_sources sources { make_sources(runner, scratch.path() / "nope") };
         CHECK(collect_ssh_info(sources).keys.empty());
     }
+}
+
+namespace {
+    // 서버에 저장소를 만드는 일은 저장소의 쓰기 lane에서 돈다. workspace 없이 실행기에 job을 바로 넣는다.
+    struct repository_ssh_harness
+    {
+        repository_ssh_harness()
+            : runner { process, u8"C:/Git/cmd/git.exe", files, ssh_harness::make_options(true) }
+        {}
+
+        operation_finished execute(create_ssh_repository_request request, std::shared_ptr<std::atomic<bool>> prompt_cancelled = {})
+        {
+            git_operation_job job {};
+            job.id = 9;
+            job.repository_id = "repo";
+            job.repository_path = u8"C:/work/repo";
+            job.operation = std::move(request);
+            job.generation = 1;
+            job.prompt_cancelled = std::move(prompt_cancelled);
+            std::vector<operation_event> events {};
+            runner.execute(job, [&events](operation_event event) { events.push_back(std::move(event)); });
+            REQUIRE(events.empty() == false);
+            const auto* const finished { std::get_if<operation_finished>(&events.back().payload) };
+            REQUIRE(finished != nullptr);
+            return *finished;
+        }
+
+        test::fake_git_runner process {};
+        test::fake_workspace_files files {};
+        git_operation_runner runner;
+    };
+} // namespace
+
+TEST_CASE("creating the repository on an ssh server runs one ssh command and reports what it found", "[ssh][operation][repository]")
+{
+    repository_ssh_harness test {};
+    SECTION("created")
+    {
+        test.process.when({ "-T" }, test::scripted_response { .exit_code = 0, .standard_output = "cyella:created\n" });
+        const operation_finished finished { test.execute(create_ssh_repository_request { .url = "ssh://me@git.example.org:2222/srv/git/app.git" }) };
+        CHECK(finished.state == operation_state::succeeded);
+        CHECK(finished.summary.find(u8"me@git.example.org:/srv/git/app.git") != std::u8string::npos);
+        const std::vector<test::recorded_call> calls { test.process.calls() };
+        REQUIRE(calls.size() == 1);
+        REQUIRE(calls[0].arguments.size() == 5);
+        CHECK(calls[0].arguments[1] == "-p");
+        CHECK(calls[0].arguments[2] == "2222");
+        CHECK(calls[0].arguments[3] == "me@git.example.org");
+        CHECK(calls[0].arguments[4].find("p='/srv/git/app.git'") != std::string::npos);
+        CHECK(calls[0].working_directory == "C:/work/repo");
+        CHECK(calls[0].variable(u8"CYELLA_ASKPASS_OPERATION") == std::optional<std::string> { "9" });
+    }
+
+    SECTION("an existing repository is used as is")
+    {
+        test.process.when({ "-T" }, test::scripted_response { .exit_code = 0, .standard_output = "cyella:existing\n" });
+        const operation_finished finished { test.execute(create_ssh_repository_request { .url = "me@host:app.git" }) };
+        CHECK(finished.state == operation_state::succeeded);
+        CHECK(finished.summary.find(u8"이미 있는 저장소") != std::u8string::npos);
+    }
+
+    SECTION("something else at the path is left alone")
+    {
+        test.process.when({ "-T" }, test::scripted_response { .exit_code = 3, .standard_output = "cyella:not-repository\n" });
+        const operation_finished finished { test.execute(create_ssh_repository_request { .url = "me@host:app.git" }) };
+        CHECK(finished.state == operation_state::failed);
+        REQUIRE(finished.failure.has_value());
+        CHECK(finished.failure->summary.find(u8"저장소가 아닌") != std::u8string::npos);
+    }
+
+    SECTION("git is missing on the server")
+    {
+        test.process.when({ "-T" }, test::scripted_response { .exit_code = 127, .standard_output = "cyella:no-git\n" });
+        const operation_finished finished { test.execute(create_ssh_repository_request { .url = "me@host:app.git" }) };
+        REQUIRE(finished.failure.has_value());
+        CHECK(finished.failure->summary.find(u8"git을 찾지 못했습니다") != std::u8string::npos);
+    }
+
+    SECTION("ssh failures use the same kinds as a push")
+    {
+        test.process.when({ "-T" }, test::scripted_response { .exit_code = 255, .standard_error_lines = { "me@host: Permission denied (publickey)." } });
+        const operation_finished finished { test.execute(create_ssh_repository_request { .url = "me@host:app.git" }) };
+        REQUIRE(finished.failure.has_value());
+        CHECK(finished.failure->kind == failure_kind::auth_failed);
+    }
+
+    SECTION("closing the host key question is a cancellation")
+    {
+        test.process.when({ "-T" }, test::scripted_response { .exit_code = 255, .standard_error_lines = { "Host key verification failed." } });
+        const operation_finished finished { test.execute(create_ssh_repository_request { .url = "me@host:app.git" }, std::make_shared<std::atomic<bool>>(true)) };
+        REQUIRE(finished.failure.has_value());
+        CHECK(finished.failure->kind == failure_kind::auth_cancelled);
+    }
+
+    SECTION("a restricted shell that refuses the command says so")
+    {
+        test.process.when({ "-T" }, test::scripted_response { .exit_code = 128, .standard_error_lines = { "fatal: unrecognized command 'command -v git'" } });
+        const operation_finished finished { test.execute(create_ssh_repository_request { .url = "me@host:app.git" }) };
+        REQUIRE(finished.failure.has_value());
+        CHECK(finished.failure->kind == failure_kind::other);
+        CHECK(finished.failure->summary.find(u8"git-shell") != std::u8string::npos);
+        CHECK(finished.failure->detail.find(u8"unrecognized command") != std::u8string::npos);
+    }
+}
+
+TEST_CASE("repository creation trusts a host once through a temporary known_hosts and deletes it afterwards", "[ssh][operation][repository]")
+{
+    repository_ssh_harness test {};
+    test.process.when({ "-T" }, test::scripted_response { .exit_code = 0, .standard_output = "cyella:created\n" });
+    create_ssh_repository_request request { .url = "me@host:app.git" };
+    request.ssh_command_override = temporary_ssh_trust { .command = u8"ssh -o UserKnownHostsFile=C:/Temp/kh.tmp", .known_hosts_path = u8"C:/Temp/kh.tmp" };
+    test.files.put(u8"C:/Temp/kh.tmp", "host ssh-ed25519 AAAA\n");
+    CHECK(test.execute(std::move(request)).state == operation_state::succeeded);
+    const std::vector<test::recorded_call> calls { test.process.calls() };
+    REQUIRE(calls.size() == 1);
+    CHECK(calls[0].arguments[1] == "-o");
+    CHECK(calls[0].arguments[2] == "UserKnownHostsFile=C:/Temp/kh.tmp");
+    CHECK_FALSE(test.files.content(u8"C:/Temp/kh.tmp").has_value());
+}
+
+TEST_CASE("an unreadable URL or missing ssh fails repository creation without running anything", "[ssh][operation][repository]")
+{
+    repository_ssh_harness test {};
+    const operation_finished https { test.execute(create_ssh_repository_request { .url = "https://host/app.git" }) };
+    REQUIRE(https.failure.has_value());
+    CHECK(https.failure->kind == failure_kind::invalid_request);
+    const operation_finished injected { test.execute(create_ssh_repository_request { .url = "-oProxyCommand=calc:app.git" }) };
+    CHECK(injected.failure->kind == failure_kind::invalid_request);
+    CHECK(test.process.calls().empty());
 }

@@ -60,10 +60,12 @@ namespace cyella {
         //  - set_upstream: 플래그가 없다. subject=로컬 브랜치, choices=원격, 칸 0=원격 브랜치 이름.
         //  - add_remote: subject=게시할 로컬 브랜치(비면 추가만 한다), subject_label=새 저장소 이름의 처음 값(폴더 이름),
         //    choices=게시할 곳(첫째는 빈 값으로 "URL 직접 입력", 나머지는 호스트 열쇠), lines=그 선택지의 글, a=추가한 뒤 push.
-        //    URL: 칸 0=원격 이름, 칸 1=URL. 호스트: b=비공개, c=ssh 주소, 칸 0=원격 이름, 칸 1=저장소 이름, 칸 2=소유자·그룹.
+        //    URL: d=ssh 서버에 빈 저장소부터 만들기(`add_remote_can_create_on_server`일 때만 보인다), 칸 0=원격 이름, 칸 1=URL.
+        //    호스트: b=비공개, c=ssh 주소, 칸 0=원격 이름, 칸 1=저장소 이름, 칸 2=소유자·그룹.
         bool flag_a { false };
         bool flag_b { false };
         bool flag_c { false };
+        bool flag_d { false };
         // 고른 선택지다 (push의 원격, create_tag의 종류).
         std::size_t choice { 0 };
         // push의 원격 이름들이다.

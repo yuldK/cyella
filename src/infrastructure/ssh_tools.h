@@ -2,6 +2,7 @@
 
 #include "application/process_request.h"
 #include "domain/ssh_connection.h"
+#include "domain/ssh_remote.h"
 #include "infrastructure/askpass_environment.h"
 
 #include <cstdint>
@@ -145,6 +146,43 @@ namespace cyella {
     // 종료 코드와 두 출력을 합친 텍스트로 시험 결과를 분류한다. 영어 문구에 대한 최선 노력이며
     // 모르면 `unknown`이다.
     [[nodiscard]] ssh_connection_classification classify_ssh_connection_test(int exit_code, std::u8string_view standard_output, std::u8string_view standard_error);
+
+    // ---- 서버에 빈 저장소 만들기 (ssh <host> git init --bare) ----
+
+    enum class ssh_repository_creation
+    {
+        created,
+        // 경로가 이미 git 저장소다. 새로 만들지 않고 그대로 쓴다.
+        existing,
+        // 경로에 저장소가 아닌 파일·폴더가 있다. 덮어쓰지 않는다.
+        not_repository,
+        // 서버의 PATH에 `git`이 없다.
+        git_missing,
+        // 위 표지가 없다. ssh 연결·인증 실패(종료 코드 255)이거나 서버가 명령을 거절했다 (git-shell 등).
+        failed,
+    };
+
+    struct ssh_repository_options
+    {
+        std::u8string ssh_executable {};
+        std::u8string working_directory {};
+        ssh_remote_target target {};
+        // 비어 있지 않으면 "이번만 연결"의 임시 known_hosts로 연결한다 (`make_temporary_known_hosts_ssh_arguments`).
+        std::filesystem::path known_hosts_path {};
+        std::u8string askpass_helper {};
+        askpass_session askpass {};
+    };
+
+    // 서버의 로그인 셸에서 돌 한 줄이다. 경로는 작은따옴표로 감싸고, 홈 접두어(`~/`, `~계정/`)만 셸이 펼치도록
+    // 따옴표 밖에 둔다. `git init --bare`는 빈 폴더나 없는 경로에만 쓰고, 이미 저장소면 그대로 두며, 결과는
+    // `cyella:created`·`cyella:existing`·`cyella:not-repository`·`cyella:no-git` 표지 한 줄로 알린다.
+    [[nodiscard]] std::u8string make_create_bare_repository_command(std::string_view path);
+
+    // `ssh -T [-p <port>] <user@host> <명령>`이다. 호스트 키 확인은 사용자의 ssh 설정을 따르고 질문은 askpass로 온다.
+    // askpass 도우미가 없거나 목적지가 안전하지 않으면 만들지 않는다.
+    [[nodiscard]] std::optional<process_request> make_create_ssh_repository_request(const ssh_repository_options& options);
+
+    [[nodiscard]] ssh_repository_creation classify_create_ssh_repository(int exit_code, std::u8string_view standard_output) noexcept;
 
     // ---- "이번만 연결" ----
 

@@ -317,6 +317,11 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
   (게시를 고른 것이 로그인의 명시적 요청이다), 빈 저장소를 만든 뒤(GitHub `POST /user/repos`·`/orgs/<org>/repos`, GitLab `POST /projects`, 그룹은
   `GET /namespaces/<경로>`로 id를 찾는다. README 같은 첫 커밋은 만들지 않는다) 받은 주소로 `add_remote` → `push_execute{set_upstream}`을 잇는다.
   호스트 문맥은 `hosting_repository_for_host`가 짓고, 만든 저장소의 원격 URL을 풀면 같은 토큰 열쇠라 게시한 뒤 PR·CI가 그 로그인을 그대로 쓴다.
+  URL 직접 입력에 GitHub·GitLab이 아닌 ssh 주소(`ssh://host/path`, `user@host:path`)를 넣으면 "서버에 빈 저장소 만들기" 칸(기본 끔)이 나온다. 켜면 맨 앞에
+  `create_ssh_repository`(쓰기 lane, `ssh -T <목적지> <명령>`)가 서서 서버의 로그인 셸에서 `git init --bare`를 돌리고, 성공해야 `add_remote` → push가 잇는다.
+  경로는 git이 receive-pack에 넘기는 모양 그대로다(`parse_ssh_remote_target`: scp 꼴은 홈 기준, `ssh://host/~/x`는 앞 `/`를 뗀다). 이미 저장소면 그대로 쓰고,
+  저장소가 아닌 것이 있으면 건드리지 않고 실패하며, 결과는 stdout 표지(`cyella:created` 등)로 읽는다. 서버에 git과 POSIX 로그인 셸이 있어야 한다.
+  처음 보는 호스트에서 "이번만 연결"을 고르면 다시 낸 operation에 뒤의 열(`chains_`)을 옮겨 붙인다.
 - 사이드바 태그·stash 두 번 누름: 태그는 detached 체크아웃(경고 한 번, "다시 보지 않기"), stash는 apply다.
 
 ## submodule·worktree·Git LFS

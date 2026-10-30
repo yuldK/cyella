@@ -382,6 +382,70 @@ namespace cyella {
         return classification;
     }
 
+    // ---- 서버에 빈 저장소 만들기 ----
+
+    std::u8string make_create_bare_repository_command(const std::string_view path)
+    {
+        // `~`·`~계정`은 따옴표 안에서 펼쳐지지 않는다. 첫 `/`까지를 따옴표 밖에 두고 나머지만 감싼다.
+        std::string_view home_prefix {};
+        std::string_view rest { path };
+        if (path.starts_with('~'))
+        {
+            const std::size_t slash { path.find('/') };
+            home_prefix = path.substr(0, slash == std::string_view::npos ? path.size() : slash + 1);
+            rest = path.substr(home_prefix.size());
+        }
+        // `git init`은 없는 상위 폴더까지 만든다. 이미 있는 것이 저장소가 아니면 그 안에 저장소 파일을 흩뿌리지 않게 먼저 멈춘다.
+        // `command -v`로 git부터 본다. 없으면 아래 `git --git-dir`이 실패해 "저장소가 아님"으로 잘못 갈린다.
+        std::u8string command { u8"command -v git >/dev/null 2>&1 || { echo cyella:no-git; exit 127; }; p=" };
+        command += to_u8(home_prefix);
+        command += quote_for_shell(to_u8(rest));
+        command += u8"; if [ -e \"$p\" ]; then if git --git-dir=\"$p\" rev-parse --git-dir >/dev/null 2>&1; then echo cyella:existing; exit 0; fi;"
+                   u8" echo cyella:not-repository; exit 3; fi; git init --bare -q -- \"$p\" && echo cyella:created";
+        return command;
+    }
+
+    std::optional<process_request> make_create_ssh_repository_request(const ssh_repository_options& options)
+    {
+        const ssh_remote_target& target { options.target };
+        if (options.askpass_helper.empty() || safe_token(to_u8(target.host), ".-_:") == false)
+            return std::nullopt;
+        if (target.user.empty() == false && safe_token(to_u8(target.user), ".-_") == false)
+            return std::nullopt;
+        if (target.path.empty() || target.path.front() == '-' || has_control_character(to_u8(target.path)))
+            return std::nullopt;
+
+        process_request request { make_ssh_family_request(options.ssh_executable, options.working_directory) };
+        request.arguments = { u8"-T" };
+        if (target.port.has_value())
+        {
+            request.arguments.push_back(u8"-p");
+            request.arguments.push_back(to_u8(std::to_string(*target.port)));
+        }
+        if (options.known_hosts_path.empty() == false)
+            for (std::u8string& argument : make_temporary_known_hosts_ssh_arguments(options.known_hosts_path))
+                request.arguments.push_back(std::move(argument));
+        request.arguments.push_back(to_u8(target.destination()));
+        request.arguments.push_back(make_create_bare_repository_command(target.path));
+        request.environment_overrides = ssh_askpass_overrides(options.askpass_helper, options.askpass);
+        return request;
+    }
+
+    ssh_repository_creation classify_create_ssh_repository(const int exit_code, const std::u8string_view standard_output) noexcept
+    {
+        // 서버의 셸이 로그인 인사말을 stdout에 낼 수 있어 줄 하나만 보지 않고 표지가 있는지 찾는다.
+        const std::string_view output { as_narrow(standard_output) };
+        if (contains(output, "cyella:no-git"))
+            return ssh_repository_creation::git_missing;
+        if (contains(output, "cyella:not-repository"))
+            return ssh_repository_creation::not_repository;
+        if (exit_code == 0 && contains(output, "cyella:existing"))
+            return ssh_repository_creation::existing;
+        if (exit_code == 0 && contains(output, "cyella:created"))
+            return ssh_repository_creation::created;
+        return ssh_repository_creation::failed;
+    }
+
     // ---- 이번만 연결 ----
 
     std::vector<std::u8string> make_temporary_known_hosts_ssh_arguments(const std::filesystem::path& known_hosts_path)

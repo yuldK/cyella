@@ -1,3 +1,4 @@
+#include "infrastructure/ssh_tools.h"
 #include "platform/win32/win32_process_runner.h"
 
 #include "process_test_support.h"
@@ -138,6 +139,31 @@ TEST_CASE("runner gives the child an empty input when no payload is set", "[proc
     const std::vector<std::u8string> lines { sink.record_texts(process_stream::standard_output) };
     REQUIRE(lines.size() == 1);
     CHECK(lines[0] == u8"done");
+}
+
+TEST_CASE("the server command for a new ssh repository reaches the child as one unchanged argument", "[process][ssh]")
+{
+    // 서버에 저장소를 만드는 셸 명령은 따옴표·`$`·`;`·중괄호를 담는다. Windows 명령줄을 거쳐 ssh에 글자 그대로 닿아야 한다.
+    const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
+    collecting_sink sink {};
+    const std::u8string command { make_create_bare_repository_command("~/it's $(x) `y` \"z\" a.git") };
+    // 시험 자식의 `write_text`는 `\`를 풀어 읽으므로 두 번 적어 보낸다. 명령줄 인용이 지키는지 보는 것은 그 앞 단계다.
+    std::u8string escaped {};
+    for (const char8_t character : command)
+    {
+        if (character == u8'\\')
+            escaped.push_back(u8'\\');
+        escaped.push_back(character);
+    }
+    process_request request { make_child_request({ "write_text" }) };
+    request.arguments.push_back(escaped);
+
+    const process_result result { runner->run(request, &sink, {}) };
+
+    REQUIRE(result.succeeded());
+    const std::vector<std::u8string> lines { sink.record_texts(process_stream::standard_output) };
+    REQUIRE(lines.size() == 1);
+    CHECK(std::string { lines[0].begin(), lines[0].end() } == std::string { command.begin(), command.end() });
 }
 
 TEST_CASE("runner tolerates a child that never reads its input", "[process][stdin]")

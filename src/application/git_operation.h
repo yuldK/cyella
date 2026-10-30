@@ -58,8 +58,8 @@ namespace cyella {
 
     // "이번만 연결"이다. 사용자가 호스트 키 지문을 확인하고 이 한 번만 믿기로 했을 때, 그 operation의
     // 모든 git 명령이 임시 known_hosts로 연결한다. 사용자의 `known_hosts`와 `core.sshCommand`는
-    // 바뀌지 않는다. 네트워크를 쓰는 operation(fetch·pull·push_execute·clone·refresh_remote_tags)만
-    // 받는다.
+    // 바뀌지 않는다. 네트워크를 쓰는 operation(fetch·pull·push_execute·clone·refresh_remote_tags)과
+    // ssh를 바로 부르는 create_ssh_repository만 받는다. 뒤의 것은 `command` 대신 known_hosts 경로로 ssh 인자를 만든다.
     struct temporary_ssh_trust
     {
         // `GIT_SSH_COMMAND` 값이다. `make_temporary_known_hosts_ssh_command`가 만든다. 사용자가 쓰는
@@ -540,6 +540,16 @@ namespace cyella {
         std::string url {};
     };
 
+    // ssh로 서버에 들어가 `git init --bare`로 빈 저장소를 만든다. GitHub·GitLab 같은 호스팅 없이 ssh만 열린 서버에
+    // 게시할 때 원격 추가 앞에 선다. 서버의 로그인 셸이 POSIX sh 꼴이고 `git`이 PATH에 있어야 한다.
+    // 경로가 이미 git 저장소면 그대로 쓰고, 저장소가 아닌 것이 있으면 건드리지 않고 실패한다.
+    struct create_ssh_repository_request
+    {
+        // 원격에 쓸 URL 그대로다 (`ssh://host/srv/x.git`, `me@host:x.git`). `parse_ssh_remote_target`으로 읽는다.
+        std::string url {};
+        std::optional<temporary_ssh_trust> ssh_command_override {};
+    };
+
     // 추적하지 않는 파일을 휴지통으로 보낸다(되돌릴 수 있다). 추적 파일은 `discard_files_request`(`restore`)가 맡는다.
     // 경로는 저장소 루트 기준이고 저장소 밖을 가리키면 거절한다.
     struct trash_files_request
@@ -564,7 +574,7 @@ namespace cyella {
         push_tags_request, delete_tag_request, delete_remote_tag_request, sequence_control_request, resolve_file_request, mark_resolved_request, remove_stale_index_lock_request, clone_request,
         init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
         worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request, refresh_status_request, set_upstream_request,
-        unset_upstream_request, trash_files_request, verify_signatures_request, show_range_request, add_remote_request>;
+        unset_upstream_request, trash_files_request, verify_signatures_request, show_range_request, add_remote_request, create_ssh_repository_request>;
 
     // 실행 lane이다.
     enum class operation_lane

@@ -100,6 +100,12 @@ namespace cyella {
                 retry.ssh_command_override = trust;
                 return retry;
             }
+            if (const auto* const create { std::get_if<create_ssh_repository_request>(&request) }; create != nullptr)
+            {
+                create_ssh_repository_request retry { *create };
+                retry.ssh_command_override = trust;
+                return retry;
+            }
             return std::nullopt;
         }
 
@@ -1239,10 +1245,13 @@ namespace cyella {
                     ui_.dialog->flag_b = ui_.dialog->flag_b == false;
                 return;
             case dialog_kind::add_remote: {
-                // 체크 칸은 [push(게시할 브랜치가 있을 때)], 호스트를 골랐으면 [비공개, ssh 주소] 차례다.
+                // 체크 칸은 [push(게시할 브랜치가 있을 때)], URL이 ssh 서버면 [서버에 만들기], 호스트를 골랐으면 [비공개, ssh 주소] 차례다.
+                // 서버 칸은 URL 글에 따라 보였다 사라지므로 상자를 그린 것과 같은 판정으로 순번을 읽는다.
                 const std::size_t offset { ui_.dialog->subject.empty() ? 0u : 1u };
                 if (index < offset)
                     ui_.dialog->flag_a = ui_.dialog->flag_a == false;
+                else if (add_remote_can_create_on_server(*ui_.dialog, ui_.form) && index == offset)
+                    ui_.dialog->flag_d = ui_.dialog->flag_d == false;
                 else if (add_remote_to_hosting(*ui_.dialog) && index == offset)
                     ui_.dialog->flag_b = ui_.dialog->flag_b == false;
                 else if (add_remote_to_hosting(*ui_.dialog) && index == offset + 1)
@@ -1533,6 +1542,12 @@ namespace cyella {
         const operation_id retried { is_setup_operation(operation_kind_of(*retry)) ? workspace->submit_setup(*retry) : workspace->submit(repository, *retry) };
         if (retried == 0)
             return;
+        // 뒤에 이을 operation(서버에 저장소를 만든 뒤의 원격 추가·push)은 거둔 id에 묶여 있다. 그대로 두면 취소로 보고 버린다.
+        if (auto chain { chains_.extract(status.id) }; chain.empty() == false)
+        {
+            chain.key() = retried;
+            chains_.insert(std::move(chain));
+        }
         if (refreshes_tags)
             trusted_retries_[retried] = trusted_retry { repository, trust };
         if (status.kind == operation_kind::clone)

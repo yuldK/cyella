@@ -1,6 +1,8 @@
 #include "presentation/form_builders.h"
 
+#include "domain/hosting_remote.h"
 #include "domain/ref_name.h"
+#include "domain/ssh_remote.h"
 #include "domain/text_catalog.h"
 #include "presentation/signing_view.h"
 #include "presentation/ui_state.h"
@@ -390,6 +392,8 @@ namespace cyella {
     {
         const std::string name { field_text(inputs, 0) };
         std::vector<git_operation> operations {};
+        if (dialog.flag_d && add_remote_can_create_on_server(dialog, inputs))
+            operations.push_back(create_ssh_repository_request { .url = field_text(inputs, 1) });
         operations.push_back(add_remote_request { .name = name, .url = field_text(inputs, 1) });
         if (dialog.flag_a && dialog.subject.empty() == false)
         {
@@ -406,6 +410,17 @@ namespace cyella {
     bool add_remote_to_hosting(const dialog_state& dialog) noexcept
     {
         return dialog.choice > 0 && dialog.choice < dialog.choices.size();
+    }
+
+    bool add_remote_can_create_on_server(const dialog_state& dialog, const form_inputs& inputs)
+    {
+        if (add_remote_to_hosting(dialog))
+            return false;
+        const std::string url { field_text(inputs, 1) };
+        if (parse_ssh_remote_target(url).has_value() == false)
+            return false;
+        const std::optional<hosting_repository> hosting { resolve_hosting_repository(url, {}, {}) };
+        return hosting.has_value() == false || hosting->provider == hosting_provider::unknown;
     }
 
     std::optional<std::u8string> add_remote_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot)
@@ -470,6 +485,13 @@ namespace cyella {
             form.fields.push_back(make_field(context, 1, tr(u8"form.add_remote.url_label"), u8"https://github.com/user/repo.git", false, true));
         if (publishable)
             form.checks.push_back({ .label = tr(u8"form.add_remote.push_check", { { u8"branch", dialog.subject } }), .checked = dialog.flag_a });
+        const bool on_server { add_remote_can_create_on_server(dialog, *context.inputs) };
+        if (on_server)
+        {
+            form.checks.push_back({ .label = tr(u8"form.add_remote.server_check"), .checked = dialog.flag_d });
+            if (const std::optional<ssh_remote_target> target { parse_ssh_remote_target(field_text(*context.inputs, 1)) }; target.has_value() && dialog.flag_d)
+                form.warnings.push_back({ .text = tr(u8"form.add_remote.server_note", { { u8"host", to_u8(target->destination()) }, { u8"path", to_u8(target->path) } }) });
+        }
         if (hosting)
         {
             form.checks.push_back({ .label = tr(u8"form.add_remote.private_check"), .checked = dialog.flag_b });
@@ -482,6 +504,9 @@ namespace cyella {
         const std::string remote { name.empty() ? tr_narrow(u8"form.preview_remote") : name };
         const std::string url { hosting ? tr_narrow(u8"form.add_remote.preview_new_url") : field_text(*context.inputs, 1) };
         std::string preview { "git remote add " + remote + " " + (url.empty() ? std::string { "<url>" } : url) };
+        if (on_server && dialog.flag_d)
+            if (const std::optional<ssh_remote_target> target { parse_ssh_remote_target(url) }; target.has_value())
+                preview = "ssh " + target->destination() + " git init --bare " + target->path + " && " + preview;
         if (publish)
             preview += " && git push --set-upstream " + remote + " " + dialog.subject + ":" + dialog.subject;
         form.preview = to_u8(preview);

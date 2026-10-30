@@ -82,6 +82,11 @@ namespace cyella {
         }
     } // namespace
 
+    failure_kind failure_kind_of(const git_failure_kind kind) noexcept
+    {
+        return map_failure_kind(kind);
+    }
+
     // 실행 문맥의 출력 수집기다. stdout 조각은 모으거나 스트림 해석기에 넘기고, stderr 줄은
     // 진행 표시면 진행률 사건으로, 아니면 실패 설명으로 모은다. runner가 호출을 직렬화한다.
     class git_operation_sink final : public process_output_sink

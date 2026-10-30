@@ -318,3 +318,70 @@ TEST_CASE("temporary known hosts options keep the user's file untouched", "[ssh]
         == u8"'C:/Program Files/Git/usr/bin/ssh.exe' '-o' 'UserKnownHostsFile=C:/Temp/cyella kh' '-o' 'StrictHostKeyChecking=accept-new'");
     CHECK(make_temporary_known_hosts_ssh_command(u8"ssh", "C:/it's/kh").find(u8"'UserKnownHostsFile=C:/it'\\''s/kh'") != std::u8string::npos);
 }
+
+TEST_CASE("the server command quotes the path but leaves the home prefix for the shell to expand", "[ssh][repository]")
+{
+    const std::u8string plain { make_create_bare_repository_command("repos/app.git") };
+    CHECK(plain.starts_with(u8"command -v git >/dev/null 2>&1 || { echo cyella:no-git; exit 127; }; p='repos/app.git'; "));
+    // 저장소가 아닌 것이 있으면 멈추고, 이미 저장소면 그대로 쓰고, 없으면 만든다.
+    CHECK(plain.find(u8"if [ -e \"$p\" ]; then if git --git-dir=\"$p\" rev-parse --git-dir >/dev/null 2>&1; then echo cyella:existing; exit 0; fi; echo cyella:not-repository; exit 3; fi;")
+        != std::u8string::npos);
+    CHECK(plain.ends_with(u8"git init --bare -q -- \"$p\" && echo cyella:created"));
+
+    CHECK(make_create_bare_repository_command("/srv/git/app.git").find(u8"p='/srv/git/app.git';") != std::u8string::npos);
+    CHECK(make_create_bare_repository_command("~/app.git").find(u8"p=~/'app.git';") != std::u8string::npos);
+    CHECK(make_create_bare_repository_command("~git/repos/app.git").find(u8"p=~git/'repos/app.git';") != std::u8string::npos);
+    CHECK(make_create_bare_repository_command("it's $(here)`x`.git").find(u8"p='it'\\''s $(here)`x`.git';") != std::u8string::npos);
+}
+
+TEST_CASE("the repository creation request runs the command over ssh -T with the URL's port and askpass", "[ssh][repository]")
+{
+    ssh_repository_options options {};
+    options.ssh_executable = u8"C:/Git/usr/bin/ssh.exe";
+    options.working_directory = u8"C:/work/repo";
+    options.target = ssh_remote_target { .user = "me", .host = "git.example.org", .port = 2222, .path = "/srv/git/app.git" };
+    options.askpass_helper = u8"C:/cyella/bin/cyella-askpass.exe";
+    options.askpass = sample_session();
+
+    const std::optional<process_request> request { make_create_ssh_repository_request(options) };
+    REQUIRE(request.has_value());
+    REQUIRE(request->arguments.size() == 5);
+    CHECK(request->arguments[0] == u8"-T");
+    CHECK(request->arguments[1] == u8"-p");
+    CHECK(request->arguments[2] == u8"2222");
+    CHECK(request->arguments[3] == u8"me@git.example.org");
+    CHECK(request->arguments[4] == make_create_bare_repository_command("/srv/git/app.git"));
+    CHECK(validate_process_request(*request).empty());
+    REQUIRE(find_override(request->environment_overrides, u8"SSH_ASKPASS_REQUIRE") != nullptr);
+    CHECK(find_override(request->environment_overrides, u8"SSH_ASKPASS_REQUIRE")->value == std::optional<std::u8string> { u8"force" });
+
+    // "이번만 연결"이면 임시 known_hosts를 쓴다. 계정이 없으면 ssh 설정을 따른다.
+    options.target.user.clear();
+    options.target.port.reset();
+    options.known_hosts_path = "C:/Temp/kh.tmp";
+    const std::optional<process_request> trusted { make_create_ssh_repository_request(options) };
+    REQUIRE(trusted.has_value());
+    const std::vector<std::u8string> head { u8"-T", u8"-o", u8"UserKnownHostsFile=C:/Temp/kh.tmp", u8"-o", u8"StrictHostKeyChecking=accept-new", u8"git.example.org" };
+    CHECK(std::vector<std::u8string> { trusted->arguments.begin(), trusted->arguments.begin() + 6 } == head);
+
+    options.askpass_helper.clear();
+    CHECK_FALSE(make_create_ssh_repository_request(options).has_value());
+    options.askpass_helper = u8"C:/cyella/bin/cyella-askpass.exe";
+    options.target.host = "-oProxyCommand=calc";
+    CHECK_FALSE(make_create_ssh_repository_request(options).has_value());
+    options.target.host = "git.example.org";
+    options.target.path = "-bad";
+    CHECK_FALSE(make_create_ssh_repository_request(options).has_value());
+}
+
+TEST_CASE("repository creation results are read from the markers even after a login banner", "[ssh][repository]")
+{
+    CHECK(classify_create_ssh_repository(0, u8"Welcome to the build server\ncyella:created") == ssh_repository_creation::created);
+    CHECK(classify_create_ssh_repository(0, u8"cyella:existing") == ssh_repository_creation::existing);
+    CHECK(classify_create_ssh_repository(3, u8"cyella:not-repository") == ssh_repository_creation::not_repository);
+    CHECK(classify_create_ssh_repository(127, u8"cyella:no-git") == ssh_repository_creation::git_missing);
+    CHECK(classify_create_ssh_repository(255, u8"") == ssh_repository_creation::failed);
+    // git-shell 같은 제한 셸은 명령을 거절하고 표지 없이 끝난다.
+    CHECK(classify_create_ssh_repository(128, u8"") == ssh_repository_creation::failed);
+    CHECK(classify_create_ssh_repository(1, u8"cyella:created") == ssh_repository_creation::failed);
+}

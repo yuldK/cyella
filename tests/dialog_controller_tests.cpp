@@ -658,6 +658,123 @@ TEST_CASE("the add remote command refuses a remote name that already exists and 
     CHECK_FALSE(view.form->buttons.back().enabled);
 }
 
+TEST_CASE("an ssh URL to a plain server offers to create the bare repository before adding the remote and pushing", "[presentation][dialogs][ssh]")
+{
+    harness test {};
+    repository_session& session { test.load() };
+    repository_snapshot snapshot { session.snapshot() };
+    snapshot.summary.remotes.clear();
+    snapshot.summary.has_upstream = false;
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
+    REQUIRE(session.apply(commits_loaded { .generation = generation, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
+    test.controller.after_events();
+
+    // https와 GitHub의 ssh 주소에는 칸이 없다. GitHub는 셸 명령을 받지 않는다.
+    test.send(run_command_intent { "git.push" });
+    test.type(1, u8"https://git.example.org/repos/app.git");
+    CHECK(test.view().form->checks.size() == 1);
+    test.press(u8"cancel");
+    test.send(run_command_intent { "git.push" });
+    test.type(1, u8"git@github.com:me/app.git");
+    CHECK(test.view().form->checks.size() == 1);
+    test.press(u8"cancel");
+
+    test.send(run_command_intent { "git.push" });
+    test.type(1, u8"me@git.example.org:repos/app.git");
+    view_snapshot view { test.view() };
+    REQUIRE(view.form->checks.size() == 2);
+    CHECK(view.form->checks[1].label.find(u8"git init --bare") != std::u8string::npos);
+    // 서버에 명령을 내는 일이라 기본은 끈다.
+    CHECK_FALSE(view.form->checks[1].checked);
+    CHECK(view.form->preview == u8"git remote add origin me@git.example.org:repos/app.git && git push --set-upstream origin main:main");
+
+    test.send(form_check_intent { 1 });
+    view = test.view();
+    CHECK(view.form->checks[1].checked);
+    // push 칸은 그대로다.
+    CHECK(view.form->checks[0].checked);
+    CHECK(view.form->preview == u8"ssh me@git.example.org git init --bare repos/app.git && git remote add origin me@git.example.org:repos/app.git && git push --set-upstream origin main:main");
+    bool says_where { false };
+    for (const form_note& warning : view.form->warnings)
+        says_where = says_where || (warning.text.find(u8"me@git.example.org") != std::u8string::npos && warning.text.find(u8"repos/app.git") != std::u8string::npos);
+    CHECK(says_where);
+
+    // 서버에 만들고, 성공해야 원격을 더하고, 그 뒤에 push한다.
+    const std::size_t before { test.operation_count() };
+    test.press(u8"submit");
+    REQUIRE(test.operation_count() == before + 1);
+    const auto* const create { test.last_request<create_ssh_repository_request>() };
+    REQUIRE(create != nullptr);
+    CHECK(create->url == "me@git.example.org:repos/app.git");
+    const operation_id creating { test.last_operation() };
+    test.start(creating);
+    test.finish(creating, operation_state::succeeded);
+    REQUIRE(test.operation_count() == before + 2);
+    REQUIRE(test.last_request<add_remote_request>() != nullptr);
+    const operation_id adding { test.last_operation() };
+    test.start(adding);
+    test.finish(adding, operation_state::succeeded);
+    REQUIRE(test.operation_count() == before + 3);
+    CHECK(test.last_request<push_execute_request>() != nullptr);
+
+    // 서버에서 실패하면 원격을 더하지 않는다. 상자를 다시 열어 고칠 수 있다.
+    test.send(run_command_intent { "git.push" });
+    test.type(1, u8"ssh://me@git.example.org:2222/srv/git/app.git");
+    test.send(form_check_intent { 1 });
+    const std::size_t again { test.operation_count() };
+    test.press(u8"submit");
+    const operation_id failing { test.last_operation() };
+    REQUIRE(test.last_request<create_ssh_repository_request>() != nullptr);
+    test.start(failing);
+    test.finish(failing, operation_state::failed, operation_failure { failure_kind::auth_failed, {}, {} });
+    CHECK(test.operation_count() == again + 1);
+    CHECK(test.last_request<add_remote_request>() == nullptr);
+}
+
+TEST_CASE("trusting a new server once keeps the remote add and push that follow the repository creation", "[presentation][dialogs][ssh][auth]")
+{
+    harness test {};
+    repository_session& session { test.load() };
+    repository_snapshot snapshot { session.snapshot() };
+    snapshot.summary.remotes.clear();
+    snapshot.summary.has_upstream = false;
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, std::move(snapshot) }));
+    REQUIRE(session.apply(commits_loaded { .generation = generation, .first_index = 0, .commits = snap::linear_history(5), .page_complete = true, .history_complete = true }));
+    test.controller.after_events();
+
+    test.send(run_command_intent { "git.push" });
+    test.type(1, u8"git.example.org:app.git");
+    test.send(form_check_intent { 1 });
+    test.press(u8"submit");
+    const operation_id creating { test.last_operation() };
+    REQUIRE(test.last_request<create_ssh_repository_request>() != nullptr);
+    test.start(creating);
+    askpass_recorder recorder {};
+    test.ask(creating, 4, u8"Are you sure you want to continue connecting (yes/no/[fingerprint])? ", recorder.callback());
+    const std::size_t before { test.operation_count() };
+    test.press(u8"once");
+
+    REQUIRE(test.operation_count() == before + 1);
+    const auto* const retry { test.last_request<create_ssh_repository_request>() };
+    REQUIRE(retry != nullptr);
+    CHECK(retry->url == "git.example.org:app.git");
+    REQUIRE(retry->ssh_command_override.has_value());
+    CHECK(retry->ssh_command_override->known_hosts_path.find(u8"cyella-known-hosts-") != std::u8string::npos);
+
+    // 거둔 operation이 취소로 끝나도 뒤의 원격 추가는 다시 낸 operation을 기다린다.
+    test.finish(creating, operation_state::cancelled);
+    CHECK(test.operation_count() == before + 1);
+    const operation_id retried { test.last_operation() };
+    test.start(retried);
+    test.finish(retried, operation_state::succeeded);
+    REQUIRE(test.operation_count() == before + 2);
+    const auto* const add { test.last_request<add_remote_request>() };
+    REQUIRE(add != nullptr);
+    CHECK(add->url == "git.example.org:app.git");
+}
+
 TEST_CASE("an untracked file goes to the recycle bin after a confirmation that says so", "[presentation][dialogs]")
 {
     harness test {};

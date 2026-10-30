@@ -109,6 +109,8 @@ namespace cyella {
         show_range,
         // 원격을 등록한다 (`remote add`).
         add_remote,
+        // ssh 서버에 빈 저장소를 만든다 (`ssh <host> git init --bare`).
+        create_ssh_repository,
     };
 
     enum class operation_state

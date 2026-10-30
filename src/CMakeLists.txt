@@ -131,7 +131,9 @@ cyella_add_source_filter(cyella_lib_files "domain/authentication"
     domain/credential_prompt.cpp
     domain/credential_prompt.h
     domain/ssh_connection.cpp
-    domain/ssh_connection.h)
+    domain/ssh_connection.h
+    domain/ssh_remote.cpp
+    domain/ssh_remote.h)
 
 # GitHub·GitLab 연동: 원격 URL 해석과 PR·CI 값 타입이다.
 cyella_add_source_filter(cyella_lib_files "domain/hosting"

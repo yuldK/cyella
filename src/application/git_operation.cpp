@@ -131,6 +131,8 @@ namespace cyella {
                 return operation_kind::show_range;
             else if constexpr (std::is_same_v<request_type, add_remote_request>)
                 return operation_kind::add_remote;
+            else if constexpr (std::is_same_v<request_type, create_ssh_repository_request>)
+                return operation_kind::create_ssh_repository;
             else
                 return operation_kind::refresh;
         }
@@ -196,6 +198,8 @@ namespace cyella {
             return trust_of(*clone);
         if (const auto* const tags { std::get_if<refresh_remote_tags_request>(&operation) })
             return trust_of(*tags);
+        if (const auto* const create { std::get_if<create_ssh_repository_request>(&operation) })
+            return trust_of(*create);
         return nullptr;
     }
 } // namespace cyella

@@ -511,6 +511,8 @@ namespace cyella {
                     return run_single(context, make_git_branch_unset_upstream_args(request.branch), write, tr(u8"git.branch.upstream_unset", { { u8"branch", name_of(request.branch) } }));
                 else if constexpr (std::is_same_v<request_type, add_remote_request>)
                     return run_single(context, make_git_remote_add_args(request.name, request.url), write, tr(u8"git.remote.added", { { u8"name", name_of(request.name) } }));
+                else if constexpr (std::is_same_v<request_type, create_ssh_repository_request>)
+                    return run_create_ssh_repository(context, request);
                 else if constexpr (std::is_same_v<request_type, fetch_request>)
                 {
                     git_fetch_options options {};

@@ -60,9 +60,13 @@ namespace cyella {
     [[nodiscard]] std::optional<std::u8string> set_upstream_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
 
     // 원격 추가 상자가 낼 operation 열이다. `remote add`이고, 게시를 켰으면 성공한 뒤 `push --set-upstream`이 잇는다.
+    // 서버에 빈 저장소 만들기를 켰으면 맨 앞에 선다. 서버에서 실패하면 원격을 더하지 않아 상자를 다시 열어 고칠 수 있다.
     [[nodiscard]] std::vector<git_operation> make_add_remote_operations(const dialog_state& dialog, const form_inputs& inputs);
     // 원격 추가 상자에서 URL 대신 호스팅 서버에 새 저장소를 만들기로 골랐다.
     [[nodiscard]] bool add_remote_to_hosting(const dialog_state& dialog) noexcept;
+    // URL이 ssh 서버를 가리켜 "서버에 빈 저장소 만들기" 체크 칸을 보일 수 있는가. GitHub·GitLab은 셸을 주지 않으므로 뺀다.
+    // 상자 그리기와 체크 칸 순번 해석이 같은 판정을 써야 칸이 엇갈리지 않는다.
+    [[nodiscard]] bool add_remote_can_create_on_server(const dialog_state& dialog, const form_inputs& inputs);
     // 원격 이름·URL(호스트를 골랐으면 저장소 이름·소유자)을 쓸 수 없는 이유를 한 줄로 말한다. 칸 1이 아직 비었으면 말하지 않고 단추만 끈다.
     [[nodiscard]] std::optional<std::u8string> add_remote_error(const dialog_state& dialog, const form_inputs& inputs, const repository_snapshot& snapshot);
 

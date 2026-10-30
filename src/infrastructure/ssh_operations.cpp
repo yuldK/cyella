@@ -2,12 +2,13 @@
 #include "infrastructure/git_operation_context.h"
 #include "infrastructure/ssh_tools.h"
 
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <system_error>
 #include <utility>
 
-// 환경 설정의 SSH 도구(키 만들기·연결 시험)다. git이 아니라 ssh-keygen·ssh를 부르지만, 질문이 askpass로 와서
+// 환경 설정의 SSH 도구(키 만들기·연결 시험)와 게시 상자의 "서버에 빈 저장소 만들기"다. git이 아니라 ssh-keygen·ssh를 부르지만, 질문이 askpass로 와서
 // 대화 상자를 거쳐야 하므로 git operation과 같은 길(작업 로그·needs_input·취소)에 태운다.
 namespace cyella {
     namespace {
@@ -21,6 +22,13 @@ namespace cyella {
                 if (target.empty() == false)
                     target.push_back(u8'\n');
                 target.append(record.text);
+            }
+
+            // 요청이 stdout을 조각(raw)으로 받게 바뀌어도 서버의 결과 표지를 잃지 않게 같은 곳에 모은다.
+            void on_chunk(const process_output_chunk& chunk) override
+            {
+                std::u8string& target { chunk.stream == process_stream::standard_output ? standard_output : standard_error };
+                target.append(reinterpret_cast<const char8_t*>(chunk.bytes.data()), chunk.bytes.size());
             }
 
             std::u8string standard_output {};
@@ -173,5 +181,61 @@ namespace cyella {
             return operation_outcome::failed(failure_kind::auth_cancelled, tr(u8"ssh.test_cancelled"));
         context.emit(ssh_connection_tested { classification });
         return operation_outcome::succeeded(describe_ssh_connection(classification));
+    }
+
+    operation_outcome run_create_ssh_repository(git_operation_context& context, const create_ssh_repository_request& request)
+    {
+        const git_operation_runner_options& options { context.owner().options() };
+        if (options.ssh_executable.empty())
+            return operation_outcome::failed(failure_kind::invalid_request, tr(u8"ssh.not_found"));
+        const std::optional<ssh_remote_target> target { parse_ssh_remote_target(request.url) };
+        if (target.has_value() == false)
+            return operation_outcome::failed(failure_kind::invalid_request, tr(u8"ssh.repository_invalid_url", { { u8"url", to_utf8(request.url) } }));
+
+        ssh_repository_options create {};
+        create.ssh_executable = options.ssh_executable;
+        create.working_directory = context.job().repository_path.empty() ? parent_directory(options.ssh_executable) : context.job().repository_path;
+        create.target = *target;
+        if (request.ssh_command_override.has_value())
+            create.known_hosts_path = std::filesystem::path { request.ssh_command_override->known_hosts_path };
+        create.askpass_helper = options.askpass_helper;
+        create.askpass = session_of(context);
+        std::optional<process_request> built { make_create_ssh_repository_request(create) };
+        if (built.has_value() == false && options.askpass_helper.empty())
+            return operation_outcome::failed(failure_kind::invalid_request, tr(u8"ssh.askpass_missing"));
+        if (built.has_value() == false)
+            return operation_outcome::failed(failure_kind::invalid_request, tr(u8"ssh.repository_invalid_url", { { u8"url", to_utf8(request.url) } }));
+        // passphrase·호스트 키 질문에 사람이 답하는 시간은 넉넉히 두되, 응답 없는 서버가 쓰기 lane을 붙잡지 않게 끊는다.
+        built->timeout = std::chrono::minutes { 5 };
+
+        text_sink sink {};
+        const process_result result { run_logged(context, *built, sink) };
+        if (const std::optional<operation_outcome> interrupted { interruption_of(result, u8"ssh") }; interrupted.has_value())
+            return *interrupted;
+
+        const std::u8string where { to_utf8(target->destination() + ":" + target->path) };
+        switch (classify_create_ssh_repository(result.exit_code.value_or(-1), sink.standard_output))
+        {
+        case ssh_repository_creation::created:
+            return operation_outcome::succeeded(tr(u8"ssh.repository_created", { { u8"target", where } }));
+        case ssh_repository_creation::existing:
+            return operation_outcome::succeeded(tr(u8"ssh.repository_existing", { { u8"target", where } }));
+        case ssh_repository_creation::not_repository:
+            return operation_outcome::failed(failure_kind::other, tr(u8"ssh.repository_not_repository", { { u8"target", where } }));
+        case ssh_repository_creation::git_missing:
+            return operation_outcome::failed(failure_kind::other, tr(u8"ssh.repository_git_missing", { { u8"host", to_utf8(target->host) } }), sink.standard_error);
+        case ssh_repository_creation::failed:
+            break;
+        }
+
+        // 연결·인증 실패는 push와 같은 분류로 알린다 (호스트 키를 바꾼 서버, publickey 거절 등). 질문을 답 없이 닫았으면 취소다.
+        failure_kind kind { failure_kind_of(classify_git_failure(to_bytes(sink.standard_error))) };
+        if (context.job().prompt_cancelled != nullptr && context.job().prompt_cancelled->load()
+            && (kind == failure_kind::auth_failed || kind == failure_kind::host_key_refused || kind == failure_kind::other))
+            kind = failure_kind::auth_cancelled;
+        std::u8string detail { sink.standard_error };
+        if (detail.empty())
+            detail = sink.standard_output;
+        return operation_outcome::failed(kind, kind == failure_kind::other ? tr(u8"ssh.repository_failed", { { u8"target", where } }) : std::u8string {}, std::move(detail));
     }
 } // namespace cyella
