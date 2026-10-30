@@ -112,7 +112,7 @@ namespace cyella {
         menu_target target {};
         float x { 0.0f };
         float y { 0.0f };
-        // 끌어 놓기 메뉴가 모르는 관계를 이미 물어 보았다.
+        // 끌어 놓기·로컬 브랜치 메뉴가 모르는 관계를 이미 물어 보았다.
         bool asked_facts { false };
     };
 

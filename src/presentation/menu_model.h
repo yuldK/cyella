@@ -86,6 +86,7 @@ namespace cyella {
     };
 
     // 두 브랜치의 관계다. 끌어 놓기 메뉴의 조건과 "커밋 N개"의 근거이고, 모르면 빈 값이다.
+    // 로컬 브랜치 메뉴에서는 끈 쪽이 현재 브랜치, 놓은 쪽이 우클릭한 브랜치이고 앞의 두 값(destination_is_ancestor·only_in_source)만 채운다.
     struct drop_facts
     {
         // 놓은 쪽(destination)이 끈 쪽(source)의 조상이다 (같으면 참).

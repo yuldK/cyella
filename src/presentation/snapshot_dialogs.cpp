@@ -153,6 +153,17 @@ namespace cyella {
         return std::nullopt;
     }
 
+    std::optional<local_branch_relation> local_branch_relation_of(const repository_snapshot& snapshot, const menu_target& target)
+    {
+        const repository_summary& summary { snapshot.summary };
+        if (target.kind != menu_target_kind::local_branch || summary.is_detached || summary.current_branch.empty() || summary.head_sha.empty() || target.name == summary.current_branch)
+            return std::nullopt;
+        for (const ref& value : snapshot.refs)
+            if (value.kind == ref_kind::local && value.name == target.name && value.target_sha.empty() == false)
+                return local_branch_relation { .branch_sha = value.target_sha, .head_sha = summary.head_sha };
+        return std::nullopt;
+    }
+
     menu_context build_menu_context(const repository_session& session, const menu_target& target, const graph_index* index)
     {
         const repository_snapshot& snapshot { session.snapshot() };
@@ -195,6 +206,20 @@ namespace cyella {
                 facts.only_in_source = session.commit_count(destination, source);
             if (facts.only_in_destination.has_value() == false)
                 facts.only_in_destination = session.commit_count(source, destination);
+        }
+        if (const std::optional<local_branch_relation> relation { local_branch_relation_of(snapshot, target) }; relation.has_value())
+        {
+            // 우클릭한 브랜치를 현재 브랜치로 fast-forward할 수 있는지다. 현재 브랜치가 끈 쪽, 우클릭한 브랜치가 놓은 쪽이다.
+            drop_facts& facts { context.facts };
+            if (index != nullptr)
+            {
+                facts.destination_is_ancestor = index->is_ancestor(relation->branch_sha, relation->head_sha);
+                facts.only_in_source = index->count(relation->branch_sha, relation->head_sha);
+            }
+            if (facts.destination_is_ancestor.has_value() == false)
+                facts.destination_is_ancestor = session.ancestry(relation->branch_sha, relation->head_sha);
+            if (facts.only_in_source.has_value() == false)
+                facts.only_in_source = session.commit_count(relation->branch_sha, relation->head_sha);
         }
         return context;
     }

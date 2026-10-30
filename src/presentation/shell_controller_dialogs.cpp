@@ -743,21 +743,33 @@ namespace cyella {
             }
         }
         ui_.menu = menu_state { .target = std::move(target), .x = x, .y = y, .asked_facts = false };
-        if (ui_.menu->target.kind == menu_target_kind::drop)
-            request_drop_facts();
+        if (ui_.menu->target.kind == menu_target_kind::drop || ui_.menu->target.kind == menu_target_kind::local_branch)
+            request_menu_facts();
     }
 
-    void shell_controller::request_drop_facts()
+    void shell_controller::request_menu_facts()
     {
         repository_session* const session { selected_session() };
         if (session == nullptr || ui_.menu.has_value() == false || ui_.menu->asked_facts)
             return;
         ui_.menu->asked_facts = true;
         const menu_target& target { ui_.menu->target };
-        if (target.destination.is_commit)
-            return;
         const menu_context context { build_menu_context(*session, target, history_index(*session).get()) };
         const drop_facts& facts { context.facts };
+        if (target.kind == menu_target_kind::local_branch)
+        {
+            // 현재 브랜치로 fast-forward할 수 있는지만 묻는다.
+            const std::optional<local_branch_relation> relation { local_branch_relation_of(session->snapshot(), target) };
+            if (relation.has_value() == false)
+                return;
+            if (facts.destination_is_ancestor.has_value() == false)
+                static_cast<void>(submit(is_ancestor_request { .ancestor = relation->branch_sha, .descendant = relation->head_sha }));
+            if (facts.only_in_source.has_value() == false)
+                static_cast<void>(submit(count_commits_request { .from = relation->branch_sha, .to = relation->head_sha }));
+            return;
+        }
+        if (target.destination.is_commit)
+            return;
         const std::string& source { target.source.sha };
         const std::string& destination { target.destination.sha };
         // 읽어 둔 이력으로 알 수 없는 관계만 backend에 묻는다. 답이 오면 다음 frame의 메뉴가 채워진다.
@@ -984,6 +996,8 @@ namespace cyella {
         case menu_target_kind::local_branch:
             if (key == u8"checkout")
                 static_cast<void>(submit(checkout_branch_request { target.name }));
+            else if (key == u8"fast_forward_to_current")
+                static_cast<void>(submit(fast_forward_request { .target = target.name, .to = current }));
             else if (key == u8"merge_into_current")
                 static_cast<void>(submit(merge_request { .into = current, .from = target.name }));
             else if (key == u8"rebase_current_onto")

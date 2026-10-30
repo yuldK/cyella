@@ -293,6 +293,32 @@ TEST_CASE("a drop on a commit offers a new branch there", "[presentation][dialog
     CHECK(test.controller.state().dialog->subject == snap::sha_of(2));
 }
 
+TEST_CASE("a branch below the current one is fast-forwarded to it from its own menu without a checkout", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load();
+    // feature/graph(가장 오래된 커밋)는 현재 브랜치 main의 조상이다. 읽어 둔 이력으로 알아 바로 켜진다.
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "feature/graph", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    const view_snapshot view { test.view() };
+    REQUIRE(view.menu.has_value());
+    REQUIRE(has_entry(*view.menu, u8"fast_forward_to_current"));
+    CHECK(entry_enabled(*view.menu, u8"fast_forward_to_current"));
+    const std::size_t before { test.operation_count() };
+
+    test.send(menu_select_intent { u8"fast_forward_to_current" });
+    REQUIRE(test.operation_count() == before + 1);
+    const auto* const forward { test.last_request<fast_forward_request>() };
+    REQUIRE(forward != nullptr);
+    CHECK(forward->target == "feature/graph");
+    CHECK(forward->to == "main");
+
+    // 현재 브랜치 자신의 메뉴에는 없다.
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "main", .sha = snap::sha_of(4) }, 0.0f, 0.0f });
+    const view_snapshot current { test.view() };
+    REQUIRE(current.menu.has_value());
+    CHECK_FALSE(has_entry(*current.menu, u8"fast_forward_to_current"));
+}
+
 TEST_CASE("a rebase asks before autostashing a dirty worktree and runs at once on a clean one", "[presentation][dialogs]")
 {
     harness test {};

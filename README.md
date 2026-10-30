@@ -24,7 +24,8 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 - **커밋 그래프**: 레인을 증분으로 배치하고 가상 스크롤로 큰 이력도 바로 연다. 브랜치·태그·HEAD 라벨, 서명·CI 표시가 붙는다.
 - **변경 검토와 커밋**: 파일·hunk·줄 단위로 stage·unstage·discard한다. diff는 WebView2 뷰어로 inline·분할 보기,
   단어 강조, 구문 강조, 이미지 비교를 지원하고, 확장자별 외부 diff 도구로도 연다.
-- **브랜치와 이력 조작**: 라벨을 끌어 놓아 merge·rebase·fast-forward·reset을 고른다. 체크아웃, 태그 만들기와 push,
+- **브랜치와 이력 조작**: 라벨을 끌어 놓아 merge·rebase·fast-forward·reset을 고른다. 작업 브랜치에 있는 채로 그 아래의
+  main을 우클릭해 체크아웃 없이 작업 브랜치까지 fast-forward한다. 체크아웃, 태그 만들기와 push,
   cherry-pick, revert, stash, 충돌 해결 화면이 있다.
 - **인터랙티브 rebase 편집기**: pick·reword·squash·fixup·drop과 순서를 앱에서 고치고 실행한다.
 - **SSH와 인증**: passphrase·호스트 키·HTTPS 자격 증명 질문을 앱 대화 상자로 받는다. 키 생성과 연결 시험을 환경 설정에서 한다.

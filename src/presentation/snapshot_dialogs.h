@@ -54,6 +54,16 @@ namespace cyella {
     // `form_inputs::identity`로 쓰는 열쇠다. 상자가 없으면 빈 문자열이다.
     [[nodiscard]] std::string form_identity(const form_source& source, const ui_state& ui);
 
+    // 로컬 브랜치 메뉴의 "현재 브랜치로 fast-forward"가 따지는 두 끝이다.
+    struct local_branch_relation
+    {
+        std::string branch_sha {};
+        std::string head_sha {};
+    };
+
+    // `target`이 현재 브랜치가 아닌 로컬 브랜치이고 현재 브랜치가 있을 때의 두 끝이다. 아니면 빈 값이다.
+    [[nodiscard]] std::optional<local_branch_relation> local_branch_relation_of(const repository_snapshot& snapshot, const menu_target& target);
+
     // 메뉴 항목을 정하는 저장소 상태다. 끌어 놓기 관계는 읽어 둔 이력(`index`)에서 먼저 얻고, 모르면 세션이 받아 둔
     // `is_ancestor`·`count_commits` 답을 쓴다.
     [[nodiscard]] menu_context build_menu_context(const repository_session& session, const menu_target& target, const graph_index* index);

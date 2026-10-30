@@ -227,7 +227,8 @@ namespace cyella {
         void open_folder_in_app(std::size_t index, const std::u8string& folder);
 
         void open_context_menu(menu_target target, float x, float y);
-        void request_drop_facts();
+        // 끌어 놓기·로컬 브랜치 메뉴가 읽어 둔 이력으로 모르는 브랜치 관계를 backend에 묻는다.
+        void request_menu_facts();
         void handle_menu_select(const std::u8string& key);
         void run_menu_action(const menu_target& target, const std::u8string& key, const menu_context& context);
         // 탭 우클릭 메뉴의 항목을 실행한다 (닫기 묶음, 경로 복사, 다른 앱으로 열기).

@@ -115,6 +115,23 @@ namespace cyella {
             return group;
         }
 
+        // 현재 브랜치가 이 브랜치 위에 쌓여 있으면 체크아웃 없이 이 브랜치를 현재 브랜치로 앞당긴다. 작업 브랜치에서
+        // main을 따라오게 하는 길이다. fast-forward로 갈 수 없으면 왜 안 되는지를 꼬리에 붙여 끈다.
+        menu_entry fast_forward_to_current_entry(const menu_target& target, const menu_context& context, const ref* const branch_ref, const bool elsewhere)
+        {
+            const drop_facts& facts { context.facts };
+            const std::u8string label { tr(u8"menu.fast_forward", { { u8"branch", to_u8(target.name) }, { u8"to", to_u8(context.current_branch) } }) };
+            if (elsewhere)
+                return make_entry(u8"fast_forward_to_current", label + tr(u8"menu.in_other_worktree"), icons::icon_arrow_up, false);
+            if (branch_ref != nullptr && branch_ref->target_sha == context.head_sha)
+                return make_entry(u8"fast_forward_to_current", label + tr(u8"menu.already_included"), icons::icon_arrow_up, false);
+            if (facts.destination_is_ancestor.has_value() == false)
+                return make_entry(u8"fast_forward_to_current", label, icons::icon_arrow_up, false);
+            if (*facts.destination_is_ancestor == false)
+                return make_entry(u8"fast_forward_to_current", label + tr(u8"menu.rebase_first"), icons::icon_arrow_up, false);
+            return make_entry(u8"fast_forward_to_current", label + count_suffix(facts.only_in_source), icons::icon_arrow_up);
+        }
+
         menu_model local_branch_menu(const menu_target& target, const menu_context& context)
         {
             menu_model model {};
@@ -136,7 +153,12 @@ namespace cyella {
                         make_entry(u8"checkout", is_current ? tr(u8"menu.checkout_current") : tr(u8"menu.checkout"), icons::icon_check, is_current == false),
                         make_entry(u8"add_worktree", tr(u8"menu.checkout_in_new_worktree"), icons::icon_worktree, is_current == false),
                     });
-            add_group(model.entries, merge_rebase_group(target, context));
+            std::vector<menu_entry> integrate {};
+            if (has_current_branch(context) && is_current == false)
+                integrate.push_back(fast_forward_to_current_entry(target, context, branch_ref, elsewhere));
+            for (menu_entry& entry : merge_rebase_group(target, context))
+                integrate.push_back(std::move(entry));
+            add_group(model.entries, std::move(integrate));
             add_group(model.entries,
                 {
                     make_entry(u8"push", u8"Push…", icons::icon_repo_push),

@@ -231,6 +231,76 @@ TEST_CASE("the drop menu follows the contract table", "[presentation][drop]")
     }
 }
 
+TEST_CASE("a local branch menu fast-forwards that branch to the current one only when it lies below", "[presentation][menu]")
+{
+    const graph_index index { history() };
+    menu_context context {};
+    context.current_branch = "feature";
+    context.head_sha = sha_of(9);
+    context.refs = {
+        { .kind = ref_kind::local, .name = "feature", .target_sha = sha_of(9), .is_current = true },
+        { .kind = ref_kind::local, .name = "main", .target_sha = sha_of(7) },
+        { .kind = ref_kind::local, .name = "base", .target_sha = sha_of(5) },
+        { .kind = ref_kind::local, .name = "twin", .target_sha = sha_of(9) },
+        { .kind = ref_kind::local, .name = "busy", .target_sha = sha_of(5), .worktree_path = "C:/work/busy" },
+    };
+    // 메뉴를 연 controller가 채우는 값과 같다: 끈 쪽이 현재 브랜치, 놓은 쪽이 우클릭한 브랜치다.
+    const auto menu_for = [&index, &context](const std::string& name, const int sha) {
+        menu_context with_facts { context };
+        with_facts.facts.destination_is_ancestor = index.is_ancestor(sha_of(sha), context.head_sha);
+        with_facts.facts.only_in_source = index.count(sha_of(sha), context.head_sha);
+        return build_context_menu({ .kind = menu_target_kind::local_branch, .name = name, .sha = sha_of(sha) }, with_facts);
+    };
+    const auto label_of = [](const menu_model& model) {
+        const auto found { std::find_if(model.entries.begin(), model.entries.end(), [](const menu_entry& entry) { return entry.key == u8"fast_forward_to_current"; }) };
+        return found == model.entries.end() ? std::u8string {} : found->label;
+    };
+
+    SECTION("a branch the current one is stacked on can follow it")
+    {
+        const menu_model model { menu_for("base", 5) };
+        CHECK(entry_enabled(model, u8"fast_forward_to_current"));
+        CHECK(label_of(model) == u8"base를 feature로 fast-forward · 커밋 2개");
+    }
+
+    SECTION("a branch that moved on needs a rebase first")
+    {
+        const menu_model model { menu_for("main", 7) };
+        REQUIRE(has_entry(model, u8"fast_forward_to_current"));
+        CHECK_FALSE(entry_enabled(model, u8"fast_forward_to_current"));
+        CHECK(label_of(model) == u8"main을 feature로 fast-forward · 먼저 그 위로 rebase 필요");
+    }
+
+    SECTION("the same tip has nothing to move")
+    {
+        const menu_model model { menu_for("twin", 9) };
+        CHECK_FALSE(entry_enabled(model, u8"fast_forward_to_current"));
+        CHECK(label_of(model) == u8"twin을 feature로 fast-forward · 이미 포함");
+    }
+
+    SECTION("git refuses to move a branch another worktree has checked out")
+    {
+        const menu_model model { menu_for("busy", 5) };
+        CHECK_FALSE(entry_enabled(model, u8"fast_forward_to_current"));
+        CHECK(label_of(model) == u8"busy를 feature로 fast-forward · 다른 worktree에서 사용 중");
+    }
+
+    SECTION("an unknown relation stays disabled until the answer arrives")
+    {
+        const menu_model model { build_context_menu({ .kind = menu_target_kind::local_branch, .name = "base", .sha = sha_of(5) }, context) };
+        REQUIRE(has_entry(model, u8"fast_forward_to_current"));
+        CHECK_FALSE(entry_enabled(model, u8"fast_forward_to_current"));
+    }
+
+    SECTION("the current branch and a detached HEAD offer nothing")
+    {
+        CHECK_FALSE(has_entry(menu_for("feature", 9), u8"fast_forward_to_current"));
+        context.detached = true;
+        context.current_branch.clear();
+        CHECK_FALSE(has_entry(menu_for("base", 5), u8"fast_forward_to_current"));
+    }
+}
+
 TEST_CASE("the hover hint names the likely action", "[presentation][drop]")
 {
     auto data { std::make_shared<drop_hint_data>() };
