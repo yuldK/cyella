@@ -1015,6 +1015,12 @@ namespace cyella {
             open_remote_web_link(intent->remote);
             return true;
         }
+        if (const auto* const intent { message.get<copy_remote_web_link_intent>() }; intent != nullptr)
+        {
+            if (const std::optional<std::string> url { remote_web_link_url(intent->remote) }; url.has_value())
+                copy_text(to_u8(*url));
+            return true;
+        }
         if (const auto* const intent { message.get<select_sidebar_item_intent>() }; intent != nullptr)
         {
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)

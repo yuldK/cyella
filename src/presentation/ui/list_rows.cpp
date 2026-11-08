@@ -149,8 +149,19 @@ namespace cyella::ui {
             set_text_tooltip(*this, row_.tooltip);
         // 웹 페이지가 있는 원격 묶음 머리는 주소 글이 곧 링크다. 보이는 글(원격 URL)과 여는 주소가 달라 tooltip이 여는 주소를 보인다.
         if (row_.group && row_.web_link.empty() == false && row_.detail.empty() == false)
-            add_child(std::make_unique<row_link_element>(
-                luil::ui_element_id { kind_sidebar_link, u8"web-link:" + row_.label }, row_.detail, row_.web_link, message(open_remote_web_link_intent { to_text(row_.label) })));
+        {
+            const std::string remote { to_text(row_.label) };
+            auto link { std::make_unique<row_link_element>(luil::ui_element_id { kind_sidebar_link, u8"web-link:" + row_.label }, row_.detail, row_.web_link, message(open_remote_web_link_intent { remote })) };
+            link_ = link.get();
+            add_child(std::move(link));
+            // 링크를 누르면 열기만 하므로, 주소를 다른 곳에 붙일 길을 따로 둔다. 머리 줄의 누름(접고 펴기)이 아니라 이 단추가 받는다.
+            std::u8string tooltip { tr(u8"list.copy_web_link", { { u8"url", row_.web_link } }) };
+            auto copy { make_icon_button(u8"web-link-copy:" + row_.label, codicons::icon_copy, std::move(tooltip), message(copy_remote_web_link_intent { remote }), true, false, 13.0f) };
+            copy->set_tab_stop(false);
+            copy->set_access_name(tr(u8"list.copy_web_link_name", { { u8"remote", row_.label } }));
+            copy_ = copy.get();
+            add_child(std::move(copy));
+        }
         if (select.has_value() == false && activate.has_value() == false && menu.has_value() == false)
         {
             set_hit_opaque(false);
@@ -215,19 +226,25 @@ namespace cyella::ui {
     void sidebar_row_element::arrange(const luil::arrange_context& context)
     {
         set_bounds(context.slot);
-        if (children().empty())
+        if (link_ == nullptr)
             return;
-        // 주소 링크는 그리기와 같은 자리 계산으로 이름 뒤에 선다. 그리기는 이 자리에 주소를 그린다.
         const float scale { context.scale };
+        float right { context.slot.x + context.slot.width - row_padding * scale };
+        // 복사 단추는 줄 오른쪽 끝에 서고, 주소 링크는 그 앞까지만 쓴다.
+        if (copy_ != nullptr)
+        {
+            const float size { row_button_size * scale };
+            copy_->arrange(context.for_child({ context.slot.x + context.slot.width - 4.0f * scale - size, context.slot.y + (context.slot.height - size) / 2.0f, size, size }));
+            right = copy_->bounds().x - 4.0f * scale;
+        }
+        // 주소 링크는 그리기와 같은 자리 계산으로 이름 뒤에 선다. 그리기는 이 자리에 주소를 그린다.
         const luil::text_measurer& measure { context.measurer != nullptr ? *context.measurer : luil::default_text_measurer() };
         const float left { context.slot.x + (row_padding + 20.0f + static_cast<float>(row_.depth) * indent_step + icon_size + 6.0f) * scale };
-        const float right { context.slot.x + context.slot.width - row_padding * scale };
         const float label { std::min(measure(row_.label, luil::scaled_font_size(12.0f, scale)), std::max(right - left, 0.0f)) };
         const float detail_x { std::min(left + label + detail_gap * scale, right) };
-        const float width { std::min(measure(row_.detail, luil::scaled_font_size(11.0f, scale)), right - detail_x) };
+        const float width { std::max(std::min(measure(row_.detail, luil::scaled_font_size(11.0f, scale)), right - detail_x), 0.0f) };
         const float height { 16.0f * scale };
-        for (const auto& child : children())
-            child->arrange(context.for_child({ detail_x, context.slot.y + (context.slot.height - height) / 2.0f, width, height }));
+        link_->arrange(context.for_child({ detail_x, context.slot.y + (context.slot.height - height) / 2.0f, width, height }));
     }
 
     luil::access_info sidebar_row_element::accessibility() const
@@ -277,8 +294,8 @@ namespace cyella::ui {
         luil::draw_centered_glyph(context.canvas, sidebar_glyph(row_), { x, box.y, icon_size * scale, box.height }, icon_font(context, 13.0f), luil::solid_paint(icon_color));
         x += (icon_size + 6.0f) * scale;
 
-        // 오른쪽 꼬리: ↑앞섬 ↓뒤처짐, upstream 없음·원격에 없는 태그의 구름 아이콘이다.
-        float right { box.x + box.width - row_padding * scale };
+        // 오른쪽 꼬리: ↑앞섬 ↓뒤처짐, upstream 없음·원격에 없는 태그의 구름 아이콘이다. 복사 단추가 있으면 그 앞까지다.
+        float right { copy_ != nullptr ? copy_->bounds().x - 4.0f * scale : box.x + box.width - row_padding * scale };
         // 다른 worktree가 체크아웃한 브랜치다. git이 이 브랜치로 옮기는 것을 거절한다.
         if (row_.worktree_path.empty() == false)
             right -= draw_worktree_marker(context, box, right);
@@ -304,16 +321,18 @@ namespace cyella::ui {
         const SkFont font { ui_font(context, 12.0f, row_.current) };
         const float baseline { box.y + luil::centered_text_baseline(font, box.height) };
         const float drawn { luil::draw_text_within(context.canvas, row_.label, x, baseline, std::max(right - x, 0.0f), font, luil::solid_paint(palette.primary_foreground)) };
-        if (row_.group && children().empty() == false)
+        if (row_.group && link_ != nullptr)
         {
             // 주소 링크다. 강조색 글자와 밑줄이고, 올리면 밑줄이 굵어진다.
-            const luil::ui_element& link { *children().front() };
+            const luil::ui_element& link { *link_ };
             const luil::rect_f slot { link.bounds() };
             const float detail_baseline { box.y + luil::centered_text_baseline(small, box.height) };
             const SkPaint accent { luil::solid_paint(palette.accent) };
             const float width { luil::draw_text_within(context.canvas, row_.detail, slot.x, detail_baseline, slot.width, small, accent) };
             const float thickness { (interaction.hovered == link.id() ? 2.0f : 1.0f) * scale };
             context.canvas.drawRect(SkRect::MakeXYWH(slot.x, detail_baseline + 2.0f * scale, width, thickness), accent);
+            // 링크 자리는 그리지 않으므로 복사 단추를 위해서다.
+            draw_children(context, interaction);
         }
         else if (row_.group && row_.detail.empty() == false)
         {

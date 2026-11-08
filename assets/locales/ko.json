@@ -698,6 +698,8 @@
     "lfs.not_installed": "Git LFS(git-lfs)가 설치되어 있지 않습니다.",
     "lfs.pulled": "LFS 객체를 받아 작업 트리에 채웠습니다.",
     "lfs.tracked": "{pattern}을(를) LFS로 추적합니다. .gitattributes가 바뀌었습니다.",
+    "list.copy_web_link": "웹 주소 복사: {url}",
+    "list.copy_web_link_name": "웹 주소 복사 · {remote}",
     "list.folder_access_name": "{name} 폴더 (파일 {count}개)",
     "list.in_other_worktree_suffix": " (다른 worktree에서 사용 중)",
     "list.not_on_remote_suffix": " (원격에 없음)",

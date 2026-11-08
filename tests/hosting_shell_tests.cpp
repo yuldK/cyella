@@ -637,6 +637,23 @@ TEST_CASE("a GitHub remote gets a browser link in Open and a link button on its 
     const auto* const open { std::get<luil::app_message>(actions.front()).get<open_remote_web_link_intent>() };
     REQUIRE(open != nullptr);
     CHECK(open->remote == "origin");
+
+    // 줄 오른쪽 끝의 복사 단추는 링크 뒤에 서고, 누르면 웹 주소(원격 URL이 아니다)를 클립보드에 넣는다.
+    const luil::ui_element* const copy { built.tree->find({ ui::kind_button, u8"web-link-copy:origin" }) };
+    REQUIRE(copy != nullptr);
+    CHECK(copy->accessibility().role == luil::access_role::button);
+    CHECK(copy->accessibility().name.find(u8"origin") != std::u8string::npos);
+    CHECK(copy->bounds().x >= address->bounds().x + address->bounds().width);
+    CHECK(copy->bounds().x + copy->bounds().width <= row->bounds().x + row->bounds().width);
+    REQUIRE(copy->action(luil::ui_trigger::left_click) != nullptr);
+    const auto copy_actions { (*copy->action(luil::ui_trigger::left_click))({}) };
+    REQUIRE(copy_actions.size() == 1);
+    const auto* const copy_intent { std::get<luil::app_message>(copy_actions.front()).get<copy_remote_web_link_intent>() };
+    REQUIRE(copy_intent != nullptr);
+    CHECK(copy_intent->remote == "origin");
+    test.send(*copy_intent);
+    CHECK(test.controller.take_clipboard_text() == std::optional<std::u8string> { u8"https://github.com/octo/hello" });
+    CHECK(test.opened.size() == 2);
     CHECK(built.tree->duplicate_ids().empty());
 }
 

@@ -698,6 +698,8 @@
     "lfs.not_installed": "Git LFS (git-lfs) is not installed.",
     "lfs.pulled": "Downloaded LFS objects and filled in the working tree.",
     "lfs.tracked": "Tracking {pattern} with LFS. .gitattributes was updated.",
+    "list.copy_web_link": "Copy web address: {url}",
+    "list.copy_web_link_name": "Copy web address · {remote}",
     "list.folder_access_name": "{name} folder (files: {count})",
     "list.in_other_worktree_suffix": " (in use by another worktree)",
     "list.not_on_remote_suffix": " (not on remote)",

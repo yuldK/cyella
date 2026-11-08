@@ -38,6 +38,9 @@ namespace cyella::ui {
 
     private:
         sidebar_row_view row_ {};
+        // 원격 묶음 머리의 주소 링크와 오른쪽 끝의 웹 주소 복사 단추다. 둘 다 자식이 소유한다.
+        luil::ui_element* link_ { nullptr };
+        luil::ui_element* copy_ { nullptr };
     };
 
     struct file_row_button

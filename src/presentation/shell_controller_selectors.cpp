@@ -105,20 +105,29 @@ namespace cyella {
         }
     }
 
-    void shell_controller::open_remote_web_link(const std::string& remote_name)
+    std::optional<std::string> shell_controller::remote_web_link_url(const std::string& remote_name)
     {
         const repository_session* const session { selected_session() };
-        if (session == nullptr || dependencies_.open_url == nullptr)
-            return;
+        if (session == nullptr)
+            return std::nullopt;
         for (const remote_info& remote : session->snapshot().summary.remotes)
         {
             if (remote.name != remote_name)
                 continue;
             const std::string url { remote.fetch_url.empty() ? remote.push_url : remote.fetch_url };
-            if (const std::optional<remote_web_link> link { resolve_remote_web_link(url, settings().hosting.web_links, settings().hosting.hosts) }; link.has_value())
-                dependencies_.open_url(link->url);
-            return;
+            if (std::optional<remote_web_link> link { resolve_remote_web_link(url, settings().hosting.web_links, settings().hosting.hosts) }; link.has_value())
+                return std::move(link->url);
+            return std::nullopt;
         }
+        return std::nullopt;
+    }
+
+    void shell_controller::open_remote_web_link(const std::string& remote_name)
+    {
+        if (dependencies_.open_url == nullptr)
+            return;
+        if (const std::optional<std::string> url { remote_web_link_url(remote_name) }; url.has_value())
+            dependencies_.open_url(*url);
     }
 
     void shell_controller::open_repository_in_app(const std::size_t index)

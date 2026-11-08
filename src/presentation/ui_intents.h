@@ -239,6 +239,12 @@ namespace cyella {
         std::string remote {};
     };
 
+    // 원격의 웹 페이지 주소를 클립보드에 복사한다 (주소 링크 오른쪽 끝의 복사 단추). 여는 주소와 같은 규칙으로 푼다.
+    struct copy_remote_web_link_intent
+    {
+        std::string remote {};
+    };
+
     struct select_sidebar_item_intent
     {
         std::u8string key {};
