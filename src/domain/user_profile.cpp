@@ -67,6 +67,12 @@ namespace cyella {
             return tr(u8"profile.user_email_format");
         if (has_line_break(profile.signing_key))
             return tr(u8"profile.signing_key_multiline");
+        // 자격 증명 도우미가 줄 단위로 받는 계정 이름이다 (`username=<값>`). 공백이 든 계정 이름을 쓰는 호스팅은 없어 오타로 본다.
+        if (has_space(profile.https_username))
+            return tr(u8"profile.https_username_invalid");
+        // 키 경로는 sh 명령에 작은따옴표로 들어간다. 줄바꿈과 작은따옴표는 그 따옴표를 깬다.
+        if (has_line_break(profile.ssh_key) || profile.ssh_key.find(u8'\'') != std::u8string::npos || has_edge_space(profile.ssh_key))
+            return tr(u8"profile.ssh_key_invalid");
         return {};
     }
 
@@ -173,6 +179,12 @@ namespace cyella {
                 return;
             }
         settings.profile_assignments.push_back(profile_assignment { .path = normalize_repository_path(repository_path), .profile = std::move(profile) });
+    }
+
+    bool unassign_profile(app_settings& settings, const std::u8string_view repository_path)
+    {
+        const std::u8string key { repository_path_key(repository_path) };
+        return std::erase_if(settings.profile_assignments, [&key](const profile_assignment& assignment) { return repository_path_key(assignment.path) == key; }) > 0;
     }
 
     std::optional<std::u8string> assigned_profile(const app_settings& settings, const std::u8string_view repository_path)

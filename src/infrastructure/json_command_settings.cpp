@@ -74,6 +74,8 @@ namespace cyella {
                 profile.user_name = read_string(entry, "user_name");
                 profile.user_email = read_string(entry, "user_email");
                 profile.signing_key = read_string(entry, "signing_key");
+                profile.https_username = read_string(entry, "https_username");
+                profile.ssh_key = read_string(entry, "ssh_key");
                 // 이름이 없거나 같은 이름이 앞에 있으면 규칙과 적용 기록이 어느 프로필을 가리키는지 알 수 없다.
                 if (profile.name.empty() || find_profile_index(result.settings.profiles, profile.name).has_value())
                 {
@@ -206,6 +208,11 @@ namespace cyella {
             // 서명 키는 커밋 서명 쪽의 값이다. 비어 있으면 키를 쓰지 않는다.
             if (profile.signing_key.empty() == false)
                 entry["signing_key"] = as_string(profile.signing_key);
+            // 접속 계정도 비어 있으면 키를 쓰지 않는다 (전역 계정을 쓴다는 뜻이다).
+            if (profile.https_username.empty() == false)
+                entry["https_username"] = as_string(profile.https_username);
+            if (profile.ssh_key.empty() == false)
+                entry["ssh_key"] = as_string(profile.ssh_key);
             profiles.push_back(std::move(entry));
         }
         write_or_erase(root, "profiles", std::move(profiles), settings.profiles.empty() == false);

@@ -538,17 +538,29 @@ identity: shell_controller ── request_identity ─▶ driver ─ scheduler("
 
 ### 저장소별 사용자 프로필
 
-`app_settings`에 `profiles`(이름·`user.name`·`user.email`·서명 키), `profile_rules`(폴더 접두 → 프로필), `profile_assignments`(저장소 경로 → 적용한 프로필)가 있다. 서명 키는
+`app_settings`에 `profiles`(이름·`user.name`·`user.email`·서명 키·접속 계정), `profile_rules`(폴더 접두 → 프로필), `profile_assignments`(저장소 경로 → 적용한 프로필)가 있다. 서명 키는
 프로필이 해석하지 않고 글 그대로 보관한다. 환경 설정의 "사용자 프로필" 쪽에서 프로필(추가·편집·삭제)과 규칙을 고친다. 프로필을 지우면 그것을 가리키던 규칙·적용 기록도 지운다.
 
-- **신원 읽기**: 선택된 저장소마다 한 번(그리고 15초가 지나면) `git config --show-scope --show-origin --get-regexp '^user\.(name|email|signingkey)$'`를 worker가 읽는다.
+- **접속 계정**: 작성자(누구로 기록되나)와 따로, push·fetch에 누구로 로그인할지를 프로필에 적는다. HTTPS 계정 이름(`https_username`)은 `credential.username`으로 써서 자격 증명
+  도우미(GCM 등)가 한 호스트에 저장된 여러 계정 중 그 계정의 토큰을 고르게 한다. git이 도우미에 그 이름을 넘기는지는 store 도우미로 통합 테스트가 확인한다. 이 값은 기본값이라 원격 URL에
+  사용자(`A@host`)가 있으면 그쪽이 이기고, 저장소가 쓰는 모든 HTTPS 호스트에 적용된다. URL을 붙인 `credential.<url>.username`은 읽지도 쓰지도 않는다. SSH 키(`ssh_key`)는
+  `core.sshCommand`를 `'<ssh>' -i '<키>' -o IdentitiesOnly=yes`로 쓴다. ssh는 "이번만 연결"과 같은 실행 파일(`dependencies.ssh_executable`, 없으면 `ssh`)이고, `IdentitiesOnly`가
+  ssh-agent에 올린 다른 계정의 키를 먼저 내밀지 않게 한다. 이 꼴이 아닌 `core.sshCommand`(사용자가 손으로 쓴 프록시 등)는 앱이 지우지 않는다. "이번만 연결"은 `GIT_SSH_COMMAND`로
+  `core.sshCommand`를 덮어쓰므로, 저장소에 프로필 키가 있으면 같은 `-i`·`IdentitiesOnly`를 덧붙인다(`make_temporary_known_hosts_ssh_command`의 `identity_file`).
+  PR 목록 같은 호스팅 기능은 저장소 폴더에서 `git credential fill`을 부르므로 같은 `credential.username`을 따른다.
+- **신원 읽기**: 선택된 저장소마다 한 번(그리고 15초가 지나면) `git config --show-scope --show-origin --get-regexp '^(user\.(name|email|signingkey)|credential\.username|core\.sshcommand)$'`를 worker가 읽는다.
   operation 표(workspace)를 거치지 않는다 — 읽기와 쓰기가 같은 lane(`identity:<저장소>`)에서 차례로 돌고, 결과는 relay로 `identity_loaded_intent`가 온다.
   종료 코드 1(맞는 키 없음)은 실패가 아니라 "설정되지 않음"이다. 출력은 `domain/git_identity`가 읽는다: 마지막 값이 git이 쓰는 값이고, `scope`가 `global`인데 파일이 전역 설정 파일(`GIT_CONFIG_GLOBAL`,
   `~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`)이 아니면 `includeIf`로 끌어온 파일이다. 경로에 역슬래시가 있으면 git이 `file:"C:\\Users\\…"`처럼 C 방식 따옴표를 씌워 풀어 읽는다.
 - **상태 줄**: `status-identity` 단추가 "작성자: 홍길동 <hong@corp.example> · 로컬"을 보인다. 이름과 이메일이 서로 다른 파일에서 왔으면 각각 말한다(`· 이름 전역 · 이메일 includeIf`).
+  저장소에 접속 계정이 있으면 뒤에 잇는다(`· 접속 hong-corp · 키 id_corp`).
   이름이나 이메일이 없으면 빨간 단추다. 누르면 프로필 모드 팔레트가 열린다.
-- **적용**: `git config --local -- user.name <값>`과 `user.email`만 쓴다(`--local`을 명시하고 값이 `-`로 시작해도 옵션으로 읽히지 않게 `--`를 둔다). 전역 설정은 어디서도 쓰지 않는다.
+- **적용**: `git config --local -- <키> <값>`으로 `user.name`·`user.email`과 접속 계정을 쓴다(`--local`을 명시하고 값이 `-`로 시작해도 옵션으로 읽히지 않게 `--`를 둔다). 전역 설정은 어디서도 쓰지 않는다.
+  프로필에 접속 계정이 없으면 `credential.username`과 앱이 쓴 꼴의 `core.sshCommand`를 `--unset-all`로 지운다(지울 키가 없는 종료 코드 5는 성공이다). 다른 프로필로 바꿔도 앞 프로필의 계정이 남지 않게 한다.
   성공하면 `profile_assignments`에 선택을 남기고 신원을 다시 읽는다. 적용하는 길은 환경 설정의 "현재 저장소에 적용", 팔레트의 프로필 모드, 상태 줄 단추, 제안 알림의 [적용]이다(모두 `apply_profile_intent`).
+  신원이 프로필과 같은지는 이름·이메일로 보고, 프로필에 접속 계정이 적혀 있으면 그것도 맞아야 한다(제안·커밋 전 경고가 같은 판단을 쓴다).
+- **로컬 설정 지우기**: 환경 설정 "사용자 프로필" 쪽의 현재 저장소 줄에 [로컬 설정 지우기]가 있다(`clear_local_identity_intent`). 로컬의 `user.name`·`user.email`·`credential.username`과
+  앱이 쓴 꼴의 `core.sshCommand`를 지워 전역 신원과 전역 계정으로 돌아가고, 그 저장소의 `profile_assignments`도 지운다. 지울 로컬 설정이 없으면 단추가 꺼진다.
 - **제안**: 저장소를 열고 신원을 읽으면, 경로가 규칙의 폴더 아래(폴더 경계 기준, 접두가 가장 긴 규칙)이고 신원이 그 프로필과 다르면 안내 알림에 [적용] 조치를 단다. **제안만 한다 — 눌러야 쓴다.**
   사용자가 이 저장소에 다른 프로필을 적용해 두었고 신원이 그대로 그것이면(규칙을 거스르기로 한 선택) 제안하지 않는다. 저장소마다 앱을 켜 두는 동안 한 번이다.
 - **첫 커밋 경고**: 작성자가 없거나(이름·이메일 중 하나라도) 규칙의 프로필과 다르면, 커밋 단추(또는 Ctrl+Enter)가 커밋하지 않고 경고 알림에 이유와 [프로필 적용 후 커밋]·[그대로 커밋]을 띄운다.

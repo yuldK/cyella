@@ -85,6 +85,9 @@ namespace cyella::ui {
     inline constexpr luil::ui_element_kind kind_profile_rule_prefix_input { luil::application_element_kind(307) };
     // 키 처리가 tree에서 읽는 보이지 않는 표식이다 (단축키 표, 팔레트 Enter).
     inline constexpr luil::ui_element_kind kind_command_marker { luil::application_element_kind(308) };
+    // 사용자 프로필의 접속 계정 입력 칸이다 (HTTPS 사용자 이름, SSH 키).
+    inline constexpr luil::ui_element_kind kind_profile_https_username_input { luil::application_element_kind(309) };
+    inline constexpr luil::ui_element_kind kind_profile_ssh_key_input { luil::application_element_kind(310) };
     // 환경 설정 "서명" 쪽의 프로그램 경로·allowed signers 입력 칸이다. 팔레트·단축키·프로필 칸의 300대와 겹치지 않게 400부터 쓴다.
     inline constexpr luil::ui_element_kind kind_settings_signing_gpg_input { luil::application_element_kind(400) };
     inline constexpr luil::ui_element_kind kind_settings_signing_ssh_input { luil::application_element_kind(401) };

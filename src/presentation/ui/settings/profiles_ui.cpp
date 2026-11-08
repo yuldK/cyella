@@ -31,6 +31,15 @@ namespace cyella::ui {
             std::u8string identity { profile.identity };
             if (profile.signing_key.empty() == false)
                 identity += tr(u8"settings.profiles.signing_key_suffix", { { u8"key", profile.signing_key } });
+            if (profile.https_username.empty() == false)
+                identity += u8" · " + tr(u8"identity.access_user", { { u8"user", profile.https_username } });
+            // 키는 경로가 길어 줄이 잘리므로 상태 줄처럼 파일 이름만 보인다. 전체 경로는 [편집]에 있다.
+            if (profile.ssh_key.empty() == false)
+            {
+                const std::size_t slash { profile.ssh_key.find_last_of(u8"/\\") };
+                const std::u8string key_name { slash == std::u8string::npos ? profile.ssh_key : profile.ssh_key.substr(slash + 1) };
+                identity += u8" · " + tr(u8"identity.access_key", { { u8"key", key_name } });
+            }
             auto identity_text { make_text(u8"profile-identity-" + key, identity, text_style { .size = 11.0f, .color = dim, .code = true }) };
             if (stacked == false)
             {
@@ -72,6 +81,15 @@ namespace cyella::ui {
             form.add(input_of(kind_profile_signing_key_input, u8"settings-profile-signing-input", edit.signing_key, tr(u8"settings.profiles.signing_key_placeholder"),
                          tr(u8"settings.profiles.signing_key")),
                 input_height);
+            form.gap(small_gap);
+            // 접속 계정이다. 작성자와 달리 push·fetch에 누구로 로그인할지를 정한다. 비우면 전역 계정을 쓴다.
+            form.add(field_label(u8"settings-profile-https-label", tr(u8"settings.profiles.https_username_label")), label_height);
+            form.add(input_of(kind_profile_https_username_input, u8"settings-profile-https-input", edit.https_username, tr(u8"settings.profiles.https_username_placeholder"),
+                         tr(u8"settings.profiles.https_username")),
+                input_height);
+            form.gap(small_gap);
+            form.add(field_label(u8"settings-profile-ssh-label", tr(u8"settings.profiles.ssh_key_label")), label_height);
+            form.add(input_of(kind_profile_ssh_key_input, u8"settings-profile-ssh-input", edit.ssh_key, u8"C:/Users/me/.ssh/id_ed25519_work", tr(u8"settings.profiles.ssh_key")), input_height);
             form.add(help_line(u8"settings-profile-error", edit.error, error_color()), line_height);
             auto buttons { make_row(u8"settings-profile-buttons") };
             buttons->add_flexible_gap();
@@ -143,9 +161,15 @@ namespace cyella::ui {
         page.gap(small_gap);
         // 선택된 저장소의 지금 신원이다. 어느 설정 파일의 값인지(로컬·전역·includeIf)도 말한다.
         if (view.repository_open)
-            page.add(make_text(u8"settings-profiles-repository", tr(u8"settings.profiles.repository_identity", { { u8"repository", view.repository_name }, { u8"identity", view.identity_text } }),
-                         text_style { .size = 12.0f, .bold = true }),
-                line_height + 4.0f);
+        {
+            // 로컬 설정을 지우면 전역 신원과 전역 계정으로 돌아간다. 프로필을 한 번 적용하면 되돌릴 길이 이것뿐이다.
+            auto row { make_row(u8"settings-profiles-repository-row", 8.0f) };
+            row->add_flexible(make_text(u8"settings-profiles-repository",
+                tr(u8"settings.profiles.repository_identity", { { u8"repository", view.repository_name }, { u8"identity", view.identity_text } }), text_style { .size = 12.0f, .bold = true }));
+            row->add(button_of(u8"settings-profiles-clear-local", tr(u8"settings.profiles.clear_local"), message(clear_local_identity_intent {}), view.can_clear_local),
+                { .length = 128.0f, .cross_length = button_height });
+            page.add(std::move(row), row_height);
+        }
         else
             page.add(help_line(u8"settings-profiles-repository", tr(u8"settings.profiles.no_repository")), line_height + 4.0f);
         page.gap(small_gap);

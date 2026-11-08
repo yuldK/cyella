@@ -20,7 +20,14 @@ namespace cyella {
 
     user_profile make_profile_from_edit(const profile_edit_state& edit)
     {
-        return user_profile { .name = trimmed(edit.name.text), .user_name = trimmed(edit.user_name.text), .user_email = trimmed(edit.user_email.text), .signing_key = trimmed(edit.signing_key.text) };
+        return user_profile {
+            .name = trimmed(edit.name.text)
+            , .user_name = trimmed(edit.user_name.text)
+            , .user_email = trimmed(edit.user_email.text)
+            , .signing_key = trimmed(edit.signing_key.text)
+            , .https_username = trimmed(edit.https_username.text)
+            , .ssh_key = trimmed(edit.ssh_key.text)
+        };
     }
 
     profiles_page_view build_profiles_page_view(const app_settings& settings, const std::optional<profile_edit_state>& edit, const profile_rule_draft& rule,
@@ -30,6 +37,7 @@ namespace cyella {
         view.repository_open = repository.open;
         view.repository_name = repository.name;
         view.identity_text = repository.identity_text;
+        view.can_clear_local = repository.open && repository.has_local_settings;
         for (std::size_t index { 0 }; index < settings.profiles.size(); ++index)
         {
             const user_profile& profile { settings.profiles[index] };
@@ -38,6 +46,8 @@ namespace cyella {
             row.name = profile.name;
             row.identity = profile.user_name + u8" <" + profile.user_email + u8">";
             row.signing_key = profile.signing_key;
+            row.https_username = profile.https_username;
+            row.ssh_key = profile.ssh_key;
             row.applied = repository.applied_profile.empty() == false && repository.applied_profile == profile.name;
             row.editing = edit.has_value() && edit->index == index;
             view.profiles.push_back(std::move(row));
@@ -50,6 +60,8 @@ namespace cyella {
             editing.user_name = luil::make_text_input_view(edit->user_name, composition, to_luil_target(text_target::settings_profile_user_name));
             editing.user_email = luil::make_text_input_view(edit->user_email, composition, to_luil_target(text_target::settings_profile_user_email));
             editing.signing_key = luil::make_text_input_view(edit->signing_key, composition, to_luil_target(text_target::settings_profile_signing_key));
+            editing.https_username = luil::make_text_input_view(edit->https_username, composition, to_luil_target(text_target::settings_profile_https_username));
+            editing.ssh_key = luil::make_text_input_view(edit->ssh_key, composition, to_luil_target(text_target::settings_profile_ssh_key));
             editing.error = check_user_profile(make_profile_from_edit(*edit), settings.profiles, edit->index);
             editing.can_save = editing.error.empty();
             view.edit = std::move(editing);

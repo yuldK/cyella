@@ -122,6 +122,8 @@ TEST_CASE("profiles, rules and assignments survive a settings round trip and kee
     app_settings settings {};
     user_profile company { make_profile(u8"회사", u8"홍길동", u8"hong@corp.example") };
     company.signing_key = u8"ABCD1234";
+    company.https_username = u8"hong-corp";
+    company.ssh_key = u8"C:/Users/me/.ssh/id_corp";
     upsert_user_profile(settings, std::nullopt, company);
     upsert_user_profile(settings, std::nullopt, make_profile(u8"개인", u8"길동", u8"me@example.com"));
     upsert_profile_rule(settings, profile_rule { u8"E:\\work", u8"회사" });
@@ -135,6 +137,10 @@ TEST_CASE("profiles, rules and assignments survive a settings round trip and kee
     REQUIRE(loaded.settings.profile_rules == settings.profile_rules);
     REQUIRE(loaded.settings.profile_assignments == settings.profile_assignments);
     REQUIRE(loaded.settings.profiles.front().signing_key == u8"ABCD1234");
+    REQUIRE(loaded.settings.profiles.front().https_username == u8"hong-corp");
+    REQUIRE(loaded.settings.profiles.front().ssh_key == u8"C:/Users/me/.ssh/id_corp");
+    // 접속 계정이 없는 프로필은 그 키를 쓰지 않는다.
+    REQUIRE(json.find(u8"\"ssh_key\"") == json.rfind(u8"\"ssh_key\""));
 
     // 쓸 것이 없으면 키를 쓰지 않는다.
     const std::u8string plain { serialize_app_settings_json(app_settings {}, u8"") };
@@ -245,6 +251,65 @@ TEST_CASE("an identity matches a profile by name and email", "[profiles][identit
     REQUIRE(identity_matches_profile(identity, make_profile(u8"회사", u8"홍길동", u8"hong@corp.example")));
     REQUIRE(identity_matches_profile(identity, make_profile(u8"개인", u8"길동", u8"me@example.com")) == false);
     REQUIRE(identity_matches_profile(git_identity {}, make_profile(u8"회사", u8"홍길동", u8"hong@corp.example")) == false);
+}
+
+TEST_CASE("a profile's sign-in account must also match when the profile names one", "[profiles][identity]")
+{
+    git_identity identity { parse_git_identity(u8"local\tfile:.git/config\tuser.name 홍길동\nlocal\tfile:.git/config\tuser.email hong@corp.example\n") };
+    user_profile profile { make_profile(u8"회사", u8"홍길동", u8"hong@corp.example") };
+    profile.https_username = u8"hong-corp";
+    profile.ssh_key = u8"C:\\Users\\me\\.ssh\\id_corp";
+    // 작성자는 같아도 접속 계정이 저장소에 없으면 그 프로필이 아니다.
+    CHECK(identity_matches_profile(identity, profile) == false);
+    identity = parse_git_identity(
+        u8"local\tfile:.git/config\tuser.name 홍길동\nlocal\tfile:.git/config\tuser.email hong@corp.example\nlocal\tfile:.git/config\tcredential.username hong-corp\n"
+        u8"local\tfile:.git/config\tcore.sshcommand 'C:/Program Files/Git/usr/bin/ssh.exe' -i 'c:/users/me/.ssh/id_corp' -o IdentitiesOnly=yes\n");
+    REQUIRE(identity.credential_username.has_value());
+    REQUIRE(identity.ssh_command.has_value());
+    // 키 경로는 구분자·대소문자를 가리지 않고 맞춘다.
+    CHECK(identity_matches_profile(identity, profile));
+    profile.https_username = u8"someone-else";
+    CHECK(identity_matches_profile(identity, profile) == false);
+    // 접속 계정을 적지 않은 프로필은 저장소의 접속 설정을 보지 않는다.
+    CHECK(identity_matches_profile(identity, make_profile(u8"회사", u8"홍길동", u8"hong@corp.example")));
+    CHECK(describe_access(identity) == u8"접속 hong-corp · 키 id_corp");
+    CHECK(describe_identity_with_access(identity) == u8"홍길동 <hong@corp.example> · 로컬 · 접속 hong-corp · 키 id_corp");
+}
+
+TEST_CASE("the profile ssh command round-trips its key and leaves hand-written commands alone", "[profiles][identity]")
+{
+    const std::u8string command { make_profile_ssh_command(u8"C:\\Windows\\System32\\OpenSSH\\ssh.exe", u8"C:\\Users\\me\\.ssh\\id work") };
+    CHECK(command == u8"'C:/Windows/System32/OpenSSH/ssh.exe' -i 'C:/Users/me/.ssh/id work' -o IdentitiesOnly=yes");
+    CHECK(profile_ssh_key_of(command) == std::optional<std::u8string> { u8"C:/Users/me/.ssh/id work" });
+    CHECK(make_profile_ssh_command(u8"", u8"~/.ssh/k").starts_with(u8"'ssh' -i "));
+    CHECK(profile_ssh_key_of(u8"ssh -F C:/proxy/config").has_value() == false);
+    CHECK(profile_ssh_key_of(u8"ssh -i C:/k -o IdentitiesOnly=yes").has_value() == false);
+    CHECK(profile_ssh_key_of(u8"-i '' -o IdentitiesOnly=yes").has_value() == false);
+    CHECK(describe_access(git_identity {}).empty());
+}
+
+TEST_CASE("a profile's sign-in account rejects text that git or sh would misread", "[profiles]")
+{
+    user_profile profile { make_profile(u8"회사", u8"홍길동", u8"hong@corp.example") };
+    profile.https_username = u8"hong corp";
+    CHECK(check_user_profile(profile, {}, std::nullopt).empty() == false);
+    profile.https_username = u8"hong@corp.example";
+    CHECK(check_user_profile(profile, {}, std::nullopt).empty());
+    profile.ssh_key = u8"C:/it's/key";
+    CHECK(check_user_profile(profile, {}, std::nullopt).empty() == false);
+    profile.ssh_key = u8"C:/keys/id_corp";
+    CHECK(check_user_profile(profile, {}, std::nullopt).empty());
+}
+
+TEST_CASE("unassigning a repository forgets only that repository's profile", "[profiles]")
+{
+    app_settings settings {};
+    assign_profile(settings, u8"E:\\work\\repo", u8"회사");
+    assign_profile(settings, u8"E:\\play\\repo", u8"개인");
+    CHECK(unassign_profile(settings, u8"e:/work/repo/"));
+    CHECK(assigned_profile(settings, u8"E:\\work\\repo").has_value() == false);
+    CHECK(assigned_profile(settings, u8"E:\\play\\repo") == std::optional<std::u8string> { u8"개인" });
+    CHECK(unassign_profile(settings, u8"E:\\work\\repo") == false);
 }
 
 TEST_CASE("git's quoted origin paths are unquoted before they are compared", "[profiles][identity]")

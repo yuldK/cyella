@@ -9,7 +9,7 @@
 namespace cyella {
     struct app_settings;
 
-    // 저장소별로 쓰는 사용자 신원이다. 이름·`user.name`·`user.email`은 [적용]이 `git config --local`로 저장소에 쓴다.
+    // 저장소별로 쓰는 사용자 신원이다. `user.name`·`user.email`과 접속 계정은 [적용]이 `git config --local`로 저장소에 쓴다.
     // 서명 키는 커밋 서명 기능의 몫이라 앱은 뜻을 모르는 글 그대로 보관한다. 비밀번호·토큰은 두지 않는다.
     struct user_profile
     {
@@ -18,6 +18,12 @@ namespace cyella {
         std::u8string user_name {};
         std::u8string user_email {};
         std::u8string signing_key {};
+        // HTTPS 원격에 접속할 계정 이름이다. `credential.username`으로 써서 자격 증명 도우미(Git Credential Manager 등)가 그 계정의 토큰을 고르게 한다.
+        // 비어 있으면 저장소에 쓰지 않는다 (전역 계정을 쓴다).
+        std::u8string https_username {};
+        // SSH 원격에 접속할 개인 키 파일이다. `core.sshCommand`를 `ssh -i <키> -o IdentitiesOnly=yes`로 써서 ssh-agent의 다른 키를 쓰지 않게 한다.
+        // 비어 있으면 저장소에 쓰지 않는다.
+        std::u8string ssh_key {};
 
         [[nodiscard]] bool operator==(const user_profile&) const noexcept = default;
     };
@@ -69,6 +75,8 @@ namespace cyella {
     bool remove_profile_rule(app_settings& settings, std::size_t index);
     // 저장소에 적용한 프로필을 기억한다 (같은 저장소면 바꾼다).
     void assign_profile(app_settings& settings, std::u8string_view repository_path, std::u8string profile);
+    // 저장소의 적용 기록을 지운다 (로컬 설정을 지워 전역 신원으로 돌아갔을 때). 지웠으면 true다.
+    bool unassign_profile(app_settings& settings, std::u8string_view repository_path);
     // 적용 기록에서 저장소의 프로필 이름이다.
     [[nodiscard]] std::optional<std::u8string> assigned_profile(const app_settings& settings, std::u8string_view repository_path);
 } // namespace cyella

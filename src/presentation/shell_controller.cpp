@@ -151,8 +151,9 @@ namespace cyella {
             inputs.open = true;
             inputs.name = repository_display_name(session->path());
             const git_identity* const identity { selected_identity() };
-            inputs.identity_text = identity != nullptr ? describe_identity_with_source(*identity) : tr(u8"shell.identity.reading");
+            inputs.identity_text = identity != nullptr ? describe_identity_with_access(*identity) : tr(u8"shell.identity.reading");
             inputs.applied_profile = applied_profile_name();
+            inputs.has_local_settings = selected_identity_has_local_settings();
             return inputs;
         };
         result.request_ssh_info = dependencies_.request_ssh_info;
@@ -439,6 +440,8 @@ namespace cyella {
         case text_target::settings_profile_user_name:
         case text_target::settings_profile_user_email:
         case text_target::settings_profile_signing_key:
+        case text_target::settings_profile_https_username:
+        case text_target::settings_profile_ssh_key:
         case text_target::settings_rule_prefix:
             return settings_.draft(target);
         case text_target::palette_filter:
@@ -1356,8 +1359,8 @@ namespace cyella {
                 std::error_code error {};
                 const std::filesystem::path directory { std::filesystem::path { trust.known_hosts_path }.parent_path() };
                 trust.known_hosts_path = (directory / ("cyella-known-hosts-follow-" + std::to_string(++temporary_counter_) + ".tmp")).u8string();
-                trust.command = make_temporary_known_hosts_ssh_command(
-                    dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable }, std::filesystem::path { trust.known_hosts_path });
+                trust.command = make_temporary_known_hosts_ssh_command(dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable },
+                    std::filesystem::path { trust.known_hosts_path }, repository_profile_ssh_key(it->second.repository_id));
                 static_cast<void>(workspace->submit(it->second.repository_id, refresh_remote_tags_request { .remotes = {}, .ssh_command_override = trust }, true));
             }
             it = trusted_retries_.erase(it);
@@ -1487,7 +1490,7 @@ namespace cyella {
             status.identity_visible = true;
             if (const git_identity* const identity { selected_identity() }; identity != nullptr)
             {
-                status.identity_text = tr(u8"shell.identity.status", { { u8"identity", describe_identity_with_source(*identity) } });
+                status.identity_text = tr(u8"shell.identity.status", { { u8"identity", describe_identity_with_access(*identity) } });
                 status.identity_warning = identity->complete() == false;
                 status.identity_tooltip = tr(u8"shell.identity.status_tooltip");
             }

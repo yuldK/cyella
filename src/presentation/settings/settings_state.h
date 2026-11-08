@@ -46,6 +46,8 @@ namespace cyella {
         luil::text::text_edit_state user_name {};
         luil::text::text_edit_state user_email {};
         luil::text::text_edit_state signing_key {};
+        luil::text::text_edit_state https_username {};
+        luil::text::text_edit_state ssh_key {};
     };
 
     // 프로필 적용 규칙을 더하는 입력이다 (폴더 접두와 고른 프로필).

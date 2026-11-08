@@ -192,6 +192,7 @@ namespace cyella {
     // 바뀌지 않는다. 이 값은 사용자의 `core.sshCommand`를 그 한 번의 실행에서 덮어쓰므로 호출자는
     // 사용자가 쓰는 ssh 실행 파일을 넘겨야 한다. 값은 git이 sh 규칙으로 해석하므로 경로를 작은따옴표로
     // 감싼다. ssh 인자 목록은 `make_temporary_known_hosts_ssh_arguments`로 따로 얻는다.
-    [[nodiscard]] std::u8string make_temporary_known_hosts_ssh_command(std::u8string_view ssh_executable, const std::filesystem::path& known_hosts_path);
+    // `identity_file`이 있으면 `-i <키> -o IdentitiesOnly=yes`를 붙인다. 저장소의 프로필이 `core.sshCommand`로 정한 키를 이 덮어쓰기가 잃지 않게 한다.
+    [[nodiscard]] std::u8string make_temporary_known_hosts_ssh_command(std::u8string_view ssh_executable, const std::filesystem::path& known_hosts_path, std::u8string_view identity_file = {});
     [[nodiscard]] std::vector<std::u8string> make_temporary_known_hosts_ssh_arguments(const std::filesystem::path& known_hosts_path);
 } // namespace cyella

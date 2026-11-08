@@ -317,6 +317,10 @@ TEST_CASE("temporary known hosts options keep the user's file untouched", "[ssh]
     CHECK(make_temporary_known_hosts_ssh_command(u8"C:\\Program Files\\Git\\usr\\bin\\ssh.exe", "C:/Temp/cyella kh")
         == u8"'C:/Program Files/Git/usr/bin/ssh.exe' '-o' 'UserKnownHostsFile=C:/Temp/cyella kh' '-o' 'StrictHostKeyChecking=accept-new'");
     CHECK(make_temporary_known_hosts_ssh_command(u8"ssh", "C:/it's/kh").find(u8"'UserKnownHostsFile=C:/it'\\''s/kh'") != std::u8string::npos);
+
+    // 저장소의 프로필이 키를 정해 두었으면 이 한 번의 덮어쓰기도 그 키로만 접속한다.
+    CHECK(make_temporary_known_hosts_ssh_command(u8"ssh", "C:/kh", u8"C:\\Users\\me\\.ssh\\id_work")
+        == u8"'ssh' '-o' 'UserKnownHostsFile=C:/kh' '-o' 'StrictHostKeyChecking=accept-new' '-i' 'C:/Users/me/.ssh/id_work' '-o' 'IdentitiesOnly=yes'");
 }
 
 TEST_CASE("the server command quotes the path but leaves the home prefix for the shell to expand", "[ssh][repository]")

@@ -179,9 +179,7 @@ namespace cyella::win32 {
             identity_options.hints.global_files = global_git_config_files();
             identity_ = std::make_unique<git_identity_gateway>(*process_runner_, git_tool_.executable, std::move(identity_options));
             dependencies.request_identity = [this](const std::string& repository_id, const std::u8string& path) { request_identity(repository_id, path); };
-            dependencies.apply_identity = [this](const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email) {
-                apply_identity(repository_id, path, user_name, user_email);
-            };
+            dependencies.apply_identity = [this](const std::string& repository_id, const std::u8string& path, const local_identity_change& change) { apply_identity(repository_id, path, change); };
         }
         else
             dependencies.git_message = std::u8string { git_tool_unavailable_message(git_tool_.availability) };
@@ -325,7 +323,7 @@ namespace cyella::win32 {
         static_cast<void>(scheduler_->submit(std::move(request)));
     }
 
-    void cyella_driver::apply_identity(const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email)
+    void cyella_driver::apply_identity(const std::string& repository_id, const std::u8string& path, const local_identity_change& change)
     {
         if (scheduler_ == nullptr || identity_ == nullptr)
             return;
@@ -333,12 +331,12 @@ namespace cyella::win32 {
         registry_.add(*source);
         operation_request request {};
         request.repository_key = "identity:" + repository_id;
-        request.job = [gateway = identity_.get(), source, relay = &relay_, repository_id, path, user_name, user_email](const operation_context& context) {
+        request.job = [gateway = identity_.get(), source, relay = &relay_, repository_id, path, change](const operation_context& context) {
             const process_cancellation_registration link {
                 context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {}
             };
-            const git_identity_write written { gateway->apply(path, user_name, user_email, source->token()) };
-            relay->post(luil::app_message { identity_applied_intent { .repository_id = repository_id, .ok = written.ok, .message = written.message } });
+            const git_identity_write written { gateway->apply(path, change, source->token()) };
+            relay->post(luil::app_message { identity_applied_intent { .repository_id = repository_id, .ok = written.ok, .message = written.message, .cleared = change.clear } });
         };
         static_cast<void>(scheduler_->submit(std::move(request)));
     }

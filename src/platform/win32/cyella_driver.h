@@ -168,7 +168,7 @@ namespace cyella::win32 {
         void open_url(const std::string& url);
         // 저장소의 작성자 신원을 worker가 읽게 하고, 프로필을 `git config --local`로 쓰게 한다. 결과는 relay로 돌아온다.
         void request_identity(const std::string& repository_id, const std::u8string& path);
-        void apply_identity(const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email);
+        void apply_identity(const std::string& repository_id, const std::u8string& path, const local_identity_change& change);
         // 작성자 사진을 worker가 받아(디스크 보관 포함) 풀게 한다. 결과는 `avatar_loaded_intent`로 relay에 돌아온다.
         void request_avatar(const std::string& email);
         // 웹뷰가 보여야 할 diff를 맞추고, 쌓인 안내를 화면에 올린다.

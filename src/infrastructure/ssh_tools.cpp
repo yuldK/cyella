@@ -453,10 +453,13 @@ namespace cyella {
         return { u8"-o", u8"UserKnownHostsFile=" + known_hosts_path.generic_u8string(), u8"-o", u8"StrictHostKeyChecking=accept-new" };
     }
 
-    std::u8string make_temporary_known_hosts_ssh_command(const std::u8string_view ssh_executable, const std::filesystem::path& known_hosts_path)
+    std::u8string make_temporary_known_hosts_ssh_command(const std::u8string_view ssh_executable, const std::filesystem::path& known_hosts_path, const std::u8string_view identity_file)
     {
         std::u8string command { quote_for_shell(forward_slashes(std::u8string { ssh_executable })) };
-        for (const std::u8string& argument : make_temporary_known_hosts_ssh_arguments(known_hosts_path))
+        std::vector<std::u8string> arguments { make_temporary_known_hosts_ssh_arguments(known_hosts_path) };
+        if (identity_file.empty() == false)
+            arguments.insert(arguments.end(), { u8"-i", forward_slashes(std::u8string { identity_file }), u8"-o", u8"IdentitiesOnly=yes" });
+        for (const std::u8string& argument : arguments)
         {
             command.push_back(u8' ');
             command += quote_for_shell(argument);

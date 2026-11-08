@@ -104,6 +104,10 @@ namespace cyella::ui {
             return to_luil_target(text_target::settings_profile_signing_key);
         if (kind == kind_profile_rule_prefix_input)
             return to_luil_target(text_target::settings_rule_prefix);
+        if (kind == kind_profile_https_username_input)
+            return to_luil_target(text_target::settings_profile_https_username);
+        if (kind == kind_profile_ssh_key_input)
+            return to_luil_target(text_target::settings_profile_ssh_key);
         return std::nullopt;
     }
 

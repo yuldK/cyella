@@ -10,6 +10,20 @@
 namespace cyella {
     namespace {
         constexpr std::u8string_view file_prefix { u8"file:" };
+        constexpr std::u8string_view ssh_identities_only_suffix { u8" -o IdentitiesOnly=yes" };
+
+        std::u8string forward_slashes(const std::u8string_view path)
+        {
+            std::u8string result { path };
+            std::ranges::replace(result, u8'\\', u8'/');
+            return result;
+        }
+
+        // sh의 작은따옴표 안은 아무것도 풀지 않는다. 프로필 검사가 경로의 작은따옴표를 막으므로 이스케이프는 두지 않는다.
+        std::u8string quote_single(const std::u8string_view text)
+        {
+            return u8"'" + std::u8string { text } + u8"'";
+        }
 
         std::vector<std::u8string_view> split_tabs(const std::u8string_view line, const std::size_t limit)
         {
@@ -160,6 +174,11 @@ namespace cyella {
                 target = &identity.email;
             else if (key == u8"user.signingkey")
                 target = &identity.signing_key;
+            else if (key == u8"credential.username")
+                target = &identity.credential_username;
+            // git은 `--get-regexp`의 키를 소문자로 낸다.
+            else if (key == u8"core.sshcommand")
+                target = &identity.ssh_command;
             if (target == nullptr)
                 continue;
             identity_value found {};
@@ -204,9 +223,75 @@ namespace cyella {
         return text;
     }
 
-    bool identity_matches_profile(const git_identity& identity, const user_profile& profile) noexcept
+    bool identity_matches_profile(const git_identity& identity, const user_profile& profile)
     {
-        return identity.name.has_value() && identity.email.has_value() && identity.name->value == profile.user_name && identity.email->value == profile.user_email;
+        if (identity.name.has_value() == false || identity.email.has_value() == false || identity.name->value != profile.user_name || identity.email->value != profile.user_email)
+            return false;
+        if (profile.https_username.empty() == false && (identity.credential_username.has_value() == false || identity.credential_username->value != profile.https_username))
+            return false;
+        if (profile.ssh_key.empty() == false)
+        {
+            const std::optional<std::u8string> key { profile_ssh_key_of(identity) };
+            if (key.has_value() == false || same_key_path(*key, profile.ssh_key) == false)
+                return false;
+        }
+        return true;
+    }
+
+    std::u8string make_profile_ssh_command(const std::u8string_view ssh_executable, const std::u8string_view key_path)
+    {
+        return quote_single(forward_slashes(ssh_executable.empty() ? std::u8string_view { u8"ssh" } : ssh_executable)) + u8" -i " + quote_single(forward_slashes(key_path))
+            + std::u8string { ssh_identities_only_suffix };
+    }
+
+    std::optional<std::u8string> profile_ssh_key_of(const std::u8string_view ssh_command)
+    {
+        // `<ssh> -i '<키>' -o IdentitiesOnly=yes`의 꼬리부터 거꾸로 읽는다. ssh 실행 파일 자리는 무엇이든 받는다.
+        if (ssh_command.ends_with(ssh_identities_only_suffix) == false)
+            return std::nullopt;
+        std::u8string_view rest { ssh_command.substr(0, ssh_command.size() - ssh_identities_only_suffix.size()) };
+        if (rest.size() < 2 || rest.back() != u8'\'')
+            return std::nullopt;
+        rest.remove_suffix(1);
+        const std::size_t open { rest.rfind(u8'\'') };
+        if (open == std::u8string_view::npos || open == 0)
+            return std::nullopt;
+        const std::u8string_view key { rest.substr(open + 1) };
+        if (key.empty() || rest.substr(0, open).ends_with(u8" -i ") == false)
+            return std::nullopt;
+        return std::u8string { key };
+    }
+
+    std::optional<std::u8string> profile_ssh_key_of(const git_identity& identity)
+    {
+        if (identity.ssh_command.has_value() == false)
+            return std::nullopt;
+        return profile_ssh_key_of(identity.ssh_command->value);
+    }
+
+    bool same_key_path(const std::u8string_view left, const std::u8string_view right)
+    {
+        return normalize_path_key(left) == normalize_path_key(right);
+    }
+
+    std::u8string describe_access(const git_identity& identity)
+    {
+        std::u8string text {};
+        if (identity.credential_username.has_value() && identity.credential_username->value.empty() == false)
+            text = tr(u8"identity.access_user", { { u8"user", identity.credential_username->value } });
+        if (const std::optional<std::u8string> key { profile_ssh_key_of(identity) }; key.has_value())
+        {
+            const std::size_t slash { key->find_last_of(u8"/\\") };
+            const std::u8string name { slash == std::u8string::npos ? *key : key->substr(slash + 1) };
+            text += (text.empty() ? std::u8string {} : std::u8string { u8" · " }) + tr(u8"identity.access_key", { { u8"key", name } });
+        }
+        return text;
+    }
+
+    std::u8string describe_identity_with_access(const git_identity& identity)
+    {
+        const std::u8string access { describe_access(identity) };
+        return describe_identity_with_source(identity) + (access.empty() ? std::u8string {} : u8" · " + access);
     }
 
     std::u8string describe_identity_with_source(const git_identity& identity)

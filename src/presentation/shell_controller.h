@@ -83,7 +83,7 @@ namespace cyella {
             // 저장소의 작성자 신원을 worker에서 읽고 `git config --local`로 쓴다. 결과는 `identity_loaded_intent`·`identity_applied_intent`로 돌아온다.
             // 비어 있으면(test) 신원을 읽지 않고 프로필 적용도 하지 않는다.
             std::function<void(const std::string& repository_id, const std::u8string& path)> request_identity {};
-            std::function<void(const std::string& repository_id, const std::u8string& path, const std::u8string& user_name, const std::u8string& user_email)> apply_identity {};
+            std::function<void(const std::string& repository_id, const std::u8string& path, const local_identity_change& change)> apply_identity {};
             // 작성자 사진(Gravatar)을 worker에서 받는다. 인자는 다듬은 메일이고 결과는 `avatar_loaded_intent`로 돌아온다.
             // 환경 설정 `appearance.gravatar`가 켜졌을 때만 부른다. 비어 있으면(test) 늘 이름 첫 글자다.
             std::function<void(const std::string& email)> request_avatar {};
@@ -320,6 +320,12 @@ namespace cyella {
         // 선택된 저장소의 신원을 아직 읽지 않았으면 worker에게 읽게 한다. 규칙에 맞는 프로필이 있으면 한 번 제안한다.
         void sync_identity();
         void apply_profile(const std::u8string& name);
+        // 선택된 저장소의 로컬 `user.*`·`credential.username`·(앱이 쓴) `core.sshCommand`를 지운다. 전역 신원과 계정으로 돌아간다.
+        void clear_local_identity();
+        // 선택된 저장소에 로컬 신원·접속 계정 설정이 있는가 (지우기 단추를 켤지).
+        [[nodiscard]] bool selected_identity_has_local_settings() const;
+        // 저장소의 `core.sshCommand`가 프로필이 쓴 꼴이면 그 키 경로다. "이번만 연결"이 그 명령을 덮어써도 같은 키로 접속하게 한다.
+        [[nodiscard]] std::u8string repository_profile_ssh_key(const std::string& repository_id) const;
         // 커밋 전 경고다. 신원이 없거나 규칙의 프로필과 다르면 안내를 띄우고 true(커밋하지 않는다)다. 저장소마다 한 번만 경고한다.
         [[nodiscard]] bool warn_before_commit();
         // 안내 알림의 프로필 조치다. 처리했으면 true다.

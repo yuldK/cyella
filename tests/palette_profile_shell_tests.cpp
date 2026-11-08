@@ -44,6 +44,9 @@ namespace {
         std::u8string path {};
         std::u8string user_name {};
         std::u8string user_email {};
+        std::u8string credential_username {};
+        std::u8string ssh_command {};
+        bool clear { false };
     };
 
     struct p6_harness
@@ -70,8 +73,9 @@ namespace {
             if (with_identity)
             {
                 dependencies.request_identity = [this](const std::string& id, const std::u8string& path) { reads.push_back(identity_call { id, path }); };
-                dependencies.apply_identity
-                    = [this](const std::string& id, const std::u8string& path, const std::u8string& name, const std::u8string& email) { writes.push_back(apply_call { id, path, name, email }); };
+                dependencies.apply_identity = [this](const std::string& id, const std::u8string& path, const local_identity_change& change) {
+                    writes.push_back(apply_call { id, path, change.user_name, change.user_email, change.credential_username, change.ssh_command, change.clear });
+                };
             }
             return dependencies;
         }
@@ -937,4 +941,71 @@ TEST_CASE("applying with no repository or no worker says why", "[profiles][contr
         CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
         CHECK(test.writes.empty());
     }
+}
+
+TEST_CASE("a profile's sign-in account is applied with the identity and the status line names it", "[profiles][controller]")
+{
+    p6_harness test {};
+    test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
+    test.send(edit_profile_intent { 0 });
+    test.type(text_target::settings_profile_https_username, u8"hong-corp");
+    test.type(text_target::settings_profile_ssh_key, u8"C:\\Users\\me\\.ssh\\id_corp");
+    test.send(save_profile_intent {});
+    REQUIRE(test.controller.settings().profiles.size() == 1);
+    CHECK(test.controller.settings().profiles[0].https_username == u8"hong-corp");
+    CHECK(test.controller.settings().profiles[0].ssh_key == u8"C:\\Users\\me\\.ssh\\id_corp");
+
+    test.identity_is(u8"Global Gal", u8"g@example.com");
+    test.send(apply_profile_intent { u8"회사" });
+    REQUIRE(test.writes.size() == 1);
+    CHECK(test.writes[0].clear == false);
+    CHECK(test.writes[0].credential_username == u8"hong-corp");
+    // ssh 실행 파일이 주어지지 않은 test에서는 PATH의 ssh다.
+    CHECK(test.writes[0].ssh_command == u8"'ssh' -i 'C:/Users/me/.ssh/id_corp' -o IdentitiesOnly=yes");
+    test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = u8"설정했습니다." });
+
+    // 새로 읽은 신원에 접속 계정이 있으면 상태 줄이 말하고, 환경 설정의 [로컬 설정 지우기]가 켜진다.
+    git_identity identity {};
+    identity.name = identity_value { u8"홍길동", identity_origin::local, u8".git/config" };
+    identity.email = identity_value { u8"hong@corp.example", identity_origin::local, u8".git/config" };
+    identity.credential_username = identity_value { u8"hong-corp", identity_origin::local, u8".git/config" };
+    identity.ssh_command = identity_value { test.writes[0].ssh_command, identity_origin::local, u8".git/config" };
+    test.send(identity_loaded_intent { .repository_id = test.repository, .identity = identity, .ok = true, .error = {} });
+    const view_snapshot view { test.view() };
+    CHECK(view.status.identity_text == u8"작성자: 홍길동 <hong@corp.example> · 로컬 · 접속 hong-corp · 키 id_corp");
+    REQUIRE(view.settings.has_value());
+    REQUIRE(view.settings->profiles.has_value());
+    CHECK(view.settings->profiles->can_clear_local);
+    REQUIRE(view.settings->profiles->profiles.size() == 1);
+    CHECK(view.settings->profiles->profiles[0].applied);
+}
+
+TEST_CASE("clearing local settings asks the worker to remove them and forgets the applied profile", "[profiles][controller]")
+{
+    p6_harness test {};
+    test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
+    test.identity_is(u8"홍길동", u8"hong@corp.example", identity_origin::local);
+    test.send(apply_profile_intent { u8"회사" });
+    test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = u8"설정했습니다." });
+    REQUIRE(test.controller.settings().profile_assignments.size() == 1);
+    test.identity_is(u8"홍길동", u8"hong@corp.example", identity_origin::local);
+    REQUIRE(test.view().settings->profiles->can_clear_local);
+
+    test.send(clear_local_identity_intent {});
+    REQUIRE(test.writes.size() == 2);
+    CHECK(test.writes[1].clear);
+    CHECK(test.writes[1].path == u8"E:\\work\\repo");
+    // 실패하면 적용 기록을 그대로 두고 경고한다.
+    test.send(identity_applied_intent { .repository_id = test.repository, .ok = false, .message = u8"locked", .cleared = true });
+    CHECK(test.controller.settings().profile_assignments.size() == 1);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
+    // 성공하면 적용 기록을 지우고 신원을 다시 읽는다.
+    const std::size_t reads_before { test.reads.size() };
+    test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = u8"지웠습니다.", .cleared = true });
+    CHECK(test.controller.settings().profile_assignments.empty());
+    CHECK(test.reads.size() == reads_before + 1);
+
+    // 전역 값만 있으면 지울 것이 없어 단추가 꺼진다.
+    test.identity_is(u8"Global Gal", u8"g@example.com");
+    CHECK_FALSE(test.view().settings->profiles->can_clear_local);
 }

@@ -1543,8 +1543,9 @@ namespace cyella {
             directory = ".";
         const std::filesystem::path known_hosts { directory / ("cyella-known-hosts-" + std::to_string(++temporary_counter_) + "-" + std::to_string(status.id) + ".tmp") };
         temporary_ssh_trust trust {};
-        trust.command
-            = make_temporary_known_hosts_ssh_command(dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable }, known_hosts);
+        // 저장소의 프로필이 SSH 키를 정해 두었으면 이 덮어쓰기에도 같은 키를 쓴다. 아니면 이번 한 번은 다른 계정의 키로 접속한다.
+        trust.command = make_temporary_known_hosts_ssh_command(dependencies_.ssh_executable.empty() ? std::u8string_view { u8"ssh" } : std::u8string_view { dependencies_.ssh_executable },
+            known_hosts, repository_profile_ssh_key(status.repository_id));
         trust.known_hosts_path = known_hosts.u8string();
         std::optional<git_operation> retry { with_ssh_override(*request, trust) };
         // 질문 중인 operation을 거둔다. 취소는 알림 없이 끝나고 "답 없이 닫기"의 실패 배너도 남기지 않는다.

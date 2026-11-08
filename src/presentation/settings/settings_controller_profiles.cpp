@@ -55,6 +55,8 @@ namespace cyella {
             set_text(edit.user_name, profile.user_name);
             set_text(edit.user_email, profile.user_email);
             set_text(edit.signing_key, profile.signing_key);
+            set_text(edit.https_username, profile.https_username);
+            set_text(edit.ssh_key, profile.ssh_key);
             state.profile_edit = std::move(edit);
             state.message.clear();
         }

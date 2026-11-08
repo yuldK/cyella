@@ -67,6 +67,9 @@ namespace cyella {
         settings_profile_user_email,
         settings_profile_signing_key,
         settings_rule_prefix,
+        // 프로필의 접속 계정 칸이다. `from_luil_target`의 300대 범위가 이 칸까지다.
+        settings_profile_https_username,
+        settings_profile_ssh_key,
         // 환경 설정 "서명" 쪽의 프로그램 경로·allowed signers 입력 칸이다. 팔레트·단축키·프로필 칸의 300대와 겹치지 않게 400부터 쓴다.
         settings_signing_gpg_program = 400,
         settings_signing_ssh_program,
@@ -355,7 +358,7 @@ namespace cyella {
         const bool selector { value == static_cast<std::uint32_t>(text_target::selector_filter) };
         const bool signing { value >= static_cast<std::uint32_t>(text_target::settings_signing_gpg_program) && value <= static_cast<std::uint32_t>(text_target::settings_signing_allowed_signers) };
         const bool hosting { value >= static_cast<std::uint32_t>(text_target::settings_hosting_host) && value <= static_cast<std::uint32_t>(text_target::settings_web_link_icon) };
-        const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_rule_prefix) };
+        const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_profile_ssh_key) };
         const bool fonts { value >= static_cast<std::uint32_t>(text_target::settings_ui_font) && value <= static_cast<std::uint32_t>(text_target::settings_code_font) };
         return basic || form || rebase || selector || hosting || commands || signing || fonts ? static_cast<text_target>(value) : text_target::none;
     }

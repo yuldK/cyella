@@ -10,7 +10,7 @@
 #include <vector>
 
 namespace cyella {
-    // 저장소의 작성자 신원(`user.*`)을 읽고 `git config --local`로 쓰는 경로다.
+    // 저장소의 작성자 신원(`user.*`)과 접속 계정(`credential.username`·`core.sshCommand`)을 읽고 `git config --local`로 쓰는 경로다.
     // operation 표(workspace)를 거치지 않고 worker에서 바로 부르는 작은 입출력이다. 읽기는 `--no-optional-locks`의 로컬 조회이고, 쓰기는
     // 저장소의 `.git/config`만 건드린다. **전역·시스템 설정은 쓰지 않는다** (`--local`을 명시한다).
     struct git_identity_options
@@ -41,8 +41,8 @@ namespace cyella {
         git_identity_gateway(process_runner& runner, std::u8string git_executable, git_identity_options options = {});
 
         [[nodiscard]] git_identity_read read(std::u8string_view repository_path, const process_cancellation_token& token) const;
-        // `user.name`·`user.email`을 저장소의 로컬 설정에 쓴다. 이름과 이메일이 모두 비어 있지 않아야 한다.
-        [[nodiscard]] git_identity_write apply(std::u8string_view repository_path, std::u8string_view user_name, std::u8string_view user_email, const process_cancellation_token& token) const;
+        // 신원과 접속 계정을 저장소의 로컬 설정에 쓰거나 지운다. 쓸 때는 이름과 이메일이 모두 비어 있지 않아야 한다.
+        [[nodiscard]] git_identity_write apply(std::u8string_view repository_path, const local_identity_change& change, const process_cancellation_token& token) const;
 
     private:
         process_runner* runner_ { nullptr };
@@ -53,4 +53,5 @@ namespace cyella {
     // 읽기 명령의 인자다 (test가 확인한다).
     [[nodiscard]] std::vector<std::u8string> make_identity_read_arguments();
     [[nodiscard]] std::vector<std::u8string> make_identity_write_arguments(std::u8string_view key, std::u8string_view value);
+    [[nodiscard]] std::vector<std::u8string> make_identity_unset_arguments(std::u8string_view key);
 } // namespace cyella

@@ -19,12 +19,14 @@ namespace cyella {
         std::u8string error {};
     };
 
-    // `git config --local`로 프로필을 쓴 결과다.
+    // `git config --local`로 프로필을 쓰거나 로컬 설정을 지운 결과다.
     struct identity_applied_intent
     {
         std::string repository_id {};
         bool ok { false };
         std::u8string message {};
+        // 로컬 설정을 지운 결과다 (프로필을 적용한 것이 아니라 적용 기록을 남기지 않는다).
+        bool cleared { false };
     };
 
     // ---- 프로필을 선택된 저장소에 적용한다 (설정 화면의 단추, 팔레트, 상태 줄, 제안 배너가 같은 메시지를 낸다)
@@ -32,6 +34,10 @@ namespace cyella {
     {
         std::u8string name {};
     };
+
+    // ---- 선택된 저장소의 로컬 신원·접속 계정 설정을 지워 전역 설정으로 돌아간다 (환경 설정 "사용자 프로필" 쪽의 단추)
+    struct clear_local_identity_intent
+    {};
 
     // ---- 환경 설정의 "사용자 프로필" 쪽
     struct add_profile_intent

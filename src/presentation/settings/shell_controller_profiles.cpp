@@ -93,7 +93,7 @@ namespace cyella {
             if (const std::optional<std::size_t> index { find_profile_index(value.profiles, *assigned) }; index.has_value() && identity_matches_profile(entry.identity, value.profiles[*index]))
                 return;
         const user_profile& profile { value.profiles[*wanted] };
-        const std::u8string identity { describe_identity_with_source(entry.identity) };
+        const std::u8string identity { describe_identity_with_access(entry.identity) };
         std::u8string text { tr(u8"profiles.rule_suggests", { { u8"prefix", value.profile_rules[*rule].path_prefix }, { u8"profile", profile.name }, { u8"identity", identity } }) };
         notification notice { .severity = notification_severity::info, .text = std::move(text), .repository_id = id };
         notice.actions.push_back(notification_action { .key = std::u8string { apply_profile_key_prefix } + profile.name, .label = tr(u8"profiles.apply_action", { { u8"profile", profile.name } }) });
@@ -123,8 +123,48 @@ namespace cyella {
         }
         const user_profile& profile { value.profiles[*index] };
         applying_profiles_[id] = profile.name;
-        dependencies_.apply_identity(id, session->path(), profile.user_name, profile.user_email);
+        local_identity_change change { .user_name = profile.user_name, .user_email = profile.user_email, .credential_username = profile.https_username };
+        // 키를 쓰는 ssh는 "이번만 연결"과 같은 실행 파일이다 (주어지지 않으면 git의 sh가 PATH에서 찾는 `ssh`).
+        if (profile.ssh_key.empty() == false)
+            change.ssh_command = make_profile_ssh_command(dependencies_.ssh_executable, profile.ssh_key);
+        dependencies_.apply_identity(id, session->path(), change);
         show_notice(tr(u8"profiles.applying", { { u8"name", profile.name } }), false);
+    }
+
+    bool shell_controller::selected_identity_has_local_settings() const
+    {
+        const git_identity* const identity { selected_identity() };
+        if (identity == nullptr)
+            return false;
+        const auto local = [](const std::optional<identity_value>& value) { return value.has_value() && (value->origin == identity_origin::local || value->origin == identity_origin::worktree); };
+        return local(identity->name) || local(identity->email) || local(identity->credential_username) || (local(identity->ssh_command) && profile_ssh_key_of(*identity).has_value());
+    }
+
+    std::u8string shell_controller::repository_profile_ssh_key(const std::string& repository_id) const
+    {
+        const auto found { identities_.find(repository_id) };
+        if (found == identities_.end() || found->second.loaded == false)
+            return {};
+        return profile_ssh_key_of(found->second.identity).value_or(std::u8string {});
+    }
+
+    void shell_controller::clear_local_identity()
+    {
+        const std::string id { selected_repository_id() };
+        const repository_session* const session { id.empty() || dependencies_.workspace == nullptr ? nullptr : std::as_const(*dependencies_.workspace).find_session(id) };
+        if (session == nullptr)
+        {
+            show_notice(tr(u8"profiles.no_repository"), true);
+            return;
+        }
+        if (dependencies_.apply_identity == nullptr)
+        {
+            show_notice(tr(u8"profiles.apply_unavailable"), true);
+            return;
+        }
+        applying_profiles_.erase(id);
+        dependencies_.apply_identity(id, session->path(), local_identity_change { .clear = true });
+        show_notice(tr(u8"profiles.clearing"), false);
     }
 
     bool shell_controller::warn_before_commit()
@@ -159,10 +199,10 @@ namespace cyella {
         commit_warned_.insert(id);
         notification notice { .severity = notification_severity::warning, .repository_id = id };
         if (missing)
-            notice.text = tr(u8"profiles.commit_identity_missing", { { u8"identity", describe_identity_with_source(identity) } });
+            notice.text = tr(u8"profiles.commit_identity_missing", { { u8"identity", describe_identity_with_access(identity) } });
         else
             notice.text = tr(u8"profiles.commit_rule_mismatch",
-                { { u8"prefix", value.profile_rules[*rule].path_prefix }, { u8"profile", wanted->name }, { u8"identity", describe_identity_with_source(identity) } });
+                { { u8"prefix", value.profile_rules[*rule].path_prefix }, { u8"profile", wanted->name }, { u8"identity", describe_identity_with_access(identity) } });
         if (wanted != nullptr)
             notice.actions.push_back(
                 notification_action { .key = std::u8string { commit_apply_key_prefix } + wanted->name, .label = tr(u8"profiles.apply_and_commit", { { u8"profile", wanted->name } }) });
@@ -205,6 +245,11 @@ namespace cyella {
             apply_profile(intent->name);
             return true;
         }
+        if (message.get<clear_local_identity_intent>() != nullptr)
+        {
+            clear_local_identity();
+            return true;
+        }
         if (const auto* const intent { message.get<identity_loaded_intent>() }; intent != nullptr)
         {
             identity_entry& entry { identities_[intent->repository_id] };
@@ -225,6 +270,25 @@ namespace cyella {
                 applying_profiles_.erase(pending);
             }
             const bool commit_after { commit_after_apply_.erase(id) > 0 };
+            if (intent->cleared)
+            {
+                if (intent->ok == false)
+                {
+                    show_notice(tr(u8"profiles.clear_failed", { { u8"message", intent->message } }), true);
+                    return true;
+                }
+                // 이 저장소는 이제 전역 신원을 쓴다. 적용 기록이 남아 있으면 규칙 제안을 막는 "사용자의 선택"으로 잘못 읽힌다.
+                if (dependencies_.workspace != nullptr)
+                    if (const repository_session* const session { std::as_const(*dependencies_.workspace).find_session(id) }; session != nullptr)
+                    {
+                        const std::u8string path { session->path() };
+                        update_settings([&path](app_settings& value) { static_cast<void>(unassign_profile(value, path)); });
+                    }
+                show_notice(intent->message, false);
+                identities_[id].requested = false;
+                identities_[id].loaded = false;
+                return true;
+            }
             if (intent->ok == false)
             {
                 show_notice(tr(u8"profiles.apply_failed", { { u8"profile", profile }, { u8"message", intent->message } }), true);

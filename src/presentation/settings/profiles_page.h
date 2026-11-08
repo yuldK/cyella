@@ -20,6 +20,9 @@ namespace cyella {
         // `user.name <user.email>`이다.
         std::u8string identity {};
         std::u8string signing_key {};
+        // 접속 계정이다 (HTTPS 사용자 이름, SSH 키 경로). 비어 있으면 전역 계정을 쓴다.
+        std::u8string https_username {};
+        std::u8string ssh_key {};
         // 선택된 저장소에 적용된(적용 기록이 이 프로필인) 프로필이다.
         bool applied { false };
         bool editing { false };
@@ -32,6 +35,8 @@ namespace cyella {
         luil::text_input_view user_name {};
         luil::text_input_view user_email {};
         luil::text_input_view signing_key {};
+        luil::text_input_view https_username {};
+        luil::text_input_view ssh_key {};
         // 저장을 막는 문제다. 비어 있으면 저장할 수 있다.
         std::u8string error {};
         bool can_save { false };
@@ -59,6 +64,8 @@ namespace cyella {
         std::u8string repository_name {};
         // 선택된 저장소의 지금 신원과 출처다 ("홍길동 <a@b> · 로컬"). 읽는 중이면 그렇게 말한다.
         std::u8string identity_text {};
+        // 저장소에 앱이 지울 수 있는 로컬 신원·접속 계정 설정이 있다 ("로컬 설정 지우기" 단추를 켠다).
+        bool can_clear_local { false };
     };
 
     // 선택된 저장소에서 읽은 값이다 (controller가 채운다).
@@ -68,6 +75,7 @@ namespace cyella {
         std::u8string name {};
         std::u8string identity_text {};
         std::u8string applied_profile {};
+        bool has_local_settings { false };
     };
 
     [[nodiscard]] profiles_page_view build_profiles_page_view(const app_settings& settings, const std::optional<profile_edit_state>& edit, const profile_rule_draft& rule,

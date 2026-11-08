@@ -142,6 +142,10 @@ namespace cyella {
             return state.profile_edit.has_value() ? &state.profile_edit->user_email : nullptr;
         case text_target::settings_profile_signing_key:
             return state.profile_edit.has_value() ? &state.profile_edit->signing_key : nullptr;
+        case text_target::settings_profile_https_username:
+            return state.profile_edit.has_value() ? &state.profile_edit->https_username : nullptr;
+        case text_target::settings_profile_ssh_key:
+            return state.profile_edit.has_value() ? &state.profile_edit->ssh_key : nullptr;
         case text_target::settings_rule_prefix:
             return &state.rule_draft.prefix;
         case text_target::none:
