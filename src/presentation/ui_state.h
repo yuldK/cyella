@@ -301,6 +301,8 @@ namespace cyella {
         std::map<repository_tab_id, tab_ui_state> tabs {};
         float sidebar_width { default_sidebar_width };
         float detail_width { default_detail_width };
+        // 커밋 상세의 메시지·메타 칸 높이다 (논리 픽셀). 손잡이를 끌기 전에는 없고, 그동안은 내용만큼 선다.
+        std::optional<float> commit_meta_height {};
         bool operation_log_open { false };
         float log_scroll { 0.0f };
         float tab_scroll { 0.0f };

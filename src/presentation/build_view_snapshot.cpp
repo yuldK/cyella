@@ -703,6 +703,7 @@ namespace cyella {
             view.hosting = std::move(hosting);
             view.detail_scroll = tab_state.detail_scroll;
             view.commit_meta_scroll = tab_state.commit_meta_scroll;
+            view.commit_meta_height = ui.commit_meta_height;
             if (tab_state.diff.has_value())
             {
                 view.diff = build_diff(session, *tab_state.diff, tab_state.diff_scroll, ui.diff_surface);

@@ -775,6 +775,29 @@ TEST_CASE("pane widths are saved after the drag settles and restored on start", 
     CHECK_FALSE(test.controller.next_tick().has_value());
 }
 
+TEST_CASE("the commit message height starts from what is shown, stays in range and is saved", "[presentation][controller]")
+{
+    controller_harness test {};
+    CHECK_FALSE(test.controller.state().commit_meta_height.has_value());
+    // 끈 적이 없으면 지금 보이는 높이에서 이어 끈다.
+    REQUIRE(test.send(resize_commit_meta_intent { .delta = 20.0f, .current = 150.0f, .minimum = 64.0f, .maximum = 400.0f }));
+    CHECK(test.controller.state().commit_meta_height == 170.0f);
+    // 그다음부터는 저장된 높이가 기준이다 (같은 tree에서 나온 메시지가 여럿이어도 끈 만큼 다 더해진다).
+    REQUIRE(test.send(resize_commit_meta_intent { .delta = 20.0f, .current = 150.0f, .minimum = 64.0f, .maximum = 400.0f }));
+    CHECK(test.controller.state().commit_meta_height == 190.0f);
+    REQUIRE(test.send(resize_commit_meta_intent { .delta = 10000.0f, .current = 190.0f, .minimum = 64.0f, .maximum = 400.0f }));
+    CHECK(test.controller.state().commit_meta_height == 400.0f);
+    // 작은 창에서는 범위 밖의 저장값을 먼저 범위로 다듬고 끈다. 끄는 즉시 손잡이가 움직인다.
+    REQUIRE(test.send(resize_commit_meta_intent { .delta = -10.0f, .current = 200.0f, .minimum = 64.0f, .maximum = 200.0f }));
+    CHECK(test.controller.state().commit_meta_height == 190.0f);
+    REQUIRE(test.send(resize_commit_meta_intent { .delta = -10000.0f, .current = 190.0f, .minimum = 64.0f, .maximum = 200.0f }));
+    CHECK(test.controller.state().commit_meta_height == 64.0f);
+
+    CHECK_FALSE(test.controller.settings().ui.pane_widths.commit_meta.has_value());
+    test.controller.flush();
+    CHECK(test.controller.settings().ui.pane_widths.commit_meta == 64.0f);
+}
+
 namespace {
     // 정해 둔 설정을 돌려주고 저장한 마지막 값을 기억하는 저장소다.
     class memory_settings_store final : public cyella::app_settings_store
@@ -806,6 +829,7 @@ TEST_CASE("saved pane widths are restored and clamped on start", "[presentation]
     memory_settings_store store {};
     store.initial.ui.pane_widths.sidebar = 300.0f;
     store.initial.ui.pane_widths.detail = 9999.0f;
+    store.initial.ui.pane_widths.commit_meta = 210.0f;
     app_settings_service service { store, u8"memory" };
     static_cast<void>(service.load());
 
@@ -815,10 +839,13 @@ TEST_CASE("saved pane widths are restored and clamped on start", "[presentation]
     controller.start({});
     CHECK(controller.state().sidebar_width == 300.0f);
     CHECK(controller.state().detail_width == maximum_detail_width);
+    // 메시지 칸 높이는 판 높이를 모르는 여기서 다듬지 않는다. 그릴 때 범위로 다듬는다.
+    CHECK(controller.state().commit_meta_height == 210.0f);
 
     REQUIRE(controller.handle(luil::app_message { resize_pane_intent { .sidebar = true, .delta = 10.0f } }));
     controller.flush();
     CHECK(store.saved.ui.pane_widths.sidebar == 310.0f);
+    CHECK(store.saved.ui.pane_widths.commit_meta == 210.0f);
 }
 
 TEST_CASE("the open diff of the selected tab is the webview's wanted target", "[presentation][controller][diff]")

@@ -999,6 +999,7 @@
     "repo.detail.close_drawer": "상세 서랍 닫기",
     "repo.detail.commit_title": "커밋",
     "repo.detail.copy_sha": "SHA 복사",
+    "repo.detail.resize_commit_meta": "끌어서 커밋 메시지와 변경 파일 칸의 높이를 나눕니다",
     "repo.detail.empty": "커밋이나 WIP 행을 고르면 여기에 상세가 보입니다.",
     "repo.detail.file_list": "파일 목록",
     "repo.detail.go_to_parent": "부모 커밋 {sha}로 가기",

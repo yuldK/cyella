@@ -477,6 +477,8 @@ namespace cyella {
         float detail_scroll { 0.0f };
         // 커밋 상세의 메시지·메타 칸의 스크롤이다.
         float commit_meta_scroll { 0.0f };
+        // 손잡이로 정한 메시지·메타 칸의 높이다. 없으면 내용만큼 서되 판 높이의 일정 몫에서 멈춘다.
+        std::optional<float> commit_meta_height {};
         std::optional<diff_panel_view> diff {};
         // 열린 PR·MR 상세(`detail == detail_mode::pull_request`)와 호스팅 값이다.
         std::optional<hosting_repository_view> hosting {};

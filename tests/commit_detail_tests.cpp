@@ -13,6 +13,7 @@
 #include "luil/ui/ui_interaction.h"
 #include "luil/ui/ui_tree.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
@@ -237,6 +238,64 @@ TEST_CASE("commit detail tree shows wrapped text, label columns, folder rows and
     CHECK(hit->action(luil::ui_trigger::right_click) != nullptr);
     const luil::ui_element* const tree_button { built.tree->find(luil::ui_element_id { ui::kind_segment, u8"detail-files-tree" }) };
     CHECK(tree_button != nullptr);
+}
+
+TEST_CASE("a handle divides the commit message and changed files and holds the dragged height", "[presentation][ui]")
+{
+    snapshot_harness harness {};
+    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    load(*harness.sessions["repo-1"], linear_history(3), 0);
+    harness.ui.tabs[tab].selected_sha = sha_of(1);
+    load_detail(*harness.sessions["repo-1"], sha_of(1), sample_files());
+
+    const auto bounds_of = [](const ui::built_tree& built, const luil::ui_element_kind kind, const std::u8string& owner) {
+        const luil::ui_element* const element { built.tree->find(luil::ui_element_id { kind, owner }) };
+        REQUIRE(element != nullptr);
+        return element->bounds();
+    };
+    const auto bottom = [](const luil::rect_f& box) { return box.y + box.height; };
+
+    // 끈 적이 없으면 메시지 칸이 내용만큼 서고, 손잡이 바로 아래에 변경 파일 머리가 선다.
+    {
+        const ui::built_tree built { ui::build_ui_tree(harness.build()) };
+        const luil::rect_f handle { bounds_of(built, ui::kind_splitter, u8"commit-meta-splitter") };
+        CHECK(handle.height == 6.0f);
+        CHECK(bottom(handle) == bounds_of(built, ui::kind_panel, u8"detail-files-header-bar").y);
+        CHECK(built.tree->find(luil::ui_element_id { ui::kind_splitter, u8"commit-meta-splitter" })->accessibility().name.empty() == false);
+    }
+
+    // 끈 높이가 있으면 짧은 메시지라도 그 높이에 고정한다.
+    harness.ui.commit_meta_height = 300.0f;
+    const ui::built_tree held { ui::build_ui_tree(harness.build()) };
+    const float header_bottom { bottom(bounds_of(held, ui::kind_panel, u8"detail-header-bar")) };
+    const luil::rect_f handle { bounds_of(held, ui::kind_splitter, u8"commit-meta-splitter") };
+    CHECK(handle.y == header_bottom + 300.0f);
+
+    // 손잡이를 아래로 끌면 지금 높이에서 끈 만큼 메시지 칸이 커지라는 메시지가 나온다.
+    ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(held.tree);
+    const float x { handle.x + handle.width / 2.0f };
+    const float y { handle.y + handle.height / 2.0f };
+    static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = x, .y = y }));
+    const std::vector<luil::input_action> moved { interaction.process(luil::pointer_moved_event { .x = x, .y = y + 10.0f }) };
+    const resize_commit_meta_intent* resized { nullptr };
+    for (const luil::input_action& action : moved)
+        if (const auto* const message { std::get_if<luil::app_message>(&action) }; message != nullptr && message->get<resize_commit_meta_intent>() != nullptr)
+            resized = message->get<resize_commit_meta_intent>();
+    REQUIRE(resized != nullptr);
+    CHECK(resized->delta == 10.0f);
+    CHECK(resized->current == 300.0f);
+    CHECK(resized->maximum > resized->minimum);
+    static_cast<void>(interaction.process(luil::pointer_released_event { .x = x, .y = y + 10.0f }));
+
+    // 판보다 큰 높이는 파일 칸의 최소 높이를 남기고 다듬는다.
+    harness.ui.commit_meta_height = 5000.0f;
+    const ui::built_tree tall { ui::build_ui_tree(harness.build()) };
+    const luil::rect_f files_header { bounds_of(tall, ui::kind_panel, u8"detail-files-header-bar") };
+    const luil::rect_f detail_column { bounds_of(tall, ui::kind_layout, u8"commit-detail") };
+    CHECK(bottom(files_header) + 24.0f * 3.0f <= bottom(detail_column) + 0.5f);
+    CHECK(bounds_of(tall, ui::kind_splitter, u8"commit-meta-splitter").y == Catch::Approx(resized->maximum + header_bottom));
 }
 
 namespace {

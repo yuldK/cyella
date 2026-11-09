@@ -999,6 +999,7 @@
     "repo.detail.close_drawer": "Close detail drawer",
     "repo.detail.commit_title": "Commit",
     "repo.detail.copy_sha": "Copy SHA",
+    "repo.detail.resize_commit_meta": "Drag to divide the height between the commit message and changed files",
     "repo.detail.empty": "Select a commit or the WIP row to see its details here.",
     "repo.detail.file_list": "Files",
     "repo.detail.go_to_parent": "Go to parent commit {sha}",

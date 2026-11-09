@@ -23,6 +23,7 @@
 #include "luil/ui/list_element.h"
 #include "luil/ui/panel_element.h"
 #include "luil/ui/scroll_area_element.h"
+#include "luil/ui/split_handle_element.h"
 #include "luil/ui/stack_element.h"
 #include "luil/ui/virtual_list_element.h"
 
@@ -49,6 +50,11 @@ namespace cyella::ui {
         // 메시지·메타 칸이 판 높이에서 가질 수 있는 몫이다. 넘치면 그 칸만 흘리고 파일 목록 자리를 지킨다.
         constexpr float commit_meta_share { 0.55f };
         constexpr float commit_meta_minimum { 160.0f };
+        // 메시지·메타 칸과 변경 파일 사이 손잡이의 두께와, 손잡이로 줄일 수 있는 두 칸의 최소 높이다.
+        //  - 메시지 칸은 제목 한 줄이 보일 만큼 남는다. 파일 칸은 머리 아래 파일 몇 줄이 남는다.
+        constexpr float commit_meta_splitter_height { 6.0f };
+        constexpr float commit_meta_drag_minimum { 64.0f };
+        constexpr float commit_files_drag_minimum { files_header_height + file_row_height * 3.0f };
         constexpr float commit_box_minimum { 280.0f };
         constexpr float commit_box_maximum { 360.0f };
         constexpr float amend_warning_extra { 44.0f };
@@ -535,7 +541,7 @@ namespace cyella::ui {
         }
 
         // 변경 파일 머리다: "변경 파일 N개 +a −r"와 목록·트리 전환 단추.
-        std::unique_ptr<luil::ui_element> build_files_header(const commit_detail_view& commit)
+        std::unique_ptr<luil::ui_element> build_files_header(const commit_detail_view& commit, const bool divider_top)
         {
             auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"detail-files-header" },
                 luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { detail_padding, 0.0f, 6.0f, 0.0f } });
@@ -551,7 +557,8 @@ namespace cyella::ui {
             const bool tree { commit.files_tree };
             row->add(make_file_view_control(u8"detail-files", tree, [](const std::u8string& value) { return message(set_commit_files_view_intent { value == u8"tree" }); }),
                 { .length = 60.0f, .cross_length = segmented_control_height });
-            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"detail-files-header-bar" }, bar_style { .divider_bottom = true, .divider_top = true }, std::move(row));
+            // 커밋 하나를 볼 때는 위 구분선을 바로 위 손잡이가 긋는다. 여기서도 그으면 손잡이의 강조선과 3px 어긋난 선이 두 겹 선다.
+            return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"detail-files-header-bar" }, bar_style { .divider_bottom = true, .divider_top = divider_top }, std::move(row));
         }
 
         std::unique_ptr<luil::ui_element> make_file_list(std::u8string owner, std::vector<luil::virtual_list_item> items,
@@ -600,18 +607,51 @@ namespace cyella::ui {
             return list;
         }
 
-        // 커밋 하나의 머리와 메시지·메타 칸이다.
+        // 메시지·메타 칸과 변경 파일 사이의 손잡이다. 아래로 끌면 메시지 칸이 커지고 파일 칸이 줄어든다.
+        //  - `current`는 지금 보이는 메시지 칸 높이, 범위는 지금 판 높이로 구한 것이다. controller는 판 높이를 모른다.
+        std::unique_ptr<luil::ui_element> make_commit_meta_splitter(const float current, const float minimum, const float maximum)
+        {
+            luil::split_handle_config config {};
+            config.axis = luil::split_axis::vertical;
+            config.grows = luil::split_grows::toward_end;
+            config.resize = [current, minimum, maximum](const float delta) {
+                return message(resize_commit_meta_intent { .delta = delta, .current = current, .minimum = minimum, .maximum = maximum });
+            };
+            // 두 칸 사이를 다른 선이 가르지 않는다 (파일 칸 머리의 위 선을 뺐다). 쉬는 동안에도 손잡이가 그 선을 긋는다.
+            config.resting_divider = true;
+            auto handle { std::make_unique<luil::split_handle_element>(luil::ui_element_id { kind_splitter, u8"commit-meta-splitter" }, std::move(config)) };
+            // 칸이 커져 손잡이가 누른 자리를 떠나도 같은 id를 버튼을 뗄 때까지 붙잡는다.
+            luil::pointer_drag_target drag { *handle->pointer_drag() };
+            drag.follows_pointer = true;
+            handle->set_pointer_drag_target(std::move(drag));
+            // 보조 기술의 이름도 이 글이다 (`split_handle_element::accessibility`).
+            set_text_tooltip(*handle, tr(u8"repo.detail.resize_commit_meta"));
+            return handle;
+        }
+
+        // 커밋 하나의 머리와 메시지·메타 칸, 그 아래 손잡이다.
         void add_commit_meta(
             luil::stack_element* column, const repository_view& repository, const commit_detail_view& commit, const bool drawer, const float width, const float height, feedback_sources& sources)
         {
             auto copy { make_icon_button(u8"detail-copy-sha", codicons::icon_copy, tr(u8"repo.detail.copy_sha"), message(copy_commit_sha_intent { commit.sha })) };
             column->add(detail_header(tr(u8"repo.detail.commit_title"), commit.short_sha, drawer, true, std::move(copy)), pane_header_height);
 
-            // 메시지·메타 칸은 내용만큼 서되, 판 높이의 일정 몫을 넘으면 그 칸만 흘린다. 흘릴 때는 막대 폭만큼 글이 좁아진다.
+            // 메시지·메타 칸의 높이다.
+            //  - 손잡이를 끈 적이 없으면 내용만큼 서되, 판 높이의 일정 몫을 넘으면 그 칸만 흘린다.
+            //  - 끈 적이 있으면 그 높이에 고정한다. 내용이 짧으면 아래가 비고, 길면 그 칸만 흘린다. 짧은 커밋에서 높이를
+            //    내용에 맞춰 줄이면 그 커밋을 지나며 끈 높이가 사라져, 긴 커밋으로 돌아왔을 때 정해 둔 높이가 남지 않는다.
+            //  - 흘릴 때는 막대 폭만큼 글이 좁아진다.
             const float text_width { std::max(width - detail_padding * 2.0f, 0.0f) };
-            const float limit { std::max(height * commit_meta_share, commit_meta_minimum) };
             float meta_height { 0.0f };
             auto meta { build_commit_meta(repository, commit, text_width, meta_height) };
+            const float minimum { commit_meta_drag_minimum };
+            const float maximum { std::max(height - pane_header_height - commit_meta_splitter_height - commit_files_drag_minimum, minimum) };
+            const float limit {
+                repository.commit_meta_height.has_value()
+                    ? std::clamp(*repository.commit_meta_height, minimum, maximum)
+                    : std::max(height * commit_meta_share, commit_meta_minimum)
+            };
+            const float shown { repository.commit_meta_height.has_value() ? limit : std::min(meta_height, limit) };
             if (meta_height > limit)
             {
                 meta = build_commit_meta(repository, commit, std::max(text_width - luil::scroll_area_bar_width, 0.0f), meta_height);
@@ -629,7 +669,8 @@ namespace cyella::ui {
                 column->add(std::move(area), limit);
             }
             else
-                column->add(std::move(meta), meta_height);
+                column->add(std::move(meta), shown);
+            column->add(make_commit_meta_splitter(shown, minimum, maximum), commit_meta_splitter_height);
         }
 
         std::unique_ptr<luil::ui_element> build_commit_detail(
@@ -653,7 +694,8 @@ namespace cyella::ui {
                 column->add_flexible(centered_message(u8"detail-loading", tr(u8"repo.detail.loading_files")));
                 return column;
             }
-            column->add(build_files_header(commit), files_header_height);
+            // 비교에는 손잡이가 없으므로 파일 칸 머리가 위 선을 직접 긋는다.
+            column->add(build_files_header(commit, compare.has_value()), files_header_height);
             auto builders { std::make_shared<std::map<std::u8string, std::function<std::unique_ptr<luil::ui_element>()>>>() };
             auto requests { std::make_shared<std::map<std::u8string, diff_file_request>>() };
             std::vector<luil::virtual_list_item> items {};

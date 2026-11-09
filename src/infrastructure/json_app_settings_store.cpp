@@ -451,6 +451,7 @@ namespace cyella {
             }
             result.settings.ui.pane_widths.sidebar = parse_pane_width(*panes, "sidebar", result);
             result.settings.ui.pane_widths.detail = parse_pane_width(*panes, "detail", result);
+            result.settings.ui.pane_widths.commit_meta = parse_pane_width(*panes, "commit_meta", result);
         }
 
         // `diff` 객체다. 보기(`layout`: inline·split)와 문맥 줄 수(`context_lines`: 0~25의 정수). 틀린 필드만 기본값으로 둔다.
@@ -685,7 +686,8 @@ namespace cyella {
         }
 
         // ui 객체는 기본값과 다른 값이 있을 때만 쓴다. 쓰지 않는 사용자의 파일을 짧게 두고, 알 수 없는 키는 보존한다.
-        const bool has_widths { settings.ui.pane_widths.sidebar.has_value() || settings.ui.pane_widths.detail.has_value() };
+        const pane_widths_settings& widths { settings.ui.pane_widths };
+        const bool has_widths { widths.sidebar.has_value() || widths.detail.has_value() || widths.commit_meta.has_value() };
         // 보기는 트리를 골랐거나, 골랐다가 목록으로 되돌린 파일(키가 이미 있다)에만 쓴다.
         const bool has_view { settings.ui.commit_files_tree || existing_object(root, "ui").contains("commit_files_view") };
         const bool has_working_view { settings.ui.working_files_tree || existing_object(root, "ui").contains("working_files_view") };
@@ -705,6 +707,7 @@ namespace cyella {
                 };
                 write_width("sidebar", settings.ui.pane_widths.sidebar);
                 write_width("detail", settings.ui.pane_widths.detail);
+                write_width("commit_meta", settings.ui.pane_widths.commit_meta);
                 ui["pane_widths"] = std::move(panes);
             }
             if (has_view)

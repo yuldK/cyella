@@ -189,6 +189,7 @@ namespace cyella {
         const pane_widths_settings& saved_widths { settings().ui.pane_widths };
         ui_.sidebar_width = clamp_sidebar_width(saved_widths.sidebar.value_or(ui_.sidebar_width));
         ui_.detail_width = clamp_detail_width(saved_widths.detail.value_or(ui_.detail_width));
+        ui_.commit_meta_height = saved_widths.commit_meta;
         if (dependencies_.workspace != nullptr)
         {
             tabs_ = restore_tabs(settings());
@@ -913,6 +914,16 @@ namespace cyella {
             pane_widths_flush_at_ = std::chrono::steady_clock::now() + pane_widths_save_delay;
             return true;
         }
+        if (const auto* const intent { message.get<resize_commit_meta_intent>() }; intent != nullptr)
+        {
+            // 저장된 높이를 먼저 지금 범위로 다듬고 나서 더한다. 큰 창에서 정한 높이가 작은 창의 범위 밖에 있으면
+            // 범위 안으로 돌아올 때까지 끌어도 손잡이가 움직이지 않기 때문이다.
+            const float maximum { std::max(intent->maximum, intent->minimum) };
+            const float start { std::clamp(ui_.commit_meta_height.value_or(intent->current), intent->minimum, maximum) };
+            ui_.commit_meta_height = std::clamp(start + intent->delta, intent->minimum, maximum);
+            pane_widths_flush_at_ = std::chrono::steady_clock::now() + pane_widths_save_delay;
+            return true;
+        }
         if (const auto* const intent { message.get<toggle_drawer_intent>() }; intent != nullptr)
         {
             ui_.drawer_open = intent->open;
@@ -1599,9 +1610,11 @@ namespace cyella {
         pane_widths_flush_at_.reset();
         const float sidebar { ui_.sidebar_width };
         const float detail { ui_.detail_width };
-        update_settings([sidebar, detail](app_settings& value) {
+        const std::optional<float> commit_meta { ui_.commit_meta_height };
+        update_settings([sidebar, detail, commit_meta](app_settings& value) {
             value.ui.pane_widths.sidebar = sidebar;
             value.ui.pane_widths.detail = detail;
+            value.ui.pane_widths.commit_meta = commit_meta;
         });
     }
 } // namespace cyella

@@ -45,7 +45,7 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
     ],
     "appearance": { "theme": "system" },
     "window": { "x": 100, "y": 100, "width": 1400, "height": 900, "maximized": false },
-    "ui": { "pane_widths": { "sidebar": 232, "detail": 360 } }
+    "ui": { "pane_widths": { "sidebar": 232, "detail": 360, "commit_meta": 220 } }
 }
 ```
 
@@ -57,7 +57,7 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
 | `external_diff_tools` | 확장자(점·`*.` 생략 가능, 대소문자 무시, `.tar.gz` 같은 여러 점 가능), 실행 파일, 인자 템플릿. 확장자나 실행 파일이 없는 줄은 경고하고 버린다. |
 | `appearance.theme` | `system`, `light`, `dark`. 그 밖의 값은 경고하고 `system`. |
 | `window` | 좌표·크기(정수, 너비·높이 양수)와 `maximized`. 틀리면 경고하고 배치 없이 시작. 값이 없으면 키를 지운다. |
-| `ui.pane_widths` | 사이드바·상세 판의 폭(논리 픽셀, 양수, 소수 둘째 자리까지)이다. 한쪽만 있어도 된다. 없거나 틀린 값은 기본 폭이고, 시작할 때 `shell_layout`의 최소·최대로 다듬는다. 판을 끄는 동안에는 쓰지 않고 500 ms 조용해지면(또는 앱을 닫을 때) 한 번 쓴다. 둘 다 없으면 `ui` 키를 쓰지 않는다. |
+| `ui.pane_widths` | 사이드바·상세 판의 폭과 커밋 상세의 메시지·메타 칸 높이(`commit_meta`)다(논리 픽셀, 양수, 소수 둘째 자리까지). 하나만 있어도 된다. `commit_meta`가 없으면 손잡이를 끌기 전처럼 내용만큼 서고, 있으면 그릴 때 판 높이로 범위를 다듬는다. 없거나 틀린 값은 기본 폭이고, 시작할 때 `shell_layout`의 최소·최대로 다듬는다. 판을 끄는 동안에는 쓰지 않고 500 ms 조용해지면(또는 앱을 닫을 때) 한 번 쓴다. 모두 없으면 `ui` 키를 쓰지 않는다. |
 
 외부 diff 도구는 `select_external_diff_tool`이 파일 이름의 접미사로 고른다. 여러 도구가 맞으면 가장 긴 확장자가
 이기고(`.tar.gz`가 `.gz`보다 구체적), 같으면 목록에서 먼저 나온 도구다. `expand_external_diff_arguments`는

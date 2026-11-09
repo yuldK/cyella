@@ -81,7 +81,10 @@ cyella_driver::make_frame
   툴팁이 인터랙티브 rebase임을 알린다. N은 `rev-list --count 커밋..HEAD`(`commit_detail_view::commits_above`)다. 다른 갈래의 커밋(main 끝 등)이면
   현재 브랜치를 그 위로 옮겨 쌓는 편집이라 "현재 브랜치 커밋 N개를 이 위로 편집…"이다(`on_current_branch`). N이 0이면(HEAD 커밋 등)
   "이후 커밋 편집…"으로 꺼지고 툴팁이 이유를 말한다.
-- 메시지·메타 칸이 판 높이의 55%(최소 160)를 넘으면 그 칸만 흘린다(`scroll_target::commit_meta`, 커밋을 바꾸면 처음으로). 파일 목록 자리는 지킨다.
+- 메시지·메타 칸과 변경 파일 사이에 손잡이(`commit-meta-splitter`)가 있다. 끈 적이 없으면 메시지·메타 칸이 내용만큼 서되 판 높이의 55%(최소 160)를 넘으면
+  그 칸만 흘린다(`scroll_target::commit_meta`, 커밋을 바꾸면 처음으로). 끈 뒤에는 그 높이(`ui.pane_widths.commit_meta`)에 고정한다. 내용이 짧으면 아래가 비고
+  길면 그 칸만 흘린다. 짧은 커밋에서 내용에 맞춰 줄이면 정해 둔 높이가 커밋을 지날 때마다 사라지기 때문이다. 범위(메시지 칸 64 이상, 파일 칸은 머리와
+  세 줄)는 판 높이에 달려 controller가 모르므로 손잡이가 `resize_commit_meta_intent`에 실어 보낸다.
 - **변경 파일 머리**: "변경 파일 N개 +a −r"과 [경로 목록](`detail-files-list`)·[폴더 트리](`detail-files-tree`) 전환 단추.
   고른 보기는 앱 설정 `ui.commit_files_view`(list·tree)에 남는다.
 - **폴더 트리**: `build_file_tree`가 경로를 폴더 먼저·이름 순으로 펴고, 파일 없이 하위 폴더 하나뿐인 사슬은 `src/presentation`처럼 한 행으로 합친다.

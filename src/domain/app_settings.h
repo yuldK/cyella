@@ -105,6 +105,9 @@ namespace cyella {
     {
         std::optional<float> sidebar {};
         std::optional<float> detail {};
+        // 커밋 상세에서 메시지·메타 칸이 차지하는 높이다. 폭이 아니지만 같은 손잡이 끌기로 정해지고 같은 때 쓰므로 여기에 둔다.
+        // 값이 없으면 내용만큼 서되 판 높이의 일정 몫에서 멈춘다. 범위는 그리는 쪽이 판 높이로 다듬는다.
+        std::optional<float> commit_meta {};
 
         [[nodiscard]] bool operator==(const pane_widths_settings&) const noexcept = default;
     };

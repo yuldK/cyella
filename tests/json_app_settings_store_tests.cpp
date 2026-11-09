@@ -594,6 +594,16 @@ TEST_CASE("pane widths are written under ui and absent widths are left out", "[j
     CHECK(loaded.settings.ui.pane_widths.sidebar == 300.0f);
     CHECK(loaded.settings.ui.pane_widths.detail == 412.5f);
     CHECK(loaded.settings == settings);
+
+    // 커밋 메시지 칸 높이 하나만 있어도 ui 객체를 쓴다.
+    app_settings meta_only {};
+    meta_only.ui.pane_widths.commit_meta = 180.25f;
+    const json meta_json { json::parse(text_of(serialize_app_settings_json(meta_only, u8""))) };
+    CHECK(meta_json.at("ui").at("pane_widths").at("commit_meta") == 180.25);
+    CHECK_FALSE(meta_json.at("ui").at("pane_widths").contains("sidebar"));
+    const app_settings_load_result meta_loaded { parse_app_settings_json(serialize_app_settings_json(meta_only, u8"")) };
+    CHECK(meta_loaded.diagnostics.empty());
+    CHECK(meta_loaded.settings == meta_only);
 }
 
 TEST_CASE("the commit files view is written under ui once the tree is chosen", "[json_app_settings]")

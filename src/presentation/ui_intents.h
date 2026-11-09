@@ -161,6 +161,17 @@ namespace cyella {
         float delta { 0.0f };
     };
 
+    // 커밋 상세의 메시지·메타 칸과 변경 파일 사이 손잡이를 끈 만큼 메시지 칸 높이를 바꾼다 (논리 픽셀, +가 메시지 칸이 커지는 쪽).
+    //  - 범위는 판 높이에 달려 controller가 모른다. 그리는 쪽이 지금 판으로 구한 범위를 함께 보낸다.
+    //  - `current`는 지금 보이는 높이다. 아직 끈 적이 없어 저장된 높이가 없을 때 그 자리에서 이어 끈다.
+    struct resize_commit_meta_intent
+    {
+        float delta { 0.0f };
+        float current { 0.0f };
+        float minimum { 0.0f };
+        float maximum { 0.0f };
+    };
+
     struct toggle_drawer_intent
     {
         bool open { false };
