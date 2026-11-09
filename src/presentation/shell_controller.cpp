@@ -1091,6 +1091,9 @@ namespace cyella {
         }
         if (const auto* const intent { message.get<select_commit_intent>() }; intent != nullptr)
         {
+            // 행이나 칩을 눌러 커밋을 고르면 참조 목록 카드를 닫는다. 카드는 주 창 tree에 서서 popup처럼 바깥 누름에 저절로 닫히지 않고,
+            // UI thread의 감시는 상태를 띄엄띄엄 보므로 빠른 누름을 놓친다. 고르기 메시지는 누름마다 반드시 온다.
+            ui_.ref_list.reset();
             handle_select_commit(*intent);
             return true;
         }

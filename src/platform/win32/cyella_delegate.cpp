@@ -63,11 +63,34 @@ namespace cyella::win32 {
             return hovered.kind == ui::kind_graph_row || hovered.kind == ui::kind_ref_chip || hovered.kind == ui::kind_ref_overflow;
         }
 
+        // 포인터의 주 창 표면 좌표다 (물리 픽셀).
+        //  - luil의 `interaction.hover_point`는 툴팁이 있는 element 위에서만 기록된다. 그래서 칩 사이 빈 칸에서는 비어 있다.
+        //    이 감시는 UI thread에서 도므로 커서 자리를 직접 읽어 그 창의 client 좌표로 바꾼다 (주 창 표면 좌표와 같다).
+        //  - 다른 프로세스의 창 위면 없다.
+        [[nodiscard]] static std::optional<luil::point_f> pointer_point() noexcept
+        {
+            POINT point {};
+            if (GetCursorPos(&point) == FALSE)
+                return std::nullopt;
+            const HWND window { WindowFromPoint(point) };
+            if (window == nullptr)
+                return std::nullopt;
+            DWORD process { 0 };
+            static_cast<void>(GetWindowThreadProcessId(window, &process));
+            if (process != GetCurrentProcessId())
+                return std::nullopt;
+            if (ScreenToClient(GetAncestor(window, GA_ROOT), &point) == FALSE)
+                return std::nullopt;
+            return luil::point_f { static_cast<float>(point.x), static_cast<float>(point.y) };
+        }
+
         // 브랜치/태그 칸에 머물면 참조 목록 카드를 열고, 칸과 카드를 벗어나면 닫는다.
         //  - 칸 안에서 180ms 머물러야 연다. 카드가 떠 있는 동안 다른 행의 칸으로 옮기면 기다리지 않고 바로 그 행으로 바꾼다.
-        //  - 카드는 주 창 tree에 서므로 popup이던 때 OS가 맡던 "바깥을 누르면 닫기"를 여기서 한다. 누른 칸에서는 포인터가
-        //    칸을 떠날 때까지 다시 열지 않는다 — 칩을 눌러 커밋을 고르자마자 카드가 다시 뜨면 성가시다.
-        //  - 누름이나 키로 연 카드는 포인터가 떠나도 남는다 (Esc·바깥 누름·항목 고르기로 닫힌다).
+        //  - 카드가 어떤 길로든(Esc·칩 누르기·항목 고르기·바깥 누름) 닫혔을 때 포인터가 "+N" 칸에 있으면 그 칸을 떠날 때까지
+        //    다시 열지 않는다 — 칩을 눌러 커밋을 고르자마자 카드가 다시 뜨면 성가시다.
+        //  - 카드는 주 창 tree에 서므로 popup이던 때 OS가 맡던 "바깥을 누르면 닫기"를 여기서 한다. 이 감시는 상태를 띄엄띄엄 보므로
+        //    빠른 누름은 놓친다. 그래서 행·칩을 눌러 커밋을 고르는 누름은 controller가 고르기 메시지에서 카드를 닫는다.
+        //  - 누름이나 키로 연 카드는 포인터가 떠나도 남는다.
         void update()
         {
             const auto frame { host_.acquire_frame() };
@@ -79,6 +102,32 @@ namespace cyella::win32 {
             const bool card_open { tree.find(ui::ref_list_card_id()) != nullptr };
             const bool on_main { interaction.hovered_surface.empty() && interaction.drag.has_value() == false };
 
+            // 포인터 아래 칸의 "+N" 칩이다. 칸이 바뀌면 머물기 시작한 시각과 "다시 열지 않음"을 새로 센다.
+            const luil::ui_element* target { nullptr };
+            if (on_main && over_graph_row(interaction.hovered))
+            {
+                if (const std::optional<luil::point_f> point { pointer_point() }; point.has_value())
+                    target = ui::find_ref_overflow_at(tree, *point);
+            }
+            const luil::ui_element_id under { target != nullptr ? target->id() : luil::ui_element_id {} };
+            if (under != candidate_)
+            {
+                candidate_ = under;
+                candidate_since_ = now;
+                dismissed_ = {};
+            }
+
+            if (card_open)
+                seen_open_ = true;
+            else if (seen_open_)
+            {
+                seen_open_ = false;
+                hover_open_ = false;
+                sent_ = {};
+                if (candidate_ != luil::ui_element_id {})
+                    dismissed_ = candidate_;
+            }
+
             if (interaction.pressed != last_pressed_)
             {
                 last_pressed_ = interaction.pressed;
@@ -86,23 +135,13 @@ namespace cyella::win32 {
                     && interaction.pressed.kind != ui::kind_ref_overflow)
                 {
                     host_.post_app_message(luil::app_message { close_ref_list_intent {} });
-                    hover_open_ = false;
-                    dismissed_ = candidate_;
                     return;
                 }
             }
 
-            const luil::ui_element* target { nullptr };
-            if (on_main && interaction.hover_point.has_value() && over_graph_row(interaction.hovered))
-                target = ui::find_ref_overflow_at(tree, *interaction.hover_point);
             if (target != nullptr)
             {
                 last_inside_ = now;
-                if (target->id() != candidate_)
-                {
-                    candidate_ = target->id();
-                    candidate_since_ = now;
-                }
                 if (candidate_ == sent_ || candidate_ == dismissed_ || frame->popups.empty() == false)
                     return;
                 if ((card_open && hover_open_) == false && now - candidate_since_ < std::chrono::milliseconds { 180 })
@@ -118,12 +157,11 @@ namespace cyella::win32 {
                 return;
             }
 
-            candidate_ = {};
-            dismissed_ = {};
             if (on_main && ui::is_ref_list_part(interaction.hovered))
                 last_inside_ = now;
             else if (card_open == false)
             {
+                // 열자고 보냈지만 서지 않은 카드(메뉴가 떠 있던 때 등)는 칸을 떠나면 잊는다. 돌아오면 다시 연다.
                 sent_ = {};
                 hover_open_ = false;
             }
@@ -137,7 +175,7 @@ namespace cyella::win32 {
         inline static ref_hover_monitor* active_ { nullptr };
         luil::app_host& host_;
         UINT_PTR timer_ { 0 };
-        // 카드를 연 "+N" 칩, 포인터가 지금 머무는 칸의 칩과 머물기 시작한 시각, 바깥 누름으로 닫은 칸의 칩이다.
+        // 카드를 열자고 보낸 "+N" 칩, 포인터가 지금 머무는 칸의 칩과 머물기 시작한 시각, 카드가 닫힐 때 포인터가 있던 칸의 칩이다.
         luil::ui_element_id sent_ {};
         luil::ui_element_id candidate_ {};
         std::chrono::steady_clock::time_point candidate_since_ {};
@@ -145,6 +183,8 @@ namespace cyella::win32 {
         luil::ui_element_id last_pressed_ {};
         std::chrono::steady_clock::time_point last_inside_ {};
         bool hover_open_ { false };
+        // 카드가 선 것을 본 뒤인가다. 열자고 보낸 뒤 아직 서지 않은 카드를 "닫혔다"로 읽지 않는다.
+        bool seen_open_ { false };
     };
 
     namespace {

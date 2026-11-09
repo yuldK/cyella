@@ -203,6 +203,12 @@ TEST_CASE("overflow ref lists open for a loaded commit and hand actions to its b
     CHECK(test.controller.state().ref_list.has_value());
     test.send(scroll_intent { .target = scroll_target::graph, .value = 30.0f });
     CHECK_FALSE(test.controller.state().ref_list.has_value());
+
+    // 행이나 칩을 눌러 커밋을 고르면 닫힌다. UI thread의 감시가 빠른 누름을 놓쳐도 고르기 메시지는 반드시 온다.
+    test.send(open_ref_list_intent { .sha = sha, .x = 120.0f, .y = 140.0f, .width = 24.0f, .height = 20.0f });
+    REQUIRE(test.controller.state().ref_list.has_value());
+    test.send(select_commit_intent { .key = graph_item_key(sha) });
+    CHECK_FALSE(test.controller.state().ref_list.has_value());
 }
 
 TEST_CASE("form scrolling clamps to layout feedback and resets for the next dialog", "[presentation][dialogs]")

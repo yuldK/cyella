@@ -296,9 +296,12 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
 - **참조 목록 카드**: "+N" 칩이 선 행의 브랜치/태그 칸에 180ms 머물거나 "+N"을 누르면, 그 커밋의 참조를 로컬·원격·태그·stash로 묶은 카드가 칩 아래에 뜨고
   꼬리로 칩을 가리킨다(`build_ref_list_card`). 아래 자리가 모자라면 칩 위에 서고 꼬리가 아래를 가리킨다. 항목을 누르거나 우클릭하면 그 참조의 메뉴가 뜬다.
   - popup 창이 아니라 주 창 tree에 선다. popup은 불투명한 사각 창이라 꼬리를 창 밖으로 내밀 수 없다. 그래서 그림자를 직접 드리우고, popup이던 때
-    OS가 맡던 닫기를 앱이 한다: Esc(`close_overlays_intent`), 그래프 스크롤, 카드 밖 누름(`ref_hover_monitor`가 `interaction.pressed`로 본다).
-  - 호버 판정은 UI thread의 `ref_hover_monitor`가 포인터 자리(`hover_point`)로 `find_ref_overflow_at`에 묻는다. 칸과 카드를 벗어나 400ms가 지나면
-    호버로 연 카드만 닫는다. 카드가 떠 있는 동안 다른 행의 칸으로 옮기면 기다리지 않고 바로 바뀐다. 카드 밖을 눌러 닫은 칸에서는 포인터가 떠날 때까지 다시 열지 않는다.
+    OS가 맡던 닫기를 앱이 한다: Esc(`close_overlays_intent`), 그래프 스크롤, 행·칩을 눌러 커밋 고르기(`select_commit_intent`), 그 밖의 카드 밖 누름
+    (`ref_hover_monitor`가 `interaction.pressed`로 본다. 띄엄띄엄 보므로 빠른 누름은 놓쳐, 가장 흔한 누름인 커밋 고르기는 controller가 닫는다).
+  - 호버 판정은 UI thread의 `ref_hover_monitor`가 커서 자리(`GetCursorPos`를 주 창 client 좌표로 바꾼 것)로 `find_ref_overflow_at`에 묻는다. luil의
+    `interaction.hover_point`는 툴팁이 있는 element 위에서만 기록돼 칩 사이 빈 칸에서는 비기 때문이다. 칸과 카드를 벗어나 400ms가 지나면
+    호버로 연 카드만 닫는다. 카드가 떠 있는 동안 다른 행의 칸으로 옮기면 기다리지 않고 바로 바뀐다. 카드가 어떤 길로든 닫힐 때 포인터가 "+N" 칸에
+    있었으면 그 칸을 떠날 때까지 다시 열지 않는다.
 - 사이드바 브랜치 행(`sidebar_row_element`)도 같은 payload 키(`l:<이름>`, `rb:<이름>`)로 끌고 받는다. 그래프 행 자체는 커밋 대상이다.
 - **`virtual_list` 행 안의 자식에 붙인 `set_drag_source`가 그대로 동작한다.** 눌린 요소는 가장 깊은 상호작용 요소(칩)이고, 6px를 넘기면 끌기가 서며 행의 누름·고르기와 겹치지 않는다.
 - 끄는 동안의 문구(`feature/graph를 main 위로 rebase · 커밋 2개`)는 창 전체를 덮는 투명 overlay element(`ui/overlay_ui.cpp`)가 `interaction.drag`로 그린다.
