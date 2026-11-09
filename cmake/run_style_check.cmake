@@ -1,6 +1,9 @@
 if(NOT DEFINED POWERSHELL_EXECUTABLE OR NOT DEFINED ROOT_DIRECTORY)
     message(FATAL_ERROR "POWERSHELL_EXECUTABLE and ROOT_DIRECTORY are required.")
 endif()
+if(NOT EXISTS "${POWERSHELL_EXECUTABLE}")
+    message(FATAL_ERROR "PowerShell not found: ${POWERSHELL_EXECUTABLE}\nRe-run CMake configure (for example `cmake --preset vs2026-tests`) to search for it again.")
+endif()
 
 execute_process(
     COMMAND "${POWERSHELL_EXECUTABLE}"

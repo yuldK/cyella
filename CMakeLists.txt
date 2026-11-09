@@ -73,6 +73,12 @@ cyella_apply_msvc_options(
     ENABLE_ANALYZE "${CYELLA_ENABLE_MSVC_ANALYZE}"
 )
 
+# find_program은 캐시에 남은 경로를 다시 찾지 않는다. PowerShell을 지우거나 다른 방식(예: Store 판)으로
+# 다시 깔아 그 경로가 사라졌으면 캐시를 비워 지금 PATH에서 새로 찾는다.
+if(CYELLA_POWERSHELL_EXECUTABLE AND NOT EXISTS "${CYELLA_POWERSHELL_EXECUTABLE}")
+    message(STATUS "PowerShell not found at cached path, searching again: ${CYELLA_POWERSHELL_EXECUTABLE}")
+    unset(CYELLA_POWERSHELL_EXECUTABLE CACHE)
+endif()
 find_program(CYELLA_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
 
 # 의존성은 submodule과 luil이 준비한 패키지로만 구성한다. 취득을
