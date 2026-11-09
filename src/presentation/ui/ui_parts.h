@@ -45,7 +45,19 @@ namespace cyella::ui {
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_form_dialog(const form_view& form, float logical_width, float logical_height, feedback_sources& sources);
     // 우클릭 메뉴 popup이다. 좌표는 논리 픽셀이고 크기는 항목 글로 짐작한다.
     [[nodiscard]] built_popup build_menu_popup(const menu_view& menu, float scale);
-    [[nodiscard]] built_popup build_ref_list_popup(const ref_list_state& state, const std::vector<ref_label>& labels, float scale, float maximum_height);
+    // 커밋 하나의 브랜치·태그를 종류별로 묶은 카드다. 창 tree에 서서 꼬리로 "+N" 칩을 가리킨다.
+    //  - popup 창이 아닌 것은 popup이 불투명한 사각 창이라 꼬리를 창 밖으로 내밀 수 없기 때문이다.
+    //  - `area`는 카드가 넘지 않을 자리다 (논리 픽셀). 칩 아래 자리가 모자라면 칩 위에 서고 꼬리가 아래를 가리킨다.
+    //  - 그 커밋에 참조가 없으면 element가 비어 있다.
+    struct placed_ref_list
+    {
+        std::unique_ptr<luil::ui_element> element {};
+        shell_rect rect {};
+        // 꼬리 끝의 x와, 꼬리가 위를 가리키는가다 (논리 픽셀, 창 원점 기준).
+        float tail_x { 0.0f };
+        bool tail_up { true };
+    };
+    [[nodiscard]] placed_ref_list build_ref_list_card(const ref_list_state& state, const std::vector<ref_label>& labels, float scale, const shell_rect& area);
     // 툴바 저장소·브랜치 선택 상자의 목록 popup이다. 거르는 칸이 위에 서고 항목은 메뉴 항목이다. 좌표는 논리 픽셀이다.
     [[nodiscard]] built_popup build_selector_popup(const selector_view& selector, float scale);
     // 끄는 동안 대상 위에 뜨는 문구다. 창 전체를 덮는 투명한 element이고 누름을 받지 않는다.

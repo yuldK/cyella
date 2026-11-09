@@ -8,6 +8,8 @@
 #include "presentation/dialog_intents.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/graph_row_element.h"
+#include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui_intents.h"
 
 #include <windows.h>
@@ -55,36 +57,72 @@ namespace cyella::win32 {
                 active_->update();
         }
 
+        // 그래프 행의 내용 위인가다. 칸 판정은 포인터 자리로 하지만, 행 위에 다른 것(카드·대화 상자)이 덮여 있으면 열지 않는다.
+        [[nodiscard]] static bool over_graph_row(const luil::ui_element_id& hovered) noexcept
+        {
+            return hovered.kind == ui::kind_graph_row || hovered.kind == ui::kind_ref_chip || hovered.kind == ui::kind_ref_overflow;
+        }
+
+        // 브랜치/태그 칸에 머물면 참조 목록 카드를 열고, 칸과 카드를 벗어나면 닫는다.
+        //  - 칸 안에서 180ms 머물러야 연다. 카드가 떠 있는 동안 다른 행의 칸으로 옮기면 기다리지 않고 바로 그 행으로 바꾼다.
+        //  - 카드는 주 창 tree에 서므로 popup이던 때 OS가 맡던 "바깥을 누르면 닫기"를 여기서 한다. 누른 칸에서는 포인터가
+        //    칸을 떠날 때까지 다시 열지 않는다 — 칩을 눌러 커밋을 고르자마자 카드가 다시 뜨면 성가시다.
+        //  - 누름이나 키로 연 카드는 포인터가 떠나도 남는다 (Esc·바깥 누름·항목 고르기로 닫힌다).
         void update()
         {
             const auto frame { host_.acquire_frame() };
             if (frame == nullptr || frame->tree == nullptr)
                 return;
+            const luil::ui_tree& tree { *frame->tree };
             const auto interaction { host_.acquire_interaction() };
             const auto now { std::chrono::steady_clock::now() };
-            const bool list_open { std::any_of(frame->popups.begin(), frame->popups.end(), [](const luil::ui_popup& popup) { return popup.id == u8"ref-list"; }) };
-            const bool source { interaction.hovered.kind == ui::kind_ref_overflow && interaction.hovered_surface.empty() && interaction.drag.has_value() == false };
-            if (source)
+            const bool card_open { tree.find(ui::ref_list_card_id()) != nullptr };
+            const bool on_main { interaction.hovered_surface.empty() && interaction.drag.has_value() == false };
+
+            if (interaction.pressed != last_pressed_)
+            {
+                last_pressed_ = interaction.pressed;
+                if (card_open && interaction.pressed != luil::ui_element_id {} && ui::is_ref_list_part(interaction.pressed) == false
+                    && interaction.pressed.kind != ui::kind_ref_overflow)
+                {
+                    host_.post_app_message(luil::app_message { close_ref_list_intent {} });
+                    hover_open_ = false;
+                    dismissed_ = candidate_;
+                    return;
+                }
+            }
+
+            const luil::ui_element* target { nullptr };
+            if (on_main && interaction.hover_point.has_value() && over_graph_row(interaction.hovered))
+                target = ui::find_ref_overflow_at(tree, *interaction.hover_point);
+            if (target != nullptr)
             {
                 last_inside_ = now;
-                if (sent_ == interaction.hovered || (frame->popups.empty() == false && list_open == false) || interaction.hover_started_at.has_value() == false
-                    || now - *interaction.hover_started_at < std::chrono::milliseconds { 180 })
+                if (target->id() != candidate_)
+                {
+                    candidate_ = target->id();
+                    candidate_since_ = now;
+                }
+                if (candidate_ == sent_ || candidate_ == dismissed_ || frame->popups.empty() == false)
                     return;
-                const luil::ui_element* const element { frame->tree->find(interaction.hovered) };
-                if (element == nullptr || element->visible() == false)
+                if ((card_open && hover_open_) == false && now - candidate_since_ < std::chrono::milliseconds { 180 })
                     return;
-                const luil::ui_action* const open { element->action(luil::ui_trigger::left_click) };
+                const luil::ui_action* const open { target->action(luil::ui_trigger::left_click) };
                 if (open == nullptr)
                     return;
-                for (const luil::input_action& action : (*open)({ .element = element->id() }))
+                for (const luil::input_action& action : (*open)({ .element = target->id() }))
                     if (const auto* const message { std::get_if<luil::app_message>(&action) }; message != nullptr)
                         host_.post_app_message(*message);
-                sent_ = interaction.hovered;
+                sent_ = candidate_;
                 hover_open_ = true;
+                return;
             }
-            else if (interaction.hovered_surface == u8"ref-list")
+
+            candidate_ = {};
+            dismissed_ = {};
+            if (on_main && ui::is_ref_list_part(interaction.hovered))
                 last_inside_ = now;
-            else if (list_open == false)
+            else if (card_open == false)
             {
                 sent_ = {};
                 hover_open_ = false;
@@ -99,7 +137,12 @@ namespace cyella::win32 {
         inline static ref_hover_monitor* active_ { nullptr };
         luil::app_host& host_;
         UINT_PTR timer_ { 0 };
+        // 카드를 연 "+N" 칩, 포인터가 지금 머무는 칸의 칩과 머물기 시작한 시각, 바깥 누름으로 닫은 칸의 칩이다.
         luil::ui_element_id sent_ {};
+        luil::ui_element_id candidate_ {};
+        std::chrono::steady_clock::time_point candidate_since_ {};
+        luil::ui_element_id dismissed_ {};
+        luil::ui_element_id last_pressed_ {};
         std::chrono::steady_clock::time_point last_inside_ {};
         bool hover_open_ { false };
     };

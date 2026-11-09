@@ -6,6 +6,7 @@
 #include "presentation/ui/press_row.h"
 
 #include "luil/ui/ui_element.h"
+#include "luil/ui/ui_tree.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -81,6 +82,11 @@ namespace cyella::ui {
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
         [[nodiscard]] luil::access_info accessibility() const override;
 
+        // 칸이 모자라 "+N" 칩이 서 있으면 그 칩이고, 아니면 nullptr다.
+        [[nodiscard]] const luil::ui_element* overflow() const noexcept;
+        // 브랜치/태그 칸의 오른쪽 끝이다 (물리 픽셀). 배치 전에는 0이다.
+        [[nodiscard]] float refs_right() const noexcept;
+
     private:
         luil::ui_element* add_chip(std::unique_ptr<luil::ui_element> chip);
         void draw_graph(luil::draw_context& context, const luil::rect_f& cell) const;
@@ -91,7 +97,12 @@ namespace cyella::ui {
         // 라벨 칩들이다 (자식이 소유한다). 칸이 모자라면 뒤쪽은 숨고 `overflow_`가 "+N"을 보인다.
         std::vector<ref_chip_element*> chips_ {};
         luil::ui_element* overflow_ { nullptr };
+        float refs_right_ { 0.0f };
     };
+
+    // 포인터(`point`, 주 창 표면 좌표의 물리 픽셀)가 "+N" 칩이 선 행의 브랜치/태그 칸 안에 있으면 그 칩을 돌려준다.
+    // 칩 하나가 아니라 칸 어디에 올려도 참조 목록 카드가 뜨게 하는 판정이다. 칩이 다 보이는 행이나 칸 밖이면 nullptr다.
+    [[nodiscard]] const luil::ui_element* find_ref_overflow_at(const luil::ui_tree& tree, luil::point_f point);
 
     // 그래프 목록 위의 열 머리다.
     class graph_header_element final : public luil::ui_element

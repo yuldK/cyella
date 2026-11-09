@@ -634,6 +634,17 @@ namespace cyella::ui {
             if (titled)
                 root->place(make_app_title(u8"caption-title", u8"cyella"), caption_title_rect(caption_config, app_title_aspect()));
         }
+        // 참조 목록 카드는 그래프·상세 위, 토스트·대화 상자 아래에 선다. 본문 밖(툴바·상태 줄)으로는 나가지 않는다.
+        if (view.ref_list.has_value() && view.repository.has_value() && view.repository->graph.labels != nullptr)
+        {
+            const auto found { view.repository->graph.labels->find(view.ref_list->sha) };
+            if (found != view.repository->graph.labels->end())
+            {
+                placed_ref_list card { build_ref_list_card(*view.ref_list, found->second, scale, rects.body) };
+                if (card.element != nullptr)
+                    root->place(std::move(card.element), card.rect);
+            }
+        }
         // 토스트는 본문 위에 떠서 자리를 밀어내지 않는다. 대화 상자는 그 위에 선다.
         for (placed_toast& toast : build_toasts(view, rects.body.y + rects.body.height))
             root->place(std::move(toast.element), toast.rect);
@@ -657,12 +668,6 @@ namespace cyella::ui {
         root->place(std::make_unique<shortcut_table_element>(view.shortcuts), { 0.0f, 0.0f, 1.0f, 1.0f });
 
         built_tree built {};
-        if (view.ref_list.has_value() && view.repository.has_value() && view.repository->graph.labels != nullptr)
-        {
-            const auto found { view.repository->graph.labels->find(view.ref_list->sha) };
-            if (found != view.repository->graph.labels->end())
-                built.popups.push_back(build_ref_list_popup(*view.ref_list, found->second, scale, std::clamp(view.logical_height - 120.0f, 120.0f, 420.0f)));
-        }
         if (view.menu.has_value())
             built.popups.push_back(build_menu_popup(*view.menu, scale));
         if (view.selector.has_value())

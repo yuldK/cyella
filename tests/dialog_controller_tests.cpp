@@ -194,6 +194,15 @@ TEST_CASE("overflow ref lists open for a loaded commit and hand actions to its b
     test.send(close_menu_intent {});
     test.send(open_ref_list_intent { "missing", 120.0f, 140.0f });
     CHECK_FALSE(test.controller.state().ref_list.has_value());
+
+    // 카드는 칩 자리에 서 있으므로 그래프가 흐르면 닫힌다. 다른 판의 스크롤은 그대로 둔다.
+    test.send(open_ref_list_intent { .sha = sha, .x = 120.0f, .y = 140.0f, .width = 24.0f, .height = 20.0f });
+    REQUIRE(test.controller.state().ref_list.has_value());
+    CHECK(test.controller.state().ref_list->width == 24.0f);
+    test.send(scroll_intent { .target = scroll_target::sidebar, .value = 30.0f });
+    CHECK(test.controller.state().ref_list.has_value());
+    test.send(scroll_intent { .target = scroll_target::graph, .value = 30.0f });
+    CHECK_FALSE(test.controller.state().ref_list.has_value());
 }
 
 TEST_CASE("form scrolling clamps to layout feedback and resets for the next dialog", "[presentation][dialogs]")

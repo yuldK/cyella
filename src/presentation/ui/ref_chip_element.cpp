@@ -333,8 +333,18 @@ namespace cyella::ui {
         set_cursor(luil::ui_cursor::hand);
         set_action(luil::ui_trigger::left_click, [this, sha = std::move(sha)](const luil::ui_action_context&) -> std::vector<luil::input_action> {
             const luil::rect_f box { bounds() };
-            return { message(open_ref_list_intent { sha, box.x, box.y + box.height }) };
+            return { message(open_ref_list_intent { .sha = sha, .x = box.x, .y = box.y, .width = box.width, .height = box.height }) };
         });
+    }
+
+    bool is_ref_list_part(const luil::ui_element_id& id) noexcept
+    {
+        return id.owner.starts_with(ref_list_owner_prefix);
+    }
+
+    luil::ui_element_id ref_list_card_id()
+    {
+        return luil::ui_element_id { kind_panel, std::u8string { ref_list_owner_prefix } + u8"-card" };
     }
 
     void ref_overflow_element::arrange(const luil::arrange_context& context)

@@ -320,7 +320,7 @@ namespace cyella {
                 if (std::any_of(commits.begin(), commits.end(), [intent](const commit_info& commit) { return commit.sha == intent->sha; }))
                 {
                     ui_.selector.reset();
-                    ui_.ref_list = ref_list_state { intent->sha, intent->x, intent->y };
+                    ui_.ref_list = ref_list_state { .sha = intent->sha, .x = intent->x, .y = intent->y, .width = intent->width, .height = intent->height };
                 }
             }
             return true;

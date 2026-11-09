@@ -288,13 +288,42 @@ namespace cyella::ui {
         return raw;
     }
 
+    const luil::ui_element* graph_row_element::overflow() const noexcept
+    {
+        return overflow_ != nullptr && overflow_->visible() ? overflow_ : nullptr;
+    }
+
+    float graph_row_element::refs_right() const noexcept
+    {
+        return refs_right_;
+    }
+
+    const luil::ui_element* find_ref_overflow_at(const luil::ui_tree& tree, const luil::point_f point)
+    {
+        for (const luil::ui_element_id& id : tree.ids_of_kind(kind_graph_row))
+        {
+            const auto* const row { dynamic_cast<const graph_row_element*>(tree.find(id)) };
+            if (row == nullptr || row->visible() == false)
+                continue;
+            const luil::rect_f box { row->bounds() };
+            if (point.y < box.y || point.y >= box.y + box.height)
+                continue;
+            // 행은 세로로 겹치지 않으므로 포인터 높이의 행은 하나다.
+            if (point.x < box.x || point.x >= row->refs_right())
+                return nullptr;
+            return row->overflow();
+        }
+        return nullptr;
+    }
+
     void graph_row_element::arrange(const luil::arrange_context& context)
     {
         set_bounds(context.slot);
+        const float scale { context.scale > 0.0f ? context.scale : 1.0f };
+        refs_right_ = bounds().x + columns_.refs * scale;
         if (chips_.empty())
             return;
         const luil::rect_f box { bounds() };
-        const float scale { context.scale > 0.0f ? context.scale : 1.0f };
         const float left { box.x + cell_padding * scale };
         const float right { box.x + columns_.refs * scale - label_padding * scale };
         const float available { right - left };

@@ -594,7 +594,11 @@ namespace cyella {
             next = std::min(next, *maximum);
         *value = std::max(next, 0.0f);
         if (intent.target == scroll_target::graph)
+        {
             maybe_load_more();
+            // 참조 목록 카드는 칩 자리에 서 있다. 그래프가 흐르면 칩이 떠나므로 닫는다 (popup이던 때 휠이 닫던 것과 같다).
+            ui_.ref_list.reset();
+        }
         request_visible_signatures();
     }
 

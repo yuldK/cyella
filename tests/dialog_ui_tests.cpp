@@ -16,6 +16,7 @@
 #include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/repository_tabs_element.h"
 #include "presentation/ui/ui_helpers.h"
+#include "presentation/ui/ui_parts.h"
 #include "presentation/ui_intents.h"
 
 #include "view_snapshot_support.h"
@@ -62,7 +63,18 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
     const auto* const opened { std::get<luil::app_message>(actions.front()).get<open_ref_list_intent>() };
     REQUIRE(opened != nullptr);
     CHECK(opened->sha == "abc");
-    CHECK(opened->y == overflow->bounds().y + overflow->bounds().height);
+    // 카드가 꼬리로 가리킬 칩의 사각형 전체를 싣는다.
+    CHECK(opened->x == overflow->bounds().x);
+    CHECK(opened->y == overflow->bounds().y);
+    CHECK(opened->width == overflow->bounds().width);
+    CHECK(opened->height == overflow->bounds().height);
+
+    // 칸 어디에 올려도 "+N" 칩을 찾는다. 칸 밖(메시지 열)이나 다른 높이면 없다.
+    const luil::rect_f chip { overflow->bounds() };
+    CHECK(ui::find_ref_overflow_at(tree, { 4.0f, 14.0f }) == overflow);
+    CHECK(ui::find_ref_overflow_at(tree, { chip.x + chip.width / 2.0f, 14.0f }) == overflow);
+    CHECK(ui::find_ref_overflow_at(tree, { 300.0f, 14.0f }) == nullptr);
+    CHECK(ui::find_ref_overflow_at(tree, { 4.0f, 40.0f }) == nullptr);
 
     test::snapshot::snapshot_harness harness {};
     const auto tab { harness.open(u8"C:/work/repo", "repo-1") };
@@ -71,16 +83,24 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
     auto map { std::make_shared<ref_label_map>() };
     (*map)["abc"] = labels;
     view.repository->graph.labels = map;
-    view.ref_list = ref_list_state { "abc", 40.0f, 80.0f };
+    view.ref_list = ref_list_state { .sha = "abc", .x = 140.0f, .y = 200.0f, .width = 24.0f, .height = 20.0f };
     const auto built { ui::build_ui_tree(view) };
-    REQUIRE(built.popups.size() == 1);
-    const auto& popup { built.popups.front() };
-    CHECK(popup.id == u8"ref-list");
-    CHECK(popup.tree->duplicate_ids().empty());
+    // 카드는 popup 창이 아니라 주 창 tree에 선다 (꼬리를 창 밖으로 내밀 수 없어서다).
+    CHECK(built.popups.empty());
+    CHECK(built.tree->duplicate_ids().empty());
+    const auto* const card { built.tree->find(ui::ref_list_card_id()) };
+    REQUIRE(card != nullptr);
+    CHECK(card->accessibility().name.empty() == false);
+    // 칩 아래에 자리가 넉넉하니 카드는 칩 바로 아래에 서고, 묶음 머리는 종류마다 하나다.
+    CHECK(card->bounds().y == 222.0f);
+    CHECK(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-local" }) != nullptr);
+    CHECK(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-remote" }) != nullptr);
+    CHECK(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-tag" }) != nullptr);
+    CHECK_FALSE(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-local" })->enabled());
     for (const auto& [key, expected] :
         std::vector<std::pair<std::u8string, std::string>> { { u8"ref-list-l:main", "main" }, { u8"ref-list-rb:origin/main", "origin/main" }, { u8"ref-list-l:feature/hidden", "feature/hidden" } })
     {
-        const auto* const item { popup.tree->find({ luil::ui_element_kind::menu_item, key }) };
+        const auto* const item { built.tree->find({ luil::ui_element_kind::menu_item, key }) };
         REQUIRE(item != nullptr);
         REQUIRE(item->action(luil::ui_trigger::left_click) != nullptr);
         REQUIRE(item->action(luil::ui_trigger::right_click) != nullptr);
@@ -92,6 +112,42 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
         CHECK(menu->target.sha == "abc");
     }
     static_cast<void>(tab);
+}
+
+TEST_CASE("the ref card points its tail at the overflow chip and flips above near the bottom", "[ui][refs]")
+{
+    using namespace cyella;
+    const std::vector<ref_label> labels {
+        { .kind = ref_label_kind::local, .text = u8"main", .ref_name = "main" },
+        { .kind = ref_label_kind::tag, .text = u8"v1.0", .ref_name = "v1.0" },
+    };
+    const shell_rect area { 0.0f, 100.0f, 1200.0f, 600.0f };
+
+    // 아래에 자리가 있으면 칩 아래에 서고 꼬리가 위로 칩 가운데를 가리킨다 (배율 2라 상태의 칩은 물리 픽셀이다).
+    const ui::placed_ref_list below { ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 400.0f, .width = 40.0f, .height = 40.0f }, labels, 2.0f, area) };
+    REQUIRE(below.element != nullptr);
+    CHECK(below.tail_up);
+    CHECK(below.tail_x == 150.0f);
+    CHECK(below.rect.y == 222.0f);
+    CHECK(below.rect.x < 150.0f);
+    CHECK(below.rect.x + below.rect.width > 150.0f);
+
+    // 칩이 본문 바닥 가까이 있으면 칩 위에 서고 꼬리가 아래를 가리킨다. 본문 밖으로 나가지 않는다.
+    const ui::placed_ref_list above { ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 1360.0f, .width = 40.0f, .height = 40.0f }, labels, 2.0f, area) };
+    REQUIRE(above.element != nullptr);
+    CHECK_FALSE(above.tail_up);
+    CHECK(above.rect.y + above.rect.height == 678.0f);
+    CHECK(above.rect.y >= area.y);
+
+    // 창 오른쪽 끝의 칩이면 카드가 안으로 밀리고 꼬리만 칩에 남는다.
+    const ui::placed_ref_list edge { ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 2300.0f, .y = 400.0f, .width = 30.0f, .height = 40.0f }, labels, 2.0f, area) };
+    REQUIRE(edge.element != nullptr);
+    CHECK(edge.rect.x + edge.rect.width <= 1192.0f);
+    CHECK(edge.tail_x == 1157.5f);
+    CHECK(edge.tail_x <= edge.rect.x + edge.rect.width);
+
+    // 참조가 없는 커밋이면 카드가 없다.
+    CHECK(ui::build_ref_list_card(ref_list_state { .sha = "abc" }, {}, 1.0f, area).element == nullptr);
 }
 
 namespace {

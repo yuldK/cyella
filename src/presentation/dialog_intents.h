@@ -29,11 +29,14 @@ namespace cyella {
     struct close_menu_intent
     {};
 
+    // 커밋 하나의 참조 목록 카드를 연다. 사각형은 카드가 가리킬 "+N" 칩의 자리다 (주 창 표면 좌표, 물리 픽셀).
     struct open_ref_list_intent
     {
         std::string sha {};
         float x { 0.0f };
         float y { 0.0f };
+        float width { 0.0f };
+        float height { 0.0f };
     };
 
     struct close_ref_list_intent

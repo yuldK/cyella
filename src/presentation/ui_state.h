@@ -288,11 +288,14 @@ namespace cyella {
         luil::text::text_edit_state filter {};
     };
 
+    // 열린 참조 목록 카드다. 사각형은 카드가 가리키는 "+N" 칩의 자리다 (주 창 표면 좌표, 물리 픽셀).
     struct ref_list_state
     {
         std::string sha {};
         float x { 0.0f };
         float y { 0.0f };
+        float width { 0.0f };
+        float height { 0.0f };
         float scroll { 0.0f };
     };
 

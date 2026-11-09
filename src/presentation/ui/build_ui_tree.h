@@ -24,7 +24,6 @@ namespace cyella::ui {
         // 툴바 선택 상자의 목록이다. 검색 칸이 있어 창 활성이 바뀌어도 남고, 닫힘은 `close_selector_intent`다.
         bool selector { false };
         bool font { false };
-        bool ref_list { false };
         // 알림 센터다. 바깥 누름과 Esc에 닫힌다.
         bool notifications { false };
         // 표면 모서리다 (luil `ui_popup::corner`). 비면 앱 스타일(OS 기본)이다.

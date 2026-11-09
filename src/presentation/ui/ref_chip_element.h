@@ -58,4 +58,11 @@ namespace cyella::ui {
     private:
         std::u8string text_ {};
     };
+
+    // 참조 목록 카드와 그 안의 요소(메뉴·항목·흘리는 창)는 owner가 모두 이것으로 시작한다.
+    // 카드는 popup 창이 아니라 주 창 tree에 서므로, 호버 감시는 "포인터가 카드 위인가"를 표면 이름이 아니라 이것으로 가린다.
+    inline constexpr std::u8string_view ref_list_owner_prefix { u8"ref-list" };
+    [[nodiscard]] bool is_ref_list_part(const luil::ui_element_id& id) noexcept;
+    // 카드 자신의 id다. tree에 이것이 있으면 카드가 떠 있다.
+    [[nodiscard]] luil::ui_element_id ref_list_card_id();
 } // namespace cyella::ui
