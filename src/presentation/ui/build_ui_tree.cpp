@@ -500,7 +500,7 @@ namespace cyella::ui {
             auto path_row
                 = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"clone-path-row" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f });
             path_row->add_flexible(
-                std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_clone_path_input, u8"clone-path" }, dialog.path, luil::text_input_config { .placeholder = u8"E:\\work\\repo" }));
+                std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_clone_path_input, u8"clone-path" }, dialog.path, luil::text_input_config { .placeholder = u8"path\\to\\repo" }));
             path_row->add(
                 make_text_button(u8"clone-browse", tr(u8"tree.clone.browse"), luil::text_button_visual::normal, ui_command(static_cast<std::uint32_t>(ui_command_id::clone_target_folder))), 86.0f);
             body->add(std::move(path_row), 28.0f);

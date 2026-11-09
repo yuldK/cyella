@@ -57,7 +57,7 @@ namespace {
             , controller { make_dependencies(with_identity) }
         {
             controller.start({});
-            controller.open_repository(u8"E:\\work\\repo");
+            controller.open_repository(u8"C:\\work\\repo");
             repository = controller.selected_repository_id();
             repository_session* const session { workspace.find_session(repository) };
             REQUIRE(session != nullptr);
@@ -382,7 +382,7 @@ TEST_CASE("repository mode lists the open tabs and recent repositories", "[palet
 {
     p6_harness test {};
     test.send(new_tab_intent {});
-    test.controller.open_repository(u8"E:\\work\\other");
+    test.controller.open_repository(u8"C:\\work\\other");
     REQUIRE(test.controller.tabs().tabs().size() == 2);
     test.send(run_command_intent { "repo.open" });
     CHECK(test.controller.state().palette->mode == palette_mode::repositories);
@@ -397,7 +397,7 @@ TEST_CASE("repository mode lists the open tabs and recent repositories", "[palet
     REQUIRE_FALSE(tab_key.empty());
     test.send(palette_pick_intent { tab_key });
     CHECK_FALSE(test.controller.state().palette.has_value());
-    CHECK(test.controller.tabs().selected().path == u8"E:\\work\\repo");
+    CHECK(test.controller.tabs().selected().path == u8"C:\\work\\repo");
 }
 
 TEST_CASE("the selected commit's menu entries are commands and picking one runs the menu action", "[palette][controller]")
@@ -424,7 +424,7 @@ TEST_CASE("registry commands run the same actions as the buttons", "[commands][c
     test.send(run_command_intent { "tab.new" });
     CHECK(test.controller.tabs().tabs().size() == 2);
     test.send(run_command_intent { "tab.previous" });
-    CHECK(test.controller.tabs().selected().path == u8"E:\\work\\repo");
+    CHECK(test.controller.tabs().selected().path == u8"C:\\work\\repo");
     test.send(run_command_intent { "app.settings.shortcuts" });
     REQUIRE(test.controller.settings_screen().is_open());
     CHECK(test.controller.settings_screen().state()->page == settings_page::shortcuts);
@@ -682,7 +682,7 @@ TEST_CASE("profiles are added, edited and removed through the settings page", "[
     test.send(save_profile_intent {});
     CHECK(test.controller.settings().profiles[0].user_name == u8"길동");
 
-    test.add_rule(u8"E:\\work", u8"회사");
+    test.add_rule(u8"C:\\work", u8"회사");
     REQUIRE(test.controller.settings().profile_rules.size() == 1);
     CHECK(test.controller.settings().profile_rules[0].profile == u8"회사");
     test.send(remove_profile_rule_intent { 0 });
@@ -696,7 +696,7 @@ TEST_CASE("the selected repository's identity is requested once and shown with i
     p6_harness test {};
     REQUIRE(test.reads.size() == 1);
     CHECK(test.reads[0].repository_id == test.repository);
-    CHECK(test.reads[0].path == u8"E:\\work\\repo");
+    CHECK(test.reads[0].path == u8"C:\\work\\repo");
     // 결과가 오기 전에 또 청하지 않는다.
     test.send(open_palette_intent {});
     test.send(close_palette_intent {});
@@ -750,7 +750,7 @@ TEST_CASE("a matching rule only proposes a profile; nothing is written until it 
 {
     p6_harness test {};
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-    test.add_rule(u8"E:\\work", u8"회사");
+    test.add_rule(u8"C:\\work", u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
 
@@ -779,7 +779,7 @@ TEST_CASE("a matching rule only proposes a profile; nothing is written until it 
     test.send(notification_action_intent { u8"apply_profile:회사", 0 });
     REQUIRE(test.writes.size() == 1);
     CHECK(test.writes[0].repository_id == test.repository);
-    CHECK(test.writes[0].path == u8"E:\\work\\repo");
+    CHECK(test.writes[0].path == u8"C:\\work\\repo");
     CHECK(test.writes[0].user_name == u8"홍길동");
     CHECK(test.writes[0].user_email == u8"hong@corp.example");
     // worker가 성공을 알리면 적용 기록이 남고 신원을 다시 읽는다.
@@ -806,7 +806,7 @@ TEST_CASE("no proposal when the identity already matches the rule's profile or a
     {
         p6_harness test {};
         test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-        test.add_rule(u8"E:\\work", u8"회사");
+        test.add_rule(u8"C:\\work", u8"회사");
         test.send(close_settings_intent {});
         test.identity_is(u8"홍길동", u8"hong@corp.example", identity_origin::local);
         CHECK_FALSE(proposed(test.controller.state()));
@@ -816,7 +816,7 @@ TEST_CASE("no proposal when the identity already matches the rule's profile or a
         p6_harness test {};
         test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
         test.add_profile(u8"개인", u8"길동", u8"me@example.com");
-        test.add_rule(u8"E:\\work", u8"회사");
+        test.add_rule(u8"C:\\work", u8"회사");
         test.send(close_settings_intent {});
         test.send(apply_profile_intent { u8"개인" });
         test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = {} });
@@ -830,7 +830,7 @@ TEST_CASE("the first commit warns when the identity is missing or differs from t
 {
     p6_harness test {};
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-    test.add_rule(u8"E:\\work", u8"회사");
+    test.add_rule(u8"C:\\work", u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
     test.send(dismiss_notification_intent {});
@@ -856,7 +856,7 @@ TEST_CASE("the warning's apply-and-commit applies the profile first and commits 
 {
     p6_harness test {};
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-    test.add_rule(u8"E:\\work", u8"회사");
+    test.add_rule(u8"C:\\work", u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
     test.send(dismiss_notification_intent {});
@@ -994,7 +994,7 @@ TEST_CASE("clearing local settings asks the worker to remove them and forgets th
     test.send(clear_local_identity_intent {});
     REQUIRE(test.writes.size() == 2);
     CHECK(test.writes[1].clear);
-    CHECK(test.writes[1].path == u8"E:\\work\\repo");
+    CHECK(test.writes[1].path == u8"C:\\work\\repo");
     // 실패하면 적용 기록을 그대로 두고 경고한다.
     test.send(identity_applied_intent { .repository_id = test.repository, .ok = false, .message = u8"locked", .cleared = true });
     CHECK(test.controller.settings().profile_assignments.size() == 1);

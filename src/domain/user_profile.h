@@ -56,7 +56,7 @@ namespace cyella {
     // 입력한 프로필의 문제다. 비어 있으면 저장할 수 있다. `editing`은 고치는 줄이다 (자기 이름과의 중복은 허용한다).
     [[nodiscard]] std::u8string check_user_profile(const user_profile& profile, const std::vector<user_profile>& existing, std::optional<std::size_t> editing);
 
-    // 경로가 접두 안에 있는가 (폴더 경계로 맞춘다: `E:\work`는 `E:\work\a`에 맞고 `E:\workshop`에는 맞지 않는다. 대소문자·구분자 무시).
+    // 경로가 접두 안에 있는가 (폴더 경계로 맞춘다: `C:\work`는 `C:\work\a`에 맞고 `C:\workshop`에는 맞지 않는다. 대소문자·구분자 무시).
     [[nodiscard]] bool path_is_under_prefix(std::u8string_view path, std::u8string_view prefix);
 
     // 저장소 경로에 맞는 규칙이다. 접두가 가장 긴 규칙이 이기고 같으면 앞의 규칙이다. 빈 접두와 없는 프로필을 가리키는 규칙은 건너뛴다.

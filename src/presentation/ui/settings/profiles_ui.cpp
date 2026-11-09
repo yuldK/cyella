@@ -127,7 +127,7 @@ namespace cyella::ui {
             }
             page.gap(small_gap);
             page.add(field_label(u8"settings-rule-prefix-label", tr(u8"settings.profiles.rule_folder_label")), label_height);
-            page.add(input_of(kind_profile_rule_prefix_input, u8"settings-rule-prefix-input", view.rule_prefix, u8"E:\\work", tr(u8"settings.profiles.rule_folder")), input_height);
+            page.add(input_of(kind_profile_rule_prefix_input, u8"settings-rule-prefix-input", view.rule_prefix, u8"path\\to\\folder", tr(u8"settings.profiles.rule_folder")), input_height);
             if (view.profiles.empty() == false)
             {
                 page.add(field_label(u8"settings-rule-profile-label", tr(u8"settings.profiles.rule_profile")), label_height);

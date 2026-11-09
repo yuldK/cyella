@@ -24,29 +24,29 @@ namespace {
 
 TEST_CASE("a rule matches paths under its folder at a folder boundary", "[profiles]")
 {
-    REQUIRE(path_is_under_prefix(u8"E:\\work\\repo", u8"E:\\work"));
-    REQUIRE(path_is_under_prefix(u8"E:\\work", u8"E:\\work"));
+    REQUIRE(path_is_under_prefix(u8"C:\\work\\repo", u8"C:\\work"));
+    REQUIRE(path_is_under_prefix(u8"C:\\work", u8"C:\\work"));
     // 대소문자·구분자·끝 구분자는 무시한다.
-    REQUIRE(path_is_under_prefix(u8"e:/Work/Repo", u8"E:\\WORK\\"));
+    REQUIRE(path_is_under_prefix(u8"c:/Work/Repo", u8"C:\\WORK\\"));
     // 폴더 이름의 앞부분만 같은 다른 폴더에는 맞지 않는다.
-    REQUIRE(path_is_under_prefix(u8"E:\\workshop\\repo", u8"E:\\work") == false);
-    REQUIRE(path_is_under_prefix(u8"E:\\other\\repo", u8"E:\\work") == false);
-    REQUIRE(path_is_under_prefix(u8"E:\\work\\repo", u8"") == false);
+    REQUIRE(path_is_under_prefix(u8"C:\\workshop\\repo", u8"C:\\work") == false);
+    REQUIRE(path_is_under_prefix(u8"C:\\other\\repo", u8"C:\\work") == false);
+    REQUIRE(path_is_under_prefix(u8"C:\\work\\repo", u8"") == false);
     // 뿌리 규칙은 그 드라이브 전체다.
-    REQUIRE(path_is_under_prefix(u8"E:\\anything\\repo", u8"E:\\"));
+    REQUIRE(path_is_under_prefix(u8"C:\\anything\\repo", u8"C:\\"));
 }
 
 TEST_CASE("the rule with the longest folder wins and unknown profiles are skipped", "[profiles]")
 {
     const std::vector<user_profile> profiles { two_profiles() };
-    const std::vector<profile_rule> rules { profile_rule { u8"E:\\work", u8"개인" }, profile_rule { u8"E:\\work\\corp", u8"회사" }, profile_rule { u8"E:\\ghost", u8"없는 프로필" } };
-    REQUIRE(match_profile_rule(rules, profiles, u8"E:\\work\\corp\\repo") == std::size_t { 1 });
-    REQUIRE(match_profile_rule(rules, profiles, u8"E:\\work\\hobby") == std::size_t { 0 });
-    REQUIRE(match_profile_rule(rules, profiles, u8"E:\\elsewhere").has_value() == false);
-    REQUIRE(match_profile_rule(rules, profiles, u8"E:\\ghost\\repo").has_value() == false);
+    const std::vector<profile_rule> rules { profile_rule { u8"C:\\work", u8"개인" }, profile_rule { u8"C:\\work\\corp", u8"회사" }, profile_rule { u8"C:\\ghost", u8"없는 프로필" } };
+    REQUIRE(match_profile_rule(rules, profiles, u8"C:\\work\\corp\\repo") == std::size_t { 1 });
+    REQUIRE(match_profile_rule(rules, profiles, u8"C:\\work\\hobby") == std::size_t { 0 });
+    REQUIRE(match_profile_rule(rules, profiles, u8"C:\\elsewhere").has_value() == false);
+    REQUIRE(match_profile_rule(rules, profiles, u8"C:\\ghost\\repo").has_value() == false);
     // 같은 길이면 앞의 규칙이 이긴다.
-    const std::vector<profile_rule> tie { profile_rule { u8"E:\\work", u8"회사" }, profile_rule { u8"e:/WORK", u8"개인" } };
-    REQUIRE(match_profile_rule(tie, profiles, u8"E:\\work\\repo") == std::size_t { 0 });
+    const std::vector<profile_rule> tie { profile_rule { u8"C:\\work", u8"회사" }, profile_rule { u8"c:/WORK", u8"개인" } };
+    REQUIRE(match_profile_rule(tie, profiles, u8"C:\\work\\repo") == std::size_t { 0 });
 }
 
 TEST_CASE("a profile needs a unique name, a user name and an email", "[profiles]")
@@ -75,10 +75,10 @@ TEST_CASE("a profile needs a unique name, a user name and an email", "[profiles]
 TEST_CASE("a rule needs a folder path and a known profile", "[profiles]")
 {
     const std::vector<user_profile> profiles { two_profiles() };
-    REQUIRE(check_profile_rule(profile_rule { u8"E:\\work", u8"회사" }, profiles).empty());
+    REQUIRE(check_profile_rule(profile_rule { u8"C:\\work", u8"회사" }, profiles).empty());
     REQUIRE(check_profile_rule(profile_rule { u8"", u8"회사" }, profiles).empty() == false);
     REQUIRE(check_profile_rule(profile_rule { u8"work", u8"회사" }, profiles).empty() == false);
-    REQUIRE(check_profile_rule(profile_rule { u8"E:\\work", u8"없음" }, profiles).empty() == false);
+    REQUIRE(check_profile_rule(profile_rule { u8"C:\\work", u8"없음" }, profiles).empty() == false);
 }
 
 TEST_CASE("renaming and removing a profile keeps rules and assignments consistent", "[profiles]")
@@ -86,31 +86,31 @@ TEST_CASE("renaming and removing a profile keeps rules and assignments consisten
     app_settings settings {};
     upsert_user_profile(settings, std::nullopt, make_profile(u8"회사", u8"홍길동", u8"hong@corp.example"));
     upsert_user_profile(settings, std::nullopt, make_profile(u8"개인", u8"길동", u8"me@example.com"));
-    upsert_profile_rule(settings, profile_rule { u8"E:/work/", u8"회사" });
-    assign_profile(settings, u8"E:\\work\\repo", u8"회사");
-    assign_profile(settings, u8"E:\\play\\game", u8"개인");
-    REQUIRE(settings.profile_rules.front().path_prefix == u8"E:\\work");
+    upsert_profile_rule(settings, profile_rule { u8"C:/work/", u8"회사" });
+    assign_profile(settings, u8"C:\\work\\repo", u8"회사");
+    assign_profile(settings, u8"C:\\play\\game", u8"개인");
+    REQUIRE(settings.profile_rules.front().path_prefix == u8"C:\\work");
 
     // 같은 접두의 규칙은 프로필만 바뀐다.
-    upsert_profile_rule(settings, profile_rule { u8"e:\\WORK", u8"개인" });
+    upsert_profile_rule(settings, profile_rule { u8"c:\\WORK", u8"개인" });
     REQUIRE(settings.profile_rules.size() == 1);
     REQUIRE(settings.profile_rules.front().profile == u8"개인");
-    upsert_profile_rule(settings, profile_rule { u8"E:\\work", u8"회사" });
+    upsert_profile_rule(settings, profile_rule { u8"C:\\work", u8"회사" });
 
     upsert_user_profile(settings, 0, make_profile(u8"직장", u8"홍길동", u8"hong@corp.example"));
     REQUIRE(settings.profiles.front().name == u8"직장");
     REQUIRE(settings.profile_rules.front().profile == u8"직장");
-    REQUIRE(assigned_profile(settings, u8"e:/work/REPO") == u8"직장");
+    REQUIRE(assigned_profile(settings, u8"c:/work/REPO") == u8"직장");
 
     // 같은 저장소에 다시 적용하면 기록을 바꾼다.
-    assign_profile(settings, u8"E:\\work\\repo\\", u8"개인");
+    assign_profile(settings, u8"C:\\work\\repo\\", u8"개인");
     REQUIRE(settings.profile_assignments.size() == 2);
-    REQUIRE(assigned_profile(settings, u8"E:\\work\\repo") == u8"개인");
+    REQUIRE(assigned_profile(settings, u8"C:\\work\\repo") == u8"개인");
 
     REQUIRE(remove_user_profile(settings, 1));
     REQUIRE(settings.profiles.size() == 1);
-    REQUIRE(assigned_profile(settings, u8"E:\\work\\repo").has_value() == false);
-    REQUIRE(assigned_profile(settings, u8"E:\\play\\game").has_value() == false);
+    REQUIRE(assigned_profile(settings, u8"C:\\work\\repo").has_value() == false);
+    REQUIRE(assigned_profile(settings, u8"C:\\play\\game").has_value() == false);
     REQUIRE(settings.profile_rules.size() == 1);
     REQUIRE(remove_user_profile(settings, 0));
     REQUIRE(settings.profile_rules.empty());
@@ -126,8 +126,8 @@ TEST_CASE("profiles, rules and assignments survive a settings round trip and kee
     company.ssh_key = u8"C:/Users/me/.ssh/id_corp";
     upsert_user_profile(settings, std::nullopt, company);
     upsert_user_profile(settings, std::nullopt, make_profile(u8"개인", u8"길동", u8"me@example.com"));
-    upsert_profile_rule(settings, profile_rule { u8"E:\\work", u8"회사" });
-    assign_profile(settings, u8"E:\\work\\repo", u8"회사");
+    upsert_profile_rule(settings, profile_rule { u8"C:\\work", u8"회사" });
+    assign_profile(settings, u8"C:\\work\\repo", u8"회사");
 
     const std::u8string json { serialize_app_settings_json(settings, u8"{\"future_key\": [1, 2]}") };
     REQUIRE(json.find(u8"future_key") != std::u8string::npos);
@@ -158,13 +158,13 @@ TEST_CASE("broken profile entries are dropped with a warning", "[profiles]")
             "문자열"
         ],
         "profile_rules": [
-            { "path_prefix": "E:/work", "profile": "회사" },
-            { "path_prefix": "E:/ghost", "profile": "없음" },
+            { "path_prefix": "C:/work", "profile": "회사" },
+            { "path_prefix": "C:/ghost", "profile": "없음" },
             { "profile": "회사" }
         ],
         "profile_assignments": [
-            { "path": "E:/work/repo", "profile": "회사" },
-            { "path": "E:/gone", "profile": "없음" }
+            { "path": "C:/work/repo", "profile": "회사" },
+            { "path": "C:/gone", "profile": "없음" }
         ],
         "shortcuts": { "git.fetch": ["F7"], "bad": "F8", "worse": [1] },
         "command_history": ["git.pull", 3, ""]
@@ -173,7 +173,7 @@ TEST_CASE("broken profile entries are dropped with a warning", "[profiles]")
     REQUIRE(loaded.settings.profiles.size() == 1);
     REQUIRE(loaded.settings.profiles.front().user_name == u8"홍");
     REQUIRE(loaded.settings.profile_rules.size() == 1);
-    REQUIRE(loaded.settings.profile_rules.front().path_prefix == u8"E:\\work");
+    REQUIRE(loaded.settings.profile_rules.front().path_prefix == u8"C:\\work");
     REQUIRE(loaded.settings.profile_assignments.size() == 1);
     REQUIRE(loaded.settings.shortcuts.at("git.fetch") == std::vector<std::u8string> { u8"F7" });
     REQUIRE(loaded.settings.shortcuts.contains("bad") == false);
@@ -304,12 +304,12 @@ TEST_CASE("a profile's sign-in account rejects text that git or sh would misread
 TEST_CASE("unassigning a repository forgets only that repository's profile", "[profiles]")
 {
     app_settings settings {};
-    assign_profile(settings, u8"E:\\work\\repo", u8"회사");
-    assign_profile(settings, u8"E:\\play\\repo", u8"개인");
-    CHECK(unassign_profile(settings, u8"e:/work/repo/"));
-    CHECK(assigned_profile(settings, u8"E:\\work\\repo").has_value() == false);
-    CHECK(assigned_profile(settings, u8"E:\\play\\repo") == std::optional<std::u8string> { u8"개인" });
-    CHECK(unassign_profile(settings, u8"E:\\work\\repo") == false);
+    assign_profile(settings, u8"C:\\work\\repo", u8"회사");
+    assign_profile(settings, u8"C:\\play\\repo", u8"개인");
+    CHECK(unassign_profile(settings, u8"c:/work/repo/"));
+    CHECK(assigned_profile(settings, u8"C:\\work\\repo").has_value() == false);
+    CHECK(assigned_profile(settings, u8"C:\\play\\repo") == std::optional<std::u8string> { u8"개인" });
+    CHECK(unassign_profile(settings, u8"C:\\work\\repo") == false);
 }
 
 TEST_CASE("git's quoted origin paths are unquoted before they are compared", "[profiles][identity]")

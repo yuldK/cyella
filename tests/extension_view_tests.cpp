@@ -529,8 +529,8 @@ TEST_CASE("the worktree dialog rules check folder, mode and branch", "[presentat
 
 TEST_CASE("the default worktree folder sits next to the repository", "[presentation][extension][dialog]")
 {
-    CHECK(default_worktree_folder(u8"E:\\work\\repo", "feat/x") == u8"E:\\work\\repo-feat-x");
-    CHECK(default_worktree_folder(u8"E:/work/repo/", "") == u8"E:/work/repo-worktree");
+    CHECK(default_worktree_folder(u8"C:\\work\\repo", "feat/x") == u8"C:\\work\\repo-feat-x");
+    CHECK(default_worktree_folder(u8"C:/work/repo/", "") == u8"C:/work/repo-worktree");
     CHECK(default_worktree_folder(u8"repo", "x").empty());
 }
 

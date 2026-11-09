@@ -33,6 +33,6 @@ namespace cyella {
     [[nodiscard]] worktree_add_request make_worktree_add_request(const dialog_state& dialog, const form_inputs& inputs);
     [[nodiscard]] lfs_track_request make_lfs_track_request(const form_inputs& inputs);
 
-    // 저장소 폴더 옆에 둘 새 worktree의 기본 폴더다 (`E:/a/repo` + `feat/x` → `E:/a/repo-feat-x`). 구분자는 저장소 경로를 따른다.
+    // 저장소 폴더 옆에 둘 새 worktree의 기본 폴더다 (`C:/a/repo` + `feat/x` → `C:/a/repo-feat-x`). 구분자는 저장소 경로를 따른다.
     [[nodiscard]] std::u8string default_worktree_folder(std::u8string_view repository_path, std::string_view label);
 } // namespace cyella

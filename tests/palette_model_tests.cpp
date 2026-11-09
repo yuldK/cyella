@@ -192,18 +192,18 @@ TEST_CASE("repository mode lists tabs, recent repositories and the folder dialog
     const app_settings settings {};
     palette_context context { repository_context(settings) };
     context.mode = palette_mode::repositories;
-    context.repositories.push_back(repository_choice { .tab = 3, .name = u8"alpha", .path = u8"E:\\work\\alpha", .current = true });
-    context.repositories.push_back(repository_choice { .tab = 0, .name = u8"beta", .path = u8"E:\\work\\beta" });
-    context.repositories.push_back(repository_choice { .tab = 0, .name = u8"gone", .path = u8"E:\\work\\gone", .available = false });
+    context.repositories.push_back(repository_choice { .tab = 3, .name = u8"alpha", .path = u8"C:\\work\\alpha", .current = true });
+    context.repositories.push_back(repository_choice { .tab = 0, .name = u8"beta", .path = u8"C:\\work\\beta" });
+    context.repositories.push_back(repository_choice { .tab = 0, .name = u8"gone", .path = u8"C:\\work\\gone", .available = false });
     const std::vector<palette_item> all { rank_palette_items(context, u8"") };
     // 고를 수 있는 항목이 앞이다. 현재 탭과 사용할 수 없는 경로는 꺼져 있어 뒤로 간다.
-    REQUIRE(keys_of(all) == std::vector<std::u8string> { u8"recent:E:\\work\\beta", u8"cmd:repo.open_folder", u8"tab:3", u8"recent:E:\\work\\gone" });
+    REQUIRE(keys_of(all) == std::vector<std::u8string> { u8"recent:C:\\work\\beta", u8"cmd:repo.open_folder", u8"tab:3", u8"recent:C:\\work\\gone" });
     REQUIRE(all[1].ui_thread_command);
     REQUIRE(all[2].enabled == false);
     REQUIRE(all[3].enabled == false);
     // 경로로도 찾는다.
     const std::vector<palette_item> by_path { rank_palette_items(context, u8"work beta") };
-    REQUIRE(by_path.front().key == u8"recent:E:\\work\\beta");
+    REQUIRE(by_path.front().key == u8"recent:C:\\work\\beta");
 }
 
 TEST_CASE("profile mode marks the applied and the suggested profile", "[palette]")

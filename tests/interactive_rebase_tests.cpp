@@ -286,7 +286,7 @@ TEST_CASE("rebase editor helper: git's todo and done lines are read the way git 
 TEST_CASE("rebase editor helper: the editor command is passed to git without shell surprises", "[rebase][helper]")
 {
     // 특수 문자가 없으면 git이 셸 없이 바로 실행한다. 백슬래시는 셸 특수 문자라 `/`로 바꾼다.
-    CHECK(make_editor_command(u8"E:\\build\\Debug\\cyella-rebase-editor.exe") == u8"E:/build/Debug/cyella-rebase-editor.exe");
+    CHECK(make_editor_command(u8"C:\\build\\Debug\\cyella-rebase-editor.exe") == u8"C:/build/Debug/cyella-rebase-editor.exe");
     // 공백이 있으면 작은따옴표로 감싼다.
     CHECK(make_editor_command(u8"C:\\Program Files\\cyella\\cyella-rebase-editor.exe") == u8"'C:/Program Files/cyella/cyella-rebase-editor.exe'");
     // 작은따옴표는 `'\''`로 끊어 잇는다. `$`·`` ` ``는 작은따옴표 안에서 풀리지 않는다.

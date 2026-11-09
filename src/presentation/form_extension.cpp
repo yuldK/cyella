@@ -154,7 +154,7 @@ namespace cyella {
         form.choices.push_back({ .label = tr(u8"form.worktree.mode_existing_branch") });
         form.choices.push_back({ .label = tr(u8"form.worktree.mode_detached") });
         form.chosen = std::min<std::size_t>(dialog.choice, 2);
-        form.fields.push_back(make_field(context, 0, tr(u8"form.worktree.folder_label"), u8"E:/work/repo-feature", true));
+        form.fields.push_back(make_field(context, 0, tr(u8"form.worktree.folder_label"), u8"path/to/repo-feature", true));
         const worktree_dialog_mode mode { mode_of(dialog) };
         if (mode == worktree_dialog_mode::new_branch)
             form.fields.push_back(make_field(context, 1, tr(u8"form.worktree.new_branch_label"), u8"feature/my-work"));
