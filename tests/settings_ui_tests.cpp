@@ -10,6 +10,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -370,4 +371,33 @@ TEST_CASE("the tab shape and tab status cards are radio groups with inert previe
     REQUIRE(picked != nullptr);
     REQUIRE(picked->get<set_tab_shape_intent>() != nullptr);
     CHECK(picked->get<set_tab_shape_intent>()->shape == tab_shape::connected);
+}
+
+TEST_CASE("the tab preview bars are still pictures that never ask for another frame", "[settings][ui][tabs]")
+{
+    // 모양 견본의 셋째 탭은 실행 중인 탭이다. 그 표시가 돌면 설정을 열어 둔 내내 창 전체가 다시 그려진다.
+    snapshot_harness harness {};
+    for (const tab_marker_place place : { tab_marker_place::badge, tab_marker_place::icon_corner, tab_marker_place::close_slot })
+    {
+        INFO("marker place " << static_cast<int>(place));
+        settings_state state {};
+        app_settings settings {};
+        settings.appearance.tab_marker = place;
+        settings_view_inputs inputs {};
+        inputs.state = &state;
+        inputs.settings = &settings;
+        view_snapshot view { harness.build(1440.0f) };
+        view.settings = build_settings_view(inputs);
+        const ui::built_tree built { ui::build_ui_tree(view) };
+
+        // 견본 탭이 화면에 배치되어 있어야 아래 확인이 뜻을 갖는다.
+        const luil::ui_element* const running { built.tree->find({ luil::ui_element_kind::tab_sample, u8"settings-tab-shape-connected-preview/settings-tab-shape-connected-preview-2" }) };
+        REQUIRE(running != nullptr);
+        REQUIRE(running->bounds().width > 0.0f);
+        REQUIRE(running->bounds().height > 0.0f);
+
+        const luil::update_context context { .now = std::chrono::steady_clock::time_point { std::chrono::seconds { 100 } } };
+        CHECK(running->next_update(context, {}).has_value() == false);
+        CHECK(built.tree->next_update(context, {}).has_value() == false);
+    }
 }
