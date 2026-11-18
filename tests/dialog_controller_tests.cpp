@@ -13,6 +13,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <string>
@@ -211,11 +212,31 @@ TEST_CASE("overflow ref lists open for a loaded commit and hand actions to its b
     CHECK_FALSE(test.controller.state().ref_list.has_value());
 }
 
+TEST_CASE("an open ref list closes when the window or the graph moves its chip", "[presentation][dialogs][refs]")
+{
+    harness test {};
+    test.load();
+    const std::string sha { snap::sha_of(4) };
+
+    // 연 때의 칩 사각형은 창 폭이 바뀌면 다른 자리다. 그대로 그리면 카드가 엉뚱한 곳을 가리킨다.
+    test.send(open_ref_list_intent { .sha = sha, .x = 120.0f, .y = 140.0f, .width = 24.0f, .height = 20.0f });
+    REQUIRE(test.view().ref_list.has_value());
+    REQUIRE(test.view().ref_list.has_value());
+    CHECK_FALSE(test.controller.make_view(1200.0f, 900.0f, 1.0f).ref_list.has_value());
+    CHECK_FALSE(test.controller.state().ref_list.has_value());
+
+    // 그래프를 다시 읽어도(새 generation) 행과 칩이 다시 놓이므로 닫는다.
+    test.send(open_ref_list_intent { .sha = sha, .x = 120.0f, .y = 140.0f, .width = 24.0f, .height = 20.0f });
+    REQUIRE(test.view().ref_list.has_value());
+    test.load();
+    CHECK_FALSE(test.view().ref_list.has_value());
+}
+
 TEST_CASE("form scrolling clamps to layout feedback and resets for the next dialog", "[presentation][dialogs]")
 {
     harness test {};
     test.load();
-    test.send(open_branch_dialog_intent {});
+    test.send(run_command_intent { "git.branch.new" });
     REQUIRE(test.view().form.has_value());
     test.controller.apply_feedback(frame_feedback { .form_maximum = 300.0f });
     test.send(form_scroll_intent { .value = 200.0f, .absolute = true });
@@ -229,7 +250,7 @@ TEST_CASE("form scrolling clamps to layout feedback and resets for the next dial
     test.send(form_button_intent { u8"cancel" });
     CHECK_FALSE(test.view().form.has_value());
     test.send(form_scroll_intent { .value = 200.0f });
-    test.send(open_branch_dialog_intent {});
+    test.send(run_command_intent { "git.branch.new" });
     CHECK(test.view().form->scroll == 0.0f);
 }
 
@@ -1233,11 +1254,22 @@ TEST_CASE("an unknown prompt shows the raw text with a free text field", "[prese
     const operation_id fetching { test.workspace.submit(test.repository, fetch_request {}) };
     test.start(fetching);
     askpass_recorder recorder {};
-    test.ask(fetching, 1, u8"Verification code: ", recorder.callback());
-    const view_snapshot view { test.view() };
+    test.ask(fetching, 1, u8"Enter the device name: ", recorder.callback());
+    view_snapshot view { test.view() };
     REQUIRE(view.form.has_value());
     REQUIRE(view.form->fields.size() == 1);
     CHECK_FALSE(view.form->fields[0].secret);
+    CHECK(view.form->notes.front().text == u8"Enter the device name:");
+    test.type(0, u8"laptop");
+    test.send(form_enter_intent {});
+    REQUIRE(recorder.replies.size() == 1);
+
+    // 알아보지 못한 질문이라도 원문이 일회용 코드를 물으면 입력을 가린다.
+    test.ask(fetching, 2, u8"Verification code: ", recorder.callback());
+    view = test.view();
+    REQUIRE(view.form.has_value());
+    REQUIRE(view.form->fields.size() == 1);
+    CHECK(view.form->fields[0].secret);
     CHECK(view.form->notes.front().text == u8"Verification code:");
 }
 
@@ -1960,4 +1992,362 @@ TEST_CASE("the menu of a multi-file selection stages and discards every chosen f
     view = test.view();
     REQUIRE(view.menu.has_value());
     CHECK(view.menu->title == u8"src/b.cpp");
+}
+
+namespace {
+    // 세션의 snapshot을 바꿔 새로 고침 하나를 끝까지 넣는다 (이력은 다섯 커밋 그대로다).
+    void reload(repository_session& session, const repository_snapshot& snapshot, std::vector<commit_info> commits = snap::linear_history(5), const bool complete = true)
+    {
+        const std::uint64_t generation { session.begin_refresh() };
+        REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+        REQUIRE(session.apply(commits_loaded { .generation = generation, .first_index = 0, .commits = std::move(commits), .page_complete = true, .history_complete = complete }));
+    }
+} // namespace
+
+TEST_CASE("an untracked file's diff is re-read as tracked once the status shows it in the index", "[presentation][working][diff]")
+{
+    harness test {};
+    load_working_changes(test);
+    test.send(pick_file("src/new.txt"));
+    REQUIRE(shown_diff(test).has_value());
+    REQUIRE(shown_diff(test)->untracked);
+    repository_session& session { *test.workspace.find_session(test.repository) };
+    repository_snapshot snapshot { session.snapshot() };
+    REQUIRE(snapshot.unstaged.size() == 4);
+    REQUIRE(snapshot.unstaged[3].path == "src/new.txt");
+
+    // 상태를 다시 읽어도 아직 추적하지 않으면 요청도 그대로이고 다시 읽지 않는다.
+    const std::size_t before { test.operation_count() };
+    reload(session, snapshot);
+    test.controller.after_events();
+    CHECK(shown_diff(test)->untracked);
+    CHECK(test.operation_count() == before);
+
+    // 줄 일부를 stage해 index에 들어갔다 (커밋에 포함 'A', 작업 트리에 남은 줄 'M'). 같은 보기의 요청을 추적 중인 파일로 다시 낸다.
+    snapshot.unstaged[3].status = 'M';
+    snapshot.staged.push_back({ .path = "src/new.txt", .status = 'A', .side = change_side::staged });
+    reload(session, snapshot);
+    test.controller.after_events();
+    REQUIRE(shown_diff(test).has_value());
+    CHECK_FALSE(shown_diff(test)->untracked);
+    CHECK(shown_diff(test)->path == "src/new.txt");
+    CHECK(shown_diff(test)->view == diff_view::unstaged);
+    CHECK(test.operation_count() == before + 1);
+    const auto* const read { test.last_request<diff_file_request>() };
+    REQUIRE(read != nullptr);
+    CHECK(*read == *shown_diff(test));
+
+    // 고친 뒤에는 상태가 다시 와도 또 내지 않는다.
+    reload(session, snapshot);
+    test.controller.after_events();
+    CHECK(test.operation_count() == before + 1);
+
+    // staged 행에서 index로 다시 빼 '?'로 돌아갔다. 추적 중인 요청은 빈 diff를 받으므로 추적하지 않는 파일로 다시 낸다.
+    snapshot.unstaged[3].status = '?';
+    snapshot.staged.pop_back();
+    reload(session, snapshot);
+    test.controller.after_events();
+    REQUIRE(shown_diff(test).has_value());
+    CHECK(shown_diff(test)->untracked);
+    CHECK(shown_diff(test)->path == "src/new.txt");
+    CHECK(shown_diff(test)->view == diff_view::unstaged);
+    CHECK(test.operation_count() == before + 2);
+    const auto* const reread { test.last_request<diff_file_request>() };
+    REQUIRE(reread != nullptr);
+    CHECK(*reread == *shown_diff(test));
+
+    reload(session, snapshot);
+    test.controller.after_events();
+    CHECK(test.operation_count() == before + 2);
+}
+
+TEST_CASE("an untracked file's diff keeps its request when its row disappears", "[presentation][working][diff]")
+{
+    harness test {};
+    load_working_changes(test);
+    test.send(pick_file("src/new.txt"));
+    repository_session& session { *test.workspace.find_session(test.repository) };
+    repository_snapshot snapshot { session.snapshot() };
+    // 휴지통으로 보내 작업 영역에서 사라졌다. index에 있다는 증거가 없으니 지금까지처럼 그대로 둔다.
+    snapshot.unstaged.pop_back();
+    const std::size_t before { test.operation_count() };
+    reload(session, snapshot);
+    test.controller.after_events();
+    REQUIRE(shown_diff(test).has_value());
+    CHECK(shown_diff(test)->untracked);
+    CHECK(test.operation_count() == before);
+}
+
+TEST_CASE("a branch deletion confirmed on one tab is not sent after switching tabs and survives closing another tab", "[presentation][dialogs][tabs]")
+{
+    harness test {};
+    test.load();
+    const repository_tab_id first_tab { test.controller.tabs().selected().id };
+    test.controller.open_repository(u8"C:\\work\\other");
+    const std::string other { test.controller.selected_repository_id() };
+    REQUIRE(other != test.repository);
+    // 첫 저장소로 돌아가 브랜치 삭제를 묻고, 확인하기 전에 탭을 바꾼다.
+    test.send(cycle_tab_intent { true });
+    REQUIRE(test.controller.selected_repository_id() == test.repository);
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "feature/graph", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"delete" });
+    REQUIRE(test.controller.state().dialog.has_value());
+    const std::size_t before { test.operation_count() };
+    test.send(cycle_tab_intent { true });
+    CHECK(test.controller.selected_repository_id() == other);
+    CHECK_FALSE(test.controller.state().dialog.has_value());
+    test.press(u8"submit");
+    CHECK(test.operation_count() == before);
+
+    // 고른 탭이 그대로면 다른 탭을 닫아도 상자는 남고, 확인은 그 상자의 저장소에 간다.
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "topic", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"delete" });
+    REQUIRE(test.controller.state().dialog.has_value());
+    test.send(close_tab_intent { first_tab });
+    REQUIRE(test.controller.state().dialog.has_value());
+    test.press(u8"submit");
+    const auto* const deleted { test.last_request<delete_branch_request>() };
+    REQUIRE(deleted != nullptr);
+    CHECK(deleted->name == "topic");
+    CHECK(test.workspace.find_operation(test.last_operation())->repository_id == other);
+}
+
+TEST_CASE("amend keeps the HEAD body, filling it when known and keeping the message when not", "[presentation][dialogs][amend]")
+{
+    // 본문을 읽어 둔 HEAD면 본문 칸을 채우고, 그대로 커밋하면 제목과 본문을 함께 보낸다.
+    {
+        harness test {};
+        repository_session& session { test.load(5, 2) };
+        std::vector<commit_info> commits { snap::linear_history(5) };
+        commits.front().body = "first body line\nsecond body line";
+        reload(session, snap::make_snapshot(commits.front().sha, 2), commits);
+        test.send(select_commit_intent { graph_item_key(std::string { graph_wip_sha }) });
+        test.send(toggle_amend_intent {});
+        const tab_ui_state& tab { test.controller.state().tabs.at(test.controller.tabs().selected().id) };
+        CHECK(tab.commit_subject.text == u8"commit 5");
+        CHECK(tab.commit_body.text == u8"first body line\nsecond body line");
+        test.send(commit_intent {});
+        const auto* const commit { test.last_request<commit_request>() };
+        REQUIRE(commit != nullptr);
+        CHECK(commit->amend);
+        CHECK(commit->message == "commit 5\n\nfirst body line\nsecond body line");
+    }
+    // 본문을 모르면 메시지를 비워 보낸다. git이 기존 메시지를 그대로 쓴다 (제목만 보내면 본문이 사라진다).
+    {
+        harness test {};
+        test.load(5, 2);
+        test.send(select_commit_intent { graph_item_key(std::string { graph_wip_sha }) });
+        test.send(toggle_amend_intent {});
+        CHECK(test.controller.state().tabs.at(test.controller.tabs().selected().id).commit_subject.text == u8"commit 5");
+        test.send(commit_intent {});
+        const auto* const commit { test.last_request<commit_request>() };
+        REQUIRE(commit != nullptr);
+        CHECK(commit->amend);
+        CHECK(commit->message.empty());
+    }
+}
+
+TEST_CASE("trusting a host once for an operation that cannot retry keeps the question and says so", "[presentation][dialogs][auth]")
+{
+    harness test {};
+    test.load();
+    // submodule 갱신은 임시 신뢰를 받지 않는다(여러 원격에 붙는다).
+    const operation_id updating { test.workspace.submit(test.repository, submodule_update_request {}) };
+    test.start(updating);
+    askpass_recorder recorder {};
+    test.ask(updating, 5, u8"Are you sure you want to continue connecting (yes/no/[fingerprint])? ", recorder.callback());
+    const std::size_t operations { test.operation_count() };
+    const std::size_t notices { test.controller.state().notifications.size() };
+    test.press(u8"once");
+    // 원래 작업은 거두지 않고(조용히 사라지지 않는다) 다시 내지도 않는다. 대신 경고를 띄운다.
+    CHECK_FALSE(test.workspace.find_operation(updating)->cancel_requested);
+    CHECK(test.operation_count() == operations);
+    REQUIRE(test.controller.state().notifications.size() == notices + 1);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
+    CHECK(test.view().form.has_value());
+}
+
+TEST_CASE("trusting a host once also retries a tag push with a temporary known_hosts", "[presentation][dialogs][auth]")
+{
+    harness test {};
+    test.load();
+    const operation_id pushing { test.workspace.submit(test.repository, push_tag_request { .remote = "origin", .name = "v1.0" }) };
+    test.start(pushing);
+    askpass_recorder recorder {};
+    test.ask(pushing, 5, u8"Are you sure you want to continue connecting (yes/no/[fingerprint])? ", recorder.callback());
+    const std::size_t before { test.operation_count() };
+    test.press(u8"once");
+
+    // 처음 보는 호스트에 태그를 보내는 일도 [이번만 연결]이 같은 요청을 임시 신뢰와 함께 다시 낸다.
+    CHECK(test.workspace.find_operation(pushing)->cancel_requested);
+    REQUIRE(test.operation_count() == before + 1);
+    const auto* const retry { test.last_request<push_tag_request>() };
+    REQUIRE(retry != nullptr);
+    CHECK(retry->remote == "origin");
+    CHECK(retry->name == "v1.0");
+    REQUIRE(retry->ssh_command_override.has_value());
+    CHECK(retry->ssh_command_override->known_hosts_path.find(u8"cyella-known-hosts-") != std::u8string::npos);
+}
+
+TEST_CASE("the external diff entry of a working file hands its diff to the injected opener", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load(5, 2);
+    std::vector<std::pair<std::string, diff_file_request>> opened {};
+    shell_controller::dependencies dependencies {};
+    dependencies.workspace = &test.workspace;
+    dependencies.open_external_diff = [&opened](const std::string& repository_id, const diff_file_request& request) { opened.emplace_back(repository_id, request); };
+    shell_controller controller { std::move(dependencies) };
+    controller.start({});
+    controller.open_repository(u8"C:\\work\\repo");
+    REQUIRE(controller.selected_repository_id() == test.repository);
+    controller.handle(luil::app_message { open_context_menu_intent { menu_target { .kind = menu_target_kind::file, .name = "README.md", .side = change_side::staged }, 0.0f, 0.0f } });
+    controller.handle(luil::app_message { menu_select_intent { u8"open_external_diff" } });
+    REQUIRE(opened.size() == 1);
+    CHECK(opened[0].first == test.repository);
+    CHECK(opened[0].second.path == "README.md");
+    CHECK(opened[0].second.view == diff_view::staged);
+    CHECK(controller.state().notifications.empty());
+
+    // 열어 줄 길이 없는 조립(harness)에서는 안내만 띄운다.
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::file, .name = "src/a.cpp", .side = change_side::unstaged }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"open_external_diff" });
+    CHECK(test.controller.state().notifications.size() == 1);
+}
+
+TEST_CASE("a stash drop is not sent when the stash at that number changed while the dialog was open", "[presentation][dialogs]")
+{
+    harness test {};
+    repository_session& session { test.load() };
+    repository_snapshot snapshot { session.snapshot() };
+    snapshot.stashes = { { .index = 0, .name = "stash@{0}", .sha = std::string(40, 'a') } };
+    reload(session, snapshot);
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::stash, .name = "stash@{0}", .index = 0 }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"drop" });
+    REQUIRE(test.controller.state().dialog.has_value());
+    CHECK(test.controller.state().dialog->stash_sha == std::string(40, 'a'));
+
+    // 다른 곳에서 stash를 하나 더해 번호가 밀렸다. 확인해도 새 stash@{0}을 지우지 않는다.
+    snapshot.stashes = { { .index = 0, .name = "stash@{0}", .sha = std::string(40, 'b') }, { .index = 1, .name = "stash@{1}", .sha = std::string(40, 'a') } };
+    reload(session, snapshot);
+    const std::size_t notices { test.controller.state().notifications.size() };
+    test.press(u8"submit");
+    CHECK(test.last_request<stash_drop_request>() == nullptr);
+    CHECK_FALSE(test.controller.state().dialog.has_value());
+    CHECK(test.controller.state().notifications.size() == notices + 1);
+
+    // 지금 번호로 다시 고르면 지운다.
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::stash, .name = "stash@{1}", .index = 1 }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"drop" });
+    test.press(u8"submit");
+    const auto* const dropped { test.last_request<stash_drop_request>() };
+    REQUIRE(dropped != nullptr);
+    CHECK(dropped->index == 1);
+}
+
+TEST_CASE("an authentication question in front of the push dialog keeps its prefilled and typed fields", "[presentation][dialogs][auth]")
+{
+    harness test {};
+    test.load();
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "feature/graph", .sha = snap::sha_of(0) }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"push" });
+    test.type(0, u8"-x");
+    REQUIRE(test.view().form->fields[0].view.text == u8"feature/graph-x");
+
+    // 앞서 낸 fetch가 passphrase를 묻는다. 질문이 상자를 잠시 가리고, 답하면 상자가 그대로 돌아온다.
+    const operation_id fetching { test.workspace.submit(test.repository, fetch_request {}) };
+    test.start(fetching);
+    askpass_recorder recorder {};
+    test.ask(fetching, 1, u8"Enter passphrase for key '/k': ", recorder.callback());
+    view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->id == u8"auth-dialog");
+    CHECK(view.form->fields[0].view.text.empty());
+    test.type(0, u8"pp");
+    test.press(u8"answer");
+    REQUIRE(recorder.replies.size() == 1);
+    view = test.view();
+    REQUIRE(view.form.has_value());
+    CHECK(view.form->id == u8"push-dialog");
+    CHECK(view.form->fields[0].view.text == u8"feature/graph-x");
+}
+
+TEST_CASE("the same failure in two repositories stays as two notifications", "[presentation][dialogs][notifications]")
+{
+    harness test {};
+    test.load();
+    test.controller.open_repository(u8"C:\\work\\other");
+    const std::string other { test.controller.selected_repository_id() };
+    const operation_failure offline { failure_kind::other, u8"원격에 연결할 수 없습니다.", {} };
+    const operation_id first { test.workspace.submit(test.repository, fetch_request {}) };
+    const operation_id second { test.workspace.submit(other, fetch_request {}) };
+    for (const auto& [id, repository] : { std::pair { first, test.repository }, std::pair { second, other } })
+    {
+        test.workspace.apply(operation_event { id, repository, operation_started {} });
+        test.workspace.apply(operation_event { id, repository, operation_finished { operation_state::failed, offline, std::nullopt, {} } });
+        test.controller.after_events();
+    }
+    const auto& notifications { test.controller.state().notifications };
+    const auto of = [&notifications](const operation_id id) { return std::ranges::count_if(notifications, [id](const notification& value) { return value.operation == id; }); };
+    CHECK(of(first) == 1);
+    CHECK(of(second) == 1);
+}
+
+TEST_CASE("an ignored path is escaped so the pattern matches only that file", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load(5, 2);
+    test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::file, .name = "logs/a[1]*?.txt ", .side = change_side::unstaged }, 0.0f, 0.0f });
+    test.send(menu_select_intent { u8"ignore" });
+    const auto* const ignore { test.last_request<ignore_path_request>() };
+    REQUIRE(ignore != nullptr);
+    CHECK(ignore->pattern == "/logs/a\\[1]\\*\\?.txt\\ ");
+}
+
+TEST_CASE("the keyboard menu follows a commit picked in the graph after a sidebar row", "[presentation][dialogs]")
+{
+    harness test {};
+    test.load();
+    test.send(select_sidebar_item_intent { u8"l:main", snap::sha_of(4) });
+    test.send(select_commit_intent { graph_item_key(snap::sha_of(1)) });
+    test.send(run_command_intent { "view.menu" });
+    REQUIRE(test.controller.state().menu.has_value());
+    CHECK(test.controller.state().menu->target.kind == menu_target_kind::commit);
+    CHECK(test.controller.state().menu->target.sha == snap::sha_of(1));
+    test.send(close_menu_intent {});
+
+    // 메뉴가 없는 사이드바 행(서브모듈)을 골랐으면 고른 커밋의 메뉴로 넘어가지 않는다.
+    test.send(select_sidebar_item_intent { u8"sm:lib", {} });
+    test.send(run_command_intent { "view.menu" });
+    CHECK_FALSE(test.controller.state().menu.has_value());
+}
+
+TEST_CASE("picking a ref whose commit is not loaded yet says so", "[presentation][dialogs]")
+{
+    harness test {};
+    repository_session& session { test.load() };
+    repository_snapshot snapshot { session.snapshot() };
+    const std::string old_sha { std::string(40, 'f') };
+    snapshot.refs.push_back({ .kind = ref_kind::tag, .name = "v0.1", .full_name = "refs/tags/v0.1", .target_sha = old_sha });
+    reload(session, snapshot, snap::linear_history(5), false);
+    const std::size_t notices { test.controller.state().notifications.size() };
+    test.send(select_sidebar_item_intent { u8"t:v0.1", old_sha });
+    CHECK(test.controller.state().notifications.size() == notices + 1);
+    // 이 저장소의 이력에 없을 수 있는 행(stash 등)은 알리지 않는다.
+    test.send(select_sidebar_item_intent { u8"s:0", std::string(40, 'e') });
+    CHECK(test.controller.state().notifications.size() == notices + 1);
+}
+
+TEST_CASE("the create-branch dialog names a detached HEAD with its short commit from the catalog", "[presentation][dialogs]")
+{
+    harness test {};
+    repository_session& session { test.load() };
+    repository_snapshot snapshot { session.snapshot() };
+    snapshot.summary.is_detached = true;
+    reload(session, snapshot);
+    test.send(run_command_intent { "git.branch.new" });
+    REQUIRE(test.controller.state().dialog.has_value());
+    const std::string head { snapshot.summary.head_sha };
+    REQUIRE(head.size() >= 7);
+    CHECK(test.controller.state().dialog->subject_label == u8"HEAD (detached " + std::u8string { head.begin(), head.begin() + 7 } + u8")");
 }

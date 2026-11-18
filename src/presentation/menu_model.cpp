@@ -166,7 +166,9 @@ namespace cyella {
                     make_entry(u8"unset_upstream", has_upstream ? tr(u8"menu.unset_upstream") : tr(u8"menu.unset_upstream_none"), icons::icon_cloud, has_upstream),
                     make_entry(u8"rename", tr(u8"menu.rename"), icons::icon_edit),
                 });
-            add_group(model.entries, { make_entry(u8"delete", is_current ? tr(u8"menu.delete_current_branch") : tr(u8"menu.delete"), icons::icon_trash, is_current == false, true) });
+            // 다른 worktree가 체크아웃한 브랜치는 git이 지우지 못한다 (`Cannot delete branch ... checked out at`).
+            const std::u8string delete_label { is_current ? tr(u8"menu.delete_current_branch") : elsewhere ? tr(u8"menu.delete") + tr(u8"menu.in_other_worktree") : tr(u8"menu.delete") };
+            add_group(model.entries, { make_entry(u8"delete", delete_label, icons::icon_trash, is_current == false && elsewhere == false, true) });
             add_group(model.entries, { make_entry(u8"copy_name", tr(u8"menu.copy_name"), icons::icon_copy) });
             return model;
         }
@@ -222,7 +224,7 @@ namespace cyella {
         menu_model tags_section_menu(const menu_context& context)
         {
             menu_model model {};
-            model.title = u8"TAGS";
+            model.title = tr(u8"repo.section.tags");
             std::vector<menu_entry> push {};
             for (const std::string& remote : context.remotes)
             {
@@ -230,8 +232,8 @@ namespace cyella {
                 for (const ref& value : context.refs)
                     if (value.kind == ref_kind::tag && std::find(value.remotes.begin(), value.remotes.end(), remote) == value.remotes.end())
                         ++missing;
-                push.push_back(
-                    make_entry(u8"push_all:" + to_u8(remote), tr(u8"menu.push_all_tags", { { u8"remote", remote }, { u8"count", missing } }), icons::icon_repo_push, context.refs.empty() == false));
+                // 올릴 태그가 없으면 눌러도 0개를 보내는 일이라 끈다.
+                push.push_back(make_entry(u8"push_all:" + to_u8(remote), tr(u8"menu.push_all_tags", { { u8"remote", remote }, { u8"count", missing } }), icons::icon_repo_push, missing > 0));
             }
             add_group(model.entries, std::move(push));
             add_group(model.entries, { make_entry(u8"create_tag_head", tr(u8"menu.create_tag_at_head"), icons::icon_tag, context.head_sha.empty() == false) });
@@ -334,6 +336,17 @@ namespace cyella {
                 return model;
             }
 
+            // 다른 worktree가 체크아웃한 로컬 브랜치는 git이 옮기거나 체크아웃하지 못한다. 놓은 쪽은 fast-forward·merge가
+            // 그 브랜치를 바꾸고, 끈 쪽은 rebase와 원격 브랜치를 끈 쪽에 합치는 merge가 그 브랜치로 체크아웃한다.
+            const auto elsewhere = [&context](const drop_party& party) {
+                if (party.kind != ref_kind::local)
+                    return false;
+                const ref* const found { find_ref(context.refs, ref_kind::local, party.name) };
+                return found != nullptr && found->worktree_path.empty() == false;
+            };
+            const bool source_elsewhere { elsewhere(source) };
+            const bool destination_elsewhere { elsewhere(destination) };
+
             const bool same_tip { source.sha == destination.sha };
             if (destination.kind == ref_kind::remote)
             {
@@ -341,30 +354,36 @@ namespace cyella {
                 std::vector<menu_entry> group {};
                 const bool contained { facts.destination_is_ancestor.value_or(false) };
                 group.push_back(make_entry(u8"merge_remote_into_source",
-                    tr(u8"menu.merge_into", { { u8"source", b }, { u8"target", a } }) + (contained ? tr(u8"menu.already_included") : count_suffix(facts.only_in_destination)), icons::icon_git_merge,
-                    contained == false));
-                group.push_back(
-                    make_entry(u8"rebase", tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (contained ? tr(u8"menu.already_on_top") : count_suffix(facts.only_in_source)),
-                        icons::icon_repo_forked, contained == false && source.kind == ref_kind::local));
+                    tr(u8"menu.merge_into", { { u8"source", b }, { u8"target", a } })
+                        + (source_elsewhere ? tr(u8"menu.in_other_worktree") : contained ? tr(u8"menu.already_included") : count_suffix(facts.only_in_destination)),
+                    icons::icon_git_merge, contained == false && source_elsewhere == false));
+                group.push_back(make_entry(u8"rebase",
+                    tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (source_elsewhere ? tr(u8"menu.in_other_worktree") : contained ? tr(u8"menu.already_on_top") : count_suffix(facts.only_in_source)),
+                    icons::icon_repo_forked, contained == false && source.kind == ref_kind::local && source_elsewhere == false));
                 add_group(model.entries, std::move(group));
                 return model;
             }
 
             std::vector<menu_entry> group {};
             if (same_tip == false && facts.destination_is_ancestor.value_or(true))
-                group.push_back(make_entry(u8"fast_forward", tr(u8"menu.fast_forward", { { u8"branch", b }, { u8"to", a } }) + count_suffix(facts.only_in_source), icons::icon_arrow_up,
-                    facts.destination_is_ancestor.has_value()));
+                group.push_back(make_entry(u8"fast_forward",
+                    tr(u8"menu.fast_forward", { { u8"branch", b }, { u8"to", a } }) + (destination_elsewhere ? tr(u8"menu.in_other_worktree") : count_suffix(facts.only_in_source)), icons::icon_arrow_up,
+                    facts.destination_is_ancestor.has_value() && destination_elsewhere == false));
             const bool contained { same_tip || facts.source_is_ancestor.value_or(false) };
-            group.push_back(make_entry(u8"merge", tr(u8"menu.merge_into", { { u8"source", a }, { u8"target", b } }) + (contained ? tr(u8"menu.already_included") : count_suffix(facts.only_in_source)),
-                icons::icon_git_merge, contained == false));
+            group.push_back(make_entry(u8"merge",
+                tr(u8"menu.merge_into", { { u8"source", a }, { u8"target", b } })
+                    + (destination_elsewhere ? tr(u8"menu.in_other_worktree") : contained ? tr(u8"menu.already_included") : count_suffix(facts.only_in_source)),
+                icons::icon_git_merge, contained == false && destination_elsewhere == false));
             if (source.kind == ref_kind::local)
             {
                 const bool on_top { same_tip || facts.destination_is_ancestor.value_or(false) };
-                group.push_back(make_entry(u8"rebase", tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (on_top ? tr(u8"menu.already_on_top") : count_suffix(facts.only_in_source)),
-                    icons::icon_repo_forked, on_top == false));
-                group.push_back(
-                    make_entry(u8"interactive_rebase", tr(u8"menu.interactive_rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (on_top ? std::u8string {} : count_suffix(facts.only_in_source)),
-                        icons::icon_list_ordered, same_tip == false));
+                group.push_back(make_entry(u8"rebase",
+                    tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (source_elsewhere ? tr(u8"menu.in_other_worktree") : on_top ? tr(u8"menu.already_on_top") : count_suffix(facts.only_in_source)),
+                    icons::icon_repo_forked, on_top == false && source_elsewhere == false));
+                group.push_back(make_entry(u8"interactive_rebase",
+                    tr(u8"menu.interactive_rebase_onto", { { u8"branch", a }, { u8"onto", b } })
+                        + (source_elsewhere ? tr(u8"menu.in_other_worktree") : on_top ? std::u8string {} : count_suffix(facts.only_in_source)),
+                    icons::icon_list_ordered, same_tip == false && source_elsewhere == false));
             }
             add_group(model.entries, std::move(group));
             if (destination_is_current && same_tip == false)
@@ -494,8 +513,9 @@ namespace cyella {
         const std::u8string b { to_u8(destination.name) };
         if (source.sha == destination.sha)
             return tr(u8"menu.drop_hint_same_commit", { { u8"source", a }, { u8"target", b } });
+        // 메뉴(`drop_menu`)는 원격 대상이 이미 끈 쪽의 조상이면 rebase를 끈다. 힌트도 같은 말을 해야 한다.
         if (destination.kind == ref_kind::remote)
-            return tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + count_suffix(facts.only_in_source);
+            return tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + (facts.destination_is_ancestor.value_or(false) ? tr(u8"menu.already_on_top") : count_suffix(facts.only_in_source));
         if (facts.destination_is_ancestor.value_or(false))
             return tr(u8"menu.fast_forward", { { u8"branch", b }, { u8"to", a } }) + count_suffix(facts.only_in_source);
         if (facts.source_is_ancestor.value_or(false))

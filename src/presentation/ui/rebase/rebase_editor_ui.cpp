@@ -287,10 +287,21 @@ namespace cyella::ui {
             config.accepts_drop
                 = [list_id](const std::u8string& key, const luil::drag_payload& payload) { return payload.files.empty() && payload.container == list_id && payload.carries(list_id, key) == false; };
             config.drop = [](const std::u8string& key, const luil::drag_payload& payload, const luil::ui_action_context&) { return message(rebase_reorder_intent { payload.dragged_owner, key }); };
-            config.scroll = [](const float delta) { return message(rebase_scroll_intent { .side = false, .value = delta, .absolute = false }); };
+            // 휠·막대·키보드 따라가기가 모두 이 걸음을 지난다. 상대 값만 내면 휠을 끝 너머로 굴린 만큼 앱 값이 쌓여, 화면은 끝에 붙어 있는데
+            // 앱 값만 멀리 가 있어 반대쪽 걸음이 헛돈다. 그래서 화면에 보이는 자리에서 시작해 [0, 최댓값]으로 다듬은 절대 값을 낸다.
+            //  - 설정은 목록보다 먼저 지어지므로 치수를 읽을 목록은 만든 뒤에 채운다.
+            const auto list_slot { std::make_shared<const luil::virtual_list_element*>(nullptr) };
+            config.scroll = [list_slot](const float delta) {
+                const luil::virtual_list_element* const target { *list_slot };
+                if (target == nullptr)
+                    return message(rebase_scroll_intent { .side = false, .value = delta, .absolute = false });
+                const luil::scroll_metrics& metrics { target->metrics() };
+                return message(rebase_scroll_intent { .side = false, .value = std::clamp(metrics.scroll_offset + delta, 0.0f, metrics.maximum_scroll), .absolute = true });
+            };
             config.scroll_to = [](const float offset) { return message(rebase_scroll_intent { .side = false, .value = offset, .absolute = true }); };
             config.edges = luil::scroll_edges { .shadows = true };
             auto list { std::make_unique<luil::virtual_list_element>(std::move(config)) };
+            *list_slot = list.get();
             list->set_access_name(tr(u8"rebase_editor.todo_list_name", { { u8"count", view.rows.size() } }));
             // 목록의 글자 탐색 대신 동작 단축키다. 줄 이름은 번호로 시작하므로 글자로 줄을 찾을 일이 없다.
             luil::key_search_target search {};

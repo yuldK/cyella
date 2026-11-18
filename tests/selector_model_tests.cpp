@@ -96,6 +96,25 @@ TEST_CASE("the branch selector filters by name and says when nothing matches", "
     CHECK_FALSE(none.entries.front().enabled);
 }
 
+TEST_CASE("a branch another worktree has checked out is listed but cannot be picked", "[presentation][selector]")
+{
+    ref busy { local_branch("busy", false, 1) };
+    busy.worktree_path = "C:/work/busy";
+    const std::vector<ref> refs { busy, local_branch("main", true), local_branch("dev") };
+    const selector_list list { build_branch_selector(refs, u8"", false) };
+
+    // git이 체크아웃을 거절하므로 팔레트처럼 미리 끄고 이유를 붙인다.
+    const menu_entry* const entry { find_entry(list, u8"branch:busy") };
+    REQUIRE(entry != nullptr);
+    CHECK_FALSE(entry->enabled);
+    CHECK(entry->label.find(u8"다른 worktree에서 사용 중") != std::u8string::npos);
+    CHECK(entry->label.find(u8"↑1") != std::u8string::npos);
+    const menu_entry* const free_branch { find_entry(list, u8"branch:dev") };
+    REQUIRE(free_branch != nullptr);
+    CHECK(free_branch->enabled);
+    CHECK(free_branch->label.find(u8"worktree") == std::u8string::npos);
+}
+
 TEST_CASE("a detached HEAD has no current branch so every branch can be checked out", "[presentation][selector]")
 {
     const std::vector<ref> refs { local_branch("main", true), local_branch("dev") };

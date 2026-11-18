@@ -237,10 +237,16 @@
         return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     }
 
+    // 작은 `set_*` 메시지가 싣는 내용 seq가 지금 보이는 내용의 seq와 다른가. C++은 frame마다 마지막 메시지만 보내므로
+    // 앞의 내용 메시지가 건너뛰어졌을 수 있다. 그러면 `ready`를 다시 보내 전체 상태를 받아야 한다. 값이 없으면 옛 C++이다.
+    function needsResync(message, contentSeq) {
+        return typeof message.content_seq === 'number' && message.content_seq !== contentSeq;
+    }
+
     const api = {
         LINE_HEIGHT, HUNK_HEIGHT, ROW_HUNK, ROW_LINE, ROW_PAIR, ROW_NOTE,
         decodeLine, pairChangedLines, buildModel, buildRows, rowAtOffset, isChange,
-        changedBetween, toRanges, selectionText, changeStartRows, formatBytes,
+        changedBetween, toRanges, selectionText, changeStartRows, formatBytes, needsResync,
     };
     if (typeof module !== 'undefined' && module.exports)
         module.exports = api;

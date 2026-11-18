@@ -124,6 +124,18 @@ TEST_CASE("search matches name or path ignoring ASCII case", "[start_page]")
     CHECK(build_start_page_view(settings, everything_exists, u8"zzz").items.empty());
 }
 
+TEST_CASE("search text with slashes matches ref names and slash paths", "[start_page]")
+{
+    // 사이드바 거르기가 같은 함수로 ref 이름과 worktree 경로를 거른다. 대상 글의 '/'도 질의와 같이 접혀야 한다.
+    CHECK(matches_search_text(u8"origin/main", u8"origin/ma"));
+    CHECK(matches_search_text(u8"feature/x", u8"feature/"));
+    CHECK(matches_search_text(u8"Origin/Main", u8"origin/ma"));
+    CHECK(matches_search_text(u8"C:/work/wt1", u8"work/wt"));
+    CHECK(matches_search_text(u8"C:/work/wt1", u8"WORK\\wt"));
+    CHECK_FALSE(matches_search_text(u8"origin/main", u8"origin/dev"));
+    CHECK_FALSE(matches_search_text(u8"originmain", u8"origin/ma"));
+}
+
 TEST_CASE("search handles Korean text", "[start_page]")
 {
     const app_settings settings { sample_settings() };

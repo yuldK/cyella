@@ -31,7 +31,7 @@ namespace cyella {
         git_branch_status branch {};
         // index 쪽 변경이다. 이름 변경·복사는 original_path가 채워진다.
         std::vector<file_change> staged {};
-        // 작업 트리 쪽 변경이다. untracked는 상태 `?`로 여기에 들어간다.
+        // 작업 트리 쪽 변경이다. untracked는 상태 `?`로 여기에 들어간다. intent-to-add 뒤의 이름 변경·복사(`.R`)도 original_path가 채워진다.
         std::vector<file_change> unstaged {};
         // 병합 충돌 파일이다. staged·unstaged에는 넣지 않는다.
         std::vector<file_change> conflicts {};

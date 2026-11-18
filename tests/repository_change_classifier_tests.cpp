@@ -111,10 +111,15 @@ TEST_CASE("forward slashes are accepted", "[repository_watch]")
     CHECK(classify_repository_change(working_tree, u8"src/main.cpp") == worktree_change);
 }
 
-TEST_CASE("the common directory only reports refs", "[repository_watch]")
+TEST_CASE("the common directory only reports refs and the shared config", "[repository_watch]")
 {
     CHECK(classify_repository_change(common_directory, u8"refs/heads/main") == state_change);
     CHECK(classify_repository_change(common_directory, u8"packed-refs") == state_change);
+    // 연결된 worktree의 upstream 설정(`git branch --set-upstream-to`)은 공용 디렉터리의 config에 쓰인다.
+    CHECK(classify_repository_change(common_directory, u8"config") == state_change);
+    CHECK(classify_repository_change(common_directory, u8"CONFIG") == state_change);
+    CHECK(classify_repository_change(common_directory, u8"config.lock") == ignored);
+    CHECK(classify_repository_change(common_directory, u8"worktrees/x/config") == ignored);
     // HEAD와 index는 다른 worktree의 것이다.
     CHECK(classify_repository_change(common_directory, u8"HEAD") == ignored);
     CHECK(classify_repository_change(common_directory, u8"index") == ignored);

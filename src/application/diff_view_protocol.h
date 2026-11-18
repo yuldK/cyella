@@ -139,9 +139,11 @@ namespace cyella {
     [[nodiscard]] std::string serialize_show_image(const show_image_message& message);
     [[nodiscard]] std::string serialize_show_binary(const show_binary_message& message);
     [[nodiscard]] std::string serialize_clear(std::uint64_t seq, const diff_view_state& state);
-    [[nodiscard]] std::string serialize_set_layout(std::uint64_t seq, diff_layout layout);
-    [[nodiscard]] std::string serialize_set_theme(std::uint64_t seq, const diff_theme& theme);
-    [[nodiscard]] std::string serialize_set_image_mode(std::uint64_t seq, image_compare_mode mode);
+    // 작은 `set_*` 메시지는 지금 보일 내용 메시지의 seq(`content_seq`)를 함께 싣는다. frame이 건너뛰어 앞의 내용 메시지가
+    // 페이지에 닿지 않았으면 페이지는 자기 내용 seq와 이 값이 달라진 것을 보고 `ready`를 다시 보내 전체 상태를 받는다.
+    [[nodiscard]] std::string serialize_set_layout(std::uint64_t seq, std::uint64_t content_seq, diff_layout layout);
+    [[nodiscard]] std::string serialize_set_theme(std::uint64_t seq, std::uint64_t content_seq, const diff_theme& theme);
+    [[nodiscard]] std::string serialize_set_image_mode(std::uint64_t seq, std::uint64_t content_seq, image_compare_mode mode);
 
     // diff의 줄 수다(hunk 머리 제외, No newline 표지 포함). 줄 수 상한과 같은 단위다.
     [[nodiscard]] std::size_t count_diff_lines(const diff_file& file) noexcept;

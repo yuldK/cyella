@@ -1,5 +1,6 @@
 #include "presentation/build_view_snapshot.h"
 
+#include "domain/hosting_remote.h"
 #include "domain/remote_web_link.h"
 #include "domain/repository_path.h"
 #include "domain/text_catalog.h"
@@ -26,7 +27,7 @@ namespace cyella {
         constexpr std::size_t log_operation_limit { 60 };
         // HEAD 행을 찾아보는 범위다. WIP 점선은 화면 위쪽에서만 뜻이 있다.
         constexpr std::size_t head_search_limit { 4096 };
-        // diff 임시 본문이 보이는 줄 수의 상한이다. 큰 diff는 웹뷰의 몫이다.
+        // diff 대체 본문이 보이는 줄 수의 상한이다. 큰 diff는 웹뷰의 몫이다.
         constexpr std::size_t diff_line_limit { 20000 };
 
         std::u8string to_u8(const std::string_view text)
@@ -82,6 +83,16 @@ namespace cyella {
             }
         }
 
+        // 시각 서식이 안전한 유닉스 초의 범위다 (0001-01-01 ~ 9999-12-31). git의 작성 시각은 범위 검사 없이 받은 값이라
+        // 위조된 큰 값이 chrono 서식의 연도 범위를 넘고, 뺄셈은 부호 있는 정수를 넘칠 수 있다.
+        constexpr std::int64_t min_format_seconds { -62135596800 };
+        constexpr std::int64_t max_format_seconds { 253402300799 };
+
+        std::int64_t clamp_format_seconds(const std::int64_t seconds) noexcept
+        {
+            return std::clamp(seconds, min_format_seconds, max_format_seconds);
+        }
+
         std::u8string short_sha(const std::string_view sha)
         {
             return to_u8(sha.substr(0, std::min<std::size_t>(sha.size(), 7)));
@@ -102,7 +113,7 @@ namespace cyella {
         {
             std::u8string line { u8"$ " + command.command_line };
             if (command.exit_code.has_value())
-                line += u8"   → exit " + to_u8(std::to_string(*command.exit_code));
+                line += tr(u8"snapshot.command.exit_suffix", { { u8"code", *command.exit_code } });
             else if (command.completion == process_completion::cancelled)
                 line += tr(u8"snapshot.command.cancelled_suffix");
             else if (command.completion == process_completion::timed_out)
@@ -281,18 +292,29 @@ namespace cyella {
             return lines;
         }
 
+        // git은 작업 폴더 안의 다른 저장소(중첩 저장소)를 `dir/`처럼 끝에 '/'를 붙여 낸다. 마지막 '/' 뒤가 이름이라고
+        // 보면 이름이 비므로, 이름과 폴더는 끝의 '/'를 뗀 경로로 구한다 (stage·diff 요청은 원래 경로를 그대로 쓴다).
+        std::string_view without_trailing_slash(std::string_view path) noexcept
+        {
+            while (path.size() > 1 && path.back() == '/')
+                path.remove_suffix(1);
+            return path;
+        }
+
         std::u8string folder_of(const std::string_view path)
         {
-            const std::size_t slash { path.find_last_of('/') };
+            const std::string_view trimmed { without_trailing_slash(path) };
+            const std::size_t slash { trimmed.find_last_of('/') };
             if (slash == std::string_view::npos)
                 return {};
-            return u8"/" + to_u8(path.substr(0, slash));
+            return u8"/" + to_u8(trimmed.substr(0, slash));
         }
 
         std::u8string name_of(const std::string_view path)
         {
-            const std::size_t slash { path.find_last_of('/') };
-            return to_u8(slash == std::string_view::npos ? path : path.substr(slash + 1));
+            const std::string_view trimmed { without_trailing_slash(path) };
+            const std::size_t slash { trimmed.find_last_of('/') };
+            return to_u8(slash == std::string_view::npos ? trimmed : trimmed.substr(slash + 1));
         }
 
         bool same_diff(const diff_file_request& left, const diff_file_request& right) noexcept
@@ -312,13 +334,15 @@ namespace cyella {
         {
             working_area_view view {};
             view.scroll = tab.working_scroll;
-            view.branch = snapshot.summary.is_detached ? u8"(detached) " + short_sha(snapshot.summary.head_sha) : to_u8(snapshot.summary.current_branch);
+            view.branch = snapshot.summary.is_detached ? tr(u8"snapshot.branch_detached", { { u8"sha", short_sha(snapshot.summary.head_sha) } }) : to_u8(snapshot.summary.current_branch);
             for (const file_change& change : snapshot.conflicts)
                 view.conflicts.push_back(make_file_row(change, u8"c:"));
             for (const file_change& change : snapshot.unstaged)
                 view.unstaged.push_back(make_file_row(change, u8"u:"));
             for (const file_change& change : snapshot.staged)
                 view.staged.push_back(make_file_row(change, u8"s:"));
+            // 충돌 파일도 unstaged 보기로 diff를 열므로 같은 값으로 고른 행을 표시한다.
+            mark_selected(view.conflicts, tab.diff, diff_view::unstaged, {});
             mark_selected(view.unstaged, tab.diff, diff_view::unstaged, {});
             mark_selected(view.staged, tab.diff, diff_view::staged, {});
             // 여러 파일 선택은 지금 묶음에 남은 파일만 보인다. 새로 고침으로 stage된 파일은 다른 묶음의 다른 키라 빠진다.
@@ -338,14 +362,23 @@ namespace cyella {
                                           : tr(u8"snapshot.commit.label", { { u8"branch", view.branch }, { u8"count", view.staged.size() } });
 
             const bool has_subject { view.subject.displayed_text().empty() == false };
-            if (committing)
+            switch (find_commit_blocker(snapshot, tab.amend, has_subject, committing))
+            {
+            case commit_blocker::committing:
                 view.blocked_reason = tr(u8"snapshot.commit.committing");
-            else if (view.conflicts.empty() == false)
+                break;
+            case commit_blocker::conflicts:
                 view.blocked_reason = tr(u8"snapshot.commit.resolve_conflicts");
-            else if (has_subject == false)
+                break;
+            case commit_blocker::no_subject:
                 view.blocked_reason = tr(u8"snapshot.commit.enter_subject");
-            else if (view.staged.empty() && tab.amend == false)
+                break;
+            case commit_blocker::nothing_staged:
                 view.blocked_reason = tr(u8"snapshot.commit.nothing_staged");
+                break;
+            case commit_blocker::none:
+                break;
+            }
             view.can_commit = view.blocked_reason.empty();
             view.amend_warning = tab.amend && snapshot.summary.head_pushed;
             return view;
@@ -478,6 +511,14 @@ namespace cyella {
             return keys;
         }
 
+        // 대체 보기의 줄 상한에 닿으면 끝에 안내 행을 둔다. 알림 없이 자르면 사용자가 diff가 거기서 끝났다고 읽는다.
+        // 안내는 hunk 머리와 같은 행 모양이라 따로 그리는 코드가 없다.
+        void mark_text_truncated(diff_panel_view& view)
+        {
+            view.text_truncated = true;
+            view.lines.push_back({ .hunk_header = true, .text = tr(u8"snapshot.diff.text_truncated", { { u8"count", view.lines.size() } }) });
+        }
+
         diff_panel_view build_diff(const repository_session& session, const diff_file_request& request, const float scroll, const diff_surface_state& surface)
         {
             diff_panel_view view {};
@@ -526,12 +567,18 @@ namespace cyella {
                 for (const diff_hunk& hunk : file.hunks)
                 {
                     if (view.lines.size() >= diff_line_limit)
+                    {
+                        mark_text_truncated(view);
                         return view;
+                    }
                     view.lines.push_back({ .hunk_header = true, .text = to_u8(hunk.header) });
                     for (const diff_line& line : hunk.lines)
                     {
                         if (view.lines.size() >= diff_line_limit)
+                        {
+                            mark_text_truncated(view);
                             return view;
+                        }
                         view.lines.push_back({ .kind = line.kind, .old_line = line.old_line, .new_line = line.new_line, .text = to_u8(line.content) });
                     }
                 }
@@ -581,6 +628,10 @@ namespace cyella {
             else if (repository.working.has_value())
             {
                 files = diff.request.view == diff_view::staged ? &repository.working->staged : &repository.working->unstaged;
+                // 충돌 파일은 unstaged 보기로 열리지만 그 목록에는 없다. 열린 경로가 충돌 목록에 있으면 그 목록 안에서 옮긴다.
+                if (diff.request.view == diff_view::unstaged
+                    && std::any_of(repository.working->conflicts.begin(), repository.working->conflicts.end(), [&diff](const file_row_view& row) { return row.path == diff.request.path; }))
+                    files = &repository.working->conflicts;
                 tree = repository.working->files_tree;
             }
             if (files == nullptr || files->empty())
@@ -723,7 +774,7 @@ namespace cyella {
             toolbar_view& toolbar { view.toolbar };
             toolbar.repository_name = view.repository->display_name;
             toolbar.detached = summary.is_detached;
-            toolbar.branch_text = summary.is_detached ? u8"(detached) " + short_sha(summary.head_sha) : to_u8(summary.current_branch);
+            toolbar.branch_text = summary.is_detached ? tr(u8"snapshot.branch_detached", { { u8"sha", short_sha(summary.head_sha) } }) : to_u8(summary.current_branch);
             if (toolbar.branch_text.empty())
                 toolbar.branch_text = tr(u8"snapshot.toolbar.no_branch");
             toolbar.ahead = summary.ahead;
@@ -745,7 +796,11 @@ namespace cyella {
                 : toolbar.push_needs_dialog             ? tr(u8"snapshot.toolbar.push_set_upstream")
                                                         : tr(u8"snapshot.toolbar.push_hint");
             toolbar.branch_enabled = ready;
-            toolbar.stash_enabled = ready && summary.changed_file_count > 0;
+            // 첫 커밋 전에는 HEAD가 없어 `stash push`가 "initial commit" 오류로 실패한다.
+            const bool has_commit { summary.head_sha.empty() == false };
+            toolbar.stash_enabled = ready && has_commit && summary.changed_file_count > 0;
+            if (ready && has_commit == false)
+                toolbar.stash_hint = tr(u8"snapshot.toolbar.stash_no_commit");
             toolbar.pop_enabled = ready && session.snapshot().stashes.empty() == false;
             if (const std::optional<active_operation_view> active { active_operation(operations) }; active.has_value())
                 toolbar.busy_text = active->text;
@@ -885,6 +940,20 @@ namespace cyella {
         return changed_file_count > 0 ? tab_marker::changes : tab_marker::none;
     }
 
+    commit_blocker find_commit_blocker(const repository_snapshot& snapshot, const bool amend, const bool has_subject, const bool committing) noexcept
+    {
+        if (committing)
+            return commit_blocker::committing;
+        if (snapshot.conflicts.empty() == false)
+            return commit_blocker::conflicts;
+        if (has_subject == false)
+            return commit_blocker::no_subject;
+        // amend는 staged 없이도 메시지만 고칠 수 있다.
+        if (snapshot.staged.empty() && amend == false)
+            return commit_blocker::nothing_staged;
+        return commit_blocker::none;
+    }
+
     sidebar_rows build_sidebar_rows(const repository_snapshot& snapshot, const std::u8string_view filter, const std::uint8_t collapsed_sections, const hosting_settings* const hosting)
     {
         sidebar_rows result {};
@@ -964,7 +1033,8 @@ namespace cyella {
                 for (const remote_info& info : snapshot.summary.remotes)
                     if (info.name == remote)
                     {
-                        group.detail = to_u8(info.fetch_url);
+                        // 원격 URL에 넣어 둔 토큰이 사이드바와 툴팁에 보이지 않게 가린다. 링크 해석은 아래에서 원본을 쓴다.
+                        group.detail = to_u8(mask_remote_url_userinfo(info.fetch_url));
                         // 웹 페이지가 있는 원격은 서비스 아이콘으로 그리고 주소 글을 링크로 그린다.
                         const std::string url { info.fetch_url.empty() ? info.push_url : info.fetch_url };
                         const std::optional<remote_web_link> link { hosting != nullptr ? resolve_remote_web_link(url, hosting->web_links, hosting->hosts) : std::nullopt };
@@ -1067,7 +1137,8 @@ namespace cyella {
 
     std::u8string relative_time_text(const std::int64_t now_seconds, const std::int64_t then_seconds)
     {
-        const std::int64_t elapsed { std::max<std::int64_t>(now_seconds - then_seconds, 0) };
+        // 두 값을 서식 범위로 맞춘 뒤 빼서 넘침이 없다. 미래의 시각은 0초(방금)로 포화한다.
+        const std::int64_t elapsed { std::max<std::int64_t>(clamp_format_seconds(now_seconds) - clamp_format_seconds(then_seconds), 0) };
         constexpr std::int64_t minute { 60 };
         constexpr std::int64_t hour { 60 * minute };
         constexpr std::int64_t day { 24 * hour };
@@ -1090,20 +1161,37 @@ namespace cyella {
     {
         // 시간대 조회는 한 번만 한다. 실패를 매 frame 예외로 되풀이하지 않는다.
         static const std::chrono::time_zone* const zone { local_time_zone() };
-        const std::chrono::sys_seconds point { std::chrono::seconds { seconds } };
-        if (zone == nullptr)
-            return to_u8(std::format("{:%Y-%m-%d %H:%M} UTC", point));
-        return to_u8(std::format("{:%Y-%m-%d %H:%M}", std::chrono::zoned_time { zone, point }));
+        const std::chrono::sys_seconds point { std::chrono::seconds { clamp_format_seconds(seconds) } };
+        try
+        {
+            if (zone == nullptr)
+                return to_u8(std::format("{:%Y-%m-%d %H:%M} UTC", point));
+            return to_u8(std::format("{:%Y-%m-%d %H:%M}", std::chrono::zoned_time { zone, point }));
+        }
+        catch (...)
+        {
+            // 서식이 실패해도 화면 구성이 죽지 않게 툴팁 글만 비운다.
+            return {};
+        }
     }
 
     std::u8string day_text(const std::int64_t now_seconds, const std::int64_t then_seconds)
     {
         static const std::chrono::time_zone* const zone { local_time_zone() };
         const auto local_day = [](const std::int64_t seconds) {
-            const std::chrono::sys_seconds point { std::chrono::seconds { seconds } };
-            if (zone == nullptr)
-                return std::chrono::local_days { std::chrono::floor<std::chrono::days>(point).time_since_epoch() };
-            return std::chrono::floor<std::chrono::days>(zone->to_local(point));
+            const std::chrono::sys_seconds point { std::chrono::seconds { clamp_format_seconds(seconds) } };
+            if (zone != nullptr)
+            {
+                try
+                {
+                    return std::chrono::floor<std::chrono::days>(zone->to_local(point));
+                }
+                catch (...)
+                {
+                    // 시간대 변환이 실패하면 UTC 날짜로 센다.
+                }
+            }
+            return std::chrono::local_days { std::chrono::floor<std::chrono::days>(point).time_since_epoch() };
         };
         const std::chrono::local_days today { local_day(now_seconds) };
         const std::chrono::local_days then { local_day(then_seconds) };
@@ -1133,9 +1221,9 @@ namespace cyella {
         case operation_kind::diff_file:
             return tr(u8"snapshot.operation_name.diff_file");
         case operation_kind::stage_files:
-            return u8"Stage";
+            return tr(u8"snapshot.operation_name.stage_files");
         case operation_kind::unstage_files:
-            return u8"Unstage";
+            return tr(u8"snapshot.operation_name.unstage_files");
         case operation_kind::discard_files:
             return tr(u8"snapshot.operation_name.discard_files");
         case operation_kind::commit:
@@ -1145,19 +1233,19 @@ namespace cyella {
         case operation_kind::checkout_detached:
             return tr(u8"snapshot.operation_name.checkout");
         case operation_kind::fetch:
-            return u8"Fetch";
+            return tr(u8"snapshot.operation_name.fetch");
         case operation_kind::pull:
-            return u8"Pull";
+            return tr(u8"snapshot.operation_name.pull");
         case operation_kind::push_execute:
-            return u8"Push";
+            return tr(u8"snapshot.operation_name.push_execute");
         case operation_kind::stash_push:
-            return u8"Stash";
+            return tr(u8"snapshot.operation_name.stash_push");
         case operation_kind::stash_pop:
-            return u8"Pop";
+            return tr(u8"snapshot.operation_name.stash_pop");
         case operation_kind::clone:
-            return u8"Clone";
+            return tr(u8"snapshot.operation_name.clone");
         case operation_kind::init:
-            return u8"Init";
+            return tr(u8"snapshot.operation_name.init");
         case operation_kind::inspect_path:
             return tr(u8"snapshot.operation_name.inspect_path");
         case operation_kind::ssh_keygen:
@@ -1175,9 +1263,9 @@ namespace cyella {
         case operation_kind::worktree_prune:
             return tr(u8"snapshot.operation_name.worktree_prune");
         case operation_kind::lfs_pull:
-            return u8"LFS pull";
+            return tr(u8"snapshot.operation_name.lfs_pull");
         case operation_kind::lfs_fetch:
-            return u8"LFS fetch";
+            return tr(u8"snapshot.operation_name.lfs_fetch");
         case operation_kind::lfs_track:
             return tr(u8"snapshot.operation_name.lfs_track");
         case operation_kind::load_rebase_plan:

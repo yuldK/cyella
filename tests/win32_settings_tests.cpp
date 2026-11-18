@@ -6,8 +6,13 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <windows.h>
+
+#include <chrono>
 #include <filesystem>
 #include <string>
+#include <system_error>
+#include <thread>
 
 using namespace cyella;
 
@@ -26,16 +31,42 @@ TEST_CASE("settings path is composed under the roaming app data folder", "[win32
     CHECK(win32::app_settings_file_path_under(u8"") == u8"");
 }
 
-TEST_CASE("the real settings path is an existing folder under the roaming profile", "[win32_settings]")
+TEST_CASE("the real settings path is composed under the roaming profile", "[win32_settings]")
 {
-    const std::u8string path { win32::app_settings_file_path() };
+    // app_settings_file_path()는 첫 호출에 실제 %APPDATA%\cyella를 만든다(앱의 의도된 동작이다). 시험이 돌 때마다 개발자·CI 계정에
+    // 빈 폴더가 생기거나 읽기 전용 프로필에서 실패하지 않게, 앱과 같은 조회 함수로 위치만 물어(폴더를 만들지 않는다) 합성을 확인한다.
+    const std::u8string roaming_text { win32::roaming_app_data_folder() };
+    REQUIRE_FALSE(roaming_text.empty());
+    const std::filesystem::path roaming { roaming_text };
+
+    const std::u8string path { win32::app_settings_file_path_under(roaming_text) };
 
     REQUIRE_FALSE(path.empty());
     const std::filesystem::path file { path };
     CHECK(file.filename() == "settings.json");
     CHECK(file.parent_path().filename() == "cyella");
-    CHECK(std::filesystem::is_directory(file.parent_path()));
+    CHECK(file.parent_path().parent_path() == roaming);
     CHECK(file.is_absolute());
+
+    // 폴더가 이미 있는 계정에서만 실제 함수를 부른다. 이때는 아무것도 새로 만들지 않는다.
+    std::error_code error {};
+    if (std::filesystem::is_directory(file.parent_path(), error))
+        CHECK(win32::app_settings_file_path() == path);
+}
+
+TEST_CASE("the settings path creates its cyella folder on first use", "[win32_settings]")
+{
+    // 실제 함수가 하는 폴더 만들기를 임시 roaming 폴더에서 확인한다. 저장이 한 번도 없어도 사용자가 위치를 볼 수 있어야 한다.
+    test::temporary_directory directory { "settings-path-folder" };
+    const std::filesystem::path roaming { directory.path() / "Roaming" };
+    REQUIRE_FALSE(std::filesystem::exists(roaming));
+
+    const std::u8string path { win32::prepared_app_settings_file_path_under(path_text(roaming)) };
+
+    REQUIRE_FALSE(path.empty());
+    CHECK(path == win32::app_settings_file_path_under(path_text(roaming)));
+    CHECK(std::filesystem::is_directory(roaming / "cyella"));
+    CHECK_FALSE(std::filesystem::exists(roaming / "cyella" / "settings.json"));
 }
 
 TEST_CASE("atomic commit creates missing folders and replaces content", "[win32_settings]")
@@ -100,6 +131,30 @@ TEST_CASE("a failed replace reports the replace step and leaves the target alone
     }
     // 실패한 시도의 임시 파일이 남지 않는다.
     CHECK(entries == 1);
+}
+
+TEST_CASE("a replace blocked for a moment by another handle succeeds after a retry", "[win32_settings]")
+{
+    test::temporary_directory directory { "settings-replace-locked" };
+    const auto file_system { win32::make_settings_file_system() };
+    const std::filesystem::path target { directory.path() / "settings.json" };
+    const std::u8string target_text { path_text(target) };
+    REQUIRE(file_system->atomic_commit(target_text, u8"before").succeeded());
+
+    // 백신·OneDrive처럼 지우기 공유 없이 잠깐 열어 둔 것이다. 그동안 MoveFileExW의 교체는 공유 위반으로 실패한다.
+    const HANDLE held { CreateFileW(target.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr) };
+    REQUIRE(held != INVALID_HANDLE_VALUE);
+    const auto release_later = [held] {
+        std::this_thread::sleep_for(std::chrono::milliseconds { 100 });
+        CloseHandle(held);
+    };
+    std::thread releaser { release_later };
+
+    const settings_file_commit_result result { file_system->atomic_commit(target_text, u8"after") };
+    releaser.join();
+
+    CHECK(result.succeeded());
+    CHECK(file_system->read(target_text).bytes == u8"after");
 }
 
 TEST_CASE("commit fails cleanly when the folder cannot be created", "[win32_settings]")

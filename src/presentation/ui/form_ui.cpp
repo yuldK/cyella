@@ -145,15 +145,14 @@ namespace cyella::ui {
             const form_field& field { form.fields[index] };
             const std::u8string owner { form.id + u8"-field-" + number_text(index) };
             content.add(make_text(owner + u8"-label", field.label, text_style { .size = 11.0f, .color = dim_color }), form_label_height);
-            // 라벨은 별도 글 요소라 입력 칸의 UIA 이름에 들지 않는다(이름이 안내 글 하나뿐이다: luil 입력 칸의 이름은 `placeholder`이고
-            // `set_access_name`은 이를 덮지 못한다). 안내 글 앞에 라벨을 붙여 보조 기술과 UIA 스크립트가 칸을 라벨로 찾게 한다.
-            std::u8string hint { field.label };
-            if (field.placeholder.empty() == false && field.placeholder != field.label)
-                hint += u8" · " + field.placeholder;
-            luil::text_input_config input { .placeholder = std::move(hint) };
+            // 라벨은 별도 글 요소라 입력 칸의 UIA 이름에 들지 않는다. luil 입력 칸은 앱이 단 이름(`set_access_name`)을 안내 글(`placeholder`)보다
+            // 먼저 쓰므로, 이름은 라벨로 달고 안내 글은 화면에 보이는 예시만 둔다. 안내 글에 라벨을 붙이면 라벨이 칸 위와 칸 안에 두 번 보인다.
+            luil::text_input_config input { .placeholder = field.placeholder != field.label ? field.placeholder : std::u8string {} };
             input.secret = field.secret;
             input.reveal = field.reveal;
-            content.add(std::make_unique<luil::text_input_element>(luil::ui_element_id { field_kind(index), owner }, field.view, std::move(input)), form_field_height);
+            auto field_input { std::make_unique<luil::text_input_element>(luil::ui_element_id { field_kind(index), owner }, field.view, std::move(input)) };
+            field_input->set_access_name(field.label);
+            content.add(std::move(field_input), form_field_height);
             if (field.focus && focus_entry == luil::ui_element_id {})
                 focus_entry = luil::ui_element_id { field_kind(index), owner };
         }

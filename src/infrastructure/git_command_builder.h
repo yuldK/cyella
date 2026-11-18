@@ -13,7 +13,7 @@ namespace cyella {
     //
     // 이 파일의 함수는 명령줄만 만들고 프로세스를 실행하지 않는다. 실행할 때의 약속:
     //   - 환경: LC_ALL=C(지역화 없는 stderr), GIT_TERMINAL_PROMPT=0, GIT_EDITOR=true.
-    //   - 공통 앞 인자: `-c core.quotepath=false -c gc.auto=0 -c color.ui=false --no-pager`.
+    //   - 공통 앞 인자: `-c core.quotepath=false -c gc.auto=0 -c color.ui=false -c log.showSignature=false --no-pager`.
     //     해석기는 quotepath 설정과 무관하게 인용된 경로를 풀므로 필수는 아니다.
     //   - stdin이 필요한 명령은 각 함수의 설명에 적었다. 내용은 호출자가 넘긴다.
     //
@@ -149,7 +149,8 @@ namespace cyella {
     // `add -- <paths>`.
     [[nodiscard]] git_arguments make_git_add_args(std::span<const std::string> paths);
 
-    // `restore --staged -- <paths>`. unstage.
+    // `reset -q -- <paths>`. unstage. `restore --staged`는 첫 커밋 전에 HEAD를 풀지 못해 실패하므로
+    // HEAD가 없으면 빈 트리를 기준으로 삼는 `reset`을 쓴다. 이름은 호출자와 맞추려고 그대로 둔다.
     [[nodiscard]] git_arguments make_git_restore_staged_args(std::span<const std::string> paths);
 
     // `restore -- <paths>`. 작업 트리의 변경을 버린다.
@@ -175,7 +176,8 @@ namespace cyella {
         bool unidiff_zero { false };
     };
 
-    // patch는 stdin으로 넘긴다(`apply ... -`).
+    // patch는 stdin으로 넘긴다(`apply ... --whitespace=nowarn -`). 사용자의 `apply.whitespace`가 hunk를
+    // 고치거나 거절하지 않게 공백 처리를 명령줄에서 고정한다.
     [[nodiscard]] git_arguments make_git_apply_args(const git_apply_options& options = {});
 
     // ------------------------------------------------------------------ 원격
@@ -383,8 +385,9 @@ namespace cyella {
     // `log -1 -z --format=<본문 포함 log 형식> <sha> --`. git_log_parser(has_body=true)로 읽는다.
     [[nodiscard]] git_arguments make_git_commit_info_args(std::string_view sha);
 
-    // `log -1 -z --format= --name-status --find-renames [-m --first-parent] <sha> --`.
+    // `log -1 -z --format= --name-status --find-renames --root [-m --first-parent] <sha> --`.
     // 상태 글자(A·M·D·R)와 경로를 NUL로 나눠 준다. 이름 변경은 `R100\0old\0new\0`이다.
+    // `--root`는 사용자의 `log.showRoot=false`가 첫 커밋의 파일 목록을 비우지 않게 한다.
     [[nodiscard]] git_arguments make_git_commit_name_status_args(std::string_view sha, bool is_merge);
 
     // 한 커밋에서 파일 하나의 diff다. `show --format= [-m --first-parent] ... <sha> -- <path>`.

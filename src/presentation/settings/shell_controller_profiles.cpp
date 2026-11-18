@@ -65,6 +65,13 @@ namespace cyella {
     {
         if (dependencies_.request_identity == nullptr || dependencies_.workspace == nullptr)
             return;
+        // 닫힌 저장소의 신원과 끝나지 않은 적용 상태를 버린다. 저장소 id가 경로 기반이라 다시 열면 같은 id인데, 남겨 두면 닫기 직전의 신원이
+        // 다시 연 첫 frame에 보이고 닫기 전에 누른 "적용 후 커밋"이 새 세션에서 이어진다. 닫힌 뒤에 온 결과가 만든 항목도 다음 frame에 같이 버려진다.
+        // (제안·경고를 이미 보였다는 기록은 앱을 켜 두는 동안 남긴다.)
+        const auto closed = [this](const std::string& repository_id) { return std::as_const(*dependencies_.workspace).find_session(repository_id) == nullptr; };
+        std::erase_if(identities_, [&closed](const auto& entry) { return closed(entry.first); });
+        std::erase_if(applying_profiles_, [&closed](const auto& entry) { return closed(entry.first); });
+        std::erase_if(commit_after_apply_, closed);
         const std::string id { selected_repository_id() };
         const repository_session* const session { id.empty() ? nullptr : std::as_const(*dependencies_.workspace).find_session(id) };
         if (session == nullptr)
@@ -100,26 +107,26 @@ namespace cyella {
         notify(std::move(notice));
     }
 
-    void shell_controller::apply_profile(const std::u8string& name)
+    bool shell_controller::apply_profile(const std::u8string& name)
     {
         const app_settings& value { settings() };
         const std::optional<std::size_t> index { find_profile_index(value.profiles, name) };
         if (index.has_value() == false)
         {
             show_notice(tr(u8"profiles.not_found", { { u8"name", name } }), true);
-            return;
+            return false;
         }
         const std::string id { selected_repository_id() };
         const repository_session* const session { id.empty() || dependencies_.workspace == nullptr ? nullptr : std::as_const(*dependencies_.workspace).find_session(id) };
         if (session == nullptr)
         {
             show_notice(tr(u8"profiles.no_repository"), true);
-            return;
+            return false;
         }
         if (dependencies_.apply_identity == nullptr)
         {
             show_notice(tr(u8"profiles.apply_unavailable"), true);
-            return;
+            return false;
         }
         const user_profile& profile { value.profiles[*index] };
         applying_profiles_[id] = profile.name;
@@ -129,6 +136,7 @@ namespace cyella {
             change.ssh_command = make_profile_ssh_command(dependencies_.ssh_executable, profile.ssh_key);
         dependencies_.apply_identity(id, session->path(), change);
         show_notice(tr(u8"profiles.applying", { { u8"name", profile.name } }), false);
+        return true;
     }
 
     bool shell_controller::selected_identity_has_local_settings() const
@@ -136,7 +144,8 @@ namespace cyella {
         const git_identity* const identity { selected_identity() };
         if (identity == nullptr)
             return false;
-        const auto local = [](const std::optional<identity_value>& value) { return value.has_value() && (value->origin == identity_origin::local || value->origin == identity_origin::worktree); };
+        // worktree 범위(config.worktree) 값은 세지 않는다. 쓰기와 지우기가 모두 --local이라 그 값은 지워지지 않으므로 단추를 켜면 눌러도 변화가 없다.
+        const auto local = [](const std::optional<identity_value>& value) { return value.has_value() && value->origin == identity_origin::local; };
         return local(identity->name) || local(identity->email) || local(identity->credential_username) || (local(identity->ssh_command) && profile_ssh_key_of(*identity).has_value());
     }
 
@@ -163,6 +172,8 @@ namespace cyella {
             return;
         }
         applying_profiles_.erase(id);
+        // 지우기를 고른 뒤에는 앞서 눌러 둔 "적용 후 커밋"이 이어지면 안 된다. 앞선 적용의 결과가 늦게 와도 커밋하지 않는다.
+        commit_after_apply_.erase(id);
         dependencies_.apply_identity(id, session->path(), local_identity_change { .clear = true });
         show_notice(tr(u8"profiles.clearing"), false);
     }
@@ -226,8 +237,11 @@ namespace cyella {
         }
         if (key.starts_with(commit_apply_key_prefix))
         {
-            commit_after_apply_.insert(selected_repository_id());
-            apply_profile(key.substr(commit_apply_key_prefix.size()));
+            const std::string id { selected_repository_id() };
+            // 적용 일감을 실제로 냈을 때만 기억한다. 프로필이 없어졌거나 worker가 없어 안내만 하고 끝났는데 남겨 두면
+            // 나중에 다른 길로 적용이 성공할 때 누르지도 않은 커밋이 나간다.
+            if (apply_profile(key.substr(commit_apply_key_prefix.size())))
+                commit_after_apply_.insert(id);
             return true;
         }
         if (key == commit_anyway_key)
@@ -291,7 +305,12 @@ namespace cyella {
             }
             if (intent->ok == false)
             {
-                show_notice(tr(u8"profiles.apply_failed", { { u8"profile", profile }, { u8"message", intent->message } }), true);
+                // 이름만 쓰고 이메일에서 멈추는 식으로 일부만 적용됐을 수 있다. 낡은 신원이 다음 주기까지 남지 않게 바로 다시 읽고,
+                // 섞인 신원으로 경고 없이 커밋되지 않게 커밋 전 경고도 다시 세운다.
+                show_notice(tr(u8"profiles.apply_failed", { { u8"profile", profile }, { u8"message", intent->message } }) + u8" " + tr(u8"profiles.apply_failed_partial"), true);
+                identities_[id].requested = false;
+                identities_[id].loaded = false;
+                commit_warned_.erase(id);
                 return true;
             }
             // 어느 프로필을 골랐는지 기억한다. 그 저장소의 "이 저장소의 프로필"이고, 신원이 그대로인 동안은 규칙을 거스르는 선택으로 존중한다.

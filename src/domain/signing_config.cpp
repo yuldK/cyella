@@ -19,6 +19,82 @@ namespace cyella {
             return true;
         }
 
+        int digit_value(const char value) noexcept
+        {
+            if (value >= '0' && value <= '9')
+                return value - '0';
+            if (value >= 'a' && value <= 'f')
+                return value - 'a' + 10;
+            if (value >= 'A' && value <= 'F')
+                return value - 'A' + 10;
+            return -1;
+        }
+
+        // git의 `git_parse_int`가 받는 정수 꼴인지 본다. 앞 공백, 부호, 10·8·16진수, 단위 k·m·g(1024배)를 받고 int
+        // 범위를 넘거나 다른 글자가 붙으면 실패한다. 불리언 설정은 0인지 아닌지만 쓰므로 0인지만 돌려준다.
+        bool parse_config_integer(const std::string_view text, bool& is_zero) noexcept
+        {
+            std::size_t index { 0 };
+            while (index < text.size() && (text[index] == ' ' || (text[index] >= '\t' && text[index] <= '\r')))
+                ++index;
+            if (index < text.size() && (text[index] == '+' || text[index] == '-'))
+                ++index;
+
+            // strtoimax의 기수 0과 같다. `0x` 뒤에 16진 숫자가 있으면 16진수, `0`으로 시작하면 8진수다.
+            int base { 10 };
+            if (index < text.size() && text[index] == '0')
+            {
+                base = 8;
+                if (index + 2 < text.size() && (text[index + 1] == 'x' || text[index + 1] == 'X') && digit_value(text[index + 2]) >= 0)
+                {
+                    base = 16;
+                    index += 2;
+                }
+            }
+
+            constexpr std::uint64_t limit { 0x7FFFFFFF };
+            std::uint64_t magnitude { 0 };
+            bool has_digit { false };
+            while (index < text.size())
+            {
+                const int digit { digit_value(text[index]) };
+                if (digit < 0 || digit >= base)
+                    break;
+                // 한도를 넘으면 더 키우지 않는다. 아래 범위 검사에서 걸러지고 64비트도 넘치지 않는다.
+                if (magnitude <= limit)
+                    magnitude = magnitude * static_cast<std::uint64_t>(base) + static_cast<std::uint64_t>(digit);
+                has_digit = true;
+                ++index;
+            }
+            if (has_digit == false)
+                return false;
+
+            std::uint64_t factor { 1 };
+            if (index < text.size())
+            {
+                if (index + 1 != text.size())
+                    return false;
+                switch (ascii_lowercase(text[index]))
+                {
+                case 'k':
+                    factor = 1024;
+                    break;
+                case 'm':
+                    factor = 1024 * 1024;
+                    break;
+                case 'g':
+                    factor = 1024 * 1024 * 1024;
+                    break;
+                default:
+                    return false;
+                }
+            }
+            if (magnitude > limit / factor)
+                return false;
+            is_zero = magnitude == 0;
+            return true;
+        }
+
         bool read_bool(const signing_entry& entry) noexcept
         {
             if (entry.is_set() == false)
@@ -107,6 +183,13 @@ namespace cyella {
                 value = false;
                 return true;
             }
+        // git은 불리언 자리에 정수도 받는다. 0이 아니면 참이다 (`commit.gpgsign=2`도 서명한다).
+        bool is_zero { false };
+        if (parse_config_integer(text, is_zero))
+        {
+            value = is_zero == false;
+            return true;
+        }
         return false;
     }
 

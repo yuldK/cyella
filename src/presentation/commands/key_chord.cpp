@@ -16,22 +16,8 @@ namespace cyella {
             luil::key_code key;
         };
 
-        // Win32 가상 키 값이다 (luil이 이름을 붙이지 않은 키는 `platform_key_code`로 나른다).
-        constexpr std::uint32_t vk_back { 0x08 };
-        constexpr std::uint32_t vk_add { 0x6B };
-        constexpr std::uint32_t vk_subtract { 0x6D };
-        constexpr std::uint32_t vk_oem_1 { 0xBA };
-        constexpr std::uint32_t vk_oem_plus { 0xBB };
-        constexpr std::uint32_t vk_oem_comma { 0xBC };
-        constexpr std::uint32_t vk_oem_minus { 0xBD };
-        constexpr std::uint32_t vk_oem_period { 0xBE };
-        constexpr std::uint32_t vk_oem_2 { 0xBF };
-        constexpr std::uint32_t vk_oem_3 { 0xC0 };
-        constexpr std::uint32_t vk_oem_4 { 0xDB };
-        constexpr std::uint32_t vk_oem_5 { 0xDC };
-        constexpr std::uint32_t vk_oem_6 { 0xDD };
-        constexpr std::uint32_t vk_oem_7 { 0xDE };
-
+        // Backspace·구두점·키패드는 luil이 Win32 가상 키를 이름 키(`key_code::comma` 등)로 바꿔 보낸다.
+        // 표도 같은 이름을 써야 눌린 키(`chord_of`)와 저장된 글이 같은 값으로 만난다.
         const std::vector<named_key>& named_keys()
         {
             static const std::vector<named_key> keys {
@@ -49,7 +35,7 @@ namespace cyella {
                 { u8"PageDown", luil::key_code::page_down },
                 { u8"Insert", luil::key_code::insert },
                 { u8"Delete", luil::key_code::delete_forward },
-                { u8"Backspace", luil::platform_key_code(vk_back) },
+                { u8"Backspace", luil::key_code::backspace },
                 { u8"F1", luil::key_code::f1 },
                 { u8"F2", luil::key_code::f2 },
                 { u8"F3", luil::key_code::f3 },
@@ -62,19 +48,19 @@ namespace cyella {
                 { u8"F10", luil::key_code::f10 },
                 { u8"F11", luil::key_code::f11 },
                 { u8"F12", luil::key_code::f12 },
-                { u8"=", luil::platform_key_code(vk_oem_plus) },
-                { u8"-", luil::platform_key_code(vk_oem_minus) },
-                { u8",", luil::platform_key_code(vk_oem_comma) },
-                { u8".", luil::platform_key_code(vk_oem_period) },
-                { u8"/", luil::platform_key_code(vk_oem_2) },
-                { u8";", luil::platform_key_code(vk_oem_1) },
-                { u8"[", luil::platform_key_code(vk_oem_4) },
-                { u8"]", luil::platform_key_code(vk_oem_6) },
-                { u8"\\", luil::platform_key_code(vk_oem_5) },
-                { u8"'", luil::platform_key_code(vk_oem_7) },
-                { u8"`", luil::platform_key_code(vk_oem_3) },
-                { u8"NumpadAdd", luil::platform_key_code(vk_add) },
-                { u8"NumpadSubtract", luil::platform_key_code(vk_subtract) },
+                { u8"=", luil::key_code::equal },
+                { u8"-", luil::key_code::minus },
+                { u8",", luil::key_code::comma },
+                { u8".", luil::key_code::period },
+                { u8"/", luil::key_code::slash },
+                { u8";", luil::key_code::semicolon },
+                { u8"[", luil::key_code::bracket_left },
+                { u8"]", luil::key_code::bracket_right },
+                { u8"\\", luil::key_code::backslash },
+                { u8"'", luil::key_code::quote },
+                { u8"`", luil::key_code::grave },
+                { u8"NumpadAdd", luil::key_code::numpad_add },
+                { u8"NumpadSubtract", luil::key_code::numpad_subtract },
             };
             return keys;
         }

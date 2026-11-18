@@ -94,29 +94,6 @@ namespace cyella::ui {
             }
         }
 
-        std::optional<menu_target> menu_target_of(const ref_label& label, const std::string& commit_sha)
-        {
-            menu_target target {};
-            target.name = label.ref_name;
-            target.sha = commit_sha;
-            switch (label.kind)
-            {
-            case ref_label_kind::local:
-                target.kind = menu_target_kind::local_branch;
-                return target;
-            case ref_label_kind::remote:
-                target.kind = menu_target_kind::remote_branch;
-                return target;
-            case ref_label_kind::tag:
-                target.kind = menu_target_kind::tag;
-                return target;
-            case ref_label_kind::head:
-            case ref_label_kind::stash:
-                break;
-            }
-            return std::nullopt;
-        }
-
         // 두 번 눌러 여는 대상의 종류. 지역·원격 가지가 아니면 태그로 본다.
         ref_kind activated_ref_kind(const ref_label_kind kind) noexcept
         {
@@ -136,6 +113,29 @@ namespace cyella::ui {
             return std::nullopt;
         }
     } // namespace
+
+    std::optional<menu_target> menu_target_of(const ref_label& label, const std::string& commit_sha)
+    {
+        menu_target target {};
+        target.name = label.ref_name;
+        target.sha = commit_sha;
+        switch (label.kind)
+        {
+        case ref_label_kind::local:
+            target.kind = menu_target_kind::local_branch;
+            return target;
+        case ref_label_kind::remote:
+            target.kind = menu_target_kind::remote_branch;
+            return target;
+        case ref_label_kind::tag:
+            target.kind = menu_target_kind::tag;
+            return target;
+        case ref_label_kind::head:
+        case ref_label_kind::stash:
+            break;
+        }
+        return std::nullopt;
+    }
 
     float estimate_text_width(const std::u8string_view text, const float size) noexcept
     {

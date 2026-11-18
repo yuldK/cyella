@@ -17,11 +17,13 @@ namespace cyella {
         by_sha.reserve(shas_.size());
         for (std::size_t index { 0 }; index < shas_.size(); ++index)
             by_sha.emplace(shas_[index], static_cast<std::uint32_t>(index));
-        for (const commit_info& commit : commits)
+        for (std::size_t index { 0 }; index < commits.size(); ++index)
         {
             parents_begin_.push_back(static_cast<std::uint32_t>(parent_indices_.size()));
-            for (const std::string& parent : commit.parents)
-                if (const auto found { by_sha.find(parent) }; found != by_sha.end())
+            // 더 읽는 사이에 ref가 바뀌면 이어 붙인 목록에서 부모가 자식보다 앞에 오거나 SHA가 겹칠 수 있다.
+            // 질의가 "부모는 언제나 뒤"에 기대 부모 색인을 배열 첨자로 쓰므로, 뒤가 아닌 부모는 담지 않는다.
+            for (const std::string& parent : commits[index].parents)
+                if (const auto found { by_sha.find(parent) }; found != by_sha.end() && found->second > index)
                     parent_indices_.push_back(found->second);
         }
         parents_begin_.push_back(static_cast<std::uint32_t>(parent_indices_.size()));

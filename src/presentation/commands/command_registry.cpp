@@ -31,6 +31,7 @@ namespace cyella {
             list.push_back(make("app.settings.profiles", tr(u8"command.app.settings.profiles"), u8"settings profile identity user name email author", group::app));
             list.push_back(make("app.settings.hosting", tr(u8"command.app.settings.hosting"), u8"settings hosting github gitlab server host token sign out logout", group::app));
             list.push_back(make("app.settings.shortcuts", tr(u8"command.app.settings.shortcuts"), u8"settings shortcut keybinding keys hotkey", group::app));
+            list.push_back(make("app.settings.signing", tr(u8"command.app.settings.signing"), u8"settings signing gpg ssh sign commit", group::app));
             list.push_back(make("app.theme", tr(u8"command.app.theme"), u8"theme dark light color mode", group::app));
             list.push_back(make("app.log", tr(u8"command.app.log"), u8"log operations output command history", group::app));
             // ---- 탭
@@ -148,6 +149,11 @@ namespace cyella {
         return {};
     }
 
+    bool is_ui_thread_command(const std::string_view id) noexcept
+    {
+        return id == "repo.open_folder" || id == "repo.init";
+    }
+
     bool command_available(const std::string_view id, const command_availability& availability) noexcept
     {
         if (id == "git.fetch")
@@ -156,7 +162,10 @@ namespace cyella {
             return availability.pull;
         if (id == "git.push")
             return availability.push;
-        if (id == "git.branch.new" || id == "git.tag.new" || id == "git.remote.add")
+        // 태그는 HEAD 커밋에 붙이므로 첫 커밋 전에는 만들 수 없다.
+        if (id == "git.tag.new")
+            return availability.branch && availability.no_commits == false;
+        if (id == "git.branch.new" || id == "git.remote.add")
             return availability.branch;
         if (id == "git.branch.checkout")
             return availability.repository;

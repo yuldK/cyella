@@ -293,6 +293,32 @@ TEST_CASE("opening a pull request leaves the diff and reveals the detail drawer"
     }
 }
 
+TEST_CASE("only a numbered pull request row opens the detail drawer again, not refresh, more or the closed toggle", "[hosting][shell][ui]")
+{
+    constexpr float width { 900.0f };
+    static_assert(width < wide_layout_minimum_width);
+    harness test {};
+    test.sign_in_and_load({ make_pull(12, "Review changes") });
+    // 좁은 배치로 한 번 그려 둔다 (서랍을 열지는 마지막 frame의 배치로 정한다).
+    static_cast<void>(test.controller.make_view(width, 700.0f, 1.0f));
+    test.activate("12");
+    REQUIRE(test.controller.make_view(width, 700.0f, 1.0f).drawer_open);
+
+    // 서랍만 닫고 PR 상세는 열어 둔다. 상세가 없는 상태에서는 이 결함이 보이지 않는다.
+    test.send(toggle_drawer_intent { false });
+    REQUIRE_FALSE(test.controller.make_view(width, 700.0f, 1.0f).drawer_open);
+    for (const char* const path : { hosting_row_refresh, hosting_row_toggle_closed, hosting_row_more })
+    {
+        CAPTURE(path);
+        test.activate(path);
+        CHECK_FALSE(test.controller.make_view(width, 700.0f, 1.0f).drawer_open);
+    }
+
+    // 번호 행은 상세를 다시 열고 서랍도 연다.
+    test.activate("12");
+    CHECK(test.controller.make_view(width, 700.0f, 1.0f).drawer_open);
+}
+
 TEST_CASE("pull request details wrap and scroll without hiding actions or description lines", "[hosting][shell][ui]")
 {
     harness test {};

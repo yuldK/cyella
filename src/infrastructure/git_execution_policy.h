@@ -76,10 +76,14 @@ namespace cyella {
     //   기대한다. 경로는 `core.quotepath=false`로 UTF-8 원문이 나오므로 로캘과 무관하다.
     // - `GIT_EDITOR=true`: `rebase --continue`·`merge`·`revert`가 편집기를 띄워 worker를
     //   붙잡지 않게 한다. 메시지는 git의 기본값이나 stdin(`-F -`)으로 정한다.
+    // - 부모 환경에서 온 `GIT_DIR`·`GIT_WORK_TREE`·`GIT_INDEX_FILE`·`GIT_OBJECT_DIRECTORY`·
+    //   `GIT_ALTERNATE_OBJECT_DIRECTORIES`·`GIT_COMMON_DIR`·`GIT_NAMESPACE`는 지운다. hook 안에서 앱을
+    //   띄워도 명령이 working_directory의 저장소를 대상으로 돈다. 필요한 요청은 `environment`로 다시 준다.
     [[nodiscard]] std::vector<process_environment_override> git_environment_overrides(std::u8string_view askpass_helper = {});
 
     // 모든 git 명령 앞에 붙는 공통 인자다. `-c gc.auto=0`은 명령이 background 유지보수
-    // 프로세스를 띄워 출력 pipe를 물고 늘어지는 것을 막는다.
+    // 프로세스를 띄워 출력 pipe를 물고 늘어지는 것을 막는다. `-c log.showSignature=false`는
+    // 서명 검증 문구가 기계 판독 출력에 섞이지 않게 한다.
     [[nodiscard]] std::vector<std::u8string> git_common_arguments();
 
     // 공통 정책을 적용한 요청을 만든다. `arguments`는 공통 인자 뒤에 붙는다. 부류가

@@ -29,7 +29,8 @@
 ## 설정 파일 (`%APPDATA%\cyella\settings.json`)
 
 위치는 `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` 아래 `cyella` 폴더다. 폴더가 없으면 만든다. UTF-8,
-CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
+CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 쓰되, `ui`·`hosting`·`window`와 프로필·단축키·명령 기록(`profiles`·`profile_rules`·
+`profile_assignments`·`shortcuts`·`command_history`)은 값이 있을 때만 쓴다(아래 표에 조건이 있다).
 
 ```json
 {
@@ -43,9 +44,14 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
     "external_diff_tools": [
         { "extensions": [".png", ".tar.gz"], "executable": "C:\\tools\\imgdiff.exe", "arguments": "--left \"{left}\" --right \"{right}\"" }
     ],
-    "appearance": { "theme": "system" },
+    "external_file_apps": [
+        { "name": "Visual Studio Code", "executable": "Code.exe", "arguments": "--reuse-window {file}" }
+    ],
+    "language": "system",
+    "appearance": { "theme": "system", "gravatar": false, "accent": "", "tabs": "connected", "tab_marker": "badge", "ui_font": "", "code_font": "" },
+    "diff": { "layout": "inline", "context_lines": 3 },
     "window": { "x": 100, "y": 100, "width": 1400, "height": 900, "maximized": false },
-    "ui": { "pane_widths": { "sidebar": 232, "detail": 360, "commit_meta": 220 } }
+    "ui": { "pane_widths": { "sidebar": 232, "detail": 360, "commit_meta": 220 }, "commit_files_view": "tree", "working_files_view": "tree", "repository_layout": "review" }
 }
 ```
 
@@ -55,9 +61,21 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
 | `open_tabs`, `active_tab` | 저장소 경로. 시작 탭은 저장하지 않는다. |
 | `git_executable` | 빈 값이면 자동 탐색. 값이 있으면 절대 경로여야 하고, 아니면 경고하고 자동 탐색. |
 | `external_diff_tools` | 확장자(점·`*.` 생략 가능, 대소문자 무시, `.tar.gz` 같은 여러 점 가능), 실행 파일, 인자 템플릿. 확장자나 실행 파일이 없는 줄은 경고하고 버린다. |
+| `external_file_apps` | 다른 앱으로 여는 앱 목록이다(diff의 파일, 툴바 "열기"의 저장소 폴더). 한 줄은 `name`, `executable`, `arguments`이고 인자의 `{file}`·`{repository}`·`{path}`가 여는 파일이나 폴더로 바뀐다. 기본은 Windows 탐색기와 Visual Studio Code이고, 키가 있으면 기본 대신 그 목록을 쓴다. 이름이나 실행 파일이 빈 줄은 경고하고 버린다. |
+| `language` | 화면 문구의 언어. `system`, `ko`, `en`. 그 밖의 값은 경고하고 `system`. 바꾸면 다시 시작할 때 적용한다([ADR-008](decisions/ADR-008-i18n.md)). |
 | `appearance.theme` | `system`, `light`, `dark`. 그 밖의 값은 경고하고 `system`. |
+| `appearance.gravatar` | 커밋 작성자 사진을 Gravatar에서 받는지(불리언, 기본 `false`). 켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 간다. 불리언이 아니면 경고하고 기본값. |
+| `appearance.accent` | 키 컬러 id(luil 목록의 `blue`·`mint`…, 운영체제 색은 `system`). 비면 luil의 기본 키 컬러다. 목록에 없는 id도 설정에는 남기고 표시만 기본으로 되돌린다. |
+| `appearance.tabs` | 탭 줄의 모양. `connected`(기본), `flat`. 그 밖의 값은 경고하고 `connected`. |
+| `appearance.tab_marker` | 탭의 상태 표지를 보이는 자리. `badge`(기본), `icon_corner`, `close_slot`. 그 밖의 값은 경고하고 `badge`. |
+| `appearance.ui_font`, `appearance.code_font` | 글꼴 이름. 빈 값은 플랫폼 기본 글꼴이다. 설치되지 않은 이름도 설정에는 남기고 표시만 기본으로 되돌린다. |
 | `window` | 좌표·크기(정수, 너비·높이 양수)와 `maximized`. 틀리면 경고하고 배치 없이 시작. 값이 없으면 키를 지운다. |
-| `ui.pane_widths` | 사이드바·상세 판의 폭과 커밋 상세의 메시지·메타 칸 높이(`commit_meta`)다(논리 픽셀, 양수, 소수 둘째 자리까지). 하나만 있어도 된다. `commit_meta`가 없으면 손잡이를 끌기 전처럼 내용만큼 서고, 있으면 그릴 때 판 높이로 범위를 다듬는다. 없거나 틀린 값은 기본 폭이고, 시작할 때 `shell_layout`의 최소·최대로 다듬는다. 판을 끄는 동안에는 쓰지 않고 500 ms 조용해지면(또는 앱을 닫을 때) 한 번 쓴다. 모두 없으면 `ui` 키를 쓰지 않는다. |
+| `ui.pane_widths` | 사이드바·상세 판의 폭과 커밋 상세의 메시지·메타 칸 높이(`commit_meta`)다(논리 픽셀, 양수, 소수 둘째 자리까지). 하나만 있어도 된다. `commit_meta`가 없으면 손잡이를 끌기 전처럼 내용만큼 서고, 있으면 그릴 때 판 높이로 범위를 다듬는다. 없거나 틀린 값은 기본 폭이고, 시작할 때 `shell_layout`의 최소·최대로 다듬는다. 판을 끄는 동안에는 쓰지 않고 500 ms 조용해지면(또는 앱을 닫을 때) 한 번 쓴다. 모두 없으면 `pane_widths`를 쓰지 않는다. |
+| `ui.commit_files_view`, `ui.working_files_view` | 커밋 상세와 작업 영역의 변경 파일 보기. `list`(기본), `tree`. 트리를 골랐거나 키가 이미 있는 파일에만 쓴다. 그 밖의 값은 경고하고 `list`. |
+| `ui.repository_layout` | 저장소 화면의 배치. `graph`(기본), `review`(변경 검토를 왼쪽 목록·오른쪽 diff로 나눈다). `review`를 골랐거나 키가 이미 있는 파일에만 쓴다. 그 밖의 값은 경고하고 `graph`. |
+| `profiles`, `profile_rules`, `profile_assignments`, `shortcuts`, `command_history` | 저장소별 사용자 프로필, 프로필 제안 규칙, 적용해 둔 선택, 바꾼 단축키, 팔레트 명령 기록이다. 값이 없으면 키를 쓰지 않는다. 규칙은 [UI 구조](ui-architecture.md)의 명령 팔레트·단축키·사용자 프로필 절에 있다. |
+
+`diff`와 `hosting`은 아래의 별도 절에서 설명한다. `ui` 객체는 위 `ui.*` 키 가운데 쓸 것이 하나도 없으면 쓰지 않는다.
 
 외부 diff 도구는 `select_external_diff_tool`이 파일 이름의 접미사로 고른다. 여러 도구가 맞으면 가장 긴 확장자가
 이기고(`.tar.gz`가 `.gz`보다 구체적), 같으면 목록에서 먼저 나온 도구다. `expand_external_diff_arguments`는
@@ -75,10 +93,10 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
 - **깨진 파일.** JSON object로 읽을 수 없으면(문법 오류, 잘못된 UTF-8, object가 아님) 파일을
   `settings.json.bad-<UTC 시각>`(`20261020T093012Z`)으로 옮기고 기본값으로 시작한다. 같은 이름이 있으면
   `-1`, `-2`를 붙인다. 빈 파일은 깨진 것으로 보지 않는다. 필드 하나가 틀린 것은 경고만 남기고 그 필드만
-  기본값을 쓴다.
+  기본값을 쓴다. 백업(rename)에 실패하면 원본이 남으므로 읽기 실패와 같게 이번 실행 동안 읽기 전용이 된다.
 - **읽기 실패.** 파일이 있는데 읽지 못하면(잠김, 접근 거부 등 "없음"이 아닌 실패) 기본값으로 시작하되 이번 실행
   동안 읽기 전용이 된다. `save()`는 파일을 건드리지 않고 진단 하나(`app_settings_write_failed`)만 돌려주며, 메모리
-  상태는 평소처럼 바뀐다. 읽지 못한 진짜 파일을 기본값으로 덮어쓰지 않으려는 것이다(깨진 파일은 백업이 있어 해당 없음).
+  상태는 평소처럼 바뀐다. 읽지 못한 진짜 파일을 기본값으로 덮어쓰지 않으려는 것이다(백업에 성공한 깨진 파일은 해당 없음).
 - **스키마 버전.** 없거나 1 미만이면 현재(1)로 읽는다. 현재보다 크면 경고 하나를 남기고 아는 필드만 읽으며,
   저장할 때 버전 번호를 낮추지 않는다(모르는 키는 shadow로 남는다).
 
@@ -114,7 +132,7 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
 | 창 초점 복귀(다른 프로세스 → 이 프로세스) | 선택된 탭에 `refresh_status`(감시가 끊겼으면 `refresh`). 1초 디바운스 |
 
 - 쓰기가 돌거나 줄 서 있으면 건너뛴다. 새로 고침이 도는 중이면 저장소마다 보류 하나만 남기고 끝난 뒤 한 번 낸다.
-- `refresh_status`는 `status_loaded`로 세션의 요약·작업 영역 목록만 바꾼다. 브랜치·HEAD가 바뀌었거나 WIP 행이 생기거나 사라져야 하면 전체 `refresh`로 올린다.
+- `refresh_status`는 `status_loaded`로 세션의 요약·작업 영역 목록만 바꾼다. 브랜치·HEAD가 바뀌었거나 WIP 행이 생기거나 사라져야 하면 전체 `refresh`로 올린다. 마지막 전체 refresh가 실패·취소로 끝났으면(도는 refresh가 없는데 화면이 그 결과를 받지 못했으면) 전체 `refresh`로 올린다.
 - 없는 폴더의 저장소는 감시하지 않는다(그 탭은 이미 열 수 없음으로 보인다). 감시를 시작하지 못하면 안내를 한 번 띄운다.
 - 그래서 앱 밖에서 파일을 고치면 WIP 행이 약 0.7초 안에 나타나고, 터미널의 `git commit`·`git branch`·`git branch --set-upstream-to`가 클릭 없이 화면에 따라온다.
 
@@ -148,8 +166,9 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 모두 쓴다.
 
   이름은 ASCII 대소문자를 구분하지 않는다. 중첩 저장소(`vendor/lib/.git/**`)의 내부는 무시한다.
 - `.git`이 파일(worktree, submodule)이면 `gitdir: <path>`를 읽어 그 gitdir을 따로 감시한다(상대 경로는 `.git`
-  파일이 있는 폴더 기준). gitdir에 `commondir`가 있으면 그 공용 디렉터리도 감시하되 `refs/**`와
-  `packed-refs`만 본다(HEAD·index는 다른 worktree의 것이다).
+  파일이 있는 폴더 기준). gitdir에 `commondir`가 있으면 그 공용 디렉터리도 감시하되 `refs/**`,
+  `packed-refs`와 upstream 설정이 사는 최상위 `config`만 본다(HEAD·index는 다른 worktree의 것이고, 연결된 worktree의
+  gitdir에는 config가 없다).
 - 버퍼가 넘치거나(`ERROR_NOTIFY_ENUM_DIR`, 0바이트 완료) 읽기를 다시 걸지 못하면 놓친 변경이 있을 수 있으므로
   두 종류를 모두 알린다.
 - `start`가 돌아오기 전에 첫 읽기를 걸어 두므로 그 뒤의 변경은 놓치지 않는다.

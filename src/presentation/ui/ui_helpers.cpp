@@ -117,6 +117,21 @@ namespace cyella::ui {
         return std::string { text.begin(), text.end() };
     }
 
+    std::u8string expand_tabs(std::u8string text)
+    {
+        // 탭도 CR도 없는 글이 대부분이라 새 문자열을 만들지 않고 받은 것을 그대로 돌려준다.
+        if (text.find_first_of(u8"\t\r") == std::u8string::npos)
+            return text;
+        std::u8string expanded {};
+        expanded.reserve(text.size() + 8);
+        for (const char8_t value : text)
+            if (value == u8'\t')
+                expanded += u8"    ";
+            else if (value != u8'\r')
+                expanded.push_back(value);
+        return expanded;
+    }
+
     std::unique_ptr<luil::label_element> make_label(std::u8string owner, std::u8string text, const float size, const luil::label_color_role role)
     {
         auto label { std::make_unique<luil::label_element>(luil::ui_element_id { kind_label, std::move(owner) }, luil::label_config { .text = text, .font_size = size, .color = role }) };
@@ -193,7 +208,7 @@ namespace cyella::ui {
 
     text_element::text_element(luil::ui_element_id id, std::u8string text, text_style style)
         : ui_element { std::move(id) }
-        , text_ { std::move(text) }
+        , text_ { expand_tabs(std::move(text)) }
         , style_ { std::move(style) }
     {
         set_text_tooltip(*this, text_);
@@ -230,7 +245,7 @@ namespace cyella::ui {
 
     wrapped_text_element::wrapped_text_element(luil::ui_element_id id, std::u8string text, text_style style, const float line_height)
         : ui_element { std::move(id) }
-        , text_ { std::move(text) }
+        , text_ { expand_tabs(std::move(text)) }
         , style_ { std::move(style) }
         , line_height_ { line_height }
     {
@@ -445,6 +460,9 @@ namespace cyella::ui {
 
     float wrapped_text_height(const std::u8string_view text, const float width, const text_style& style, const float line_height)
     {
+        // 그릴 때와 같은 글로 줄 수를 센다. 탭이 있으면 폈을 때 폭이 달라 줄 수도 달라질 수 있다.
+        if (text.find_first_of(u8"\t\r") != std::u8string_view::npos)
+            return static_cast<float>(estimate_wrapped_line_count(expand_tabs(std::u8string { text }), width, style.size, style.bold || style.code)) * line_height;
         return static_cast<float>(estimate_wrapped_line_count(text, width, style.size, style.bold || style.code)) * line_height;
     }
 
@@ -523,16 +541,17 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- tool_button_element
 
-    tool_button_element::tool_button_element(
-        std::u8string owner, const char32_t glyph, std::u8string label, std::u8string tooltip, const bool show_label, const bool enabled, luil::input_action action, const bool horizontal)
+    tool_button_element::tool_button_element(std::u8string owner, const char32_t glyph, std::u8string label, std::u8string tooltip, const bool show_label, const bool enabled, luil::input_action action,
+        const bool horizontal, std::u8string access_name)
         : ui_element { luil::ui_element_id { kind_tool_button, std::move(owner) } }
         , glyph_ { glyph }
         , label_ { std::move(label) }
         , show_label_ { show_label }
         , horizontal_ { horizontal }
     {
+        access_name_ = access_name.empty() ? label_ : std::move(access_name);
         set_text_tooltip(*this, tooltip.empty() ? label_ : std::move(tooltip));
-        set_access_name(label_);
+        set_access_name(access_name_);
         set_enabled(enabled);
         set_cursor(luil::ui_cursor::hand);
         set_action(luil::ui_trigger::left_click, action_of(std::move(action)));
@@ -580,7 +599,7 @@ namespace cyella::ui {
 
     luil::access_info tool_button_element::accessibility() const
     {
-        return { .role = luil::access_role::button, .name = enabled() || tooltip().empty() ? label_ : label_ + u8" · " + tooltip() };
+        return { .role = luil::access_role::button, .name = enabled() || tooltip().empty() ? access_name_ : access_name_ + u8" · " + tooltip() };
     }
 
     // ---------------------------------------------------------------- icon_element

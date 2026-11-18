@@ -114,6 +114,28 @@ TEST_CASE("the identity gateway reads global, includeIf and local values with th
     REQUIRE(local.identity.name->origin == identity_origin::local);
 }
 
+TEST_CASE("an identity value in config.worktree reads with the worktree origin", "[profiles][identity][integration]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not available");
+    const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
+    const std::u8string git { find_git(*runner) };
+    REQUIRE(git.empty() == false);
+    identity_fixture fixture {};
+    const git_identity_gateway gateway { *runner, git, fixture.options() };
+
+    // worktree 범위 값은 앱의 `--local` 쓰기·지우기가 닿지 않는다. 출처를 로컬과 가려야 [로컬 설정 지우기]를 켜지 않는다.
+    REQUIRE(test::run_git(fixture.other_repository, std::vector<std::string> { "config", "--local", "extensions.worktreeConfig", "true" }).exit_code == 0);
+    REQUIRE(test::run_git(fixture.other_repository, std::vector<std::string> { "config", "--worktree", "user.email", "tree@corp.example" }).exit_code == 0);
+    const git_identity_read read { gateway.read(u8_of(fixture.other_repository.string()), process_cancellation_token {}) };
+    REQUIRE(read.ok);
+    REQUIRE(read.identity.email.has_value());
+    CHECK(read.identity.email->value == u8"tree@corp.example");
+    CHECK(read.identity.email->origin == identity_origin::worktree);
+    REQUIRE(read.identity.name.has_value());
+    CHECK(read.identity.name->origin == identity_origin::global);
+}
+
 TEST_CASE("an empty git config reads as no identity, not as an error", "[profiles][identity][integration]")
 {
     if (test::git_is_available() == false)

@@ -262,9 +262,13 @@ namespace cyella {
         if (job_.prompt_cancelled != nullptr && job_.prompt_cancelled->load())
             note_authentication_cancelled();
 
+        // 상한을 넘은 stdout은 runner가 버리고 넘침만 표시한다. 잘린 status·for-each-ref를 그대로 해석하면 항목이
+        // 빠지고 마지막 경로가 잘린 채 보여, 그 경로가 상위 폴더 이름과 같으면 버리기가 폴더 전체에 닿는다.
+        // runner가 stdout 넘침을 stderr 넘침과 따로 알린다. 쓰기와 네트워크 명령은 이미 일을 마쳤으므로 출력이 잘렸다고 실패로 바꾸지 않는다.
+        outcome.standard_output_truncated = spec.fail_on_truncated_output && spec.command_class == git_command_class::local_query && spec.on_standard_output == nullptr && outcome.process.standard_output_truncated;
         const std::optional<std::int32_t> code { outcome.process.exit_code };
         outcome.accepted = outcome.process.completion == process_completion::exited && code.has_value()
-            && std::find(spec.accepted_exit_codes.begin(), spec.accepted_exit_codes.end(), *code) != spec.accepted_exit_codes.end();
+            && std::find(spec.accepted_exit_codes.begin(), spec.accepted_exit_codes.end(), *code) != spec.accepted_exit_codes.end() && outcome.standard_output_truncated == false;
 
         operation_command command {};
         command.command_line = outcome.process.masked_command_line;
@@ -307,6 +311,9 @@ namespace cyella {
         case process_completion::exited:
             break;
         }
+
+        if (outcome.standard_output_truncated)
+            return operation_outcome::failed(failure_kind::other, tr(u8"git.output_too_large"), outcome.standard_error_text());
 
         const std::string standard_error { outcome.standard_error_bytes() };
         const git_failure_kind classified { classify_git_failure(standard_error, outcome.standard_output) };

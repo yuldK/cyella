@@ -47,7 +47,7 @@ namespace cyella {
         }
 
         // 원격 태그 표시를 바꾸는 작업과, 끝난 뒤 다시 읽을 원격이다. 빈 목록은 모든 원격이다.
-        bool remote_tag_targets_of(const git_operation& operation, std::vector<std::string>& remotes)
+        bool remote_tag_targets_of(const git_operation& operation, const repository_summary& summary, std::vector<std::string>& remotes)
         {
             if (const auto* const fetch { std::get_if<fetch_request>(&operation) })
             {
@@ -76,8 +76,25 @@ namespace cyella {
                     remotes.push_back(push->remote);
                 return true;
             }
-            if (std::holds_alternative<clone_request>(operation))
+            // pull은 `--no-tags` 없이 upstream 원격을 fetch해 따라오는 태그를 받는다. 관계없는 원격에 요청을 보내지 않게
+            // upstream(`origin/main` 꼴)의 원격만 다시 읽는다. 원격 이름에 `/`가 있을 수 있어 가장 긴 접두 원격을 고르고,
+            // upstream이 원격이 아니거나 모르면 태그 갱신을 건너뛴다.
+            if (std::holds_alternative<pull_request>(operation))
+            {
+                if (summary.has_upstream == false)
+                    return false;
+                const remote_info* best { nullptr };
+                for (const remote_info& remote : summary.remotes)
+                {
+                    if (summary.upstream.size() > remote.name.size() && summary.upstream.starts_with(remote.name) && summary.upstream[remote.name.size()] == '/'
+                        && (best == nullptr || remote.name.size() > best->name.size()))
+                        best = &remote;
+                }
+                if (best == nullptr)
+                    return false;
+                remotes.push_back(best->name);
                 return true;
+            }
             return false;
         }
     } // namespace
@@ -116,16 +133,31 @@ namespace cyella {
         if (sessions_.erase(repository_id) == 0)
             return false;
         // 닫힌 탭의 작업은 결과를 받을 곳이 없다. 실행 중인 것은 취소하고 사건은 버린다.
+        std::vector<operation_id> unfinished {};
         for (auto& [id, record] : operations_)
         {
             if (record.status.repository_id != repository_id || record.status.finished())
                 continue;
             if (record.cancellation != nullptr)
                 record.cancellation->request_cancellation();
-            // 결과를 받을 곳이 없으니 대화 상자도 닫는다.
-            release_prompts(record);
+            unfinished.push_back(id);
+        }
+        // 기록을 여기서 끝내야 늦게 온 사건이 버려진다. 같은 경로로 다시 연 세션은 id가 같고 generation도
+        // 1부터 다시 세므로, 끝내지 않으면 옛 작업의 snapshot·실패가 새 세션에 닿는다. 끝내기(대화 상자 닫기
+        // 포함)가 기록을 정리하며 표를 바꾸므로 id를 모은 뒤 하나씩 다시 찾는다.
+        for (const operation_id id : unfinished)
+        {
+            const auto found { operations_.find(id) };
+            if (found == operations_.end() || found->second.status.finished())
+                continue;
+            found->second.status.cancel_requested = true;
+            operation_finished cancelled {};
+            cancelled.state = operation_state::cancelled;
+            finish(found->second, cancelled);
         }
         last_write_.erase(repository_id);
+        // 같은 경로로 다시 연 세션은 generation을 1부터 다시 센다. 옛 값이 남으면 첫 올림이 막힌다.
+        escalated_from_.erase(repository_id);
         ++revision_;
         return true;
     }
@@ -162,6 +194,25 @@ namespace cyella {
         if (kind == operation_kind::load_more_log
             && (session->loaded() == false || session->log_page_loading() || session->history_complete() || session->requested_generation() != session->displayed_generation()))
             return 0;
+        // 실패·취소된 전체 refresh는 낸 generation이 화면의 것보다 앞선 채로 남긴다. 그대로 두면 아래 검사가
+        // status 새로 고침을 다음 전체 refresh까지 계속 거절하므로, 도는 refresh가 없으면 전체 refresh로 올린다.
+        // generation은 되돌리지 않는다. 같은 번호를 다시 쓰면 실패한 refresh의 늦은 사건이 새 결과로 보인다.
+        // 올린 refresh도 실패하면 화면의 generation이 그대로이므로, 다음 성공 전까지는 다시 올리지 않는다.
+        if (kind == operation_kind::refresh_status && session->loaded() && session->requested_generation() != session->displayed_generation())
+        {
+            const auto unfinished_refresh = [this, &repository_id](const operation_id id) {
+                const operation_status* const status { find_operation(id) };
+                return status != nullptr && status->repository_id == repository_id && status->kind == operation_kind::refresh && status->finished() == false;
+            };
+            const auto escalated { escalated_from_.find(repository_id) };
+            const bool already_escalated { escalated != escalated_from_.end() && escalated->second == session->displayed_generation() };
+
+            if (already_escalated == false && std::ranges::none_of(order_, unfinished_refresh))
+            {
+                escalated_from_[repository_id] = session->displayed_generation();
+                return submit(repository_id, refresh_request {}, automatic);
+            }
+        }
         // 서명 검증은 커밋마다 gpg·ssh-keygen이 돈다. 이미 읽었거나 읽는 중인 커밋은 빼고, 남은 것이 없으면 내지 않는다.
         if (kind == operation_kind::verify_signatures)
         {
@@ -180,7 +231,7 @@ namespace cyella {
         record.status.repository_id = repository_id;
         record.status.automatic = automatic;
         record.lane = operation_lane_of(kind);
-        record.refreshes_remote_tags = remote_tag_targets_of(operation, record.remote_tag_targets);
+        record.refreshes_remote_tags = remote_tag_targets_of(operation, session->snapshot().summary, record.remote_tag_targets);
 
         git_operation_job job {};
         job.repository_id = repository_id;
@@ -274,6 +325,7 @@ namespace cyella {
         if (registry_ != nullptr)
             registry_->add(*record.cancellation);
         record.prompt_cancelled = std::make_shared<std::atomic<bool>>(false);
+        record.started = std::make_shared<std::atomic<bool>>(false);
         job.id = id;
         job.prompt_cancelled = record.prompt_cancelled;
 
@@ -281,7 +333,7 @@ namespace cyella {
         request.id = id;
         request.repository_key = std::move(lane_key);
         request.interactive = record.lane == operation_lane::read;
-        request.job = [executor = &executor_, job = std::move(job), source = record.cancellation, post = post_](const operation_context& context) {
+        request.job = [executor = &executor_, job = std::move(job), source = record.cancellation, started = record.started, post = post_](const operation_context& context) {
             // 사용자의 취소와 앱 종료를 한 token으로 합친다. 실행기는 token 하나만 runner에 넘긴다.
             process_cancellation_registration shutdown_link {};
             if (context.shutdown.cancellable())
@@ -289,6 +341,8 @@ namespace cyella {
 
             git_operation_job running { job };
             running.cancellation = source->token();
+            // 취소 검사보다 먼저 세운다. `cancel`이 이 표시를 못 보고 바로 끝냈다면 아래 검사가 그 취소를 본다.
+            started->store(true);
             if (running.cancellation.cancelled())
             {
                 // git은 띄우지 않지만 실행기를 거쳐야 "이번만 연결"의 임시 파일이 지워지고 취소 사건이 나간다.
@@ -328,11 +382,15 @@ namespace cyella {
         // git을 죽여도 도우미는 별도 프로세스라 답을 기다리며 남는다. 대화 상자도 함께 닫는다.
         release_prompts(record);
         // 아직 시작하지 않은 작업은 바로 끝난 것으로 보인다. job은 곧 취소된 token을 보고 빠진다.
-        if (record.status.state == operation_state::queued)
+        // worker가 이미 집어 든 작업은 `operation_started`가 아직 오지 않았어도 git이 일부를 바꿨을 수 있다.
+        // 끝 사건을 기다려야 쓰기 lane이 빈 뒤에 후속 refresh가 나간다.
+        const bool picked_up { record.started != nullptr && record.started->load() };
+        if (record.status.state == operation_state::queued && picked_up == false)
         {
             operation_finished cancelled {};
             cancelled.state = operation_state::cancelled;
-            finish(record, cancelled);
+            // 탭 닫기는 작업 로그를 돌며 cancel을 부른다. 기록을 지우면 그 반복자가 무효가 되므로 정리는 미룬다.
+            finish(record, cancelled, false);
         }
         ++revision_;
         return true;
@@ -419,7 +477,7 @@ namespace cyella {
         request.kind = input_kind_for_prompt(front.prompt.kind);
         request.prompt_id = front.prompt_id;
         request.prompt = front.prompt;
-        request.secret = credential_prompt_expects_secret(front.prompt.kind);
+        request.secret = credential_prompt_expects_secret(front.prompt);
         request.yes_no = credential_prompt_expects_yes_no(front.prompt.kind);
         // 이 상태에서도 operation은 끝나지 않았다. git이 도우미를 기다리고 있고 취소할 수 있다.
         record.status.state = operation_state::needs_input;
@@ -493,7 +551,7 @@ namespace cyella {
                 {
                     rebase_plans_[event.id] = payload.plan;
                 }
-                else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded> || std::is_same_v<payload_type, range_detail_loaded>)
+                else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded> || std::is_same_v<payload_type, range_detail_loaded> || std::is_same_v<payload_type, remote_tags_loaded>)
                 {
                     if (session != nullptr)
                         session->apply(event.id, payload);
@@ -537,7 +595,7 @@ namespace cyella {
         return activity;
     }
 
-    void git_workspace::finish(operation_record& record, const operation_finished& finished)
+    void git_workspace::finish(operation_record& record, const operation_finished& finished, const bool trim)
     {
         // 어떤 이유로 끝났든 이 operation의 대기 질문을 푼다. 도우미가 남아 있으면 앱 종료까지 매달린다.
         release_prompts(record);
@@ -571,20 +629,24 @@ namespace cyella {
         // 실행되지 않은 쓰기는 저장소를 바꾸지 않았다. 시작한 쓰기는 실패·취소여도 일부가 바뀌었을 수 있다.
         if (was_started || finished.state != operation_state::cancelled)
             follow_up(record);
-        trim_history();
+        if (trim)
+            trim_history();
     }
 
     void git_workspace::follow_up(const operation_record& record)
     {
         if (record.lane != operation_lane::write)
             return;
+        // 첫 submit이 거절되면 그 안의 finish가 끝난 기록을 정리하며 `record`를 지울 수 있다. 쓸 값을 먼저 옮겨 둔다.
         const std::string repository_id { record.status.repository_id };
+        const bool refreshes_remote_tags { record.refreshes_remote_tags && record.status.state == operation_state::succeeded };
+        std::vector<std::string> remote_tag_targets { record.remote_tag_targets };
         if (find_session(repository_id) == nullptr)
             return;
         // 쓰기 lane이 끝난 뒤에 내므로 읽기 lane의 refresh가 쓰기와 겹치지 않는다.
         static_cast<void>(submit(repository_id, refresh_request {}, true));
-        if (record.refreshes_remote_tags && record.status.state == operation_state::succeeded)
-            static_cast<void>(submit(repository_id, refresh_remote_tags_request { record.remote_tag_targets }, true));
+        if (refreshes_remote_tags)
+            static_cast<void>(submit(repository_id, refresh_remote_tags_request { std::move(remote_tag_targets) }, true));
     }
 
     void git_workspace::trim_history()

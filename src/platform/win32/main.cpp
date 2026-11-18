@@ -26,6 +26,21 @@
 #include <utility>
 
 namespace {
+    // 터미널에서 `cyella .`처럼 준 상대 경로를 지금 폴더 기준의 절대 경로로 바꾼다. git 실행은 절대 경로의 작업 폴더만 받고,
+    // 상대 경로가 그대로 탭과 설정에 남으면 다음 실행에서 다른 폴더 기준으로 풀린다. 바꾸지 못하면 받은 값을 그대로 둔다.
+    std::u8string absolute_argument_path(const wchar_t* const argument, const std::u8string& fallback)
+    {
+        const DWORD needed { ::GetFullPathNameW(argument, 0, nullptr, nullptr) };
+        if (needed == 0)
+            return fallback;
+        std::wstring full(needed, L'\0');
+        const DWORD length { ::GetFullPathNameW(argument, needed, full.data(), nullptr) };
+        if (length == 0 || length >= needed)
+            return fallback;
+        full.resize(length);
+        return cyella::win32::utf16_to_utf8(full).value.value_or(fallback);
+    }
+
     // 명령줄이다. 위치 인자 하나는 시작할 때 여는 저장소이고, `--settings=<경로>`는 설정 파일을 바꾼다
     // (검증할 때 사용자의 `%APPDATA%\cyella\settings.json`을 건드리지 않으려는 것이다). `--no-webview`는 diff를
     // 웹뷰 없이 텍스트 대체 보기로만 보인다 (WebView2 Runtime이 없는 PC의 화면을 확인할 때 쓴다). `--open-url-log=<경로>`는 "브라우저에서 열기"가
@@ -54,7 +69,7 @@ namespace {
                 else if (argument == u8"--hosting-no-proxy")
                     options.hosting_system_proxy = false;
                 else if (options.initial_repository.empty())
-                    options.initial_repository = argument;
+                    options.initial_repository = absolute_argument_path(arguments[index], argument);
             }
             ::LocalFree(arguments);
         }

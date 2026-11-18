@@ -140,11 +140,12 @@ namespace cyella::win32 {
                 const std::optional<askpass_reply_header> reply { decode_askpass_reply_header(header) };
                 if (reply.has_value() && reply->answered)
                 {
-                    // 답과 줄 바꿈을 한 번에 써서 중간에 끊긴 답이 나가지 않게 한다.
-                    std::string answer(reply->answer_bytes, '\0');
-                    if (read_all(pipe, answer.data(), answer.size()))
+                    // 답과 줄 바꿈을 한 번에 써서 중간에 끊긴 답이 나가지 않게 한다. 줄 바꿈 자리까지 처음부터 잡아 둔다.
+                    // 읽은 뒤에 덧붙이면 버퍼가 다시 잡혀 지우지 않은 옛 버퍼(평문 답)가 그대로 풀려난다.
+                    std::string answer(reply->answer_bytes + 1u, '\0');
+                    if (read_all(pipe, answer.data(), reply->answer_bytes))
                     {
-                        answer.push_back('\n');
+                        answer.back() = '\n';
                         if (write_all(standard_output, answer.data(), answer.size()))
                             exit_code = exit_answered;
                     }

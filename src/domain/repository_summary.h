@@ -67,7 +67,7 @@ namespace cyella {
     {
         std::string path {};
         std::string display_name {};
-        // detached이거나 첫 커밋 전이면 비어 있다.
+        // detached이면 비어 있다. 첫 커밋 전에도 이름은 있고 `head_sha`만 비어 있다.
         std::string current_branch {};
         bool is_detached { false };
         // 첫 커밋 전이면 비어 있다.

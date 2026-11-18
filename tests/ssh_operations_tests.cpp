@@ -9,8 +9,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -512,8 +514,26 @@ TEST_CASE("repository creation trusts a host once through a temporary known_host
     const std::vector<test::recorded_call> calls { test.process.calls() };
     REQUIRE(calls.size() == 1);
     CHECK(calls[0].arguments[1] == "-o");
-    CHECK(calls[0].arguments[2] == "UserKnownHostsFile=C:/Temp/kh.tmp");
+    CHECK(calls[0].arguments[2] == "UserKnownHostsFile=\"C:/Temp/kh.tmp\"");
     CHECK_FALSE(test.files.content(u8"C:/Temp/kh.tmp").has_value());
+}
+
+TEST_CASE("repository creation signs in with the profile key the request carries", "[ssh][operation][repository]")
+{
+    // ssh를 바로 부르므로 저장소의 core.sshCommand가 닿지 않는다. 요청의 키가 ssh 인자까지 가야 push와 같은 키로 들어간다.
+    repository_ssh_harness test {};
+    test.process.when({ "-T" }, test::scripted_response { .exit_code = 0, .standard_output = "cyella:created\n" });
+    create_ssh_repository_request request { .url = "me@host:app.git" };
+    request.identity_file = u8"C:\\Users\\me\\.ssh\\work_key";
+    CHECK(test.execute(std::move(request)).state == operation_state::succeeded);
+    const std::vector<test::recorded_call> calls { test.process.calls() };
+    REQUIRE(calls.size() == 1);
+    const std::vector<std::string>& arguments { calls[0].arguments };
+    const auto key { std::ranges::find(arguments, std::string { "-i" }) };
+    REQUIRE(key != arguments.end());
+    REQUIRE(std::next(key) != arguments.end());
+    CHECK(*std::next(key) == "C:/Users/me/.ssh/work_key");
+    CHECK(std::ranges::find(arguments, std::string { "IdentitiesOnly=yes" }) != arguments.end());
 }
 
 TEST_CASE("an unreadable URL or missing ssh fails repository creation without running anything", "[ssh][operation][repository]")

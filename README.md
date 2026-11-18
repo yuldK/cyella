@@ -21,7 +21,7 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 - **탭과 시작 페이지**: 여러 저장소를 탭으로 동시에 연다. 최근·고정 저장소, 열기·Clone·Init을 시작 페이지에서 한다.
 - **다른 앱으로 열기**: 툴바의 "열기"로 저장소 폴더를 Windows 탐색기, VS Code, 환경 설정에 더한 앱으로 연다.
   원격이 있으면 그 저장소 페이지를 브라우저로 여는 항목이 붙고, 사이드바의 원격 주소가 링크가 되고 줄 끝의 복사 단추가 웹 주소를 클립보드에 넣는다. 모르는 호스트도 같은 호스트의 페이지를 열고, 웹 주소가 다른 서버는 설정에 적는다.
-- **커밋 그래프**: 레인을 증분으로 배치하고 가상 스크롤로 큰 이력도 바로 연다. 브랜치·태그·HEAD 라벨, 서명·CI 표시가 붙는다.
+- **커밋 그래프**: 레인을 증분으로 배치하고 가상 스크롤로 큰 이력도 바로 연다. 브랜치·태그·HEAD 라벨과 서명 표지가 붙고, CI 상태는 커밋 상세와 PR 목록에서 본다.
 - **변경 검토와 커밋**: 파일·hunk·줄 단위로 stage·unstage·discard한다. diff는 WebView2 뷰어로 inline·분할 보기,
   단어 강조, 구문 강조, 이미지 비교를 지원하고, 확장자별 외부 diff 도구로도 연다.
 - **브랜치와 이력 조작**: 라벨을 끌어 놓아 merge·rebase·fast-forward·reset을 고른다. 작업 브랜치에 있는 채로 그 아래의
@@ -70,7 +70,7 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 ## 실행 환경
 
 - Windows 10·11 x64
-- [Git for Windows](https://gitforwindows.org/) 2.43 이상
+- [Git for Windows](https://gitforwindows.org/) 2.43 이상 (시험은 2.52에서 했다. 2.43~2.51의 오류 문구가 같은지는 확인하지 못했다)
 - [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (diff 뷰어. 없으면 텍스트 목록으로 보인다)
 - 선택: Git LFS, OpenSSH, GnuPG, Git Credential Manager
 
@@ -80,7 +80,7 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 
 - Visual Studio 2022 또는 2026, MSVC 19.40 이상
 - Windows SDK 10.0.22621.0 이상
-- CMake 4.2 이상과 PowerShell
+- CMake 4.2 이상과 PowerShell (PowerShell 7 또는 Windows PowerShell 5.1)
 
 저장소 루트에서 실행한다. Visual Studio 2022를 쓰면 `vs2026` 대신 대응하는 `vs2022` preset을 고른다.
 
@@ -99,6 +99,17 @@ cmake --install build\vs2026 --config Release
 설치하면 `bin\`에 `cyella.exe`, 인증 도우미 `cyella-askpass.exe`, rebase 편집기 도우미 `cyella-rebase-editor.exe`와
 `diff-viewer\`가 놓인다. CMake configure는 의존성을 내려받지 않는다. Skia와 WebView2 SDK는 위의 luil 스크립트가 준비한다.
 
+nlohmann/json 사본은 둘이다. 최상위 `third_party/nlohmann-json`은 cyella가 직접 링크하고, `third_party/luil/third_party/nlohmann_json`은
+luil이 헤더(`single_include`)를 공개 인터페이스로 나른다. 위의 두 `submodule update`가 각각 하나씩 받으며, 둘은 같은 판(v3.12.0)을 가리킨다.
+luil 핀을 올릴 때 두 판이 어긋나지 않는지 본다.
+
+정적 분석은 MSVC `/analyze`를 켠 preset으로 한다.
+
+```powershell
+cmake --preset vs2026-analysis
+cmake --build --preset vs2026-analysis
+```
+
 ## 테스트
 
 ```powershell
@@ -107,9 +118,18 @@ cmake --build --preset vs2026-tests-debug
 ctest --preset vs2026-tests-debug
 ```
 
-테스트 구성에는 clang-format 검사(`cyella_format_check`)와 소스 스타일 검사(`scripts\check_source_style.ps1`)가 함께 들어 있다.
+CTest는 소스 스타일 검사(`scripts\check_source_style.ps1`)를 함께 돌린다. clang-format 검사 target(`cyella_format_check`)도 테스트
+구성에 만들어지지만 CTest에는 연결되어 있지 않아 따로 실행하는 수동 점검이다. 이 저장소는 clang-format으로 파일 전체를 정리하지 않고
+손으로 스타일을 지킨다.
 통합 테스트는 임시 저장소와 실제 git을 쓰고, git-lfs·gpg·ssh-keygen이 없으면 해당 테스트를 건너뛴다.
 Node.js가 있으면 diff 뷰어의 JavaScript 테스트도 CTest에 함께 등록된다.
+
+## 개발 도구
+
+- `scripts\check_source_style.ps1`: 인코딩·줄 끝·식별자·닫는 중괄호 위치를 검사한다. CTest의 `cyella_source_style`이 부른다.
+- `scripts\normalize_line_endings.ps1`: 소스와 문서의 줄 끝을 CRLF로, 인코딩을 UTF-8(BOM 없음)로 그 자리에서 고친다.
+- `scripts\generate_app_icon.py`: `assets\cyella.svg`에서 앱 아이콘 `assets\cyella.ico`를 다시 만든다. 결과물이 저장소에 들어 있어
+  빌드에는 필요 없다. Python 3.9 이상, Pillow, Microsoft Edge가 있어야 한다.
 
 ## 구조
 
@@ -138,6 +158,11 @@ cyella의 소스와 문서는 [MIT 라이선스](LICENSE.md)를 따른다.
 | [Skia](https://skia.org/) | BSD-3-Clause |
 | [Microsoft Edge WebView2 SDK](https://www.nuget.org/packages/Microsoft.Web.WebView2) | BSD-3-Clause |
 | [nlohmann/json](https://github.com/nlohmann/json) | MIT |
+| [MD4C](https://github.com/mity/md4c) | MIT |
+| [Unicode Data Files](https://www.unicode.org/license.txt) | Unicode License V3 |
 | [highlight.js](https://highlightjs.org/) | BSD-3-Clause |
 | [Codicons](https://github.com/microsoft/vscode-codicons) | CC BY 4.0 (글꼴), MIT (코드) |
 | [Catch2](https://github.com/catchorg/Catch2) (테스트만) | BSL-1.0 |
+
+이 표는 요약이다. Skia 패키지가 번들한 HarfBuzz·libwebp·libjpeg-turbo·libavif 등은 각자의 라이선스를 따르고, 전체 원문은 luil의
+고지 생성 목록과 같은 구성 요소로 실행 파일의 고지에 들어 있다.

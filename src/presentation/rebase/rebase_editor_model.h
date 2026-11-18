@@ -48,6 +48,4 @@ namespace cyella {
 
     // 여러 줄 본문에서 caret을 윗줄·아랫줄의 같은 열(코드 포인트 수)로 옮긴다. 첫 줄의 ↑은 맨 앞, 끝 줄의 ↓은 맨 끝이다.
     void move_text_caret_line(luil::text::text_edit_state& state, bool down, bool extend);
-    // 여러 줄 본문에서 Home·End를 그 줄의 처음·끝으로 옮긴다.
-    void move_text_caret_line_edge(luil::text::text_edit_state& state, bool end, bool extend);
 } // namespace cyella

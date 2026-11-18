@@ -28,7 +28,8 @@ namespace cyella {
         explicit json_app_settings_store(settings_file_system& file_system, clock_function clock = {}) noexcept;
 
         // 읽을 수 없는 JSON이면 파일을 `<이름>.bad-<UTC 시각>`으로 옮겨 두고 기본값으로 시작한다.
-        // 옮긴 것은 다음 저장이 깨진 파일을 덮어써 잃지 않게 하려는 것이다.
+        // 옮긴 것은 다음 저장이 깨진 파일을 덮어써 잃지 않게 하려는 것이다. 옮기지 못하면 원본이
+        // 그대로 남아 있으므로 `read_failed`도 켜서 이번 실행 동안은 저장하지 않게 한다.
         [[nodiscard]] app_settings_load_result load(std::u8string_view path) noexcept override;
         // 실패하면 진단 하나를 돌려주고 호출한 쪽의 메모리 상태는 건드리지 않는다.
         [[nodiscard]] app_settings_save_result save(std::u8string_view path, const app_settings& settings, std::u8string_view shadow_source_json) noexcept override;

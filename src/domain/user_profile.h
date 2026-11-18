@@ -48,6 +48,7 @@ namespace cyella {
         [[nodiscard]] bool operator==(const profile_assignment&) const noexcept = default;
     };
 
+    // 프로필 이름의 최대 글자 수다 (UTF-8 바이트 수가 아니다).
     inline constexpr std::size_t maximum_profile_name_length { 40 };
 
     // 이름으로 프로필을 찾는다 (ASCII 대소문자를 가리지 않는다). 없으면 값이 없다.

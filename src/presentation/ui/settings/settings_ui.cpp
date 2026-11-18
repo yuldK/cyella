@@ -326,7 +326,7 @@ namespace cyella::ui {
             layout.owner = u8"settings-diff-layout";
             layout.style = luil::choice_style::toggle;
             layout.name = tr(u8"settings.diff.default_view_name");
-            layout.items = { { u8"inline", u8"Inline" }, { u8"split", tr(u8"settings.diff.layout_split") } };
+            layout.items = { { u8"inline", tr(u8"settings.diff.layout_inline") }, { u8"split", tr(u8"settings.diff.layout_split") } };
             layout.selected = std::u8string { diff_layout_preference_name(view.diff.layout) };
             layout.select = [](const std::u8string& value) { return message(set_diff_layout_default_intent { parse_diff_layout_preference(value).value_or(diff_layout_preference::inline_view) }); };
             auto layout_row { make_row(u8"settings-diff-layout-row") };

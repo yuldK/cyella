@@ -859,6 +859,7 @@ namespace cyella::win32 {
 
                 result.captured_bytes = output_pipeline.captured_bytes() + error_pipeline.captured_bytes() + raw_output.captured_bytes + raw_error.captured_bytes;
                 result.output_truncated = output_pipeline.truncated() || error_pipeline.truncated() || raw_output.truncated || raw_error.truncated;
+                result.standard_output_truncated = output_pipeline.truncated() || raw_output.truncated;
                 result.record_count = collector.count();
                 if (result.output_truncated)
                     result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_output_truncated, tr(u8"process.output_truncated"), std::nullopt, diagnostic_severity::warning));
@@ -873,7 +874,9 @@ namespace cyella::win32 {
                 }
                 if (read_failed.load(std::memory_order_relaxed))
                 {
+                    // 어느 stream을 다 읽지 못했는지 모른다. 잘렸을 수 있는 stdout을 해석하지 않게 둘 다 잘린 것으로 본다.
                     result.output_truncated = true;
+                    result.standard_output_truncated = true;
                     result.diagnostics.push_back(make_process_diagnostic(diagnostic_code::process_pipe_failed, tr(u8"process.output_thread_failed")));
                 }
 

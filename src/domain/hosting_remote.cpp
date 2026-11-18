@@ -218,12 +218,83 @@ namespace cyella {
 
     std::string hosting_repository::web_url() const
     {
-        return web_base + "/" + full_name();
+        return web_base + "/" + encode_url_path(full_name());
     }
 
     std::string normalize_hosting_host(const std::string_view host)
     {
         return lower(trim(host));
+    }
+
+    std::string url_host(const std::string_view host)
+    {
+        if (host.find(':') != std::string_view::npos)
+            return "[" + std::string { host } + "]";
+        return std::string { host };
+    }
+
+    std::string mask_remote_url_userinfo(const std::string_view url)
+    {
+        // `secret_mask`와 같은 값이다. 작업 로그와 화면의 가림이 같아 보여야 같은 것을 가렸다고 알아본다.
+        constexpr std::string_view mask { "***" };
+        const std::size_t scheme_end { url.find("://") };
+        if (scheme_end == std::string_view::npos)
+            return std::string { url };
+        const std::size_t authority { scheme_end + 3 };
+        std::size_t separator { std::string_view::npos };
+        for (std::size_t cursor { authority }; cursor < url.size(); ++cursor)
+        {
+            const char value { url[cursor] };
+            if (value == '/' || value == '?' || value == '#' || value == ' ' || value == '\t' || value == '\r' || value == '\n')
+                break;
+            if (value == '@')
+                separator = cursor;
+        }
+        if (separator == std::string_view::npos || separator == authority)
+            return std::string { url };
+
+        const std::string_view userinfo { url.substr(authority, separator - authority) };
+        const std::size_t colon { userinfo.find(':') };
+        if (colon == std::string_view::npos)
+        {
+            // ssh의 비밀번호 없는 계정 이름은 비밀이 아니다. 가리면 어느 원격인지 알아볼 수 없다.
+            std::string scheme { url.substr(0, scheme_end) };
+            std::ranges::transform(scheme, scheme.begin(), [](const unsigned char letter) { return static_cast<char>(std::tolower(letter)); });
+            if (scheme == "ssh" || scheme == "git+ssh" || scheme == "ssh+git")
+                return std::string { url };
+        }
+
+        std::string masked { url.substr(0, authority) };
+        // 사용자 이름 없이 들어간 값은 대개 token이므로 전체를 가린다.
+        if (colon != std::string_view::npos)
+        {
+            masked.append(userinfo.substr(0, colon));
+            masked.push_back(':');
+        }
+        masked.append(mask);
+        masked.append(url.substr(separator));
+        return masked;
+    }
+
+    std::string encode_url_path(const std::string_view path)
+    {
+        constexpr std::string_view hex_digits { "0123456789ABCDEF" };
+        std::string result {};
+        result.reserve(path.size());
+        for (const char value : path)
+        {
+            const auto byte { static_cast<unsigned char>(value) };
+            const bool unreserved { (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || value == '-' || value == '.' || value == '_' || value == '~' };
+            if (unreserved || value == '/')
+            {
+                result.push_back(value);
+                continue;
+            }
+            result.push_back('%');
+            result.push_back(hex_digits[static_cast<std::size_t>(byte >> 4)]);
+            result.push_back(hex_digits[static_cast<std::size_t>(byte & 0x0F)]);
+        }
+        return result;
     }
 
     std::optional<remote_location> parse_remote_url(const std::string_view raw_url)
@@ -293,11 +364,18 @@ namespace cyella {
         if (bare_host == "ssh.github.com")
             bare_host = "github.com";
         const bool default_port { location->port.has_value() == false || (location->scheme == "https" && *location->port == 443) || (location->scheme == "http" && *location->port == 80) };
-        const std::string port_key { web_scheme && default_port == false ? bare_host + ":" + std::to_string(*location->port) : bare_host };
+        // IPv6 호스트에 포트를 이으면 대괄호가 있어야 주소와 포트가 갈린다 (`[::1]:8080`).
+        const std::string port_key { web_scheme && default_port == false ? url_host(bare_host) + ":" + std::to_string(*location->port) : bare_host };
+        const std::string web_authority { port_key == bare_host ? url_host(bare_host) : port_key };
+        // 검사는 `host:443`·`host:80` 행도 받는다. 기본 포트를 적은 것이므로 포트 없는 행과 같은 뜻으로 찾는다.
+        const std::string default_port_key { bare_host + (location->scheme == "http" ? ":80" : ":443") };
 
         const hosting_host_setting* configured { nullptr };
-        for (const std::string& key : { port_key, bare_host })
+        for (const std::string& key : { port_key, bare_host, default_port_key })
         {
+            // 기본 포트를 적은 행은 원격도 기본 포트일 때만 포트 없는 행과 같다. `host:8443` 원격이 `host:443` 행을 잡지 않게 한다.
+            if (key == default_port_key && port_key != bare_host)
+                continue;
             const auto found { std::ranges::find_if(hosts, [&key](const hosting_host_setting& setting) { return normalize_hosting_host(setting.host) == key; }) };
             if (found != hosts.end())
             {
@@ -314,7 +392,7 @@ namespace cyella {
         result.credential_host = port_key;
         result.credential_protocol = location->scheme == "http" ? "http" : "https";
 
-        const std::string site_origin { web_scheme ? (location->scheme + "://" + port_key) : "https://" + bare_host };
+        const std::string site_origin { web_scheme ? (location->scheme + "://" + web_authority) : "https://" + web_authority };
         if (configured != nullptr)
         {
             result.configured = true;

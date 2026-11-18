@@ -23,6 +23,9 @@ namespace cyella {
         {
             if (text.size() < digits)
                 return false;
+            // `from_chars`는 `-5`도 받는다. 자리마다 숫자여야 `10:-5:00` 같은 값이 시각으로 읽히지 않는다.
+            if (std::ranges::all_of(text.substr(0, digits), [](const char digit) { return digit >= '0' && digit <= '9'; }) == false)
+                return false;
             int parsed { 0 };
             const auto [end, error] { std::from_chars(text.data(), text.data() + digits, parsed) };
             if (error != std::errc {} || end != text.data() + digits)
@@ -30,6 +33,13 @@ namespace cyella {
             value = parsed;
             text.remove_prefix(digits);
             return true;
+        }
+
+        int days_in_month(const int year, const int month) noexcept
+        {
+            constexpr int days[] { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+            const bool leap { (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 };
+            return month == 2 && leap ? 29 : days[month - 1];
         }
 
         bool consume(std::string_view& text, const char expected)
@@ -110,7 +120,7 @@ namespace cyella {
         int second { 0 };
         if (read_number(text, 4, year) == false || consume(text, '-') == false || read_number(text, 2, month) == false || consume(text, '-') == false || read_number(text, 2, day) == false)
             return 0;
-        if (month < 1 || month > 12 || day < 1 || day > 31)
+        if (month < 1 || month > 12 || day < 1 || day > days_in_month(year, month))
             return 0;
         if (text.empty() == false && (text.front() == 'T' || text.front() == ' '))
         {
@@ -122,6 +132,9 @@ namespace cyella {
             if (consume(text, '.'))
                 while (text.empty() == false && std::isdigit(static_cast<unsigned char>(text.front())) != 0)
                     text.remove_prefix(1);
+            // 범위를 넘은 시각은 엉뚱한 날로 넘어가므로 읽지 못한 것으로 본다. 초는 윤초(60)까지 받는다.
+            if (hour > 23 || minute > 59 || second > 60)
+                return 0;
         }
         std::int64_t offset { 0 };
         if (text.empty() == false && (text.front() == '+' || text.front() == '-'))
@@ -134,6 +147,8 @@ namespace cyella {
                 return 0;
             consume(text, ':');
             if (text.empty() == false && read_number(text, 2, offset_minute) == false)
+                return 0;
+            if (offset_hour > 23 || offset_minute > 59)
                 return 0;
             offset = sign * (offset_hour * 3600 + offset_minute * 60);
         }

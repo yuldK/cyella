@@ -61,7 +61,10 @@ namespace cyella {
         folder_node root {};
         for (std::size_t index { 0 }; index < paths.size(); ++index)
         {
-            const std::string_view path { paths[index] };
+            std::string_view path { paths[index] };
+            // 중첩 저장소는 `dir/`처럼 끝에 '/'가 붙어 온다. 떼지 않으면 `dir` 폴더 밑에 이름 없는 파일 행이 선다.
+            while (path.size() > 1 && path.back() == '/')
+                path.remove_suffix(1);
             folder_node* node { &root };
             ++node->file_count;
             std::size_t start { 0 };

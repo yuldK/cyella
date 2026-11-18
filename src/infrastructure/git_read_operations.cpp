@@ -106,11 +106,13 @@ namespace cyella {
             spec.arguments = make_git_log_args(log_options);
             spec.on_standard_output = [&parser](const std::string_view bytes) { parser.feed(bytes); };
             const git_command_outcome outcome { context.run(std::move(spec)) };
-            parser.finish();
             if (outcome.accepted == false)
                 return context.failure_from(outcome);
 
-            batcher.flush(true, batcher.count() < page_size);
+            // 성공한 출력만 꼬리를 읽는다. 취소·시간 초과로 끊긴 출력의 꼬리는 잘린 레코드라 커밋으로 내면 안 된다.
+            parser.finish();
+            // 버려진 레코드도 git이 돌려준 한 건이다. 빼면 쪽이 찼는데도 이력이 끝난 것으로 판정해 더 불러오기가 멈춘다.
+            batcher.flush(true, batcher.count() + parser.malformed_record_count() < page_size);
             return operation_outcome::succeeded();
         }
 
@@ -424,6 +426,8 @@ namespace cyella {
             {
                 spec.arguments = make_git_diff_args(request.path, request.view == diff_view::staged ? diff_source::staged : diff_source::unstaged, request.context_lines);
             }
+            // 상한을 넘은 큰 diff도 예전처럼 잘린 채 보이고, 줄 수 상한 안내가 붙는다.
+            spec.fail_on_truncated_output = false;
 
             git_command_outcome outcome {};
             std::optional<operation_outcome> stop {};

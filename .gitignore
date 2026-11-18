@@ -3,4 +3,5 @@
 /out/
 /.vs/
 /CMakeUserPresets.json
+/.claude/worktrees/
 node_modules/

@@ -1,12 +1,14 @@
 #include "presentation/shell_controller.h"
 
 #include "application/app_messages.h"
+#include "domain/path_syntax.h"
 #include "domain/repository_path.h"
 #include "domain/text_catalog.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/rebase/rebase_editor_model.h"
 #include "presentation/snapshot_dialogs.h"
+#include "presentation/text_filters.h"
 
 #include "infrastructure/avatar_fetcher.h"
 #include "infrastructure/ssh_tools.h"
@@ -67,14 +69,20 @@ namespace cyella {
         }
 
         // URL의 마지막 구성 요소에서 `.git`을 뗀 폴더 이름이다 (`git@host:a/b.git` → `b`).
+        //  - 주소의 쿼리·조각(`?`·`#` 뒤)은 이름이 아니다. 로컬 경로의 `#`은 이름의 글자일 수 있어 `://` 주소에서만 자른다.
+        //  - `.`·`..`이나 Windows가 폴더 이름에 받지 않는 글자가 남으면 이름을 붙이지 않는다. 붙이면 고른 폴더를 벗어나거나 알기 어려운 오류로 실패한다.
         std::u8string clone_folder_name(std::u8string_view url)
         {
+            if (url.find(u8"://") != std::u8string_view::npos)
+                url = url.substr(0, std::min(url.find_first_of(u8"?#"), url.size()));
             while (url.empty() == false && (url.back() == u8'/' || url.back() == u8'\\'))
                 url.remove_suffix(1);
             const std::size_t cut { url.find_last_of(u8"/\\:") };
             std::u8string_view name { cut == std::u8string_view::npos ? url : url.substr(cut + 1) };
             if (name.ends_with(u8".git"))
                 name.remove_suffix(4);
+            if (name.empty() || name == u8"." || name == u8".." || name.find_first_of(u8"<>:\"|?*") != std::u8string_view::npos)
+                return {};
             return std::u8string { name };
         }
 
@@ -175,6 +183,9 @@ namespace cyella {
     void shell_controller::save_tabs()
     {
         ui_.reveal_selected_tab = true;
+        // git을 찾지 못한 실행은 저장된 탭을 되살리지 않았다(`start`). 그 빈 목록을 쓰면 다음 실행에서 되살릴 탭이 사라진다.
+        if (dependencies_.workspace == nullptr)
+            return;
         update_settings([this](app_settings& value) { capture_open_tabs(tabs_, value); });
     }
 
@@ -239,10 +250,14 @@ namespace cyella {
         const std::chrono::steady_clock::time_point now { dependencies_.steady_clock() };
         // 같은 알림이 떠 있는 동안 또 오면(같은 안내를 두 번 눌렀다) 앞의 것을 지우고 새로 띄운다. 센터에 같은 줄이 쌓이지 않는다.
         // 떠 있던 자리를 그대로 이어받아 다시 떠오르지 않는다 (같은 내용이 깜박이면 거슬린다).
+        //  - 다른 저장소의 알림은 문구가 같아도(오프라인의 fetch 실패) 합치지 않는다. 조치와 센터의 기록이 저장소마다 따로다.
         std::optional<std::chrono::steady_clock::time_point> shown_at {};
         std::erase_if(ui_.notifications, [&value, &shown_at](const notification& shown) {
             const bool rising { shown.toast && shown.toast_leaving_at.has_value() == false };
-            const bool same { rising && shown.severity == value.severity && shown.title == value.title && shown.text == value.text && shown.actions == value.actions };
+            const bool same {
+                rising && shown.repository_id == value.repository_id && shown.severity == value.severity && shown.title == value.title && shown.text == value.text && shown.actions == value.actions
+            };
+
             if (same)
                 shown_at = shown.toast_shown_at;
             return same;
@@ -320,6 +335,14 @@ namespace cyella {
         }
         if (path.empty())
             return;
+        // 상대 경로는 앱의 현재 폴더에 따라 다른 저장소를 가리키고, 그대로 최근 목록·열린 탭에 남으면 다음 실행에서 엉뚱한 곳을 연다.
+        // main은 이미 절대 경로로 바꾸지만 다른 진입점도 여기서 막는다.
+        if (is_absolute_windows_path(path) == false)
+        {
+            show_notice(tr(u8"shell.open_repository.not_absolute", { { u8"path", path } }), true);
+            return;
+        }
+        const std::string before { selected_repository_id() };
         const open_repository_result result { tabs_.open_repository(path) };
         const std::optional<std::size_t> index { tabs_.index_of(result.id) };
         if (index.has_value() == false)
@@ -340,6 +363,15 @@ namespace cyella {
         ui_.drawer_open = false;
         ui_.ref_list.reset();
         exists_cache_.clear();
+        close_repository_dialogs(before);
+    }
+
+    void shell_controller::close_repository_dialogs(const std::string& before)
+    {
+        if (selected_repository_id() == before)
+            return;
+        ui_.dialog.reset();
+        ui_.menu.reset();
     }
 
     void shell_controller::close_tab(const repository_tab_id id)
@@ -347,6 +379,7 @@ namespace cyella {
         const std::optional<std::size_t> index { tabs_.index_of(id) };
         if (index.has_value() == false)
             return;
+        const std::string before { selected_repository_id() };
         std::string repository {};
         if (const auto found { tab_repositories_.find(id) }; found != tab_repositories_.end())
             repository = found->second;
@@ -363,7 +396,8 @@ namespace cyella {
         if (dependencies_.workspace != nullptr && repository.empty() == false && still_open == false)
         {
             // 탭을 닫으면 그 저장소의 남은 작업도 거둔다. 작업을 취소하고 닫기 전의 확인 상자는 아직 없다.
-            for (const operation_id operation : dependencies_.workspace->operation_order())
+            //  - 순서 목록을 복사해 돈다. 대기 중인 작업의 취소는 곧바로 끝나 기록 상한 정리(`trim_history`)가 목록 가운데를 지울 수 있다.
+            for (const operation_id operation : std::vector<operation_id> { dependencies_.workspace->operation_order().begin(), dependencies_.workspace->operation_order().end() })
             {
                 const operation_status* const status { dependencies_.workspace->find_operation(operation) };
                 if (status != nullptr && status->repository_id == repository && status->finished() == false)
@@ -383,10 +417,12 @@ namespace cyella {
                     value.toast = false;
                 }
         exists_cache_.clear();
+        close_repository_dialogs(before);
     }
 
     void shell_controller::select_tab_index(const std::size_t index)
     {
+        const std::string before { selected_repository_id() };
         if (tabs_.select(index) == false)
             return;
         save_tabs();
@@ -395,6 +431,7 @@ namespace cyella {
         ui_.selector.reset();
         ui_.ref_list.reset();
         exists_cache_.clear();
+        close_repository_dialogs(before);
     }
 
     luil::text::text_edit_state* shell_controller::draft(const text_target target)
@@ -478,10 +515,14 @@ namespace cyella {
         luil::text_insert_filter filter {};
         if (is_single_line(target))
             filter = [](const std::u8string_view text) { return single_line(text); };
-        if (target == text_target::commit_body && (request.command == luil::text::text_edit_command::move_line_start || request.command == luil::text::text_edit_command::move_line_end))
-            move_text_caret_line_edge(*state, request.command == luil::text::text_edit_command::move_line_end, request.extend);
-        else
-            luil::apply_text_edit(*state, request, filter);
+        else if (target == text_target::commit_body)
+            filter = [](const std::u8string_view text) { return multiline_text(text); };
+        // 본문의 Home·End는 luil이 여러 줄 칸에서 줄 끝으로 옮겨 보낸다. 여기 오는 줄 처음·끝 명령은 Ctrl+Home·End라 글 전체의 처음·끝이다.
+        const std::u8string before { state->text };
+        luil::apply_text_edit(*state, request, filter);
+        // 글이 실제로 바뀐 편집만 환경 설정의 옛 등록 오류를 거둔다. caret 이동·선택·복사는 오류를 그대로 둔다.
+        if (state->text != before)
+            settings_.text_changed(target);
         if (target == text_target::start_search)
             ui_.start_scroll = 0.0f;
         else if (target == text_target::sidebar_filter)
@@ -524,9 +565,13 @@ namespace cyella {
         case toolbar_action::stash:
             static_cast<void>(submit(stash_push_request { .message = {}, .include_untracked = true }));
             return;
-        case toolbar_action::pop:
-            static_cast<void>(submit(stash_pop_request { 0 }));
+        case toolbar_action::pop: {
+            // 툴바의 Pop은 화면에 보이는 맨 위 stash를 꺼낸다. 그사이 다른 곳에서 stash를 더했으면 실행기가 막는다.
+            const std::vector<stash_entry>& stashes { session->snapshot().stashes };
+            const auto top { std::ranges::find(stashes, std::uint32_t { 0 }, &stash_entry::index) };
+            static_cast<void>(submit(stash_pop_request { .index = 0, .expected_sha = top != stashes.end() ? top->sha : std::string {} }));
             return;
+        }
         }
     }
 
@@ -676,7 +721,8 @@ namespace cyella {
             for (const stash_entry& stash : session->snapshot().stashes)
                 if (stash.name == intent.name)
                 {
-                    static_cast<void>(submit(stash_apply_request { stash.index }));
+                    // 그사이 번호가 밀려 다른 stash를 적용하지 않도록 고른 stash의 커밋을 함께 싣는다.
+                    static_cast<void>(submit(stash_apply_request { .index = stash.index, .expected_sha = stash.sha }));
                     return;
                 }
             return;
@@ -686,7 +732,12 @@ namespace cyella {
     void shell_controller::handle_commit()
     {
         tab_ui_state* const tab { selected_tab_state() };
-        if (tab == nullptr || tab->pending_commit != 0 || trimmed(tab->commit_subject.text).empty())
+        const repository_session* const session { selected_session() };
+        if (tab == nullptr || session == nullptr)
+            return;
+        // Ctrl+Enter도 이리 오므로 단추와 같은 판정으로 막는다. 충돌 중이거나 staged가 없으면 git이 실패할 뿐이다.
+        const bool has_subject { trimmed(tab->commit_subject.text).empty() == false };
+        if (find_commit_blocker(session->snapshot(), tab->amend, has_subject, tab->pending_commit != 0) != commit_blocker::none)
             return;
         // 작성자 신원이 없거나 규칙의 프로필과 다르면 저장소마다 한 번 경고하고 커밋하지 않는다.
         if (warn_before_commit())
@@ -706,6 +757,9 @@ namespace cyella {
         std::u8string message { subject };
         if (body.empty() == false)
             message += u8"\n\n" + body;
+        // amend가 채운 제목을 그대로 두었고 본문을 읽지 못했으면 메시지를 비워 보낸다. git이 기존 메시지(본문 포함)를 그대로 쓴다.
+        if (tab->amend && tab->amend_body_unknown && tab->amend_prefill == tab->commit_subject.text && body.empty())
+            message.clear();
         const repository_session* const session { selected_session() };
         const std::optional<bool> sign { session != nullptr ? commit_sign_request(*tab, session->snapshot()) : std::nullopt };
         tab->pending_commit = submit(commit_request { .message = to_text(message), .amend = tab->amend, .stage_all = false, .sign = sign });
@@ -780,10 +834,12 @@ namespace cyella {
         }
         if (message.get<new_tab_intent>() != nullptr)
         {
+            const std::string before { selected_repository_id() };
             ui_.ref_list.reset();
             static_cast<void>(tabs_.new_tab());
             save_tabs();
             exists_cache_.clear();
+            close_repository_dialogs(before);
             return true;
         }
         if (const auto* const intent { message.get<cycle_tab_intent>() }; intent != nullptr)
@@ -861,7 +917,7 @@ namespace cyella {
         if (message.get<toggle_notification_center_intent>() != nullptr)
         {
             // 열린 센터 바깥(종)을 눌러 방금 닫혔다면 그 누름은 닫기였다. 다시 열지 않는다.
-            if (ui_.notifications_open == false && notifications_dismissed_at_.has_value() && std::chrono::steady_clock::now() - *notifications_dismissed_at_ < notification_toggle_window)
+            if (ui_.notifications_open == false && notifications_dismissed_at_.has_value() && dependencies_.steady_clock() - *notifications_dismissed_at_ < notification_toggle_window)
             {
                 notifications_dismissed_at_.reset();
                 return true;
@@ -884,7 +940,7 @@ namespace cyella {
         if (const auto* const intent { message.get<close_notification_center_intent>() }; intent != nullptr)
         {
             if (intent->dismissed && ui_.notifications_open)
-                notifications_dismissed_at_ = std::chrono::steady_clock::now();
+                notifications_dismissed_at_ = dependencies_.steady_clock();
             ui_.notifications_open = false;
             return true;
         }
@@ -1003,7 +1059,12 @@ namespace cyella {
         }
         if (message.get<submit_clone_intent>() != nullptr)
         {
-            if (ui_.clone.has_value() && dependencies_.workspace != nullptr)
+            // 도는 clone이 있으면 칸의 Enter로 같은 clone을 또 내지 않는다. 둘째가 상자의 operation을 덮어 첫째가 끝나도 상자가 닫히지 않는다.
+            const auto running = [this] {
+                const operation_status* const status { dependencies_.workspace->find_operation(ui_.clone->operation) };
+                return status != nullptr && status->finished() == false;
+            };
+            if (ui_.clone.has_value() && dependencies_.workspace != nullptr && (ui_.clone->operation == 0 || running() == false))
             {
                 const std::u8string url { trimmed(ui_.clone->url.text) };
                 const std::u8string path { trimmed(ui_.clone->path.text) };
@@ -1045,7 +1106,16 @@ namespace cyella {
             {
                 tab->selected_sidebar_key = intent->key;
                 if (intent->target_sha.empty() == false)
+                {
                     handle_select_commit(select_commit_intent { graph_item_key(intent->target_sha) });
+                    // 브랜치·태그가 가리키는 커밋을 아직 읽지 않았으면 그래프와 상세가 그대로라 아무 반응이 없어 보인다. 그렇다고 알린다.
+                    //  - 참조 행만이다. 서브모듈·PR 행의 커밋은 이 저장소의 이력에 없을 수 있다.
+                    const bool ref_row { intent->key.starts_with(u8"l:") || intent->key.starts_with(u8"rb:") || intent->key.starts_with(u8"t:") };
+                    const repository_session* const session { selected_session() };
+                    if (ref_row && session != nullptr && session->history_complete() == false
+                        && std::none_of(session->graph_commits().begin(), session->graph_commits().end(), [intent](const commit_info& commit) { return commit.sha == intent->target_sha; }))
+                        show_notice(tr(u8"shell.sidebar.commit_not_loaded"));
+                }
             }
             return true;
         }
@@ -1070,6 +1140,8 @@ namespace cyella {
                 return true;
             hosting_.clear_selection(session->id());
             clear_compare(*tab);
+            // 사이드바에서 고른 것을 떠났다. 남겨 두면 Shift+F10이 지금 보는 것이 아닌 그 항목의 메뉴를 연다.
+            tab->selected_sidebar_key.clear();
             if (intent->working)
             {
                 if (tab->selected_sha != graph_wip_sha)
@@ -1094,6 +1166,10 @@ namespace cyella {
             // 행이나 칩을 눌러 커밋을 고르면 참조 목록 카드를 닫는다. 카드는 주 창 tree에 서서 popup처럼 바깥 누름에 저절로 닫히지 않고,
             // UI thread의 감시는 상태를 띄엄띄엄 보므로 빠른 누름을 놓친다. 고르기 메시지는 누름마다 반드시 온다.
             ui_.ref_list.reset();
+            // 그래프에서 고른 커밋이 키보드 메뉴(Shift+F10)의 대상이다. 사이드바에서 앞서 고른 항목의 키는 지운다.
+            //  - 사이드바 항목 고르기는 키를 먼저 넣고 `handle_select_commit`을 바로 부르므로 여기를 지나지 않는다.
+            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+                tab->selected_sidebar_key.clear();
             handle_select_commit(*intent);
             return true;
         }
@@ -1168,12 +1244,23 @@ namespace cyella {
             if (tab != nullptr)
             {
                 tab->amend = tab->amend == false;
-                // amend를 켜면 HEAD 커밋의 제목을 채운다 (비어 있을 때만).
+                tab->amend_prefill.reset();
+                tab->amend_body_unknown = false;
+                // amend를 켜면 HEAD 커밋의 제목과 본문을 채운다 (비어 있을 때만). 본문은 이미 읽어 둔 것만 쓴다 — 그래프 행에는 없을 수 있고,
+                // 상세를 새로 읽으면 지금 고른 커밋의 상세 패널을 덮는다.
+                const std::string head { session != nullptr ? session->snapshot().summary.head_sha : std::string {} };
                 if (tab->amend && tab->commit_subject.text.empty() && session != nullptr)
                     for (const commit_info& commit : session->graph_commits())
-                        if (commit.sha == session->snapshot().summary.head_sha)
+                        if (commit.sha == head)
                         {
                             set_text(tab->commit_subject, to_u8(commit.subject));
+                            std::optional<std::string> body { commit.body };
+                            if (body.has_value() == false && session->selected_commit().has_value() && session->selected_commit()->commit.sha == head)
+                                body = session->selected_commit()->commit.body;
+                            if (body.has_value() && tab->commit_body.text.empty())
+                                set_text(tab->commit_body, to_u8(*body));
+                            tab->amend_prefill = tab->commit_subject.text;
+                            tab->amend_body_unknown = body.has_value() == false && tab->commit_body.text.empty();
                             break;
                         }
             }
@@ -1351,9 +1438,12 @@ namespace cyella {
                 tab.commit_body = {};
                 tab.working_scroll = 0.0f;
                 tab.amend = false;
+                tab.amend_prefill.reset();
+                tab.amend_body_unknown = false;
             }
             tab.pending_commit = 0;
         }
+        refit_working_diffs();
         sync_compares();
         notify_failures();
         settings_.after_events();
@@ -1447,6 +1537,21 @@ namespace cyella {
         dependencies_.request_avatar(email);
     }
 
+    ref_list_layout shell_controller::current_ref_list_layout()
+    {
+        ref_list_layout layout {};
+        layout.width = last_width_;
+        layout.height = last_height_;
+        layout.scale = last_scale_;
+        layout.sidebar_width = ui_.sidebar_width;
+        layout.detail_width = ui_.detail_width;
+        if (const tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+            layout.graph_scroll = tab->graph_scroll;
+        if (const repository_session* const session { selected_session() }; session != nullptr)
+            layout.generation = session->displayed_generation();
+        return layout;
+    }
+
     view_snapshot shell_controller::make_view(const float width, const float height, const float scale)
     {
         const float logical_width { width / (scale > 0.0f ? scale : 1.0f) };
@@ -1456,6 +1561,8 @@ namespace cyella {
             last_logical_width_ = logical_width;
         }
         last_scale_ = scale;
+        last_width_ = width;
+        last_height_ = height;
         sync_form_inputs();
         view_inputs inputs {};
         inputs.width = width;
@@ -1482,6 +1589,15 @@ namespace cyella {
             inputs.history_index = [this](const repository_session& session) { return history_index(session); };
         }
         view_snapshot view { build_view_snapshot(inputs) };
+        // 연 뒤 창 크기·판 폭·스크롤이 바뀌었거나 그래프를 다시 읽었으면 칩이 다른 자리로 갔다. 연 때의 사각형으로 그리면 엉뚱한 곳을 가리키므로 닫는다.
+        if (ui_.ref_list.has_value())
+        {
+            const ref_list_layout layout { current_ref_list_layout() };
+            if (ui_.ref_list->layout.has_value() == false)
+                ui_.ref_list->layout = layout;
+            else if (*ui_.ref_list->layout != layout)
+                ui_.ref_list.reset();
+        }
         if (ui_.ref_list.has_value() && view.repository.has_value() && view.repository->graph.labels != nullptr)
         {
             if (view.repository->graph.labels->contains(ui_.ref_list->sha))
@@ -1612,16 +1728,20 @@ namespace cyella {
 
     void shell_controller::flush()
     {
-        if (pane_widths_flush_at_.has_value() == false)
-            return;
-        pane_widths_flush_at_.reset();
-        const float sidebar { ui_.sidebar_width };
-        const float detail { ui_.detail_width };
-        const std::optional<float> commit_meta { ui_.commit_meta_height };
-        update_settings([sidebar, detail, commit_meta](app_settings& value) {
-            value.ui.pane_widths.sidebar = sidebar;
-            value.ui.pane_widths.detail = detail;
-            value.ui.pane_widths.commit_meta = commit_meta;
-        });
+        if (pane_widths_flush_at_.has_value())
+        {
+            pane_widths_flush_at_.reset();
+            const float sidebar { ui_.sidebar_width };
+            const float detail { ui_.detail_width };
+            const std::optional<float> commit_meta { ui_.commit_meta_height };
+            update_settings([sidebar, detail, commit_meta](app_settings& value) {
+                value.ui.pane_widths.sidebar = sidebar;
+                value.ui.pane_widths.detail = detail;
+                value.ui.pane_widths.commit_meta = commit_meta;
+            });
+        }
+        // 앞선 저장이 실패해 밀린 변경은 다음 변경이 와야 다시 쓰인다. 앱을 닫기 전에 한 번 더 써서 그대로 잃지 않게 한다.
+        if (dependencies_.settings != nullptr && dependencies_.settings->is_read_only() == false && dependencies_.settings->has_unsaved_changes())
+            static_cast<void>(dependencies_.settings->save());
     }
 } // namespace cyella

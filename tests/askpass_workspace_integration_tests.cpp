@@ -216,6 +216,9 @@ namespace {
             , files_ { win32::make_workspace_files() }
             , bridge_ { events_.sink() }
         {
+            // 앱의 process runner로 git을 띄워 `run_git`의 환경 격리를 거치지 않는다. 사용자 전역 설정(credential.username 등)이
+            // 질문의 수를 바꾸지 않게 먼저 격리한다. 시험 하나만 따로 돌려도 빠지지 않게 구성할 때마다 부른다.
+            test::isolate_git_environment();
             const std::unique_ptr<file_probe> probe { win32::make_file_probe() };
             tool_ = resolve_git_tool({}, win32::current_git_tool_environment(), *process_, *probe, {});
             REQUIRE(tool_.usable());

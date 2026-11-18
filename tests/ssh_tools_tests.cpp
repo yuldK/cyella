@@ -1,12 +1,10 @@
 #include "infrastructure/ssh_tools.h"
 #include "platform/win32/win32_ssh_environment.h"
+#include "temporary_directory_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <windows.h>
-
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <vector>
 
@@ -20,41 +18,6 @@ namespace {
                 return &entry;
         return nullptr;
     }
-
-    // 임시 디렉터리를 만들고 test가 끝나면 지운다.
-    class scratch_directory
-    {
-    public:
-        scratch_directory()
-        {
-            static int counter { 0 };
-            path_ = std::filesystem::temp_directory_path() / ("cyella-ssh-tools-" + std::to_string(::GetCurrentProcessId()) + "-" + std::to_string(counter++));
-            std::filesystem::create_directories(path_);
-        }
-
-        scratch_directory(const scratch_directory&) = delete;
-        scratch_directory& operator=(const scratch_directory&) = delete;
-
-        ~scratch_directory()
-        {
-            std::error_code error {};
-            std::filesystem::remove_all(path_, error);
-        }
-
-        [[nodiscard]] const std::filesystem::path& path() const noexcept
-        {
-            return path_;
-        }
-
-        void write(const std::filesystem::path& relative, const std::string& text) const
-        {
-            std::ofstream stream { path_ / relative, std::ios::binary };
-            stream << text;
-        }
-
-    private:
-        std::filesystem::path path_ {};
-    };
 
     askpass_session sample_session()
     {
@@ -138,15 +101,15 @@ TEST_CASE("public key lines give type and comment", "[ssh][keys]")
 
 TEST_CASE("key pairs need both files and are sorted by name", "[ssh][keys]")
 {
-    const scratch_directory directory {};
-    directory.write("id_rsa", "private");
-    directory.write("id_rsa.pub", "ssh-rsa AAAA user@host\n");
-    directory.write("id_ed25519", "private");
-    directory.write("id_ed25519.pub", "ssh-ed25519 AAAA mine\n");
-    directory.write("lonely_key", "private without public");
-    directory.write("orphan.pub", "ssh-rsa AAAA orphan\n");
-    directory.write("known_hosts", "github.com ssh-ed25519 AAAA");
-    directory.write("config", "Host *");
+    const test::temporary_directory directory { "ssh-tools-keys" };
+    test::write_file(directory.path() / "id_rsa", "private");
+    test::write_file(directory.path() / "id_rsa.pub", "ssh-rsa AAAA user@host\n");
+    test::write_file(directory.path() / "id_ed25519", "private");
+    test::write_file(directory.path() / "id_ed25519.pub", "ssh-ed25519 AAAA mine\n");
+    test::write_file(directory.path() / "lonely_key", "private without public");
+    test::write_file(directory.path() / "orphan.pub", "ssh-rsa AAAA orphan\n");
+    test::write_file(directory.path() / "known_hosts", "github.com ssh-ed25519 AAAA");
+    test::write_file(directory.path() / "config", "Host *");
 
     const std::vector<ssh_key_pair> pairs { list_ssh_key_pairs(directory.path()) };
 
@@ -164,7 +127,7 @@ TEST_CASE("key pairs need both files and are sorted by name", "[ssh][keys]")
 
 TEST_CASE("keygen request routes the passphrase through askpass and never through argv", "[ssh][keygen]")
 {
-    const scratch_directory directory {};
+    const test::temporary_directory directory { "ssh-tools-keygen" };
     ssh_keygen_options options {};
     options.ssh_keygen_executable = u8"C:/Program Files/Git/usr/bin/ssh-keygen.exe";
     options.key_path = directory.path() / "id_ed25519";
@@ -194,7 +157,7 @@ TEST_CASE("keygen request routes the passphrase through askpass and never throug
 
 TEST_CASE("keygen request refuses unsafe or unusable targets", "[ssh][keygen]")
 {
-    const scratch_directory directory {};
+    const test::temporary_directory directory { "ssh-tools-keygen-refuse" };
     ssh_keygen_options options {};
     options.ssh_keygen_executable = u8"C:/Git/usr/bin/ssh-keygen.exe";
     options.key_path = directory.path() / "id_ed25519";
@@ -202,10 +165,10 @@ TEST_CASE("keygen request refuses unsafe or unusable targets", "[ssh][keygen]")
     options.askpass = sample_session();
 
     // 이미 있는 파일은 ssh-keygen이 덮어쓰기를 askpass가 아닌 곳으로 묻는다.
-    directory.write("id_ed25519", "existing");
+    test::write_file(directory.path() / "id_ed25519", "existing");
     CHECK(make_ssh_keygen_request(options).error == ssh_keygen_request_error::key_exists);
     std::filesystem::remove(directory.path() / "id_ed25519");
-    directory.write("id_ed25519.pub", "existing");
+    test::write_file(directory.path() / "id_ed25519.pub", "existing");
     CHECK(make_ssh_keygen_request(options).error == ssh_keygen_request_error::key_exists);
     std::filesystem::remove(directory.path() / "id_ed25519.pub");
     CHECK(make_ssh_keygen_request(options).error == ssh_keygen_request_error::none);
@@ -309,26 +272,30 @@ TEST_CASE("connection test classifies the real failure texts", "[ssh][connection
 
 TEST_CASE("temporary known hosts options keep the user's file untouched", "[ssh][known-hosts]")
 {
-    const std::vector<std::u8string> arguments { make_temporary_known_hosts_ssh_arguments("C:\\Temp\\cyella kh") };
-    const std::vector<std::u8string> expected { u8"-o", u8"UserKnownHostsFile=C:/Temp/cyella kh", u8"-o", u8"StrictHostKeyChecking=accept-new" };
+    // ssh는 이 값을 공백으로 나눠 여러 파일로 읽으므로 경로를 큰따옴표로 묶는다 (사용자 이름에 공백이 있는 %TEMP%).
+    const std::vector<std::u8string> arguments { make_temporary_known_hosts_ssh_arguments("C:\\Users\\John Smith\\AppData\\Local\\Temp\\cyella kh") };
+    const std::vector<std::u8string> expected { u8"-o", u8"UserKnownHostsFile=\"C:/Users/John Smith/AppData/Local/Temp/cyella kh\"", u8"-o", u8"StrictHostKeyChecking=accept-new" };
     CHECK(arguments == expected);
+    // `%`는 ssh가 토큰으로 펼치므로 글자 그대로 두도록 겹친다.
+    CHECK(make_temporary_known_hosts_ssh_arguments("C:/Users/a%b/kh")[1] == u8"UserKnownHostsFile=\"C:/Users/a%%b/kh\"");
 
     // git이 sh 규칙으로 읽으므로 공백이 있는 경로와 작은따옴표를 안전하게 감싼다.
     CHECK(make_temporary_known_hosts_ssh_command(u8"C:\\Program Files\\Git\\usr\\bin\\ssh.exe", "C:/Temp/cyella kh")
-        == u8"'C:/Program Files/Git/usr/bin/ssh.exe' '-o' 'UserKnownHostsFile=C:/Temp/cyella kh' '-o' 'StrictHostKeyChecking=accept-new'");
-    CHECK(make_temporary_known_hosts_ssh_command(u8"ssh", "C:/it's/kh").find(u8"'UserKnownHostsFile=C:/it'\\''s/kh'") != std::u8string::npos);
+        == u8"'C:/Program Files/Git/usr/bin/ssh.exe' '-o' 'UserKnownHostsFile=\"C:/Temp/cyella kh\"' '-o' 'StrictHostKeyChecking=accept-new'");
+    CHECK(make_temporary_known_hosts_ssh_command(u8"ssh", "C:/it's/kh").find(u8"'UserKnownHostsFile=\"C:/it'\\''s/kh\"'") != std::u8string::npos);
 
     // 저장소의 프로필이 키를 정해 두었으면 이 한 번의 덮어쓰기도 그 키로만 접속한다.
     CHECK(make_temporary_known_hosts_ssh_command(u8"ssh", "C:/kh", u8"C:\\Users\\me\\.ssh\\id_work")
-        == u8"'ssh' '-o' 'UserKnownHostsFile=C:/kh' '-o' 'StrictHostKeyChecking=accept-new' '-i' 'C:/Users/me/.ssh/id_work' '-o' 'IdentitiesOnly=yes'");
+        == u8"'ssh' '-o' 'UserKnownHostsFile=\"C:/kh\"' '-o' 'StrictHostKeyChecking=accept-new' '-i' 'C:/Users/me/.ssh/id_work' '-o' 'IdentitiesOnly=yes'");
 }
 
 TEST_CASE("the server command quotes the path but leaves the home prefix for the shell to expand", "[ssh][repository]")
 {
     const std::u8string plain { make_create_bare_repository_command("repos/app.git") };
     CHECK(plain.starts_with(u8"command -v git >/dev/null 2>&1 || { echo cyella:no-git; exit 127; }; p='repos/app.git'; "));
-    // 저장소가 아닌 것이 있으면 멈추고, 이미 저장소면 그대로 쓰고, 없으면 만든다.
-    CHECK(plain.find(u8"if [ -e \"$p\" ]; then if git --git-dir=\"$p\" rev-parse --git-dir >/dev/null 2>&1; then echo cyella:existing; exit 0; fi; echo cyella:not-repository; exit 3; fi;")
+    // 이미 저장소면 그대로 쓰고, 파일이나 비어 있지 않은 폴더면 멈추고, 빈 폴더이거나 없으면 만든다.
+    CHECK(plain.find(u8"if [ -e \"$p\" ]; then if git --git-dir=\"$p\" rev-parse --git-dir >/dev/null 2>&1; then echo cyella:existing; exit 0; fi;"
+                     u8" if [ ! -d \"$p\" ] || [ -n \"$(ls -A \"$p\" 2>/dev/null)\" ]; then echo cyella:not-repository; exit 3; fi; fi;")
         != std::u8string::npos);
     CHECK(plain.ends_with(u8"git init --bare -q -- \"$p\" && echo cyella:created"));
 
@@ -365,8 +332,20 @@ TEST_CASE("the repository creation request runs the command over ssh -T with the
     options.known_hosts_path = "C:/Temp/kh.tmp";
     const std::optional<process_request> trusted { make_create_ssh_repository_request(options) };
     REQUIRE(trusted.has_value());
-    const std::vector<std::u8string> head { u8"-T", u8"-o", u8"UserKnownHostsFile=C:/Temp/kh.tmp", u8"-o", u8"StrictHostKeyChecking=accept-new", u8"git.example.org" };
+    const std::vector<std::u8string> head { u8"-T", u8"-o", u8"UserKnownHostsFile=\"C:/Temp/kh.tmp\"", u8"-o", u8"StrictHostKeyChecking=accept-new", u8"git.example.org" };
     CHECK(std::vector<std::u8string> { trusted->arguments.begin(), trusted->arguments.begin() + 6 } == head);
+
+    // 저장소 프로필의 키가 있으면 push와 같은 키로만 접속한다 (ssh를 바로 부르므로 `core.sshCommand`가 읽히지 않는다).
+    options.identity_file = u8"C:\\Users\\me\\.ssh\\id_work";
+    const std::optional<process_request> keyed { make_create_ssh_repository_request(options) };
+    REQUIRE(keyed.has_value());
+    const std::vector<std::u8string> keyed_head {
+        u8"-T", u8"-o", u8"UserKnownHostsFile=\"C:/Temp/kh.tmp\"", u8"-o", u8"StrictHostKeyChecking=accept-new"
+        , u8"-i", u8"C:/Users/me/.ssh/id_work", u8"-o", u8"IdentitiesOnly=yes", u8"git.example.org"
+    };
+    CHECK(std::vector<std::u8string> { keyed->arguments.begin(), keyed->arguments.begin() + 10 } == keyed_head);
+    CHECK(validate_process_request(*keyed).empty());
+    options.identity_file.clear();
 
     options.askpass_helper.clear();
     CHECK_FALSE(make_create_ssh_repository_request(options).has_value());

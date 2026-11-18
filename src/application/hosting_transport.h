@@ -3,6 +3,7 @@
 #include "application/hosting_credentials.h"
 #include "application/process_cancellation.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -31,6 +32,9 @@ namespace cyella {
         std::vector<hosting_http_header> headers {};
         std::string body {};
         std::string content_type {};
+        // 받을 응답 몸의 상한(바이트)이다. 넘으면 응답 없이 전송 오류(`transport_error`)로 끝나고, 0이면 전송의 기본 상한이다. API 응답은 한 쪽(100개)이 커도 몇 MiB라 전송의 기본 상한(64 MiB)보다
+        // 낮게 두어 자체 서버의 엉뚱한 답이 메모리를 잡지 않게 한다. 작성자 사진처럼 작은 답은 호출자가 더 낮춘다.
+        std::size_t max_body_bytes { std::size_t { 16 } * 1024 * 1024 };
     };
 
     struct hosting_http_response

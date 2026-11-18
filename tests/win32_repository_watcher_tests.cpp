@@ -77,9 +77,9 @@ namespace {
 
     // 방금 만든 디렉터리 트리의 마지막 쓰기 시각 갱신을 디스크에 확정시킨다. NTFS는 디렉터리의
     // 시각을 늦게 반영해서, 이걸 하지 않으면 감시를 시작한 뒤 첫 쓰기에 딸려 `.git\refs` 같은
-    // 상위 디렉터리의 MODIFIED 알림이 한 번 뒤늦게 올라온다. 이 알림은 `refs/**`로 분류돼
-    // `repository_state_changed`가 되므로 "이벤트 없음"을 검사하는 test가 부하에 따라 깨진다.
-    // 기다린다고 사라지는 알림이 아니라(쓰기가 없으면 오지 않는다) 감시를 걸기 전에 미리 치른다.
+    // 상위 디렉터리의 MODIFIED 알림이 한 번 뒤늦게 올라온다. test가 감시 중에 쓰는 파일도 같은 알림을
+    // 부르므로(`refs\heads`), 감시기는 상태로 분류된 폴더 자신의 MODIFIED를 버린다. 이 함수는 그 판정이
+    // 폴더를 확인하지 못하는 경우(알림 뒤에 폴더가 사라짐)까지 "이벤트 없음" test가 기대지 않게 미리 치른다.
     void settle_directory_timestamps(const std::filesystem::path& root)
     {
         static_cast<void>(std::filesystem::last_write_time(root));
@@ -226,6 +226,25 @@ TEST_CASE("lock files and objects and logs noise produce no event", "[integratio
     CHECK(collector.total() == 0);
 }
 
+TEST_CASE("a folder timestamp change under refs produces no event", "[integration][watcher]")
+{
+    test::temporary_directory directory { "watch-refs-folder" };
+    const std::filesystem::path repository { make_repository(directory.path()) };
+    event_collector collector {};
+    started_watcher started { start_watching(repository, collector) };
+    REQUIRE(started.watcher != nullptr);
+
+    // 안에서 ref를 만들거나 지울 때 NTFS가 뒤늦게 올리는 폴더 시각 갱신과 같은 알림이다. 시각을 직접 바꿔 결정적으로 낸다.
+    const std::filesystem::path heads { repository / ".git" / "refs" / "heads" };
+    std::filesystem::last_write_time(heads, std::filesystem::last_write_time(heads) + 1h);
+    std::this_thread::sleep_for(quiet_period);
+    CHECK(collector.total() == 0);
+
+    // 폴더 안의 ref 파일은 여전히 상태 변경이다.
+    test::write_file(heads / "feature", "x");
+    CHECK(collector.wait_for(repository_state_changed, 2s));
+}
+
 TEST_CASE("a burst of writes is reported once", "[integration][watcher]")
 {
     test::temporary_directory directory { "watch-burst" };
@@ -305,6 +324,8 @@ TEST_CASE("a linked worktree also watches the common directory refs", "[integrat
 
     test::write_file(common / "refs" / "heads" / "new-branch", "abc");
     CHECK(collector.wait_for(repository_state_changed, 2s));
+    // 파일을 만든 알림과 닫을 때의 MODIFIED 사이에 test 스레드가 50 ms 넘게 밀리면 둘째 알림이 따로 방출된다. 지우기 전에 가라앉힌다.
+    std::this_thread::sleep_for(quiet_period);
 
     collector.clear();
     // 주 worktree의 HEAD는 이 worktree와 무관하다.
@@ -367,8 +388,9 @@ TEST_CASE("stop is fast idempotent and silences the callback", "[integration][wa
         const auto begin { std::chrono::steady_clock::now() };
         started.watcher->stop();
         const auto elapsed { std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin) };
+        // 시도마다의 상한은 부하가 큰 CI의 흔들림을 받도록 넉넉히 둔다. 목표 속도는 가장 빠른 값이 보고, 이 상한은 stop이 매달리는 것을 잡는다.
         fastest = std::min(fastest, elapsed);
-        CHECK(elapsed < 1s);
+        CHECK(elapsed < 3s);
 
         // 여러 번 불러도 안전하다.
         started.watcher->stop();

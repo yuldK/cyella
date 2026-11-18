@@ -1,6 +1,7 @@
 #include "presentation/settings/profiles_page.h"
 
 #include "domain/user_profile.h"
+#include "presentation/settings/settings_view.h"
 #include "presentation/ui_state.h"
 
 #include <utility>
@@ -26,7 +27,7 @@ namespace cyella {
             , .user_email = trimmed(edit.user_email.text)
             , .signing_key = trimmed(edit.signing_key.text)
             , .https_username = trimmed(edit.https_username.text)
-            , .ssh_key = trimmed(edit.ssh_key.text)
+            , .ssh_key = trimmed_path(edit.ssh_key.text)
         };
     }
 
@@ -75,7 +76,7 @@ namespace cyella {
             view.rule_profile = settings.profiles.empty() ? std::u8string {} : settings.profiles.front().name;
         if (view.rule_prefix.displayed_text().empty() == false || view.rule_profile.empty() == false)
         {
-            view.rule_error = check_profile_rule(profile_rule { .path_prefix = trimmed(rule.prefix.text), .profile = view.rule_profile }, settings.profiles);
+            view.rule_error = check_profile_rule(profile_rule { .path_prefix = trimmed_path(rule.prefix.text), .profile = view.rule_profile }, settings.profiles);
             view.can_add_rule = view.rule_error.empty();
         }
         return view;

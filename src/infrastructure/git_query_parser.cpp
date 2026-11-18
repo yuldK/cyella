@@ -78,6 +78,13 @@ namespace cyella {
             std::string_view name {};
             if (git_text::take_field(line, '\t', name) == false || name.empty())
                 continue;
+            // 부분 복제 원격은 `<url> (fetch) [<filter>]`로 끝에 필터가 붙는다(`[blob:none]`). 역할 뒤라 떼어 낸다.
+            if (line.empty() == false && line.back() == ']')
+            {
+                const std::size_t filter { line.rfind(" [") };
+                if (filter != std::string_view::npos)
+                    line = line.substr(0, filter);
+            }
             // `<url> (fetch)`. URL에 공백이 있을 수 있어 마지막 공백에서 자른다.
             const std::size_t space { line.rfind(' ') };
             if (space == std::string_view::npos)

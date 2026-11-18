@@ -93,6 +93,27 @@ namespace cyella {
             state_->scroll = std::min(state_->scroll, *maximum);
     }
 
+    void settings_controller::text_changed(const text_target target)
+    {
+        if (state_.has_value() == false)
+            return;
+        // 남겨 두면 칸을 모두 지웠을 때(입력이 비면 저장된 이유를 보인다) 이미 고친 입력의 옛 오류가 다시 나타난다.
+        switch (target)
+        {
+        case text_target::settings_hosting_host:
+        case text_target::settings_hosting_api_base:
+            state_->hosting_error.clear();
+            return;
+        case text_target::settings_web_link_host:
+        case text_target::settings_web_link_base:
+        case text_target::settings_web_link_icon:
+            state_->web_link_error.clear();
+            return;
+        default:
+            return;
+        }
+    }
+
     luil::text::text_edit_state* settings_controller::draft(const text_target target)
     {
         if (state_.has_value() == false)
@@ -252,7 +273,7 @@ namespace cyella {
         {
             if (check_file_app_draft(edit.extensions.text, edit.executable.text, edit.arguments.text, dependencies_.probe).ok == false)
                 return;
-            const external_file_app app { trimmed(edit.extensions.text), trimmed(edit.executable.text), trimmed(edit.arguments.text) };
+            const external_file_app app { trimmed(edit.extensions.text), trimmed_path(edit.executable.text), trimmed(edit.arguments.text) };
             const std::optional<std::size_t> index { edit.index };
             update_settings([&app, index](app_settings& settings) {
                 if (index.has_value() && *index < settings.external_file_apps.size())

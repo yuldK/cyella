@@ -41,22 +41,4 @@ namespace cyella {
         bool interactive { false };
         operation_job job {};
     };
-
-    // worker thread가 operation 하나를 동기로 수행하는 경계의 모양이다. 구체적인 git
-    // 작업을 아는 실행기가 이 인터페이스를 구현하고 job이 그것을 부른다. scheduler가 git
-    // 작업을 몰라도 프로세스 없이 결정적으로 검증할 수 있게 둘을 분리한다.
-    class operation_executor
-    {
-    public:
-        operation_executor() = default;
-        operation_executor(const operation_executor&) = delete;
-        operation_executor(operation_executor&&) = delete;
-        operation_executor& operator=(const operation_executor&) = delete;
-        operation_executor& operator=(operation_executor&&) = delete;
-        virtual ~operation_executor() = default;
-
-        // 결과는 실행기가 가진 경로(relay)로 보낸다. 어떤 경로에서도 마지막 결과(성공,
-        // 실패, 취소)는 반드시 나가야 UI의 busy 상태가 풀린다. 예외를 던지지 않는다.
-        virtual void execute(const operation_context& context) noexcept = 0;
-    };
 } // namespace cyella

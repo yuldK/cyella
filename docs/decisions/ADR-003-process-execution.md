@@ -45,6 +45,7 @@
 | `LC_ALL` | `C`. 오류 분류기와 `%(upstream:track)`이 영어 문구를 기대한다. 경로는 `core.quotepath=false`로 UTF-8 원문이 나와 로캘과 무관하다 |
 | `GIT_EDITOR` | `true`. `rebase --continue`·`merge`·`revert`가 편집기를 기다리며 worker를 붙잡지 않는다 |
 | `DISPLAY` | 건드리지 않는다 |
+| `GIT_DIR`·`GIT_WORK_TREE`·`GIT_INDEX_FILE`·`GIT_OBJECT_DIRECTORY`·`GIT_ALTERNATE_OBJECT_DIRECTORIES`·`GIT_COMMON_DIR`·`GIT_NAMESPACE` | 부모 환경에서 온 값을 지운다. hook 안에서 앱을 띄워도 git이 그 hook의 저장소가 아니라 열린 저장소를 대상으로 돈다. `GIT_CONFIG_COUNT` 같은 설정 주입 변수는 사용자가 터미널과 같게 쓰도록 건드리지 않는다 |
 | 시간 제한 | 로컬 조회 600초, 로컬 쓰기 300초, **네트워크 무제한**(취소만), 도구 확인 5초 |
 
 도우미가 없을 때 인증이 필요하면 `GIT_TERMINAL_PROMPT=0` 때문에 git이 즉시 실패한다.
@@ -81,6 +82,10 @@
   가져, 한 모드만 쓰는 sink는 다른 쪽을 구현하지 않는다.
 - `diagnostic`: 프로세스 실행과 git 도구 확인에 쓰는 코드만 남기고 `diagnostic_source`를 뺐다.
   코드는 쓰는 곳이 생길 때 더한다.
+- 외부 diff 도구 실행: 이름만 적힌 실행 파일(`meld.exe`, `cmd`)은 앱 폴더, System32, Windows 폴더, `PATH`의
+  절대 항목에서 직접 찾아 절대 경로로 띄우고, 현재 폴더와 `PATH`의 상대 항목은 찾지 않는다(구분자나 드라이브가
+  있는 경로는 그대로 넘긴다). CreateProcessW에 이름만 넘기면 부모의 현재 폴더를 먼저 찾아, 앱을 띄운 저장소에
+  심어 둔 같은 이름의 파일이 돌기 때문이다.
 
 ## 결과
 

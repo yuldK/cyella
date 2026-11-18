@@ -1,11 +1,15 @@
 #include "application/process_runner.h"
+#include "infrastructure/avatar_fetcher.h"
 #include "infrastructure/git_credential_source.h"
 #include "infrastructure/hosting_service.h"
 #include "infrastructure/secret_masking.h"
+#include "temporary_directory_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstddef>
 #include <deque>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -192,9 +196,29 @@ TEST_CASE("a 401 rejects the credential and asks once more", "[hosting]")
     CHECK(f.transport.requests[1].request.url == f.transport.requests[2].request.url);
     REQUIRE(f.credentials.rejected.size() == 1);
     CHECK(f.credentials.rejected[0].second == "old");
-    CHECK(f.credentials.rejected[0].first == "octocat");
+    // 도우미가 저장한 이름으로 거절해야 store 같은 도우미가 그 항목을 지운다 (서버 계정 이름 `octocat`이 아니다).
+    CHECK(f.credentials.rejected[0].first == "helper-user");
     CHECK(f.credentials.queries.size() == 2);
     CHECK(f.service.signed_in(f.context.repository.host_key));
+}
+
+TEST_CASE("sign-in keeps the helper's user name for rejecting while showing the server account", "[hosting]")
+{
+    fixture f {};
+    f.credentials.tokens = { "old", "new" };
+    f.transport.responses.push_back(response_of(200, R"({"login": "octocat"})"));
+    REQUIRE(f.service.sign_in(f.context, {}).ok());
+    CHECK(f.service.signed_in_user(f.context.repository.host_key) == "octocat");
+
+    // 로그인 확인 자체가 401이어도 도우미의 이름으로 거절한다.
+    fixture g {};
+    g.credentials.tokens = { "bad-1", "bad-2" };
+    g.transport.responses.push_back(response_of(401, "{}"));
+    g.transport.responses.push_back(response_of(401, "{}"));
+    REQUIRE_FALSE(g.service.sign_in(g.context, {}).ok());
+    REQUIRE(g.credentials.rejected.size() == 2);
+    CHECK(g.credentials.rejected[0].first == "helper-user");
+    CHECK(g.credentials.rejected[1].first == "helper-user");
 }
 
 TEST_CASE("two 401s in a row forget the token and end as unauthorized", "[hosting]")
@@ -510,4 +534,87 @@ TEST_CASE("a throttled response with only Retry-After also pauses requests", "[h
     f.now += 31;
     f.transport.responses.push_back(response_of(200, empty_list));
     CHECK(f.service.list_pull_requests(f.context, {}, {}).ok());
+}
+
+TEST_CASE("a secondary rate limit with reset headers still waits for Retry-After", "[hosting]")
+{
+    fixture f {};
+    f.credentials.tokens = { "tok" };
+    f.transport.responses.push_back(response_of(200, R"({"login": "octocat"})"));
+    REQUIRE(f.service.sign_in(f.context, {}).ok());
+    // GitHub 2차 한도는 남은 횟수와 초기화 시각을 함께 보낸다. 남은 횟수가 있어도 `Retry-After` 동안은 보내지 않는다.
+    f.transport.responses.push_back(
+        response_of(403, R"({"message": "You have exceeded a secondary rate limit."})", { { "x-ratelimit-remaining", "10" }, { "x-ratelimit-reset", std::to_string(f.now + 3600) }, { "Retry-After", "60" } }));
+    const auto limited { f.service.list_pull_requests(f.context, {}, {}) };
+    REQUIRE(limited.ok() == false);
+    CHECK(limited.error.kind == hosting_error_kind::rate_limited);
+
+    const std::size_t sent { f.transport.requests.size() };
+    f.now += 59;
+    const auto blocked { f.service.list_pull_requests(f.context, {}, {}) };
+    CHECK(blocked.error.kind == hosting_error_kind::rate_limited);
+    CHECK(f.transport.requests.size() == sent);
+    // 안내는 한 시간 뒤가 아니라 다시 보낼 시각이다.
+    CHECK(describe_hosting_error(blocked.error, f.now).find("1초 후") != std::string::npos);
+
+    f.now += 2;
+    f.transport.responses.push_back(response_of(200, empty_list));
+    CHECK(f.service.list_pull_requests(f.context, {}, {}).ok());
+    CHECK(f.transport.requests.size() == sent + 1);
+}
+
+TEST_CASE("API requests cap the response body below the transport default", "[hosting]")
+{
+    // 자체 서버가 엉뚱하게 큰 답을 보내도 64 MiB까지 받지 않는다.
+    const hosting_http_request request {};
+    CHECK(request.max_body_bytes > 0);
+    CHECK(request.max_body_bytes < std::size_t { 64 } * 1024 * 1024);
+}
+
+// ---------------------------------------------------------------- 작성자 사진
+
+namespace {
+    avatar_fetch_options avatar_options_in(const std::filesystem::path& cache)
+    {
+        avatar_fetch_options options {};
+        options.cache_directory = cache;
+        options.sha256_hex = [](const std::string_view) { return std::string { "abc" }; };
+        return options;
+    }
+} // namespace
+
+TEST_CASE("avatar cache paths outside the code page are written without throwing", "[hosting][avatar]")
+{
+    // 사용자 이름의 한글·이모지는 코드 페이지(1252, 949) 밖일 수 있다. 좁은 문자열로 바꾸지 않고 보관해야 한다.
+    const test::temporary_directory directory { "avatar-wide" };
+    const std::filesystem::path cache { directory.path() / std::filesystem::path { u8"사진-\U0001F600" } };
+    scripted_transport transport {};
+    transport.responses.push_back(response_of(200, "PNGDATA", { { "Content-Type", "image/png" } }));
+    const avatar_fetcher fetcher { transport, avatar_options_in(cache) };
+
+    avatar_fetch_result first {};
+    REQUIRE_NOTHROW(first = fetcher.fetch("ann@example.com", {}));
+    CHECK(first.bytes == "PNGDATA");
+    CHECK(std::filesystem::exists(cache / "abc.img"));
+    CHECK_FALSE(std::filesystem::exists(cache / "abc.img.part"));
+    // 사진 요청은 작은 상한을 단다.
+    REQUIRE(transport.requests.size() == 1);
+    CHECK(transport.requests[0].request.max_body_bytes <= std::size_t { 1 } * 1024 * 1024);
+}
+
+TEST_CASE("an avatar answer that declares a non-image type is not kept", "[hosting][avatar]")
+{
+    const test::temporary_directory directory { "avatar-type" };
+    scripted_transport transport {};
+    transport.responses.push_back(response_of(200, "<html>captive portal</html>", { { "Content-Type", "text/html; charset=utf-8" } }));
+    const avatar_fetcher fetcher { transport, avatar_options_in(directory.path()) };
+
+    const avatar_fetch_result result { fetcher.fetch("ann@example.com", {}) };
+    CHECK(result.failed);
+    CHECK(result.bytes.empty());
+    CHECK_FALSE(std::filesystem::exists(directory.path() / "abc.img"));
+
+    // 대소문자와 매개변수가 붙은 그림 형식은 받는다.
+    transport.responses.push_back(response_of(200, "JPEGDATA", { { "Content-Type", "Image/JPEG" } }));
+    CHECK(fetcher.fetch("ann@example.com", {}).bytes == "JPEGDATA");
 }

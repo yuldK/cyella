@@ -45,6 +45,18 @@ namespace cyella {
         std::vector<git_operation> alternate {};
     };
 
+    // 열려 있는 입력 대화 상자의 텍스트 칸이다. 대화 상자마다 최대 셋이고, 어느 대화 상자의 것인지 `identity`가 정한다.
+    // 열쇠가 바뀌면(다른 대화 상자, 인증의 다음 질문) 비밀이 남지 않게 지우고 비운다.
+    struct form_inputs
+    {
+        std::string identity {};
+        std::array<luil::text::text_edit_state, 3> fields {};
+        // 비밀 칸을 평문으로 보인다.
+        bool reveal { false };
+        std::size_t choice { 0 };
+        float scroll { 0.0f };
+    };
+
     struct dialog_state
     {
         dialog_kind kind { dialog_kind::none };
@@ -81,20 +93,13 @@ namespace cyella {
         // 체크 칸이 "다시 보지 않기"다. 켠 채 확인하면 detached HEAD 경고를 더는 보이지 않는다 (`plan.alternate`를 쓰지 않는다).
         bool remember_detached { false };
         confirm_plan plan {};
-    };
-
-    // 열려 있는 입력 대화 상자의 텍스트 칸이다. 대화 상자마다 최대 셋이고, 어느 대화 상자의 것인지 `identity`가 정한다.
-    // 열쇠가 바뀌면(다른 대화 상자, 인증의 다음 질문) 비밀이 남지 않게 지우고 비운다.
-    struct form_inputs
-    {
-        std::string identity {};
-        std::array<luil::text::text_edit_state, 3> fields {};
-        // 비밀 칸을 평문으로 보인다.
-        bool reveal { false };
-        // 체크 칸의 값이다 (인증의 "이 질문에만", 체크아웃의 "추적 안 된 파일도").
-        std::array<bool, 4> checks {};
-        std::size_t choice { 0 };
-        float scroll { 0.0f };
+        // 연 저장소의 id다. 확인할 때 선택된 저장소가 다르면 아무것도 내지 않고 닫는다 — 상자는 탭과 상관없이 떠 있어서,
+        // 그대로 내면 다른 저장소에 같은 경로의 버리기나 같은 이름의 브랜치 삭제가 간다. 비어 있으면 대조하지 않는다.
+        std::string repository_id {};
+        // stash 삭제 확인이 지울 stash의 SHA다. 확인할 때 같은 번호의 stash가 다른 것이면 내지 않는다 (그사이 목록이 밀렸다).
+        std::string stash_sha {};
+        // 인증 질문이 끼어든 동안 맡아 둔 이 상자의 입력 초안이다. 질문이 끝나 이 상자로 돌아오면 되살린다 (미리 채운 기본값을 잃지 않는다).
+        std::optional<form_inputs> parked_form {};
     };
 
     // 체크아웃 정책 대화 상자의 선택이다. operation이 열고 정책으로 다시 낸 뒤 닫는다.

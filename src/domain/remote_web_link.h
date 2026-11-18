@@ -65,4 +65,9 @@ namespace cyella {
 
     // 표의 한 줄이 쓸 수 있는가. 이유가 있으면 한 줄이다. 호스트는 호스팅 표와 같은 규칙이고, 웹 주소는 비었거나 http(s) 절대 주소여야 한다.
     [[nodiscard]] std::optional<std::string> validate_web_link_setting(const web_link_setting& setting);
+
+    // 사용자의 기본 브라우저에 넘겨도 되는 주소인가. http·https 절대 주소이고 호스트가 비지 않았으며 4096바이트 미만이어야 한다.
+    // 제어 문자·공백과, 브라우저 연결 명령(`"%1"`)의 인자 경계나 셸 해석을 흔들 수 있는 글자(`"`, `\`, `<`, `>`, `^`, `` ` ``, `|`)는 받지 않는다.
+    // 서버가 준 주소(CI 링크 등)도 이것으로 거르므로 정상 주소라면 이 글자들은 퍼센트 인코딩되어 있다.
+    [[nodiscard]] bool is_safe_web_url(std::string_view url) noexcept;
 } // namespace cyella

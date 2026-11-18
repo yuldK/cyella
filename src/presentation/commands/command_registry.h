@@ -65,6 +65,8 @@ namespace cyella {
         bool pull { false };
         bool push { false };
         bool branch { false };
+        // 첫 커밋이 아직 없다 (HEAD를 풀 수 없다). 켜면 HEAD가 필요한 태그 만들기가 꺼진다. 기본(꺼짐)은 커밋이 있는 저장소다.
+        bool no_commits { false };
         bool stash { false };
         bool pop { false };
         bool commit { false };
@@ -72,13 +74,15 @@ namespace cyella {
         bool drawer { false };
         // 고른 항목의 우클릭 메뉴가 있다.
         bool selection_menu { false };
-        bool profiles_exist { false };
         // 저장소의 원격이 GitHub·GitLab으로 알려진 호스트이고, 그 호스트에 로그인했으며, 현재 브랜치로 PR을 만들 수 있다.
         bool hosting_supported { false };
         bool hosting_signed_in { false };
         bool hosting_can_create { false };
     };
     [[nodiscard]] bool command_available(std::string_view id, const command_availability& availability) noexcept;
+    // 폴더 대화 상자처럼 UI thread가 실행해야 하는 명령인가(`repo.open_folder`·`repo.init`). 팔레트 항목과 단축키·단추의 액션이 같은
+    // 판정을 써야 한쪽만 logic thread로 보내는 어긋남이 없다.
+    [[nodiscard]] bool is_ui_thread_command(std::string_view id) noexcept;
 
     // ---- 단축키: 기본값과 사용자가 바꾼 값을 합친다
     // 명령의 지금 단축키다. 설정에 바꾼 값이 있으면 그것(읽을 수 없는 조각은 건너뛴다)이고 없으면 기본값이다.

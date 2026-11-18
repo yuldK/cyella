@@ -1,9 +1,12 @@
+#include "presentation/commands/command_intents.h"
 #include "presentation/palette/palette_model.h"
+#include "presentation/ui/command_elements.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <string>
+#include <variant>
 
 using namespace cyella;
 
@@ -187,6 +190,37 @@ TEST_CASE("branch mode lists local then remote branches and disables the current
     REQUIRE(std::ranges::find_if(detached, [](const palette_item& item) { return item.key == u8"branch:main"; })->enabled);
 }
 
+TEST_CASE("branch mode filters by name only, not by a keyword every branch shares", "[palette]")
+{
+    const app_settings settings {};
+    palette_context context { repository_context(settings) };
+    context.mode = palette_mode::branches;
+    context.refs.push_back(make_ref(ref_kind::local, "main"));
+    context.refs.push_back(make_ref(ref_kind::local, "develop"));
+    // 이름과 무관한 글자가 공통 키워드("branch checkout")의 부분 수열로 모든 브랜치와 맞으면 안 된다.
+    CHECK(rank_palette_items(context, u8"ck").empty());
+    CHECK(rank_palette_items(context, u8"ou").empty());
+    CHECK(rank_palette_items(context, u8"bh").empty());
+    const palette_list none { build_palette_list(context, u8"ck") };
+    CHECK(none.matched == 0);
+    const std::vector<palette_item> develop { rank_palette_items(context, u8"dev") };
+    REQUIRE(develop.size() == 1);
+    CHECK(develop.front().key == u8"branch:develop");
+}
+
+TEST_CASE("profile mode filters by name, user name and email, not by a shared keyword", "[palette]")
+{
+    app_settings settings {};
+    settings.profiles.push_back(user_profile { .name = u8"회사", .user_name = u8"홍길동", .user_email = u8"hong@corp.example" });
+    settings.profiles.push_back(user_profile { .name = u8"개인", .user_name = u8"길동", .user_email = u8"me@example.com" });
+    palette_context context { repository_context(settings) };
+    context.mode = palette_mode::profiles;
+    // "profile"은 프로필 이름이 아니라 관리 항목의 키워드에만 있다.
+    const std::vector<palette_item> found { rank_palette_items(context, u8"profile") };
+    REQUIRE(found.size() == 1);
+    CHECK(found.front().key == palette_manage_profiles_key);
+}
+
 TEST_CASE("repository mode lists tabs, recent repositories and the folder dialog", "[palette]")
 {
     const app_settings settings {};
@@ -243,4 +277,17 @@ TEST_CASE("the visible list is capped and says how many are hidden", "[palette]"
     REQUIRE(none.matched == 0);
     REQUIRE(none.items.size() == 1);
     REQUIRE(none.items.front().key == palette_empty_key);
+}
+
+TEST_CASE("a command that must run on the UI thread never becomes a run_command_intent", "[palette][commands]")
+{
+    // 팔레트(`ui_thread_command`)와 단축키·단추(`action_for_command`)가 같은 판정을 써야 폴더 대화 상자 명령이 logic thread로 새지 않는다.
+    for (const command_definition& command : command_definitions())
+    {
+        INFO(command.id);
+        const luil::input_action action { ui::action_for_command(command.id) };
+        const auto* const sent { std::get_if<luil::app_message>(&action) };
+        const bool runs_on_logic_thread { sent != nullptr && sent->get<run_command_intent>() != nullptr };
+        CHECK(runs_on_logic_thread == (is_ui_thread_command(command.id) == false));
+    }
 }

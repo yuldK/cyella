@@ -154,7 +154,7 @@ namespace cyella {
         created,
         // 경로가 이미 git 저장소다. 새로 만들지 않고 그대로 쓴다.
         existing,
-        // 경로에 저장소가 아닌 파일·폴더가 있다. 덮어쓰지 않는다.
+        // 경로에 저장소가 아닌 파일이나 비어 있지 않은 폴더가 있다. 덮어쓰지 않는다.
         not_repository,
         // 서버의 PATH에 `git`이 없다.
         git_missing,
@@ -169,6 +169,9 @@ namespace cyella {
         ssh_remote_target target {};
         // 비어 있지 않으면 "이번만 연결"의 임시 known_hosts로 연결한다 (`make_temporary_known_hosts_ssh_arguments`).
         std::filesystem::path known_hosts_path {};
+        // 비어 있지 않으면 `-i <키> -o IdentitiesOnly=yes`로 이 키로만 접속한다. 저장소 프로필이 `core.sshCommand`로 정한 키다
+        // (ssh를 바로 부르므로 git 설정은 읽히지 않는다).
+        std::u8string identity_file {};
         std::u8string askpass_helper {};
         askpass_session askpass {};
     };
@@ -178,7 +181,7 @@ namespace cyella {
     // `cyella:created`·`cyella:existing`·`cyella:not-repository`·`cyella:no-git` 표지 한 줄로 알린다.
     [[nodiscard]] std::u8string make_create_bare_repository_command(std::string_view path);
 
-    // `ssh -T [-p <port>] <user@host> <명령>`이다. 호스트 키 확인은 사용자의 ssh 설정을 따르고 질문은 askpass로 온다.
+    // `ssh -T [-p <port>] [-i <키> -o IdentitiesOnly=yes] <user@host> <명령>`이다. 호스트 키 확인은 사용자의 ssh 설정을 따르고 질문은 askpass로 온다.
     // askpass 도우미가 없거나 목적지가 안전하지 않으면 만들지 않는다.
     [[nodiscard]] std::optional<process_request> make_create_ssh_repository_request(const ssh_repository_options& options);
 

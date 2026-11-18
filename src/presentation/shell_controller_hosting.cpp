@@ -119,6 +119,7 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::create_pull_request;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = repository_id;
         dialog.title = tr(u8"shell.pull_request.title", { { u8"kind", view.abbreviation } });
         dialog.subject = defaults->source_branch;
         dialog.lines.push_back(to_u8(defaults->source_branch) + u8" → " + (defaults->target_branch.empty() ? tr(u8"shell.pull_request.target_branch_placeholder") : to_u8(defaults->target_branch))

@@ -59,24 +59,22 @@ namespace cyella::ui {
             return u8"– ";
         }
 
-        std::unique_ptr<luil::ui_element> detail_header(std::u8string title, std::u8string tail, const bool drawer)
+        std::unique_ptr<luil::ui_element> detail_header(std::u8string title, std::u8string tail)
         {
             auto row = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"pr-detail-header" },
                 luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 12.0f, 0.0f, 6.0f, 0.0f } });
             row->add(make_text(u8"pr-detail-title", title, text_style { .size = 13.0f, .bold = true }), text_button_width(title));
             row->add_flexible(make_text(u8"pr-detail-subtitle", std::move(tail), text_style { .size = 11.0f, .color = dim_color }));
-            row->add(make_icon_button(u8"pr-detail-close", codicons::icon_close, drawer ? tr(u8"hosting.detail.close") : tr(u8"hosting.detail.close"),
-                         message(hosting_detail_action_intent { hosting_detail_action::close })),
-                28.0f);
+            row->add(make_icon_button(u8"pr-detail-close", codicons::icon_close, tr(u8"hosting.detail.close"), message(hosting_detail_action_intent { hosting_detail_action::close })), 28.0f);
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"pr-detail-header-bar" }, bar_style { .divider_bottom = true }, std::move(row));
         }
     } // namespace
 
-    std::unique_ptr<luil::ui_element> build_pull_request_detail(const pull_request_detail_view& detail, const bool drawer, const float width, const float scroll, feedback_sources& sources)
+    std::unique_ptr<luil::ui_element> build_pull_request_detail(const pull_request_detail_view& detail, const float width, const float scroll, feedback_sources& sources)
     {
         const std::u8string number { u8"#" + number_text(detail.number) };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"pr-detail" }, luil::stack_config {}) };
-        column->add(detail_header(detail.abbreviation + u8" " + number, detail.state_text, drawer), pane_header_height);
+        column->add(detail_header(detail.abbreviation + u8" " + number, detail.state_text), pane_header_height);
 
         auto meta { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"pr-meta" }, luil::stack_config { .padding = luil::edge_insets { 12.0f, 8.0f, 12.0f, 6.0f } }) };
         float meta_height { 14.0f };
@@ -93,7 +91,7 @@ namespace cyella::ui {
             wrapped(u8"pr-created", tr(u8"hosting.detail.just_created", { { u8"url", detail.web_url } }), text_style { .size = 11.0f, .color = ci_color(ci_state::success) }, line_height);
         meta->add_gap(8.0f);
         meta_height += 8.0f;
-        wrapped(u8"pr-branches", detail.source_branch + u8" → " + detail.target_branch + (detail.from_fork ? u8"  (fork)" : u8""), text_style { .size = 11.5f, .code = true }, line_height);
+        wrapped(u8"pr-branches", detail.source_branch + u8" → " + detail.target_branch + (detail.from_fork ? tr(u8"hosting.detail.fork_suffix") : std::u8string {}), text_style { .size = 11.5f, .code = true }, line_height);
         if (detail.author.empty() == false)
             add(make_text(u8"pr-author", tr(u8"hosting.detail.author", { { u8"author", detail.author } }), text_style { .size = 11.0f, .color = dim_color }), line_height);
         if (detail.updated_text.empty() == false)

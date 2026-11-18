@@ -450,6 +450,48 @@ TEST_CASE("a client that sends garbage does not disturb later prompts", "[askpas
     CHECK(run.standard_output == "ok\n");
 }
 
+TEST_CASE("clients that connect and leave at once do not stop the listener", "[askpass][server][robustness]")
+{
+    const std::unique_ptr<askpass_service> server { start(answering(u8"still-here")) };
+    const askpass_endpoint endpoint { server->endpoint() };
+    std::wstring pipe_name {};
+    for (const char8_t character : endpoint.pipe_name)
+        pipe_name.push_back(static_cast<wchar_t>(character));
+
+    // 작업을 취소해 job이 도우미를 죽이면, 서버가 다음 인스턴스로 받기 전에 붙었다 끊긴 연결(ERROR_NO_DATA)이 생긴다.
+    // 그 틈을 결정적으로 만들 수는 없어 붙자마자 닫기를 빠르게 되풀이한다.
+    for (int attempt { 0 }; attempt < 200; ++attempt)
+    {
+        const HANDLE pipe { CreateFileW(pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr) };
+        if (pipe != INVALID_HANDLE_VALUE)
+            CloseHandle(pipe);
+        else if (GetLastError() == ERROR_PIPE_BUSY)
+            static_cast<void>(WaitNamedPipeW(pipe_name.c_str(), 100));
+    }
+
+    // 듣기가 멈췄다면 파이프 이름이 사라져 도우미가 1로 끝난다.
+    const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
+    const helper_run run { run_prompt(*runner, *server, u8"Enter passphrase: ") };
+    CHECK(exit_code_of(run) == 0);
+    CHECK(run.standard_output == "still-here\n");
+}
+
+TEST_CASE("answers around the string buffer boundaries arrive whole with one newline", "[askpass][server]")
+{
+    // 도우미가 답 뒤에 줄 바꿈을 붙일 때 버퍼를 다시 잡지 않게 바꾼 자리다. 15·31·47 byte는 MSVC string의 용량 경계다.
+    for (const std::size_t length : { std::size_t { 15 }, std::size_t { 16 }, std::size_t { 31 }, std::size_t { 47 } })
+    {
+        const std::unique_ptr<askpass_service> server { start(answering(std::u8string(length, u8'k'))) };
+        const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
+
+        const helper_run run { run_prompt(*runner, *server, u8"Password for 'https://example.invalid': ") };
+
+        INFO("length " << length);
+        CHECK(exit_code_of(run) == 0);
+        CHECK(run.standard_output == std::string(length, 'k') + "\n");
+    }
+}
+
 TEST_CASE("the pipe name is unique per server and only the current user may open it", "[askpass][server][security]")
 {
     const std::unique_ptr<askpass_service> first { start(cancelling()) };

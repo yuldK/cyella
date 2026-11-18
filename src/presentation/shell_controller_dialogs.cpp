@@ -1,5 +1,6 @@
 #include "application/app_messages.h"
 #include "application/git_workspace.h"
+#include "domain/path_syntax.h"
 #include "domain/text_catalog.h"
 #include "infrastructure/ssh_tools.h"
 #include "presentation/form_builders.h"
@@ -106,6 +107,24 @@ namespace cyella {
                 retry.ssh_command_override = trust;
                 return retry;
             }
+            if (const auto* const tag { std::get_if<push_tag_request>(&request) }; tag != nullptr)
+            {
+                push_tag_request retry { *tag };
+                retry.ssh_command_override = trust;
+                return retry;
+            }
+            if (const auto* const tags { std::get_if<push_tags_request>(&request) }; tags != nullptr)
+            {
+                push_tags_request retry { *tags };
+                retry.ssh_command_override = trust;
+                return retry;
+            }
+            if (const auto* const remote_tag { std::get_if<delete_remote_tag_request>(&request) }; remote_tag != nullptr)
+            {
+                delete_remote_tag_request retry { *remote_tag };
+                retry.ssh_command_override = trust;
+                return retry;
+            }
             return std::nullopt;
         }
 
@@ -151,6 +170,17 @@ namespace cyella {
                 lines.push_back(to_u8(paths[index]));
             if (paths.size() > listed_path_limit)
                 lines.push_back(tr(u8"shell.confirm.more_paths", { { u8"count", paths.size() - listed_path_limit } }));
+        }
+
+        // 확인 상자가 낼 stash 삭제의 번호다. stash 삭제가 아니면 값이 없다.
+        std::optional<std::uint32_t> stash_drop_index(const confirm_plan& plan)
+        {
+            for (const git_operation& operation : plan.primary)
+            {
+                if (const auto* const drop { std::get_if<stash_drop_request>(&operation) }; drop != nullptr)
+                    return drop->index;
+            }
+            return std::nullopt;
         }
 
         bool awaiting_auth_status(const operation_status& status) noexcept
@@ -220,7 +250,6 @@ namespace cyella {
         }
         ui_.form.reveal = false;
         ui_.form.choice = 0;
-        ui_.form.checks = {};
         ui_.form.scroll = 0.0f;
         feedback_.form_maximum.reset();
     }
@@ -230,8 +259,17 @@ namespace cyella {
         const std::string identity { form_identity(current_form_source(), ui_) };
         if (identity == ui_.form.identity)
             return;
+        // 인증 질문이 사용자 상자를 잠시 가리면(앞서 낸 fetch가 passphrase를 묻는다) 상자의 초안을 상자에 맡겨 두고, 질문이 끝나
+        // 같은 상자로 돌아오면 되살린다. 맡기는 것은 사용자 상자의 칸뿐이다 — 인증 칸의 답은 그대로 지운다.
+        if (ui_.dialog.has_value() && ui_.form.identity.empty() == false && ui_.form.identity == dialog_identity(*ui_.dialog))
+            ui_.dialog->parked_form = ui_.form;
         clear_form_inputs();
         ui_.form.identity = identity;
+        if (ui_.dialog.has_value() && ui_.dialog->parked_form.has_value() && ui_.dialog->parked_form->identity == identity)
+        {
+            ui_.form = std::move(*ui_.dialog->parked_form);
+            ui_.dialog->parked_form.reset();
+        }
     }
 
     void shell_controller::set_form_field(const std::size_t index, std::u8string text)
@@ -320,6 +358,8 @@ namespace cyella {
                 if (std::any_of(commits.begin(), commits.end(), [intent](const commit_info& commit) { return commit.sha == intent->sha; }))
                 {
                     ui_.selector.reset();
+                    // 배치는 연 뒤 처음 그리는 `make_view`가 적는다. 칩을 누른 frame과 같은 배치이고, 그 사이의 그래프 스크롤은
+                    // 스크롤 처리가 이미 카드를 닫는다. 여기서 적으면 아직 frame을 그리지 않은 창의 크기(0)가 들어간다.
                     ui_.ref_list = ref_list_state { .sha = intent->sha, .x = intent->x, .y = intent->y, .width = intent->width, .height = intent->height };
                 }
             }
@@ -352,11 +392,6 @@ namespace cyella {
         if (const auto* const intent { message.get<menu_select_intent>() }; intent != nullptr)
         {
             handle_menu_select(intent->key);
-            return true;
-        }
-        if (message.get<open_menu_for_selection_intent>() != nullptr)
-        {
-            open_menu_for_selection();
             return true;
         }
         if (const auto* const intent { message.get<drop_intent>() }; intent != nullptr)
@@ -399,17 +434,6 @@ namespace cyella {
                 ui_.form.scroll = std::min(ui_.form.scroll, *feedback_.form_maximum);
             return true;
         }
-        if (const auto* const intent { message.get<open_confirm_intent>() }; intent != nullptr)
-        {
-            dialog_state dialog {};
-            dialog.title = intent->title;
-            dialog.lines = intent->lines;
-            dialog.confirm_label = intent->confirm_label;
-            dialog.danger = intent->danger;
-            dialog.plan.primary = intent->operations;
-            open_confirm(std::move(dialog));
-            return true;
-        }
         if (const auto* const intent { message.get<discard_files_intent>() }; intent != nullptr)
         {
             if (intent->paths.empty() && intent->untracked.empty())
@@ -442,11 +466,6 @@ namespace cyella {
                 dialog.plan.primary.push_back(trash_files_request { intent->untracked });
             }
             open_confirm(std::move(dialog));
-            return true;
-        }
-        if (const auto* const intent { message.get<open_branch_dialog_intent>() }; intent != nullptr)
-        {
-            open_create_branch_dialog(intent->at);
             return true;
         }
         if (const auto* const intent { message.get<notification_action_intent>() }; intent != nullptr)
@@ -485,9 +504,10 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::create_branch;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = selected_repository_id();
         dialog.subject = at;
         if (at.empty())
-            dialog.subject_label = summary.is_detached ? u8"HEAD (detached " + short_sha(summary.head_sha) + u8")" : u8"HEAD (" + to_u8(summary.current_branch) + u8")";
+            dialog.subject_label = summary.is_detached ? tr(u8"shell.head_detached_label", { { u8"sha", short_sha(summary.head_sha) } }) : u8"HEAD (" + to_u8(summary.current_branch) + u8")";
         else
             dialog.subject_label = commit_label(*session, at);
         dialog.flag_a = true;
@@ -506,6 +526,7 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::create_tag;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = selected_repository_id();
         dialog.subject = sha.empty() ? summary.head_sha : sha;
         dialog.subject_label = commit_label(*session, dialog.subject);
         // 서명 토글의 기본값은 설정 `tag.gpgsign`이다. 서명한 태그는 항상 annotated라 켜져 있으면 종류도 annotated다.
@@ -532,6 +553,7 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::push;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = selected_repository_id();
         dialog.subject = branch;
         for (const remote_info& remote : snapshot.summary.remotes)
             dialog.choices.push_back(remote.name);
@@ -568,6 +590,7 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::add_remote;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = selected_repository_id();
         dialog.subject = branch;
         // 첫 원격일 때만 게시를 켜 둔다. 이미 원격이 있으면 upstream을 새 원격으로 옮기지 않게 끄고, 커밋이 없는 브랜치는 push할 것이 없다.
         dialog.flag_a = branch.empty() == false && summary.head_sha.empty() == false && summary.remotes.empty();
@@ -631,6 +654,7 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::set_upstream;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = selected_repository_id();
         dialog.subject = branch;
         for (const remote_info& remote : snapshot.summary.remotes)
             dialog.choices.push_back(remote.name);
@@ -669,6 +693,7 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::rename_branch;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = selected_repository_id();
         dialog.subject = branch;
         clear_form_inputs();
         set_form_field(0, to_u8(branch));
@@ -681,6 +706,7 @@ namespace cyella {
     {
         dialog.kind = dialog_kind::confirm;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = selected_repository_id();
         clear_form_inputs();
         ui_.form.identity = dialog_identity(dialog);
         ui_.dialog = std::move(dialog);
@@ -872,6 +898,10 @@ namespace cyella {
             target.index = static_cast<std::uint32_t>(std::strtoul(key.c_str() + 2, nullptr, 10));
             target.name = "stash@{" + std::to_string(target.index) + "}";
         }
+        // 메뉴를 모르는 사이드바 항목(구역 머리·원격·서브모듈·worktree·PR·LFS)을 골랐으면 메뉴가 없다. 고른 커밋의 메뉴로 넘어가면
+        // 보고 있는 것과 다른 대상의 메뉴가 열린다. 그래프에서 커밋을 고르면 사이드바의 키는 지워진다.
+        else if (key.empty() == false)
+            return std::nullopt;
         else if (tab->selected_sha.empty() == false && tab->selected_sha != graph_wip_sha)
         {
             target.kind = menu_target_kind::commit;
@@ -956,7 +986,7 @@ namespace cyella {
             dialog_state dialog {};
             dialog.title = tr(u8"shell.reset_hard.title");
             dialog.lines.push_back(tr(u8"shell.reset_hard.description", { { u8"target", label } }));
-            dialog.confirm_label = u8"hard reset";
+            dialog.confirm_label = tr(u8"shell.reset_hard.confirm");
             dialog.danger = true;
             dialog.plan.primary.push_back(reset_request { .mode = reset_mode::hard, .to = to });
             open_confirm(std::move(dialog));
@@ -1087,11 +1117,19 @@ namespace cyella {
             }
             return;
         }
-        case menu_target_kind::stash:
+        case menu_target_kind::stash: {
+            // 요청은 번호(`stash@{N}`)로 가리킨다. 그사이 다른 곳에서 stash를 더하면 번호가 밀리므로, 지금 그 번호의 stash를 실어
+            // 실행기가 실행 직전에 같은 stash인지 보게 한다.
+            std::string stash_sha {};
+            for (const stash_entry& stash : session->snapshot().stashes)
+            {
+                if (stash.index == target.index)
+                    stash_sha = stash.sha;
+            }
             if (key == u8"apply")
-                static_cast<void>(submit(stash_apply_request { target.index }));
+                static_cast<void>(submit(stash_apply_request { .index = target.index, .expected_sha = stash_sha }));
             else if (key == u8"pop")
-                static_cast<void>(submit(stash_pop_request { target.index }));
+                static_cast<void>(submit(stash_pop_request { .index = target.index, .expected_sha = stash_sha }));
             else if (key == u8"drop")
             {
                 dialog_state dialog {};
@@ -1099,10 +1137,13 @@ namespace cyella {
                 dialog.lines.push_back(tr(u8"shell.drop_stash.description", { { u8"stash", target.name } }));
                 dialog.confirm_label = tr(u8"shell.confirm.delete");
                 dialog.danger = true;
-                dialog.plan.primary.push_back(stash_drop_request { target.index });
+                dialog.plan.primary.push_back(stash_drop_request { .index = target.index, .expected_sha = stash_sha });
+                // 상자가 떠 있는 동안 번호가 밀리면 확인을 누를 때 막는다.
+                dialog.stash_sha = stash_sha;
                 open_confirm(std::move(dialog));
             }
             return;
+        }
         case menu_target_kind::tags_section:
             if (const auto remote { menu_key_argument(key, u8"push_all:") }; remote.has_value())
                 static_cast<void>(submit(push_tags_request { *remote }));
@@ -1119,7 +1160,7 @@ namespace cyella {
             else if (key == u8"discard")
                 handle_dialog_message(luil::app_message { discard_intent_for(paths, target) });
             else if (key == u8"ignore")
-                static_cast<void>(submit(ignore_path_request { "/" + target.name }));
+                static_cast<void>(submit(ignore_path_request { "/" + gitignore_literal(target.name) }));
             else if (key == u8"copy_path")
             {
                 std::u8string text {};
@@ -1128,7 +1169,14 @@ namespace cyella {
                 copy_text(text);
             }
             else if (key == u8"open_external_diff")
-                show_notice(tr(u8"shell.external_diff.unavailable"));
+            {
+                // 우클릭한 행의 쪽(스테이징 전·후)의 diff를 외부 도구로 연다. 열어 줄 길(driver)이 없으면 아직 열 수 없다고만 알린다.
+                const diff_file_request request { .path = target.name, .view = target.side == change_side::staged ? diff_view::staged : diff_view::unstaged, .sha = {}, .untracked = target.untracked, .context_lines = settings().diff.context_lines };
+                if (dependencies_.open_external_diff == nullptr)
+                    show_notice(tr(u8"shell.external_diff.unavailable"));
+                else
+                    dependencies_.open_external_diff(selected_repository_id(), request);
+            }
             else if (key == u8"lfs_track")
                 open_lfs_track_dialog(lfs_pattern_for_path(target.name));
             else if (key == u8"lfs_pull")
@@ -1353,12 +1401,25 @@ namespace cyella {
         if (key != u8"submit")
             return;
         repository_session* const session { selected_session() };
-        if (session == nullptr)
+        // 연 저장소가 더는 선택되어 있지 않으면 내지 않고 닫는다. 확인은 그 저장소에 한 것이다.
+        if (session == nullptr || (dialog.repository_id.empty() == false && dialog.repository_id != session->id()))
         {
             close();
             return;
         }
         const repository_snapshot& snapshot { session->snapshot() };
+        // 지울 stash가 그사이 다른 번호로 밀렸으면(다른 곳에서 stash를 더했다) 사용자가 고르지 않은 stash를 지우지 않는다.
+        if (dialog.stash_sha.empty() == false)
+        {
+            const std::optional<std::uint32_t> index { stash_drop_index(dialog.plan) };
+            const bool same { std::ranges::any_of(snapshot.stashes, [&dialog, &index](const stash_entry& stash) { return stash.sha == dialog.stash_sha && index == stash.index; }) };
+            if (same == false)
+            {
+                close();
+                show_notice(tr(u8"shell.drop_stash.changed"), true);
+                return;
+            }
+        }
         switch (dialog.kind)
         {
         case dialog_kind::create_branch:
@@ -1400,7 +1461,17 @@ namespace cyella {
             if (add_remote_to_hosting(dialog))
                 submit_publish(dialog);
             else
-                static_cast<void>(submit_sequence(make_add_remote_operations(dialog, ui_.form)));
+            {
+                std::vector<git_operation> operations { make_add_remote_operations(dialog, ui_.form) };
+                // 서버에 빈 저장소 만들기는 ssh를 바로 불러 저장소의 `core.sshCommand`가 닿지 않는다. 프로필 키를 실어 push와 같은 키로 들어간다.
+                // "이번만 연결" 재시도는 이 요청을 복사하므로 키도 함께 간다.
+                for (git_operation& operation : operations)
+                {
+                    if (auto* const create { std::get_if<create_ssh_repository_request>(&operation) }; create != nullptr)
+                        create->identity_file = repository_profile_ssh_key(session->id());
+                }
+                static_cast<void>(submit_sequence(std::move(operations)));
+            }
             break;
         case dialog_kind::rename_branch:
             if (rename_branch_ready(dialog, ui_.form, snapshot) == false)
@@ -1538,9 +1609,14 @@ namespace cyella {
         if (request == nullptr)
             return;
         std::error_code error {};
-        std::filesystem::path directory { dependencies_.temporary_directory.empty() ? std::filesystem::temp_directory_path(error) : std::filesystem::path { dependencies_.temporary_directory } };
-        if (error)
-            directory = ".";
+        const std::filesystem::path directory { dependencies_.temporary_directory.empty() ? std::filesystem::temp_directory_path(error) : std::filesystem::path { dependencies_.temporary_directory } };
+        // 임시 폴더를 모르면 "이번만 연결"을 하지 않는다. 상대 경로로 두면 ssh가 저장소 폴더(git의 작업 폴더)에 임시 파일을 만들어
+        // 변경 목록에 남는다. 질문은 그대로 두어 사용자가 다른 답을 고르게 한다.
+        if (error || directory.is_absolute() == false)
+        {
+            show_notice(tr(u8"shell.trust_once.no_temporary_directory"), true);
+            return;
+        }
         const std::filesystem::path known_hosts { directory / ("cyella-known-hosts-" + std::to_string(++temporary_counter_) + "-" + std::to_string(status.id) + ".tmp") };
         temporary_ssh_trust trust {};
         // 저장소의 프로필이 SSH 키를 정해 두었으면 이 덮어쓰기에도 같은 키를 쓴다. 아니면 이번 한 번은 다른 계정의 키로 접속한다.
@@ -1548,10 +1624,14 @@ namespace cyella {
             known_hosts, repository_profile_ssh_key(status.repository_id));
         trust.known_hosts_path = known_hosts.u8string();
         std::optional<git_operation> retry { with_ssh_override(*request, trust) };
+        // 임시 신뢰로 다시 낼 수 없는 작업(submodule 갱신 등)은 거두지 않는다. 거두면 알림 없이 사라져 아무 일도 없었던 것으로 보인다.
+        if (retry.has_value() == false)
+        {
+            show_notice(tr(u8"shell.trust_once.unsupported"), true);
+            return;
+        }
         // 질문 중인 operation을 거둔다. 취소는 알림 없이 끝나고 "답 없이 닫기"의 실패 배너도 남기지 않는다.
         static_cast<void>(workspace->cancel(status.id));
-        if (retry.has_value() == false)
-            return;
         const std::string repository { status.repository_id };
         const bool refreshes_tags { refreshes_remote_tags(*retry) };
         const operation_id retried { is_setup_operation(operation_kind_of(*retry)) ? workspace->submit_setup(*retry) : workspace->submit(repository, *retry) };

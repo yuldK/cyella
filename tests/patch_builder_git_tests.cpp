@@ -403,6 +403,32 @@ TEST_CASE("integration: untracked files stage partially and unstage back", "[git
         CHECK(repo.index_content("new.txt") == "four\n");
     }
 
+    SECTION("after a partial stage the rest stages from a diff re-read as a tracked file")
+    {
+        const diff_file file { repo.untracked_diff("new.txt") };
+        const std::optional<std::string> patch { build_line_patch(file, 0, { 1, 3 }, patch_direction::stage) };
+        REQUIRE(patch.has_value());
+        repo.apply(*patch, patch_direction::stage);
+        REQUIRE(repo.index_has("new.txt"));
+
+        // 다시 `/dev/null`과 비교해 읽으면 생성 patch가 되어 index에 이미 있는 경로라 git이 거절한다 (고치기 전의 다시 읽기).
+        const diff_file stale { repo.untracked_diff("new.txt") };
+        REQUIRE(stale.status == 'A');
+        const std::optional<std::string> creation { build_hunk_patch(stale, 0, patch_direction::stage) };
+        REQUIRE(creation.has_value());
+        git_apply_options options {};
+        options.cached = true;
+        CHECK(run_git(repo.path(), make_git_apply_args(options), *creation).exit_code != 0);
+
+        // 추적 중인 파일로 다시 읽은 diff에는 남은 두 줄만 있고, 그 hunk를 stage하면 index가 작업 트리와 같아진다.
+        const diff_file rest { repo.diff("new.txt", diff_source::unstaged) };
+        CHECK(rest.status != 'A');
+        const std::optional<std::string> remaining { build_hunk_patch(rest, 0, patch_direction::stage) };
+        REQUIRE(remaining.has_value());
+        repo.apply(*remaining, patch_direction::stage, true);
+        CHECK(repo.index_content("new.txt") == "one\ntwo\nthree\nfour\n");
+    }
+
     SECTION("unstaging every line of a staged new file removes it from the index")
     {
         repo.git({ "add", "new.txt" });

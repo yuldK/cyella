@@ -100,6 +100,31 @@ namespace cyella {
         {
             return std::string { trim(text.substr(0, text.find('\n'))) };
         }
+
+        // 메시지 첫 줄이 `squash! `·`fixup! `·`amend! `로 시작하면 제목 문단(첫 빈 줄 전까지 이어진 줄들)과 그 뒤의 빈 줄들을
+        // 뗀다. git은 앞 커밋에 합쳐지는 커밋의 이 제목 문단을 주석으로 바꿔 최종 메시지에서 지운다(sequencer의
+        // append_squash_message가 commit_subject_length만큼 주석 처리한다). `amend!`는
+        // 늘 지우지만 `squash!`·`fixup!`는 squash로 합칠 때(앞에 squash가 있었던 fixup -C 포함)만 지우므로 `squash_applies`로
+        // 가른다. 지울 표지가 없으면 그대로 돌려준다.
+        std::string_view without_autosquash_subject(const std::string_view message, const bool squash_applies) noexcept
+        {
+            const autosquash_marker marker { autosquash_marker_of(message) };
+            if (marker == autosquash_marker::none || (marker != autosquash_marker::amend && squash_applies == false))
+                return message;
+            // 앞쪽 반복은 제목 문단을, 뒤쪽 반복은 그 뒤의 빈 줄을 넘긴다. 공백만 있는 줄도 git처럼 빈 줄로 본다.
+            std::string_view rest { message };
+            for (const bool blank : { false, true })
+            {
+                while (rest.empty() == false)
+                {
+                    const std::size_t end { rest.find('\n') };
+                    if (trim(rest.substr(0, end)).empty() != blank)
+                        break;
+                    rest = end == std::string_view::npos ? std::string_view {} : rest.substr(end + 1);
+                }
+            }
+            return rest;
+        }
     } // namespace
 
     std::string_view rebase_action_word(const rebase_action action) noexcept
@@ -430,10 +455,15 @@ namespace cyella {
     std::string combined_squash_message(const std::span<const rebase_todo_entry> todo, const rebase_group& group, const std::span<const std::string> messages)
     {
         std::vector<std::string_view> parts {};
+        bool seen_squash { false };
         for (const std::size_t index : group.members)
         {
             if (index >= todo.size() || index >= messages.size())
                 continue;
+            // 묶음의 첫 줄은 제 제목을 그대로 둔다. 합쳐지는 줄의 `squash! X` 같은 제목 줄은 최종 메시지에 남지 않는다.
+            const bool squash_applies { todo[index].action == rebase_action::squash || seen_squash };
+            const std::string_view message { index == group.head ? trim(messages[index]) : without_autosquash_subject(trim(messages[index]), squash_applies) };
+            seen_squash = squash_applies;
             switch (todo[index].action)
             {
             case rebase_action::fixup:
@@ -441,13 +471,13 @@ namespace cyella {
             case rebase_action::fixup_keep_message:
                 // 그때까지 모은 메시지를 이 커밋의 것으로 바꾼다.
                 parts.clear();
-                parts.push_back(trim(messages[index]));
+                parts.push_back(message);
                 break;
             case rebase_action::pick:
             case rebase_action::reword:
             case rebase_action::squash:
             case rebase_action::drop:
-                parts.push_back(trim(messages[index]));
+                parts.push_back(message);
                 break;
             }
         }
@@ -505,6 +535,7 @@ namespace cyella {
                 subject = first_line(normalize_commit_message(*head.message));
                 result.message_changed = true;
             }
+            bool seen_squash { false };
             for (const std::size_t member : group.members)
             {
                 const rebase_todo_entry& entry { todo[member] };
@@ -512,11 +543,18 @@ namespace cyella {
                 {
                     const rebase_commit* const replaced { find_commit(commits, entry.sha) };
                     if (replaced != nullptr)
-                        subject = replaced->subject;
+                    {
+                        // `amend! X` 제목 줄은 새 메시지에 남지 않는다. 그 뒤의 본문 첫 줄이 새 제목이다.
+                        const std::string replaced_subject { first_line(without_autosquash_subject(full_commit_message(*replaced), seen_squash)) };
+                        subject = replaced_subject.empty() ? replaced->subject : replaced_subject;
+                    }
                     result.message_changed = true;
                 }
                 else if (entry.action == rebase_action::squash)
+                {
                     result.message_changed = true;
+                    seen_squash = true;
+                }
             }
             const rebase_todo_entry& last { todo[group.last] };
             if (group.has_squash && last.message.has_value())

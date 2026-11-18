@@ -11,8 +11,8 @@ IDR_LOCALE_KO RCDATA "@CYELLA_LOCALE_KO_PATH@"
 IDR_LOCALE_EN RCDATA "@CYELLA_LOCALE_EN_PATH@"
 
 1 VERSIONINFO
-FILEVERSION 0,1,0,0
-PRODUCTVERSION 0,1,0,0
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
 FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
 FILEFLAGS 0x1L
@@ -29,11 +29,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Cyella contributors\0"
             VALUE "FileDescription", "Cyella\0"
-            VALUE "FileVersion", "0.1.0\0"
+            VALUE "FileVersion", "@PROJECT_VERSION@\0"
             VALUE "InternalName", "cyella\0"
             VALUE "OriginalFilename", "cyella.exe\0"
             VALUE "ProductName", "Cyella\0"
-            VALUE "ProductVersion", "0.1.0\0"
+            VALUE "ProductVersion", "@PROJECT_VERSION@\0"
         END
     END
     BLOCK "VarFileInfo"

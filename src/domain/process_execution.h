@@ -67,6 +67,8 @@ namespace cyella {
         std::uint64_t record_count {};
         std::size_t captured_bytes {};
         bool output_truncated { false };
+        // stdout이 상한을 넘어 버려졌거나 다 읽지 못했다. stderr의 넘침과 가려야 잘린 stdout을 해석하지 않을 수 있다.
+        bool standard_output_truncated { false };
         std::optional<std::uint32_t> native_error {};
         // 로그와 재현에 사용하는 마스킹된 명령줄이다.
         std::u8string masked_command_line {};

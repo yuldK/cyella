@@ -144,10 +144,18 @@ namespace cyella::test {
             if (response.completion == process_completion::exited)
                 result.exit_code = response.exit_code;
 
+            // 실제 runner처럼 stdout은 캡처 상한까지만 넘기고 넘친 것을 표시한다.
+            std::string_view bytes { response.standard_output };
+            if (bytes.size() > request.maximum_captured_bytes_per_stream)
+            {
+                bytes = bytes.substr(0, request.maximum_captured_bytes_per_stream);
+                result.output_truncated = true;
+                result.standard_output_truncated = true;
+            }
+
             if (sink != nullptr)
             {
                 std::uint64_t sequence { 0 };
-                const std::string_view bytes { response.standard_output };
                 const std::size_t half { bytes.size() / 2 };
                 for (const std::string_view piece : { bytes.substr(0, half), bytes.substr(half) })
                 {

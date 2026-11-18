@@ -27,11 +27,20 @@ namespace {
             return difftool;
         }
 
+        std::optional<std::string> empty_tree(const std::u8string_view) override
+        {
+            ++empty_tree_queries;
+            return tree;
+        }
+
         std::vector<diff_side_plan> extractions {};
         std::vector<std::u8string> asked_repositories {};
         bool last_write_files { false };
         extracted_sides result {};
         std::optional<std::string> difftool {};
+        // 비어 있으면 저장소에 묻지 못한 것이다. 길이로 짐작하는 예전 길로 간다.
+        std::optional<std::string> tree {};
+        int empty_tree_queries { 0 };
     };
 
     class fake_launcher final : public diff_tool_launcher
@@ -326,6 +335,50 @@ TEST_CASE("without a table entry diff.tool is handed to git difftool", "[diff][e
         CHECK(opener.open(request).status == external_open_status::launched_difftool);
         const std::vector<std::u8string> expected { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt", u8"abc123^", u8"abc123", u8"--", u8"bin/data.bin" };
         CHECK(launcher.requests.front().arguments == expected);
+    }
+
+    SECTION("an added file in a commit compares with the empty tree so a root commit opens too")
+    {
+        // 루트 커밋에는 `sha^`가 없다. 빈 트리와 비교하면 부모가 있든 없든 같은 결과다.
+        request.plan.view = diff_view::commit;
+        request.plan.status = 'A';
+        request.plan.old_path.clear();
+        request.plan.sha = "0123456789abcdef0123456789abcdef01234567";
+        CHECK(opener.open(request).status == external_open_status::launched_difftool);
+        const std::vector<std::u8string> sha1 { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt", u8"4b825dc642cb6eb9a060e54bf8d69288fbee4904", u8"0123456789abcdef0123456789abcdef01234567", u8"--", u8"bin/data.bin" };
+        CHECK(launcher.requests.back().arguments == sha1);
+
+        // SHA-256 저장소의 빈 트리는 다른 해시다. 전체 해시의 길이로 가른다.
+        request.plan.sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        CHECK(opener.open(request).status == external_open_status::launched_difftool);
+        const std::vector<std::u8string> sha256 { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt", u8"6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321", u8"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", u8"--", u8"bin/data.bin" };
+        CHECK(launcher.requests.back().arguments == sha256);
+
+        // 줄인 해시는 객체 형식을 알 수 없어 예전처럼 부모와 비교한다.
+        request.plan.sha = "abc123";
+        CHECK(opener.open(request).status == external_open_status::launched_difftool);
+        const std::vector<std::u8string> short_sha { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt", u8"abc123^", u8"abc123", u8"--", u8"bin/data.bin" };
+        CHECK(launcher.requests.back().arguments == short_sha);
+    }
+
+    SECTION("the repository's own empty tree also opens a root commit given by a short hash")
+    {
+        request.plan.view = diff_view::commit;
+        request.plan.status = 'A';
+        request.plan.old_path.clear();
+        request.plan.sha = "abc123";
+        gateway.tree = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
+        CHECK(opener.open(request).status == external_open_status::launched_difftool);
+        CHECK(gateway.empty_tree_queries == 1);
+        const std::vector<std::u8string> expected { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt", u8"6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321", u8"abc123", u8"--", u8"bin/data.bin" };
+        CHECK(launcher.requests.back().arguments == expected);
+    }
+
+    SECTION("a modified file does not ask for the empty tree")
+    {
+        request.plan.view = diff_view::commit;
+        CHECK(opener.open(request).status == external_open_status::launched_difftool);
+        CHECK(gateway.empty_tree_queries == 0);
     }
 
     SECTION("range")

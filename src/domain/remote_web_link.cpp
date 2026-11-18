@@ -65,7 +65,8 @@ namespace cyella {
         remote_web_link make_link(const std::string& base, const std::string& path, const web_link_service service, std::string host, const std::string_view icon)
         {
             remote_web_link link {};
-            link.url = without_trailing_slashes(base) + "/" + path;
+            // 경로는 퍼센트 해제한 값이다. 브라우저에 넘길 주소이므로 다시 인코딩한다.
+            link.url = without_trailing_slashes(base) + "/" + encode_url_path(path);
             link.service = service;
             link.host = std::move(host);
             link.icon = std::string { trim(icon).empty() ? default_web_link_icon(service) : trim(icon) };
@@ -142,12 +143,19 @@ namespace cyella {
         // ssh.github.com:443은 github.com의 ssh 우회 주소다 (`resolve_hosting_repository`와 같은 규칙).
         const std::string bare_host { location->host == "ssh.github.com" ? std::string { "github.com" } : location->host };
         const bool default_port { location->port.has_value() == false || (location->scheme == "https" && *location->port == 443) || (location->scheme == "http" && *location->port == 80) };
-        const std::string port_key { web_scheme && default_port == false ? bare_host + ":" + std::to_string(*location->port) : bare_host };
+        // IPv6 호스트에 포트를 이으면 대괄호가 있어야 주소와 포트가 갈린다 (`[::1]:8080`).
+        const std::string port_key { web_scheme && default_port == false ? url_host(bare_host) + ":" + std::to_string(*location->port) : bare_host };
+        const std::string web_authority { port_key == bare_host ? url_host(bare_host) : port_key };
         // 웹 주소를 적지 않은 규칙은 원격이 http(s)면 그 출처, 아니면 https다.
-        const std::string site_origin { web_scheme ? location->scheme + "://" + port_key : "https://" + bare_host };
+        const std::string site_origin { web_scheme ? location->scheme + "://" + web_authority : "https://" + web_authority };
+        // 검사는 `host:443`·`host:80` 행도 받는다. 기본 포트를 적은 것이므로 포트 없는 행과 같은 뜻으로 찾는다.
+        const std::string default_port_key { bare_host + (location->scheme == "http" ? ":80" : ":443") };
 
-        for (const std::string& key : { port_key, bare_host })
+        for (const std::string& key : { port_key, bare_host, default_port_key })
         {
+            // 기본 포트를 적은 행은 원격도 기본 포트일 때만 포트 없는 행과 같다. `host:8443` 원격이 `host:443` 행을 잡지 않게 한다.
+            if (key == default_port_key && port_key != bare_host)
+                continue;
             const auto found { std::ranges::find_if(links, [&key](const web_link_setting& setting) { return normalize_hosting_host(setting.host) == key; }) };
             if (found == links.end())
                 continue;
@@ -195,5 +203,20 @@ namespace cyella {
         if (rest.empty() || rest.front() == '/' || std::ranges::any_of(base, [](const char value) { return std::isspace(static_cast<unsigned char>(value)) != 0; }))
             return tr_narrow(u8"web_link.base_unreadable");
         return std::nullopt;
+    }
+
+    bool is_safe_web_url(const std::string_view url) noexcept
+    {
+        std::size_t authority { 0 };
+        if (url.starts_with("https://"))
+            authority = 8;
+        else if (url.starts_with("http://"))
+            authority = 7;
+        else
+            return false;
+        if (url.size() >= 4096 || authority >= url.size() || url[authority] == '/' || url[authority] == '?' || url[authority] == '#')
+            return false;
+        constexpr std::string_view unsafe { "\"\\<>^`|" };
+        return std::ranges::none_of(url, [unsafe](const char value) { return static_cast<unsigned char>(value) < 0x20 || value == 0x7f || value == ' ' || unsafe.find(value) != std::string_view::npos; });
     }
 } // namespace cyella

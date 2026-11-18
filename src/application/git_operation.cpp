@@ -4,6 +4,10 @@
 
 namespace cyella {
     namespace {
+        // 요청 타입에 기대야 그 분기가 실제로 쓰일 때만 static_assert가 실패한다.
+        template<typename>
+        constexpr bool unmapped_request { false };
+
         template<typename request_type>
         constexpr operation_kind fixed_kind_of() noexcept
         {
@@ -134,7 +138,8 @@ namespace cyella {
             else if constexpr (std::is_same_v<request_type, create_ssh_repository_request>)
                 return operation_kind::create_ssh_repository;
             else
-                return operation_kind::refresh;
+                // 새 요청 타입을 빠뜨리면 조용히 refresh로 돌지 않고 컴파일이 멈춘다.
+                static_assert(unmapped_request<request_type>, "fixed_kind_of: request type has no operation_kind");
         }
     } // namespace
 
@@ -200,6 +205,12 @@ namespace cyella {
             return trust_of(*tags);
         if (const auto* const create { std::get_if<create_ssh_repository_request>(&operation) })
             return trust_of(*create);
+        if (const auto* const tag { std::get_if<push_tag_request>(&operation) })
+            return trust_of(*tag);
+        if (const auto* const tags { std::get_if<push_tags_request>(&operation) })
+            return trust_of(*tags);
+        if (const auto* const remote_tag { std::get_if<delete_remote_tag_request>(&operation) })
+            return trust_of(*remote_tag);
         return nullptr;
     }
 } // namespace cyella

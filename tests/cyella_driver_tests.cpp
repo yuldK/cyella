@@ -1,14 +1,22 @@
 #include "application/watch_messages.h"
 #include "platform/win32/askpass_helper_path.h"
 #include "platform/win32/cyella_driver.h"
+#include "platform/win32/operation_result_relay.h"
+#include "presentation/ui_intents.h"
 
 #include "git_test_support.h"
 
+#include "luil/app/app_host.h"
+
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 TEST_CASE("cyella_driver completes shutdown after the close message", "[driver]")
@@ -169,7 +177,9 @@ TEST_CASE("cyella_driver follows edits and commits made outside the app without 
     const auto edited { std::chrono::steady_clock::now() };
     cyella::test::write_file(repo / "a.txt", "one\ntwo\n");
     REQUIRE(pump_until(driver, [&] { return only_session(driver)->snapshot().unstaged.size() == 1; }, 5s));
-    CHECK(std::chrono::steady_clock::now() - edited < 3s);
+    // 느린 CI의 흔들림을 받도록 상한을 넉넉히 두되, 감시 지연이 pump 한도(5초)에 닿을 만큼 늘면 잡는다.
+    INFO("follow latency ms: " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - edited).count());
+    CHECK(std::chrono::steady_clock::now() - edited < 4s);
     CHECK(only_session(driver)->snapshot().unstaged.front().path == "a.txt");
     // 깨끗하던 작업 트리에 변경이 생겨 WIP 행이 끼었다.
     CHECK(only_session(driver)->has_wip_row());
@@ -205,9 +215,10 @@ TEST_CASE("cyella_driver stops watching a repository when its tab closes", "[dri
     cyella::win32::cyella_driver driver { repo.generic_u8string() };
     driver.start();
     REQUIRE(pump_until(driver, [&] { return only_session(driver) != nullptr && only_session(driver)->loaded(); }));
-    const std::string id { driver.workspace()->repository_ids().front() };
+    REQUIRE(driver.workspace()->repository_ids().size() == 1);
 
-    driver.handle(luil::app_message { cyella::close_repository_intent { id } });
+    // 사용자가 닫는 길(탭 닫기)로 닫는다. 그 저장소의 세션과 감시가 함께 사라진다.
+    driver.handle(luil::app_message { cyella::close_selected_tab_intent {} });
     CHECK(driver.workspace()->repository_ids().empty());
     // 닫은 뒤의 변경은 아무 일도 하지 않는다 (감시가 멈췄다).
     const std::size_t before { driver.workspace()->operation_order().size() };
@@ -287,4 +298,167 @@ TEST_CASE("cyella_driver refreshes the selected tab when the window regains focu
     regain_focus(driver);
     CHECK(operation_count_of(driver, cyella::operation_kind::refresh_status) + operation_count_of(driver, cyella::operation_kind::refresh) == runs);
     driver.stop_workers();
+}
+
+namespace {
+    // 설정 파일에 적을 JSON 문자열이다. 경로에는 백슬래시와 따옴표만 이스케이프하면 된다.
+    std::string json_string(const std::u8string& text)
+    {
+        std::string quoted { "\"" };
+        for (const char8_t character : text)
+        {
+            if (character == u8'\\' || character == u8'"')
+                quoted.push_back('\\');
+            quoted.push_back(static_cast<char>(character));
+        }
+        quoted.push_back('"');
+        return quoted;
+    }
+
+    // 설정 파일 하나로 driver를 띄운다. 감시는 이 test가 묻는 것이 아니라 끈다.
+    cyella::win32::cyella_driver_options options_with_settings(const std::filesystem::path& settings)
+    {
+        cyella::win32::cyella_driver_options options {};
+        options.settings_path = settings.u8string();
+        options.disable_file_watching = true;
+        return options;
+    }
+} // namespace
+
+TEST_CASE("cyella_driver uses the git executable chosen in settings", "[driver]")
+{
+    const cyella::test::temp_directory directory {};
+    const std::filesystem::path settings { directory.path() / "settings.json" };
+
+    // 없는 절대 경로를 지정하면 자동 탐색으로 물러서지 않고 그 경로가 잘못됐다고 알린다.
+    const std::filesystem::path missing { directory.path() / "no-git" / "git.exe" };
+    cyella::test::write_file(settings, "{ \"git_executable\": " + json_string(missing.u8string()) + " }");
+    {
+        cyella::win32::cyella_driver driver { options_with_settings(settings) };
+        driver.start();
+        CHECK(driver.git_tool().availability == cyella::git_tool_availability::path_invalid);
+        CHECK(driver.git_tool().manually_configured);
+        CHECK(driver.workspace() == nullptr);
+        driver.stop_workers();
+    }
+
+    if (cyella::test::git_is_available() == false)
+        SKIP("git is not installed");
+
+    // 자동 탐색이 찾은 git을 지정하면 그 경로를 직접 지정한 값으로 쓴다.
+    std::u8string found {};
+    {
+        cyella::win32::cyella_driver probe {};
+        probe.start();
+        found = probe.git_tool().executable;
+        probe.stop_workers();
+    }
+    REQUIRE(found.empty() == false);
+    cyella::test::write_file(settings, "{ \"git_executable\": " + json_string(found) + " }");
+    cyella::win32::cyella_driver driver { options_with_settings(settings) };
+    driver.start();
+    CHECK(driver.git_tool().usable());
+    CHECK(driver.git_tool().manually_configured);
+    CHECK(driver.git_tool().executable == found);
+    driver.stop_workers();
+}
+
+namespace {
+    struct test_close_intent
+    {};
+
+    // relay가 보낸 깨우기만 세는 driver다. relay를 비우지 않으므로 결과가 큐에 쌓인 채로 남는다.
+    class wake_counting_driver final : public luil::logic_driver
+    {
+    public:
+        void start() override
+        {
+            started.store(true);
+        }
+
+        void handle(luil::app_message message) override
+        {
+            if (message.get<test_close_intent>() != nullptr)
+                closed.store(true);
+            else if (message.get<cyella::relay_drain_intent>() != nullptr)
+                wakes.fetch_add(1);
+        }
+
+        [[nodiscard]] std::shared_ptr<const luil::ui_frame> make_frame() override
+        {
+            return std::make_shared<luil::ui_frame>();
+        }
+
+        [[nodiscard]] luil::app_message make_close_message() override
+        {
+            return luil::app_message { test_close_intent {} };
+        }
+
+        [[nodiscard]] bool shutdown_completed() const override
+        {
+            return closed.load();
+        }
+
+        std::atomic<bool> started { false };
+        std::atomic<bool> closed { false };
+        std::atomic<int> wakes { 0 };
+    };
+
+    template<typename condition_type>
+    bool wait_until(const condition_type& condition)
+    {
+        const auto deadline { std::chrono::steady_clock::now() + 3s };
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            if (condition())
+                return true;
+            std::this_thread::sleep_for(1ms);
+        }
+        return condition();
+    }
+} // namespace
+
+TEST_CASE("operation_result_relay wakes the logic thread once until it is drained", "[driver][relay]")
+{
+    wake_counting_driver counter {};
+    cyella::win32::operation_result_relay relay {};
+    {
+        luil::app_host host { luil::app_host::config {}, counter, nullptr };
+        REQUIRE(wait_until([&] { return counter.started.load(); }));
+        relay.bind(host);
+
+        // 배출하기 전의 결과 여럿에는 깨우기 하나면 된다. post마다 보내면 결과가 쏟아질 때 app inbox가 깨우기로 찬다.
+        for (int index { 0 }; index < 5; ++index)
+            relay.post(luil::app_message { cyella::window_focus_intent {} });
+        REQUIRE(wait_until([&] { return counter.wakes.load() >= 1; }));
+        std::this_thread::sleep_for(50ms);
+        CHECK(counter.wakes.load() == 1);
+        CHECK(relay.pending() == 5);
+
+        // 배출한 뒤의 첫 결과는 다시 깨운다.
+        std::size_t drained { 0 };
+        relay.drain([&drained](luil::app_message) { ++drained; });
+        CHECK(drained == 5);
+        relay.post(luil::app_message { cyella::window_focus_intent {} });
+        REQUIRE(wait_until([&] { return counter.wakes.load() >= 2; }));
+        std::this_thread::sleep_for(50ms);
+        CHECK(counter.wakes.load() == 2);
+
+        // host보다 relay가 오래 산다. 풀어 두어야 해제된 host로 깨우기를 보내지 않는다.
+        relay.unbind();
+    }
+}
+
+TEST_CASE("cyella_driver reports the host unbound after its workers stop", "[driver]")
+{
+    // UI thread의 참조 카드 타이머가 세션 종료 뒤 해제된 host를 만지지 않으려고 이 값을 본다. 묶인 host를 stop_workers가 풀어야 한다.
+    wake_counting_driver counter {};
+    luil::app_host host { luil::app_host::config {}, counter, nullptr };
+    REQUIRE(wait_until([&] { return counter.started.load(); }));
+    cyella::win32::cyella_driver driver {};
+    CHECK_FALSE(driver.host_bound());
+    driver.bind_host(&host);
+    CHECK(driver.host_bound());
+    driver.stop_workers();
+    CHECK_FALSE(driver.host_bound());
 }

@@ -3,6 +3,7 @@
 #include "domain/text_catalog.h"
 
 #include <filesystem>
+#include <optional>
 #include <system_error>
 
 namespace cyella {
@@ -12,9 +13,41 @@ namespace cyella {
             return std::u8string { text.begin(), text.end() };
         }
 
+        bool is_full_object_id(const std::string& sha)
+        {
+            if (sha.size() != 40 && sha.size() != 64)
+                return false;
+            for (const char letter : sha)
+            {
+                if ((letter >= '0' && letter <= '9') == false && (letter >= 'a' && letter <= 'f') == false && (letter >= 'A' && letter <= 'F') == false)
+                    return false;
+            }
+            return true;
+        }
+
+        // 커밋에서 추가된 파일의 왼쪽이다. 루트 커밋은 `sha^`를 풀 수 없어 difftool이 창 없이 실패하므로, 부모가
+        // 있든 없든 같은 결과인 빈 트리와 비교한다. 빈 트리 해시는 저장소의 객체 형식에 따르므로 저장소에 물은 값을
+        // 먼저 쓴다. 묻지 못했으면 전체 해시의 길이로 형식을 짐작하고, 줄인 해시면 예전처럼 `sha^`를 둔다.
+        std::string added_file_base(const std::string& sha, const std::optional<std::string>& empty_tree)
+        {
+            if (empty_tree.has_value())
+                return *empty_tree;
+            if (is_full_object_id(sha) == false)
+                return sha + "^";
+            if (sha.size() == 64)
+                return "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
+            return "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+        }
+
+        // 커밋에서 추가된 파일인가다. 추가 판단은 resolve_diff_sides와 같다.
+        bool added_in_commit(const diff_side_plan& plan) noexcept
+        {
+            return plan.view == diff_view::commit && (plan.status == 'A' || plan.old_path.empty());
+        }
+
         // `git difftool`이 보기에 맞는 비교를 하게 하는 인자다. git은 index와 작업 트리, HEAD와 index, 두 커밋을
         // 이 인자로 가른다.
-        std::vector<std::u8string> difftool_arguments(const diff_side_plan& plan)
+        std::vector<std::u8string> difftool_arguments(const diff_side_plan& plan, const std::optional<std::string>& empty_tree)
         {
             std::vector<std::u8string> arguments { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt" };
             switch (plan.view)
@@ -25,7 +58,8 @@ namespace cyella {
                 arguments.emplace_back(u8"--cached");
                 break;
             case diff_view::commit:
-                arguments.push_back(to_u8(plan.sha + "^"));
+                // 추가 판단은 resolve_diff_sides와 같다.
+                arguments.push_back(to_u8(added_in_commit(plan) ? added_file_base(plan.sha, empty_tree) : plan.sha + "^"));
                 arguments.push_back(to_u8(plan.sha));
                 break;
             case diff_view::range:
@@ -122,7 +156,9 @@ namespace cyella {
         // 추적하지 않는 파일은 git difftool이 비교하지 못한다.
         if (plan.untracked == false && gateway_.configured_diff_tool(plan.repository_path).has_value() && request.git_executable.empty() == false)
         {
-            const tool_launch_result launched { launcher_.launch({ request.git_executable, difftool_arguments(plan), plan.repository_path }) };
+            // 빈 트리는 저장소에 물어야 줄인 해시로 온 루트 커밋도 맞게 연다. 추가된 파일일 때만 git을 한 번 더 부른다.
+            const std::optional<std::string> empty_tree { added_in_commit(plan) ? gateway_.empty_tree(plan.repository_path) : std::optional<std::string> {} };
+            const tool_launch_result launched { launcher_.launch({ request.git_executable, difftool_arguments(plan, empty_tree), plan.repository_path }) };
             if (launched.launched == false)
                 return { external_open_status::launch_failed, request.git_executable, launched.error };
             return { external_open_status::launched_difftool, request.git_executable, {} };

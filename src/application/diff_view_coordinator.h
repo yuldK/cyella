@@ -85,6 +85,7 @@ namespace cyella {
 
         // frame마다 부른다. 웹뷰가 보여야 할 diff(`wanted`)와 그 저장소 세션이 마지막으로 읽은 diff(`loaded`)를 맞춘다.
         //  - `loaded`가 `wanted`의 요청과 같으면 보인다. 같은 요청을 다시 읽어 왔으면(`serial`이 올랐으면) 다시 보인다.
+        //  - 적용 뒤 요청을 고쳐 다시 읽었으면(추적하게 된 파일) 같은 대상인 동안 그 요청의 `loaded`도 보인다.
         //  - 아직 읽는 중이면 낡은 내용을 지워 둔다 (stage 단추가 엉뚱한 파일에 걸리지 않게).
         //  - `wanted`가 없으면 비운다.
         void sync(const std::optional<diff_target>& wanted, const file_diff* loaded, std::uint64_t serial);
@@ -102,6 +103,8 @@ namespace cyella {
         void open_file_app(external_file_app app);
         // 보이는 diff와 관계없이 폴더(저장소 루트)를 앱으로 연다. 결과 안내는 파일 열기와 같은 길로 온다.
         void open_folder_app(external_file_app app, std::u8string folder);
+        // 보이는 diff와 관계없이 주어진 두 쪽 계획을 외부 diff 도구로 연다(작업 영역 파일 메뉴). 결과 안내는 같은 길로 온다.
+        void open_external(diff_side_plan plan);
         // operation이 끝났다. 패치 적용이나 그 뒤의 diff 다시 읽기면 이어서 처리한다.
         void on_operation_finished(operation_id id, const operation_finished& finished);
 
@@ -135,8 +138,16 @@ namespace cyella {
         std::optional<diff_target> shown_target_ {};
         std::uint64_t shown_serial_ { 0 };
         operation_id pending_apply_ { 0 };
+        // 진행 중인 적용이 index에 더하는 stage다 (`--cached`이고 `-R`이 아니다). 추적하지 않던 파일이 추적되는지 가른다.
+        bool applied_to_index_ { false };
         operation_id pending_reload_ { 0 };
+        // 적용 뒤 `shown_target_`의 요청과 다르게 고쳐 낸 다시 읽기 요청이다. 화면이 원하는 요청은 다음 상태 snapshot이 와야
+        // 따라오므로, 그 사이에 온 이 요청의 diff도 보여 단추 잠금을 푼다. 대상이 바뀌면 비운다.
+        std::optional<diff_file_request> reload_request_ {};
         std::shared_ptr<process_cancellation_source> sides_source_ {};
+        // 마지막으로 꺼낸 이미지 미리보기의 두 쪽이다. 다음 미리보기를 준비하는 job이 먼저 그 폴더를 놓아주어 세션 동안
+        // 임시 파일이 쌓이지 않게 한다. diff-view lane의 job만 차례로 만지므로 잠그지 않는다.
+        std::shared_ptr<extracted_sides> preview_sides_ { std::make_shared<extracted_sides>() };
         std::shared_ptr<process_cancellation_source> external_source_ {};
         std::vector<diff_notice> notices_ {};
     };

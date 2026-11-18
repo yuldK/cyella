@@ -125,5 +125,20 @@ namespace cyella {
 
         // `git config diff.tool`이다. 설정이 없으면 값이 없다.
         [[nodiscard]] virtual std::optional<std::string> configured_diff_tool(std::u8string_view repository_path) = 0;
+
+        // 이 저장소 객체 형식(SHA-1·SHA-256)의 빈 트리 해시다(`git hash-object -t tree --stdin`에 빈 입력). 줄인 커밋 해시로는
+        // 형식을 짐작할 수 없어 저장소에 묻는다. 묻지 못했거나 모르는 구현이면 값이 없다.
+        [[nodiscard]] virtual std::optional<std::string> empty_tree(std::u8string_view repository_path)
+        {
+            static_cast<void>(repository_path);
+            return std::nullopt;
+        }
+
+        // `extract`가 꺼낸 작업 폴더를 지운다. 이미지 미리보기처럼 다음 미리보기가 오면 쓸모가 없는 사본에만 부른다.
+        // 외부 도구에 넘긴 사본은 도구가 앱보다 오래 열어 둘 수 있으므로 부르지 않는다. 모르는 구현은 아무것도 하지 않는다.
+        virtual void release(const extracted_sides& sides) noexcept
+        {
+            static_cast<void>(sides);
+        }
     };
 } // namespace cyella

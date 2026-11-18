@@ -1,10 +1,16 @@
 [CmdletBinding()]
 param(
-    [string]$root = (Join-Path $PSScriptRoot '..')
+    [string]$root
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Windows PowerShell 5.1은 [CmdletBinding()]이 붙은 스크립트의 param 기본값에서 $PSScriptRoot가 비어 있어
+# (Join-Path가 빈 문자열을 거부한다) 인자 없이 부르면 실패한다. 기본값은 본문에서 채운다.
+if ([string]::IsNullOrEmpty($root)) {
+    $root = Join-Path $PSScriptRoot '..'
+}
 
 $resolved_root = (Resolve-Path -LiteralPath $root).Path
 $utf8 = [System.Text.UTF8Encoding]::new($false, $true)
@@ -45,6 +51,10 @@ function Add-MultilineBraceClosureErrors {
             }
             elseif ($state -eq 'escape') {
                 $state = $escaped_state
+            }
+            elseif ($state -eq 'character') {
+                # 문자 리터럴은 줄을 넘지 않는다. 짝 없는 '가 뒤의 모든 중괄호를 삼키지 않게 줄 끝에서 푼다.
+                $state = 'code'
             }
             continue
         }
@@ -122,6 +132,20 @@ function Add-MultilineBraceClosureErrors {
             continue
         }
         if ($character -eq "'") {
+            # 1'000'000처럼 숫자 사이의 '는 구분자지 문자 리터럴의 시작이 아니다. 앞뒤가 16진 숫자이고
+            # 그 낱말이 숫자로 시작할 때만 구분자로 본다. u8'a' 같은 접두 문자 리터럴은 낱말이 숫자로
+            # 시작하지 않아 문자 리터럴로 남는다.
+            if ($index -gt 0 -and $index + 1 -lt $text.Length -and
+                $text[$index - 1] -match '[0-9A-Fa-f]' -and
+                $text[$index + 1] -match '[0-9A-Fa-f]') {
+                $token_start = $index - 1
+                while ($token_start -gt 0 -and $text[$token_start - 1] -match "[0-9A-Za-z_.']") {
+                    $token_start--
+                }
+                if ($text[$token_start] -match '[0-9]') {
+                    continue
+                }
+            }
             $state = 'character'
             continue
         }
@@ -142,6 +166,21 @@ function Add-MultilineBraceClosureErrors {
     }
 }
 
+# [System.IO.Path]::GetRelativePath는 .NET Core 2.0 이상에만 있다. PowerShell 7을 깔지 않은 PC는
+# Windows PowerShell 5.1(.NET Framework)이 돌려 "메서드가 없다"며 검사가 서식과 무관하게 멈춘다.
+# 검사 대상은 모두 root 아래에서 열거한 파일이라 root 길이만큼 앞을 자르면 같은 값이 나온다.
+function Get-RelativePathUnderRoot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$root,
+
+        [Parameter(Mandatory)]
+        [string]$path
+    )
+
+    return $path.Substring($root.TrimEnd([char[]]'\/').Length + 1)
+}
+
 function Get-RelativeKey {
     param(
         [Parameter(Mandatory)]
@@ -151,7 +190,7 @@ function Get-RelativeKey {
         [string]$path
     )
 
-    return ([System.IO.Path]::GetRelativePath($root, $path)) -replace '\\', '/'
+    return (Get-RelativePathUnderRoot -root $root -path $path) -replace '\\', '/'
 }
 
 # git이 무시하라고 한 파일을 골라낸다.
@@ -165,6 +204,9 @@ function Get-RelativeKey {
 #  - 경로는 인자로 넘긴다. `--stdin`은 PowerShell이 줄 끝에 붙이는 CR가 경로의
 #    일부가 되어 아무것도 맞히지 못한다. 명령줄 길이 때문에 batch로 나눈다.
 #  - git이 없거나 작업 트리가 아니면 아무것도 빼지 않는다.
+#  - Windows PowerShell 5.1은 $ErrorActionPreference가 Stop이면 네이티브 명령이 stderr에 한 줄만
+#    써도 2>$null로 돌려 보낸 것까지 종료 오류로 올린다(작업 트리가 아닌 root의 rev-parse가 그 예다).
+#    함수 안의 대입은 이 함수에만 걸리므로 여기서만 낮춘다.
 function Get-IgnoredKeys {
     param(
         [Parameter(Mandatory)]
@@ -175,6 +217,7 @@ function Get-IgnoredKeys {
         [string[]]$keys
     )
 
+    $ErrorActionPreference = 'Continue'
     $ignored = [System.Collections.Generic.HashSet[string]]::new()
     if ($keys.Count -eq 0 -or $null -eq (Get-Command git -ErrorAction Ignore)) {
         return ,$ignored
@@ -198,7 +241,7 @@ function Get-IgnoredKeys {
 }
 
 $candidates = @(Get-ChildItem -LiteralPath $resolved_root -Recurse -File | Where-Object {
-    $relative = [System.IO.Path]::GetRelativePath($resolved_root, $_.FullName)
+    $relative = Get-RelativePathUnderRoot -root $resolved_root -path $_.FullName
     $segments = $relative -split '[\\/]'
     $is_excluded = $false
     foreach ($directory in $excluded_directories) {
@@ -218,7 +261,7 @@ $ignored_keys = Get-IgnoredKeys -root $resolved_root -keys @($candidates | ForEa
 $files = @($candidates | Where-Object { -not $ignored_keys.Contains((Get-RelativeKey -root $resolved_root -path $_.FullName)) })
 
 foreach ($file in $files) {
-    $relative = [System.IO.Path]::GetRelativePath($resolved_root, $file.FullName)
+    $relative = Get-RelativePathUnderRoot -root $resolved_root -path $file.FullName
     $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and
         $bytes[2] -eq 0xBF) {

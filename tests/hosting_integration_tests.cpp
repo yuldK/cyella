@@ -492,6 +492,16 @@ TEST_CASE("integration: publishing creates an empty repository on a fake GitHub 
         const auto again { service.create_repository(context, { .name = "new-app" }, {}) };
         CHECK(again.error.kind == hosting_error_kind::rejected);
         CHECK(again.error.message.empty() == false);
+        // 따옴표·`&`가 든 이름은 실제 서버처럼 422로 거절한다. 가짜 서버가 받아 주면 그 이름이 시험 서버의 명령까지 흘러간다.
+        CHECK(service.create_repository(context, { .name = "bad\"name&x" }, {}).error.kind == hosting_error_kind::rejected);
+        // GitLab은 경로 꼴이 아닌 표시 이름을 받고 경로를 스스로 만든다. 앱은 이때 `path`를 빼고 보낸다.
+        if (github == false)
+        {
+            const auto spaced { service.create_repository(context, { .name = "My Project" }, {}) };
+            INFO(spaced.error.message);
+            REQUIRE(spaced.ok());
+            CHECK(spaced.value->full_name == "octocat/my-project");
+        }
         // 요청 본문에 첫 커밋을 만드는 값이 없다 (push가 non-fast-forward로 막히지 않게).
         for (const fake_recorded_request& request : live.api->requests())
         {

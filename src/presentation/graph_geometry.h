@@ -96,6 +96,7 @@ namespace cyella {
     [[nodiscard]] ref_label_map build_ref_label_map(const std::vector<ref>& refs, const repository_summary& summary);
 
     // 그래프 목록의 항목 키다. 40자 SHA는 MSVC 짧은 문자열 최적화(15바이트)를 넘어 10만 행이면
-    // frame마다 할당이 10만 번이 된다. 앞 15자(60비트)로 줄여 모델 복사를 할당 없이 끝낸다.
+    // 모델을 지을 때 할당이 10만 번이 되고 키 비교도 힙을 거친다. 앞 15자(60비트)로 줄여 모델 구축을
+    // 할당 없이 끝내고 키 비교를 싸게 한다.
     [[nodiscard]] std::u8string graph_item_key(std::string_view sha);
 } // namespace cyella

@@ -121,13 +121,15 @@ namespace cyella {
             else
             {
                 hosting_.activate_row(session->id(), intent.path);
-                if (hosting_.has_pull_request_detail(session->id()) && intent.path.empty() == false && std::ranges::all_of(intent.path, [](const char value) { return value >= '0' && value <= '9'; }))
+                // 새로고침·더 보기·닫힌 PR 포함·로그인 행은 상세를 건드리지 않는다. 이미 열린 상세가 있어도 번호 행일 때만 서랍을 다시 연다.
+                const bool numbered { intent.path.empty() == false && std::ranges::all_of(intent.path, [](const char value) { return value >= '0' && value <= '9'; }) };
+                if (numbered && hosting_.has_pull_request_detail(session->id()))
                     if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
                     {
                         tab->diff.reset();
                         tab->detail_scroll = 0.0f;
                     }
-                if (last_mode_ != layout_mode::wide && hosting_.has_pull_request_detail(session->id()))
+                if (numbered && last_mode_ != layout_mode::wide && hosting_.has_pull_request_detail(session->id()))
                     ui_.drawer_open = true;
             }
             return;
@@ -146,10 +148,12 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::add_worktree;
         dialog.serial = ++ui_.dialog_serial;
+        // 연 저장소를 적어 두면 탭을 바꾼 뒤 누른 단추가 다른 저장소에 worktree를 만들지 않는다.
+        dialog.repository_id = selected_repository_id();
         dialog.subject = subject;
         dialog.choice = std::min<std::size_t>(mode, 2);
         if (subject.empty())
-            dialog.subject_label = summary.is_detached ? u8"HEAD (detached " + short_sha(summary.head_sha) + u8")" : u8"HEAD (" + to_u8(summary.current_branch) + u8")";
+            dialog.subject_label = summary.is_detached ? tr(u8"shell.head_detached_label", { { u8"sha", short_sha(summary.head_sha) } }) : u8"HEAD (" + to_u8(summary.current_branch) + u8")";
         else
             dialog.subject_label = commit_label(*session, subject);
         clear_form_inputs();
@@ -167,6 +171,7 @@ namespace cyella {
         dialog_state dialog {};
         dialog.kind = dialog_kind::lfs_track;
         dialog.serial = ++ui_.dialog_serial;
+        dialog.repository_id = selected_repository_id();
         clear_form_inputs();
         if (pattern.empty() == false)
             set_form_field(0, to_u8(pattern));

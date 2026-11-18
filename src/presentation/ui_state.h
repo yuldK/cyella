@@ -173,6 +173,10 @@ namespace cyella {
         std::vector<std::u8string> working_selection {};
         // Shift+클릭 범위의 기준 행 키다. 그냥 클릭과 Ctrl+클릭이 옮기고, Shift+클릭은 그대로 둔다.
         std::u8string working_anchor {};
+        // amend를 켤 때 HEAD 커밋에서 채운 제목이다. 그 커밋의 본문을 아직 읽지 못해 채우지 못했으면 `amend_body_unknown`이 참이다 —
+        // 제목을 고치지 않고 본문도 비운 채 커밋하면 빈 메시지를 내서 git이 기존 메시지를 그대로 쓰게 한다. 제목만 보내면 본문이 사라진다.
+        std::optional<std::u8string> amend_prefill {};
+        bool amend_body_unknown { false };
 
         [[nodiscard]] bool section_collapsed(const sidebar_section section) const noexcept
         {
@@ -288,6 +292,20 @@ namespace cyella {
         luil::text::text_edit_state filter {};
     };
 
+    // 참조 목록 카드를 연 때의 배치다. 이것이 바뀌면 칩이 다른 자리로 가므로 연 때의 사각형이 엉뚱한 곳을 가리킨다.
+    struct ref_list_layout
+    {
+        float width { 0.0f };
+        float height { 0.0f };
+        float scale { 0.0f };
+        float sidebar_width { 0.0f };
+        float detail_width { 0.0f };
+        float graph_scroll { 0.0f };
+        std::uint64_t generation { 0 };
+
+        [[nodiscard]] bool operator==(const ref_list_layout&) const noexcept = default;
+    };
+
     // 열린 참조 목록 카드다. 사각형은 카드가 가리키는 "+N" 칩의 자리다 (주 창 표면 좌표, 물리 픽셀).
     struct ref_list_state
     {
@@ -297,6 +315,8 @@ namespace cyella {
         float width { 0.0f };
         float height { 0.0f };
         float scroll { 0.0f };
+        // 연 뒤 처음 그릴 때의 배치다. 칩을 누른 frame과 같은 배치이므로 그때 적고, 다르면 카드를 닫는다.
+        std::optional<ref_list_layout> layout {};
     };
 
     struct ui_state

@@ -22,8 +22,13 @@ namespace cyella {
             std::string standard_error {};
         };
 
+        // 프로세스 환경을 사용자 전역·시스템 git 설정과 지역화에서 끊고 작성자·날짜를 고정한다(GIT_CONFIG_GLOBAL=NUL 등).
+        // 자식 프로세스가 이 환경을 상속한다. 처음 한 번만 적용하고 `run_git`이 먼저 부르지만, 앱의 process runner로 git을
+        // 직접 띄우는 test는 사용자 설정(credential.username 등)에 노출되지 않도록 이것을 먼저 불러야 한다.
+        void isolate_git_environment();
+
         // 사용자 전역 설정과 지역화를 끊은 환경으로 git을 실행한다. 작성자·날짜가 고정되어
-        // 같은 입력에서 같은 SHA가 나온다.
+        // 같은 입력에서 같은 SHA가 나온다. 120초 안에 끝나지 않으면 git을 끝내고 `exit_code`를 -1로 돌려준다.
         git_run_result run_git(const std::filesystem::path& working_directory, const std::vector<std::u8string>& arguments, std::string_view standard_input = {});
 
         // 같은 함수의 편의 판이다. 인자는 ASCII 문자열 목록이다.

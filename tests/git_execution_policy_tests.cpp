@@ -28,10 +28,45 @@ TEST_CASE("git requests start with the common arguments", "[policy]")
 {
     const process_request request { make_request(git_command_class::local_write) };
 
-    const std::vector<std::u8string> expected { u8"-c", u8"core.quotepath=false", u8"-c", u8"gc.auto=0", u8"-c", u8"color.ui=false", u8"--no-pager", u8"status", u8"--porcelain=v2" };
+    const std::vector<std::u8string> expected { u8"-c", u8"core.quotepath=false", u8"-c", u8"gc.auto=0", u8"-c", u8"color.ui=false", u8"-c", u8"log.showSignature=false", u8"--no-pager", u8"status", u8"--porcelain=v2" };
     CHECK(request.arguments == expected);
     CHECK(request.executable == u8"C:/Git/cmd/git.exe");
     CHECK(request.working_directory == u8"C:/work/repo");
+}
+
+TEST_CASE("git requests turn off signature output so log and show records stay parseable", "[policy]")
+{
+    // 사용자가 `log.showSignature=true`를 두면 gpg 검증 문구가 `log -z --format=...` 레코드 앞에 붙는다.
+    const std::vector<std::u8string> common { git_common_arguments() };
+    const auto setting { std::find(common.begin(), common.end(), std::u8string { u8"log.showSignature=false" }) };
+    REQUIRE(setting != common.end());
+    REQUIRE(setting != common.begin());
+    CHECK(*(setting - 1) == u8"-c");
+}
+
+TEST_CASE("git requests remove inherited variables that point git at another repository", "[policy]")
+{
+    // hook 안에서 앱을 띄우면 부모의 `GIT_DIR` 등이 남아 열린 저장소가 아니라 그 저장소를 바꾼다.
+    const process_request request { make_request(git_command_class::local_write) };
+
+    for (const std::u8string_view name : { u8"GIT_DIR", u8"GIT_WORK_TREE", u8"GIT_INDEX_FILE", u8"GIT_OBJECT_DIRECTORY", u8"GIT_ALTERNATE_OBJECT_DIRECTORIES", u8"GIT_COMMON_DIR", u8"GIT_NAMESPACE" })
+    {
+        const process_environment_override* const entry { find_override(request.environment_overrides, name) };
+        REQUIRE(entry != nullptr);
+        CHECK_FALSE(entry->value.has_value());
+    }
+    // 설정 주입 변수는 저장소를 바꾸지 않으므로 사용자 환경대로 둔다.
+    CHECK(find_override(request.environment_overrides, u8"GIT_CONFIG_COUNT") == nullptr);
+    CHECK(validate_process_request(request).empty());
+
+    // 요청이 같은 이름을 주면 지우는 대신 그 값을 쓴다.
+    git_request_options options {};
+    options.environment.push_back({ u8"GIT_INDEX_FILE", std::u8string { u8"C:/work/repo/.git/index.tmp" } });
+    const process_request custom { make_request(git_command_class::local_write, options) };
+    const process_environment_override* const index { find_override(custom.environment_overrides, u8"GIT_INDEX_FILE") };
+    REQUIRE(index != nullptr);
+    CHECK(index->value == std::optional<std::u8string> { u8"C:/work/repo/.git/index.tmp" });
+    CHECK(validate_process_request(custom).empty());
 }
 
 TEST_CASE("git read queries skip optional locks so they can run beside writes", "[policy][lanes]")

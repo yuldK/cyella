@@ -196,6 +196,8 @@ namespace cyella {
         create.ssh_executable = options.ssh_executable;
         create.working_directory = context.job().repository_path.empty() ? parent_directory(options.ssh_executable) : context.job().repository_path;
         create.target = *target;
+        // ssh를 바로 부르므로 저장소의 `core.sshCommand`가 읽히지 않는다. 프로필 키를 요청이 실어 와 같은 키로 들어간다.
+        create.identity_file = request.identity_file;
         if (request.ssh_command_override.has_value())
             create.known_hosts_path = std::filesystem::path { request.ssh_command_override->known_hosts_path };
         create.askpass_helper = options.askpass_helper;

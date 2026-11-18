@@ -67,11 +67,13 @@ namespace cyella {
         [[nodiscard]] std::vector<std::string> repository_ids() const;
 
         // 저장소 operation을 낸다. 저장소가 없거나 저장소 준비 작업이면 0이다. load_more_log는 첫 쪽 전,
-        // 다른 쪽을 읽는 중, 이력 끝에 닿은 뒤에도 0이다.
+        // 다른 쪽을 읽는 중, 이력 끝에 닿은 뒤에도 0이다. refresh_status는 첫 snapshot 전과 전체 refresh가
+        // 도는 중에 0이고, 마지막 전체 refresh가 실패·취소로 끝나 화면이 낡았으면 전체 refresh로 올려 낸다.
         operation_id submit(const std::string& repository_id, git_operation operation, bool automatic = false);
         // clone·init·inspect_path를 낸다. 대상 경로로 묶이며 저장소 id가 없다.
         operation_id submit_setup(git_operation operation);
-        // 대기·실행 중이면 취소를 걸고 true다. 충돌 대기(needs_input)는 취소할 수 없다.
+        // 대기·실행 중이면 취소를 걸고 true다. 충돌 대기(needs_input)는 취소할 수 없다. `operation_order()`를
+        // 도는 중에 불러도 그 순서를 바꾸지 않는다 (끝난 기록의 정리는 다음 종료 때 한다).
         bool cancel(operation_id id);
 
         // 인증 대화 상자의 답이다. `prompt_id`는 `operation_status::needs_input->prompt_id`다. 지금 보이는
@@ -135,6 +137,9 @@ namespace cyella {
             std::deque<pending_prompt> prompts {};
             // 사용자가 질문을 답 없이 닫았다. job과 공유해 실행기가 `auth_cancelled`를 고른다.
             std::shared_ptr<std::atomic<bool>> prompt_cancelled {};
+            // worker가 job을 집어 들었다. `operation_started` 사건이 오기 전에도 취소가 이 값을 보고
+            // 바로 끝내지 않고 job의 끝 사건을 기다린다 (git이 이미 일부를 바꿨을 수 있다).
+            std::shared_ptr<std::atomic<bool>> started {};
         };
 
         operation_id dispatch(operation_record record, git_operation_job job, std::string lane_key);
@@ -143,7 +148,8 @@ namespace cyella {
         void show_front_prompt(operation_record& record);
         // 대기 질문 전부를 취소로 답하고 서버에도 이 operation을 풀라고 알린다.
         void release_prompts(operation_record& record);
-        void finish(operation_record& record, const operation_finished& finished);
+        // `trim`이 false면 끝난 기록을 정리하지 않는다. `cancel`은 작업 로그를 도는 호출자가 부르므로 순서를 바꾸지 않는다.
+        void finish(operation_record& record, const operation_finished& finished, bool trim = true);
         void follow_up(const operation_record& record);
         void trim_history();
 
@@ -157,6 +163,9 @@ namespace cyella {
         std::deque<operation_id> order_ {};
         // 저장소마다 마지막으로 낸 쓰기다. 다음 쓰기의 `queued_behind`가 된다.
         std::unordered_map<std::string, operation_id> last_write_ {};
+        // 저장소마다 status 새로 고침을 전체 refresh로 올렸을 때 화면에 있던 generation이다. 그 뒤 성공한 refresh가 없으면
+        // 다시 올리지 않는다. 계속 실패하는 저장소에서 watcher 사건마다 전체 refresh가 되풀이되지 않게 한다.
+        std::unordered_map<std::string, std::uint64_t> escalated_from_ {};
         std::map<std::u8string, path_inspected> inspections_ {};
         std::map<operation_id, ssh_connection_classification> ssh_tests_ {};
         std::map<operation_id, rebase_plan> rebase_plans_ {};

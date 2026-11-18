@@ -16,10 +16,22 @@ namespace cyella {
         // 초성 순서대로 호환 자모의 코드 포인트다.
         constexpr std::u32string_view choseong_jamo { U"ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ" };
 
+        // 받침(종성) 번호마다, 모음이 이어질 때 다음 글자의 초성으로 옮겨 가는 호환 자모다. 홀받침은 통째로, 겹받침(ㄺ ㄵ …)은
+        // 뒤 자음만 옮겨 간다. 0번은 받침 없음이다.
+        constexpr std::array<char32_t, final_count> final_moved_initial {
+            0, U'ㄱ', U'ㄲ', U'ㅅ', U'ㄴ', U'ㅈ', U'ㅎ', U'ㄷ', U'ㄹ', U'ㄱ', U'ㅁ', U'ㅂ', U'ㅅ', U'ㅌ', U'ㅍ', U'ㅎ', U'ㅁ', U'ㅂ', U'ㅅ', U'ㅅ', U'ㅆ', U'ㅇ', U'ㅈ', U'ㅊ', U'ㅋ', U'ㅌ', U'ㅍ', U'ㅎ'
+        };
+        // 같은 번호의 받침에서 자음이 옮겨 간 뒤에 앞 글자에 남는 받침 번호다. 홀받침은 남는 것이 없어 0이다.
+        constexpr std::array<char32_t, final_count> final_kept {
+            0, 0, 0, 1, 0, 4, 4, 0, 0, 8, 8, 8, 8, 8, 8, 8, 0, 0, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        };
+
         constexpr int contiguous_base { 1000 };
         constexpr int prefix_bonus { 300 };
         constexpr int boundary_bonus { 150 };
         constexpr int subsequence_base { 400 };
+        // 조합 중인 마지막 글자가 정확히 맞지 않고 느슨하게 맞았을 때 뺀다. 같은 길이의 정확한 일치가 위에 선다.
+        constexpr int composing_penalty { 10 };
         // 키워드(영문 동의어)에서 맞은 점수에서 뺀다. 제목에서 맞은 것이 늘 위에 선다.
         constexpr int keyword_penalty { 400 };
 
@@ -54,8 +66,15 @@ namespace cyella {
             return value == U' ' || value == U'\t' || value == U'\r' || value == U'\n' || value == 0x3000;
         }
 
-        // 질의 글자 하나가 글의 글자 하나와 맞는가. `last`는 질의의 마지막 글자(IME가 조합 중일 수 있다)다.
-        bool character_matches(const char32_t wanted, const char32_t actual, const bool last) noexcept
+        // 글의 `index` 다음 글자다. 끝이면 0이다.
+        char32_t char_after(const std::u32string_view text, const std::size_t index) noexcept
+        {
+            return index + 1 < text.size() ? text[index + 1] : U'\0';
+        }
+
+        // 질의 글자 하나가 글의 글자 하나와 맞는가. `last`는 질의의 마지막 글자(IME가 조합 중일 수 있다)이고 `next`는
+        // 글에서 `actual` 바로 다음 글자(없으면 0)다.
+        bool character_matches(const char32_t wanted, const char32_t actual, const bool last, const char32_t next) noexcept
         {
             if (fold(wanted) == fold(actual))
                 return true;
@@ -68,8 +87,17 @@ namespace cyella {
             {
                 const char32_t wanted_index { wanted - hangul_syllable_first };
                 const char32_t actual_index { actual - hangul_syllable_first };
+                if (wanted_index / final_count != actual_index / final_count)
+                    return false;
                 // 받침이 없는 글자는 받침 앞까지(초성·중성)만 같으면 된다.
-                return wanted_index % final_count == 0 && wanted_index / final_count == actual_index / final_count;
+                if (wanted_index % final_count == 0)
+                    return true;
+                // 받침이 붙은 채 조합 중인 글자("블")는 모음이 이어지면 받침이 다음 글자의 초성이 된다("브래"). 겹받침("엵")은
+                // 뒤 자음만 옮겨 간다("열기"). 그래서 남는 받침만 가진 글자 뒤에 옮겨 간 자음을 초성으로 하는 글자가 오는
+                // 자리를 조합 중인 글자로 받아들인다.
+                const char32_t final_index { wanted_index % final_count };
+                const std::optional<char32_t> next_initial { choseong_of(next) };
+                return actual_index % final_count == final_kept[final_index] && next_initial.has_value() && *next_initial == final_moved_initial[final_index];
             }
             return false;
         }
@@ -81,7 +109,7 @@ namespace cyella {
             {
                 bool matched { true };
                 for (std::size_t offset { 0 }; offset < query.size() && matched; ++offset)
-                    matched = character_matches(query[offset], text[start + offset], offset + 1 == query.size());
+                    matched = character_matches(query[offset], text[start + offset], offset + 1 == query.size(), char_after(text, start + offset));
                 if (matched == false)
                     continue;
                 int score { contiguous_base - static_cast<int>(start) * 3 - static_cast<int>(text.size() - query.size()) };
@@ -89,6 +117,9 @@ namespace cyella {
                     score += prefix_bonus;
                 else if (is_word_boundary(text[start - 1]))
                     score += boundary_bonus;
+                // 조합 중인 마지막 글자로 느슨하게 맞은 것은 그 글자가 정확히 맞은 것보다 뒤에 둔다.
+                if (is_hangul_syllable(query.back()) && query.back() != text[start + query.size() - 1])
+                    score -= composing_penalty;
                 if (best.has_value() == false || score > *best)
                     best = score;
             }
@@ -104,7 +135,7 @@ namespace cyella {
             std::size_t last { 0 };
             for (std::size_t index { 0 }; index < text.size() && matched < query.size(); ++index)
             {
-                if (character_matches(query[matched], text[index], matched + 1 == query.size()) == false)
+                if (character_matches(query[matched], text[index], matched + 1 == query.size(), char_after(text, index)) == false)
                     continue;
                 if (matched == 0)
                     first = index;

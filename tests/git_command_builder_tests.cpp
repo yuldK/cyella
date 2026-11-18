@@ -113,10 +113,11 @@ TEST_CASE("index builders end options before the paths", "[git][builder]")
 {
     const std::vector<std::string> paths { "a.txt", "dir/b c.txt", "-dash.txt" };
     CHECK(to_text(make_git_add_args(paths)) == text_list { "--literal-pathspecs", "add", "--", "a.txt", "dir/b c.txt", "-dash.txt" });
-    CHECK(to_text(make_git_restore_staged_args(paths)) == text_list { "--literal-pathspecs", "restore", "--staged", "--", "a.txt", "dir/b c.txt", "-dash.txt" });
+    // unstage는 첫 커밋 전에도 되도록 `restore --staged`가 아니라 `reset`이다.
+    CHECK(to_text(make_git_restore_staged_args(paths)) == text_list { "--literal-pathspecs", "reset", "-q", "--", "a.txt", "dir/b c.txt", "-dash.txt" });
     CHECK(to_text(make_git_restore_worktree_args(paths)) == text_list { "--literal-pathspecs", "restore", "--", "a.txt", "dir/b c.txt", "-dash.txt" });
     CHECK(to_text(make_git_add_from_stdin_args()) == text_list { "--literal-pathspecs", "add", "--pathspec-from-file=-", "--pathspec-file-nul" });
-    CHECK(to_text(make_git_restore_staged_from_stdin_args()) == text_list { "--literal-pathspecs", "restore", "--staged", "--pathspec-from-file=-", "--pathspec-file-nul" });
+    CHECK(to_text(make_git_restore_staged_from_stdin_args()) == text_list { "--literal-pathspecs", "reset", "-q", "--pathspec-from-file=-", "--pathspec-file-nul" });
     CHECK(to_text(make_git_restore_worktree_from_stdin_args()) == text_list { "--literal-pathspecs", "restore", "--pathspec-from-file=-", "--pathspec-file-nul" });
 
     // 경로 없이 호출하면 모든 변경을 건드리게 되므로 거절한다.
@@ -129,21 +130,22 @@ TEST_CASE("index builders end options before the paths", "[git][builder]")
 
 TEST_CASE("make_git_apply_args reads the patch from stdin", "[git][builder]")
 {
-    CHECK(to_text(make_git_apply_args()) == text_list { "apply", "--cached", "-" });
+    // 사용자의 `apply.whitespace`가 hunk를 고치거나 거절하지 않게 공백 처리를 늘 고정한다.
+    CHECK(to_text(make_git_apply_args()) == text_list { "apply", "--cached", "--whitespace=nowarn", "-" });
 
     git_apply_options options {};
     options.reverse = true;
     options.check_only = true;
     options.recount = true;
     options.unidiff_zero = true;
-    CHECK(to_text(make_git_apply_args(options)) == text_list { "apply", "--cached", "-R", "--check", "--recount", "--unidiff-zero", "-" });
+    CHECK(to_text(make_git_apply_args(options)) == text_list { "apply", "--cached", "-R", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", "-" });
 
     options.cached = false;
     options.reverse = false;
     options.check_only = false;
     options.recount = false;
     options.unidiff_zero = false;
-    CHECK(to_text(make_git_apply_args(options)) == text_list { "apply", "-" });
+    CHECK(to_text(make_git_apply_args(options)) == text_list { "apply", "--whitespace=nowarn", "-" });
 }
 
 TEST_CASE("remote builders add progress and keep remotes after double dash", "[git][builder]")
@@ -343,8 +345,9 @@ TEST_CASE("session builders for remotes, conflicts and commit details", "[git][b
 
     const std::string sha { "c1bf80d6a7260e533f88e475f0d4c611194766c2" };
     CHECK(to_text(make_git_commit_info_args(sha)) == text_list { "log", "-1", "-z", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s%x1f%b", sha, "--" });
-    CHECK(to_text(make_git_commit_name_status_args(sha, false)) == text_list { "log", "-1", "-z", "--format=", "--name-status", "--find-renames", sha, "--" });
-    CHECK(to_text(make_git_commit_name_status_args(sha, true)) == text_list { "log", "-1", "-z", "--format=", "--name-status", "--find-renames", "-m", "--first-parent", sha, "--" });
+    // `--root`가 없으면 사용자의 `log.showRoot=false`가 첫 커밋의 파일 목록을 비운다.
+    CHECK(to_text(make_git_commit_name_status_args(sha, false)) == text_list { "log", "-1", "-z", "--format=", "--name-status", "--find-renames", "--root", sha, "--" });
+    CHECK(to_text(make_git_commit_name_status_args(sha, true)) == text_list { "log", "-1", "-z", "--format=", "--name-status", "--find-renames", "--root", "-m", "--first-parent", sha, "--" });
     CHECK(to_text(make_git_show_file_args(sha, "src/a.cpp", false))
         == text_list { "--literal-pathspecs", "show", "--format=", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U3", sha, "--", "src/a.cpp" });
 }

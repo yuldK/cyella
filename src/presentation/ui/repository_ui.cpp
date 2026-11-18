@@ -105,9 +105,18 @@ namespace cyella::ui {
 
         // ---------------------------------------------------------------- 사이드바
 
+        // 목록 모델(`config.items`)과 같은 순서의 행 사본이다.
+        //  - 행 짓기는 목록이 넘기는 색인으로 바로 꺼낸다.
+        //  - 키로 찾는 길(고르기·이동·실행)은 사용자의 동작 때만 불리므로 선형 탐색이면 된다. 키마다 map 노드를 따로 할당하지 않는다.
         struct sidebar_index
         {
-            std::map<std::u8string, sidebar_row_view> rows {};
+            std::vector<sidebar_row_view> rows {};
+
+            [[nodiscard]] const sidebar_row_view* find(const std::u8string& key) const noexcept
+            {
+                const auto found { std::ranges::find(rows, key, &sidebar_row_view::key) };
+                return found == rows.end() ? nullptr : &*found;
+            }
         };
 
         // 사이드바 행을 우클릭했을 때의 메뉴 대상이다.
@@ -171,26 +180,26 @@ namespace cyella::ui {
         std::unique_ptr<luil::ui_element> make_sidebar_list(std::u8string owner, const std::vector<sidebar_row_view>& rows, const std::u8string& selected, const float scroll, const bool scrolls)
         {
             auto index { std::make_shared<sidebar_index>() };
+            index->rows.reserve(rows.size());
             luil::virtual_list_config config {};
             config.owner = std::move(owner);
+            config.items.reserve(rows.size());
             for (const sidebar_row_view& row : rows)
             {
-                sidebar_row_view shown { row };
+                sidebar_row_view& shown { index->rows.emplace_back(row) };
                 if (shown.header)
                     shown.label = section_title(shown.section);
                 config.items.push_back({ .key = shown.key, .label = shown.label, .height = shown.header ? sidebar_header_row_height : sidebar_row_height });
-                index->rows.emplace(row.key, std::move(shown));
             }
             config.selected = selected;
             config.cursor = selected;
             config.row_height = sidebar_row_height;
             config.scroll_offset = scroll;
             config.build_row = [index, list = luil::ui_element_id { luil::ui_element_kind::virtual_list, config.owner }](
-                                   const luil::virtual_list_item& item, std::size_t, const bool selected) -> std::unique_ptr<luil::ui_element> {
-                const auto found { index->rows.find(item.key) };
-                if (found == index->rows.end())
+                                   const luil::virtual_list_item&, const std::size_t position, const bool selected) -> std::unique_ptr<luil::ui_element> {
+                if (position >= index->rows.size())
                     return nullptr;
-                const sidebar_row_view& row { found->second };
+                const sidebar_row_view& row { index->rows[position] };
                 std::optional<luil::input_action> select {};
                 std::optional<luil::input_action> activate {};
                 std::optional<menu_target> menu {};
@@ -222,21 +231,21 @@ namespace cyella::ui {
                 return element;
             };
             config.select = [index](const std::u8string& key) {
-                const auto found { index->rows.find(key) };
-                return found == index->rows.end() ? luil::input_action {} : sidebar_select_action(found->second);
+                const sidebar_row_view* const found { index->find(key) };
+                return found == nullptr ? luil::input_action {} : sidebar_select_action(*found);
             };
             // 키보드로 훑을 때는 머리 줄을 접지 않고 고르기만 한다.
             config.move = [index](const std::u8string& key) {
-                const auto found { index->rows.find(key) };
-                if (found == index->rows.end())
+                const sidebar_row_view* const found { index->find(key) };
+                if (found == nullptr)
                     return luil::input_action {};
-                return message(select_sidebar_item_intent { key, found->second.header || found->second.group ? std::string {} : found->second.target_sha });
+                return message(select_sidebar_item_intent { key, found->header || found->group ? std::string {} : found->target_sha });
             };
             config.activate = [index](const std::u8string& key) {
-                const auto found { index->rows.find(key) };
-                if (found == index->rows.end())
+                const sidebar_row_view* const found { index->find(key) };
+                if (found == nullptr)
                     return luil::input_action {};
-                const sidebar_row_view& row { found->second };
+                const sidebar_row_view& row { *found };
                 if (row.header)
                     return message(toggle_sidebar_section_intent { row.section });
                 if (row.group)
@@ -787,8 +796,9 @@ namespace cyella::ui {
             const auto add_group
                 = [&](std::u8string key, std::u8string title, const std::vector<file_row_view>& rows, std::optional<file_row_button> button, std::optional<file_row_button> icon = std::nullopt) {
                       items.push_back({ .key = key, .label = title, .height = 28.0f, .enabled = false });
-                      (*builders)[key] = [key, title, count = rows.size(), button, icon]() mutable {
-                          return std::make_unique<file_group_element>(u8"group-" + key, title, count, std::move(button), std::move(icon));
+                      // 목록이 같은 builder를 다시 불러도 단추가 그대로 서도록 캡처한 값을 옮기지 않고 복사한다.
+                      (*builders)[key] = [key, title, count = rows.size(), button, icon] {
+                          return std::make_unique<file_group_element>(u8"group-" + key, title, count, button, icon);
                       };
                   };
             const std::vector<std::u8string>& chosen { working.selection_keys };
@@ -982,8 +992,10 @@ namespace cyella::ui {
         {
             const std::u8string title { section_title(section) };
             const std::u8string count { number_text(repository.section_counts[static_cast<std::size_t>(section)]) };
-            column->add(std::make_unique<tool_button_element>(u8"rail-" + std::u8string { section_owner(section) }, section_icon(section), count,
-                            tr(u8"repo.rail.section_tooltip", { { u8"title", title }, { u8"count", count } }), true, true, message(open_rail_section_intent { section })),
+            // 보이는 글은 개수뿐이라 보조 기술에는 구역 제목이 든 이 문장을 이름으로 읽힌다.
+            const std::u8string description { tr(u8"repo.rail.section_tooltip", { { u8"title", title }, { u8"count", count } }) };
+            column->add(std::make_unique<tool_button_element>(
+                            u8"rail-" + std::u8string { section_owner(section) }, section_icon(section), count, description, true, true, message(open_rail_section_intent { section }), false, description),
                 44.0f);
         }
         return std::make_unique<bar_element>(
@@ -1040,14 +1052,16 @@ namespace cyella::ui {
         }
 
         const graph_view& graph { repository.graph };
-        // 행은 목록의 스크롤 막대만큼 좁다. 머리줄도 같은 열 폭을 써야 제목이 열 위에 선다.
+        // 행은 목록의 스크롤 막대만큼 좁을 수 있어 열 폭은 막대 폭을 뺀 폭으로 정한다.
         float labels_width { 0.0f };
         if (graph.labels != nullptr)
             for (const auto& [sha, labels] : *graph.labels)
                 labels_width = std::max(labels_width, estimate_ref_label_strip_width(labels));
         const graph_columns columns { make_graph_columns(graph.lane_count, graph.compact_columns, width - luil::list_scrollbar_width, labels_width) };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"graph-area" }, luil::stack_config {}) };
-        column->add(std::make_unique<graph_header_element>(columns), 26.0f);
+        auto header { std::make_unique<graph_header_element>(columns) };
+        graph_header_element* const header_row { header.get() };
+        column->add(std::move(header), 26.0f);
         if (repository.loaded == false || graph.items == nullptr || graph.items->empty())
         {
             if (repository.load_error.empty() == false)
@@ -1061,8 +1075,8 @@ namespace cyella::ui {
         luil::virtual_list_config config {};
         config.owner = u8"graph";
         config.edges.shadows = true;
-        // 모델은 cache된 벡터의 복사다. 키가 15자라 짧은 문자열 최적화 안에 들어 할당 없이 끝난다.
-        config.items = *graph.items;
+        // 모델은 세션 revision마다 새로 짓는 불변 벡터라 복사하지 않고 함께 쥔다. 커밋이 수만 개여도 frame마다 드는 일은 참조 수 하나다.
+        config.shared_items = graph.items;
         config.selected = graph.selected_key;
         config.cursor = graph.selected_key;
         // Ctrl·Shift+클릭으로 여러 커밋을 골라 비교한다. 고른 행은 목록이 함께 칠하고 보조 기술은 다중 선택 목록으로 읽는다.
@@ -1130,6 +1144,8 @@ namespace cyella::ui {
         auto list { std::make_unique<luil::virtual_list_element>(std::move(config)) };
         const std::size_t row_count { graph.items->size() };
         list->set_access_name(row_count == 1 ? tr(u8"repo.graph.access_name_one", { { u8"count", row_count } }) : tr(u8"repo.graph.access_name", { { u8"count", row_count } }));
+        // 머리줄이 목록의 막대 여부를 따라 열을 나눈다.
+        header_row->follow(*list);
         sources.graph = list.get();
         column->add_flexible(std::move(list));
         static_cast<void>(view);
@@ -1141,7 +1157,7 @@ namespace cyella::ui {
         static_cast<void>(view);
         std::unique_ptr<luil::ui_element> content {};
         if (repository.detail == detail_mode::pull_request && repository.hosting.has_value() && repository.hosting->detail.has_value())
-            content = build_pull_request_detail(*repository.hosting->detail, drawer, width, repository.detail_scroll, sources);
+            content = build_pull_request_detail(*repository.hosting->detail, width, repository.detail_scroll, sources);
         else if (repository.detail == detail_mode::commit && repository.commit.has_value())
             content = build_commit_detail(repository, *repository.commit, drawer, width, height, sources);
         else if (repository.detail == detail_mode::working && repository.working.has_value())

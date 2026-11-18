@@ -1,5 +1,6 @@
 // 실행기(git_operation_runner)를 가짜 runner로 돌려 명령 순서, 사건, 끝맺음을 본다. git과
 // 디스크가 필요 없다.
+#include "domain/text_catalog.h"
 #include "infrastructure/git_operation_runner.h"
 
 #include "fake_git_runner.h"
@@ -162,6 +163,76 @@ TEST_CASE("refresh of an unborn repository skips the log", "[operation][refresh]
     REQUIRE(batches.size() == 1);
     CHECK(batches[0].history_complete);
     CHECK(finished_of(events).state == operation_state::succeeded);
+}
+
+TEST_CASE("a cancelled log stream does not turn its cut-off tail into a commit", "[operation][log]")
+{
+    git_operation_runner_options options {};
+    options.log_batch_size = 1;
+    options.log_flush_interval = std::chrono::hours { 1 };
+    // 완결된 레코드 둘 다음에 제목 한가운데서 끊긴 셋째 레코드다(NUL이 없다). 필드 수와 시간은 그대로 읽힌다.
+    std::string log { test::log_record(test::sha_of(3), { test::sha_of(2) }) + test::log_record(test::sha_of(2), { test::sha_of(1) }) };
+    std::string tail { test::log_record(test::sha_of(1), {}, "a subject cut in the mid") };
+    tail.pop_back();
+    log.append(tail);
+    const auto commit_count = [](const std::vector<operation_event>& events) {
+        std::size_t count { 0 };
+        for (const commits_loaded& batch : payloads<commits_loaded>(events))
+            count += batch.commits.size();
+        return count;
+    };
+
+    SECTION("cancelled")
+    {
+        harness test { options };
+        test.process.when({ "log", "--topo-order" }, scripted_response { 0, log, {}, {}, process_completion::cancelled });
+        const std::vector<operation_event> events { test.execute(load_more_log_request {}) };
+        CHECK(commit_count(events) == 2);
+        for (const commits_loaded& batch : payloads<commits_loaded>(events))
+            for (const commit_info& commit : batch.commits)
+                CHECK(commit.sha != test::sha_of(1));
+        CHECK(finished_of(events).state == operation_state::cancelled);
+    }
+
+    SECTION("a successful stream still reads its tail as before")
+    {
+        harness test { options };
+        test.process.when({ "log", "--topo-order" }, scripted_response { 0, log });
+        const std::vector<operation_event> events { test.execute(load_more_log_request {}) };
+        CHECK(commit_count(events) == 3);
+        CHECK(finished_of(events).state == operation_state::succeeded);
+    }
+}
+
+TEST_CASE("a dropped log record still counts toward a full page", "[operation][log]")
+{
+    git_operation_runner_options options {};
+    options.log_page_size = 3;
+    const std::string valid { test::log_record(test::sha_of(3), { test::sha_of(2) }) + test::log_record(test::sha_of(2), { test::sha_of(1) }) };
+
+    SECTION("a malformed record keeps the history open")
+    {
+        // 필드가 모자란 NUL 종료 레코드다. git은 쪽을 다 채워 돌려줬으므로 뒤에 이력이 더 있을 수 있다.
+        harness test { options };
+        std::string log { valid };
+        log.append("deadbeef\x1Fx");
+        log.push_back('\0');
+        test.process.when({ "log", "--topo-order" }, scripted_response { 0, log });
+        const std::vector<commits_loaded> batches { payloads<commits_loaded>(test.execute(load_more_log_request {})) };
+        REQUIRE_FALSE(batches.empty());
+        CHECK(batches.back().page_complete);
+        CHECK_FALSE(batches.back().history_complete);
+    }
+
+    SECTION("a short page without dropped records ends the history")
+    {
+        harness test { options };
+        test.process.when({ "log", "--topo-order" }, scripted_response { 0, valid });
+        const std::vector<commits_loaded> batches { payloads<commits_loaded>(test.execute(load_more_log_request {})) };
+        REQUIRE_FALSE(batches.empty());
+        CHECK(batches.back().page_complete);
+        CHECK(batches.back().history_complete);
+    }
 }
 
 TEST_CASE("refresh reports rebase progress from the git directory", "[operation][refresh][conflict]")
@@ -403,6 +474,31 @@ TEST_CASE("a cancelled command finishes the operation as cancelled", "[operation
     CHECK(finished_of(test.execute(fetch_request {})).state == operation_state::cancelled);
 }
 
+TEST_CASE("a stash request stops when its number now points at another stash", "[operation][stash]")
+{
+    const std::string chosen { test::sha_of(7) };
+    SECTION("the number moved to another stash")
+    {
+        // 화면에서 고른 뒤 다른 곳에서 stash를 더해 `stash@{0}`이 다른 커밋이 됐다. 사용자가 고르지 않은 stash를 지우지 않는다.
+        harness test {};
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, test::sha_of(8) + "\n" });
+        const operation_finished finished { finished_of(test.execute(stash_drop_request { .index = 0, .expected_sha = chosen })) };
+        REQUIRE(finished.failure.has_value());
+        CHECK(finished.failure->kind == failure_kind::invalid_request);
+        const text_list names { test.process.command_names() };
+        CHECK(std::find(names.begin(), names.end(), "stash") == names.end());
+    }
+
+    SECTION("the same stash is still there")
+    {
+        harness test {};
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, chosen + "\n" });
+        CHECK(finished_of(test.execute(stash_apply_request { .index = 0, .expected_sha = chosen })).state == operation_state::succeeded);
+        const text_list names { test.process.command_names() };
+        CHECK(std::find(names.begin(), names.end(), "stash") != names.end());
+    }
+}
+
 TEST_CASE("invalid names are refused before git runs", "[operation][failure]")
 {
     harness test {};
@@ -438,7 +534,7 @@ TEST_CASE("tags are explicit about annotation and patches go through git apply",
     CHECK(calls[0].standard_input == "release\n");
     CHECK(calls[1].arguments == text_list { "tag", "--", "v1.1" });
     CHECK(calls[1].standard_input.empty());
-    CHECK(calls[2].arguments == text_list { "apply", "--cached", "-R", "--recount", "-" });
+    CHECK(calls[2].arguments == text_list { "apply", "--cached", "-R", "--recount", "--whitespace=nowarn", "-" });
     CHECK(calls[2].standard_input == "diff --git a/a b/a\n");
 }
 
@@ -555,6 +651,58 @@ TEST_CASE("refresh_status reads only the working tree: no git dir, refs, stash, 
     CHECK(loaded[0].summary.head_sha == head);
     CHECK(loaded[0].summary.changed_file_count == 1);
     CHECK(loaded[0].unstaged.size() == 1);
+    CHECK(finished_of(events).state == operation_state::succeeded);
+}
+
+TEST_CASE("a status cut off at the capture limit fails instead of showing a partial list", "[operation][refresh][failure]")
+{
+    // 잘린 마지막 경로가 상위 폴더 이름과 같으면 버리기가 폴더 전체에 닿을 수 있다. 잘린 목록은 보이지 않는다.
+    const std::size_t limit { git_limits_for(git_command_class::local_query).maximum_captured_bytes_per_stream };
+    const std::string huge_status { test::status_header(test::sha_of(1), "main") + test::status_modified(std::string(limit, 'a')) };
+
+    for (const bool full_refresh : { true, false })
+    {
+        harness test {};
+        test.process.when({ "status" }, scripted_response { 0, huge_status });
+
+        const std::vector<operation_event> events { full_refresh ? test.execute(refresh_request {}) : test.execute(refresh_status_request {}) };
+
+        CHECK(payloads<snapshot_loaded>(events).empty());
+        CHECK(payloads<status_loaded>(events).empty());
+        const operation_finished finished { finished_of(events) };
+        CHECK(finished.state == operation_state::failed);
+        REQUIRE(finished.failure.has_value());
+        CHECK(finished.failure->kind == failure_kind::other);
+        CHECK(finished.failure->summary == tr(u8"git.output_too_large"));
+    }
+}
+
+TEST_CASE("a write command whose output overflows the capture limit still succeeds", "[operation][commit]")
+{
+    // 쓰기는 이미 일을 마쳤으므로 stdout이 잘렸다고 실패로 바꾸지 않는다.
+    harness test {};
+    const std::size_t limit { git_limits_for(git_command_class::local_write).maximum_captured_bytes_per_stream };
+    test.process.when({ "commit" }, scripted_response { 0, std::string(limit + 1, 'x') });
+
+    CHECK(finished_of(test.execute(commit_request { "subject", false, false })).state == operation_state::succeeded);
+}
+
+TEST_CASE("a file diff over the capture limit still loads the part that fits", "[operation][diff]")
+{
+    // 큰 파일의 diff는 예전처럼 잘린 채 보이고 화면이 줄 수 상한 안내를 붙인다. diff 칸 전체가 오류로 바뀌지 않는다.
+    harness test {};
+    const std::size_t limit { git_limits_for(git_command_class::local_query).maximum_captured_bytes_per_stream };
+    std::string huge_diff { "diff --git a/big.txt b/big.txt\n--- a/big.txt\n+++ b/big.txt\n@@ -1,1 +1,1 @@\n" };
+    while (huge_diff.size() <= limit)
+        huge_diff.append("+line\n");
+    test.process.when({ "diff" }, scripted_response { 0, huge_diff });
+
+    diff_file_request request {};
+    request.path = "big.txt";
+    request.view = diff_view::unstaged;
+    const std::vector<operation_event> events { test.execute(request) };
+
+    CHECK(payloads<file_diff_loaded>(events).size() == 1);
     CHECK(finished_of(events).state == operation_state::succeeded);
 }
 

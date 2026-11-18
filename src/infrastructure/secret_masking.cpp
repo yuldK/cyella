@@ -28,6 +28,19 @@ namespace cyella {
             std::u8string_view { u8"ghr_" },
             std::u8string_view { u8"github_pat_" },
             std::u8string_view { u8"glpat-" },
+            // GitLab의 배포·러너·OAuth 앱·CI job·트리거·피드·SCIM·수신 메일·에이전트 token이다.
+            std::u8string_view { u8"gldt-" },
+            std::u8string_view { u8"glrt-" },
+            std::u8string_view { u8"gloas-" },
+            std::u8string_view { u8"glcbt-" },
+            std::u8string_view { u8"glptt-" },
+            std::u8string_view { u8"glft-" },
+            std::u8string_view { u8"glsoat-" },
+            std::u8string_view { u8"glimt-" },
+            std::u8string_view { u8"glagent-" },
+            // Bitbucket과 Atlassian의 앱 비밀번호·API token이다.
+            std::u8string_view { u8"ATBB" },
+            std::u8string_view { u8"ATCTT" },
         };
         // `git credential`의 표준 입출력 줄(`password=...`)이다. 이 줄이 로그에 새어도 값은 가린다.
         constexpr std::array credential_assignments {
@@ -35,6 +48,7 @@ namespace cyella {
             std::u8string_view { u8"oauth_refresh_token=" },
         };
         constexpr std::size_t minimum_basic_credential_length { 8 };
+        constexpr std::size_t minimum_bearer_credential_length { 8 };
 
         constexpr char8_t ascii_lower(const char8_t value) noexcept
         {
@@ -63,6 +77,12 @@ namespace cyella {
         {
             const char8_t lowered { ascii_lower(value) };
             return (lowered >= u8'a' && lowered <= u8'z') || (value >= u8'0' && value <= u8'9') || value == u8'+' || value == u8'/' || value == u8'=';
+        }
+
+        // RFC 7235의 token68 글자다 (base64에 `-._~`를 더한 것).
+        constexpr bool is_token68_byte(const char8_t value) noexcept
+        {
+            return is_base64_byte(value) || value == u8'-' || value == u8'.' || value == u8'_' || value == u8'~';
         }
 
         bool matches_ignoring_case(const std::u8string_view text, const std::size_t index, const std::u8string_view literal) noexcept
@@ -234,9 +254,9 @@ namespace cyella {
             return false;
         }
 
-        bool try_mask_basic_credentials(const std::u8string_view text, std::size_t& index, std::u8string& output)
+        // `Basic <base64>`·`Bearer <token68>`처럼 scheme 이름 뒤에 자격 증명이 붙은 꼴이다. 헤더 이름 없이 값만 찍힌 출력도 가린다.
+        bool try_mask_scheme_credentials(const std::u8string_view text, std::size_t& index, std::u8string& output, const std::u8string_view scheme, bool (*const is_value_byte)(char8_t) noexcept, const std::size_t minimum_length, const bool needs_non_letter)
         {
-            constexpr std::u8string_view scheme { u8"basic" };
             if (at_word_start(text, index) == false || matches_ignoring_case(text, index, scheme) == false)
                 return false;
 
@@ -249,9 +269,15 @@ namespace cyella {
                 ++value;
 
             std::size_t end { value };
-            while (end < text.size() && is_base64_byte(text[end]))
+            bool non_letter { false };
+            while (end < text.size() && is_value_byte(text[end]))
+            {
+                const char8_t lowered { ascii_lower(text[end]) };
+                if (lowered < u8'a' || lowered > u8'z')
+                    non_letter = true;
                 ++end;
-            if (end - value < minimum_basic_credential_length)
+            }
+            if (end - value < minimum_length || (needs_non_letter && non_letter == false))
                 return false;
 
             output.append(text.substr(index, scheme.size()));
@@ -259,6 +285,17 @@ namespace cyella {
             output.append(secret_mask);
             index = end;
             return true;
+        }
+
+        bool try_mask_basic_credentials(const std::u8string_view text, std::size_t& index, std::u8string& output)
+        {
+            return try_mask_scheme_credentials(text, index, output, u8"basic", is_base64_byte, minimum_basic_credential_length, false);
+        }
+
+        // `Bearer` 뒤의 낱말은 글(`bearer authentication`)일 수도 있다. 토큰은 길고 숫자·기호가 섞이므로 그런 값만 가린다.
+        bool try_mask_bearer_credentials(const std::u8string_view text, std::size_t& index, std::u8string& output)
+        {
+            return try_mask_scheme_credentials(text, index, output, u8"bearer", is_token68_byte, minimum_bearer_credential_length, true);
         }
 
         bool try_mask_assignment(const std::u8string_view text, std::size_t& index, std::u8string& output)
@@ -320,6 +357,8 @@ namespace cyella {
             if (try_mask_header_value(text, index, output))
                 continue;
             if (try_mask_basic_credentials(text, index, output))
+                continue;
+            if (try_mask_bearer_credentials(text, index, output))
                 continue;
             if (try_mask_assignment(text, index, output))
                 continue;

@@ -164,7 +164,7 @@
 
         if (state.mode === 'diff') {
             html += '<div class="segmented" role="group" aria-label="' + escapeHtml(t('diff_viewer.layout_group')) + '">'
-                + '<button type="button" class="seg' + (state.layout === 'inline' ? ' is-active' : '') + '" data-layout="inline">inline</button>'
+                + '<button type="button" class="seg' + (state.layout === 'inline' ? ' is-active' : '') + '" data-layout="inline">' + escapeHtml(t('diff_viewer.layout_inline')) + '</button>'
                 + '<button type="button" class="seg' + (state.layout === 'split' ? ' is-active' : '') + '" data-layout="split">' + escapeHtml(t('diff_viewer.layout_split')) + '</button>'
                 + '</div>';
         } else if (state.mode === 'image') {
@@ -184,7 +184,9 @@
     function showNotice() {
         if (state.mode === 'diff' && state.truncated) {
             elements.notice.hidden = false;
-            elements.notice.innerHTML = '<span>' + escapeHtml(t('diff_viewer.truncated_notice', { total: state.totalLines.toLocaleString(), shown: state.shownLines.toLocaleString() })) + '</span>'
+            // 천 단위 구분은 시스템 지역이 아니라 앱이 고른 언어(문서 lang)를 따른다.
+            const locale = document.documentElement.lang || undefined;
+            elements.notice.innerHTML = '<span>' + escapeHtml(t('diff_viewer.truncated_notice', { total: state.totalLines.toLocaleString(locale), shown: state.shownLines.toLocaleString(locale) })) + '</span>'
                 + button(escapeHtml(t('diff_viewer.show_full')), 'show_full', 'is-primary');
         } else {
             elements.notice.hidden = true;
@@ -271,10 +273,10 @@
         const locked = state.busy;
         let actions = '';
         if (state.can.stage)
-            actions += button('Stage hunk', 'stage_hunk', 'is-primary', locked)
-                + button(isArmed('discard_hunk', hunkIndex) ? escapeHtml(t('diff_viewer.confirm_discard')) : 'Discard hunk', 'discard_hunk', isArmed('discard_hunk', hunkIndex) ? 'is-danger' : 'is-quiet', locked || state.can.discard === false);
+            actions += button(escapeHtml(t('diff_viewer.stage_hunk')), 'stage_hunk', 'is-primary', locked)
+                + button(escapeHtml(isArmed('discard_hunk', hunkIndex) ? t('diff_viewer.confirm_discard') : t('diff_viewer.discard_hunk')), 'discard_hunk', isArmed('discard_hunk', hunkIndex) ? 'is-danger' : 'is-quiet', locked || state.can.discard === false);
         if (state.can.unstage)
-            actions += button('Unstage hunk', 'unstage_hunk', 'is-primary', locked);
+            actions += button(escapeHtml(t('diff_viewer.unstage_hunk')), 'unstage_hunk', 'is-primary', locked);
         return '<div class="dl-hunk" data-h="' + hunkIndex + '"><div class="dl-hunk-inner">'
             + '<span class="dl-hunk-text">@@ -' + hunk.oldStart + ',' + hunk.oldCount + ' +' + hunk.newStart + ',' + hunk.newCount + ' @@</span>'
             + (hunk.section ? '<span class="dl-hunk-section">' + escapeHtml(hunk.section) + '</span>' : '')
@@ -318,7 +320,7 @@
         case ROW_PAIR:
             return '<div class="dl is-split" data-row="' + row + '">' + halfHtml(hunkIndex, rows.first[row], 'old') + halfHtml(hunkIndex, rows.second[row], 'new') + '</div>';
         default:
-            return '<div class="dl-note"><span>\\ No newline at end of file</span></div>';
+            return '<div class="dl-note"><span>' + escapeHtml(t('diff_viewer.no_newline')) + '</span></div>';
         }
     }
 
@@ -826,16 +828,25 @@
             break;
         case 'set_layout':
             setLayout(message.layout);
+            requestResyncIfBehind(message);
             break;
         case 'set_theme':
             applyTheme(message.theme);
+            requestResyncIfBehind(message);
             break;
         case 'set_image_mode':
             setImageMode(message.mode);
+            requestResyncIfBehind(message);
             break;
         default:
             break;
         }
+    }
+
+    // 앞의 내용 메시지를 받지 못했으면 낡은 seq로 보낸 동작이 모두 거절되므로 전체 상태를 다시 청한다.
+    function requestResyncIfBehind(message) {
+        if (diff.needsResync(message, state.contentSeq))
+            post({ type: 'ready', protocol: PROTOCOL_VERSION });
     }
 
     // ------------------------------------------------------------------ 입력

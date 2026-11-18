@@ -1,5 +1,6 @@
 #include "presentation/hosting_controller.h"
 
+#include "domain/remote_web_link.h"
 #include "domain/text_catalog.h"
 #include "presentation/build_view_snapshot.h"
 
@@ -60,12 +61,6 @@ namespace cyella {
                 break;
             }
             return tr(u8"hosting.ci_none");
-        }
-
-        bool web_url_allowed(const std::string_view url)
-        {
-            const bool scheme { url.rfind("https://", 0) == 0 || url.rfind("http://", 0) == 0 };
-            return scheme && std::ranges::none_of(url, [](const char value) { return static_cast<unsigned char>(value) < 0x20 || value == ' '; });
         }
     } // namespace
 
@@ -335,6 +330,13 @@ namespace cyella {
     void hosting_controller::on_repository_closed(const std::string& repository_id)
     {
         repositories_.erase(repository_id);
+        // 로그인 일감은 지우지 않고 저장소에서만 떼어 둔다. 서비스에는 이미 토큰이 생겼을 수 있어서 결과가 와야 host.signing_in이 풀리고
+        // 로그인 상태가 반영된다. 지워 버리면 같은 호스트의 다른 탭에서 request_sign_in이 계속 "로그인 중"으로 막힌다.
+        for (auto& entry : pending_)
+        {
+            if (entry.second.what == pending_job::kind::sign_in && entry.second.repository_id == repository_id)
+                entry.second.repository_id.clear();
+        }
         std::erase_if(pending_, [&repository_id](const auto& entry) { return entry.second.repository_id == repository_id; });
         std::erase_if(pending_creates_, [&repository_id](const auto& entry) { return entry.second.repository_id == repository_id; });
         publishes_.erase(repository_id);
@@ -450,7 +452,8 @@ namespace cyella {
             return;
         const std::string& url { state->selected_copy->web_url };
         // 서버가 준 주소라 http(s)만 연다 (file:·실행 파일 경로·스크립트 주소를 ShellExecute에 넘기지 않는다).
-        if (web_url_allowed(url) == false)
+        //  - 앱 전체가 쓰는 같은 판정(제어 문자·공백·따옴표·길이)을 따른다. 따로 두면 한쪽만 고쳐진다.
+        if (is_safe_web_url(url) == false)
         {
             if (dependencies_.notice != nullptr)
                 dependencies_.notice(tr(u8"hosting.url_not_openable"), true);
@@ -794,7 +797,24 @@ namespace cyella {
                 state.created.reset();
                 state.error_text.clear();
             }
+        // 기다리던 결과(로그인·저장소 만들기)는 아래에서 버려지므로 그 호스트의 게시도 함께 접는다. 남겨 두면 publishing()이 계속 참이고
+        // creating_에 남은 저장소는 다시 로그인해도 만들기를 다시 보내지 못해 그 탭을 닫기 전에는 게시할 수 없다.
+        bool cancelled { false };
+        for (auto entry { publishes_.begin() }; entry != publishes_.end();)
+        {
+            if (entry->second.host.host_key != host_key)
+            {
+                ++entry;
+                continue;
+            }
+            creating_.erase(entry->first);
+            entry = publishes_.erase(entry);
+            cancelled = true;
+        }
         std::erase_if(pending_, [&host_key](const auto& entry) { return entry.second.host_key == host_key; });
+        // 저장소 만들기를 이미 보냈다면 서버에는 만들어졌을 수 있다.
+        if (cancelled && dependencies_.notice != nullptr)
+            dependencies_.notice(tr(u8"hosting.publish.cancelled_by_sign_out", { { u8"host", host_key } }), true);
     }
 
     // ------------------------------------------------------------------ 화면 값
@@ -939,6 +959,9 @@ namespace cyella {
                 view.detail = std::move(detail);
             }
         }
+        // 로그인에 실패한 사유다. 목록 오류와 달리 호스트의 값이라 상태가 없는 탭에서도 사이드바의 로그인 행 아래에 남는다.
+        if (view.error_text.empty() && host != nullptr && host->signed_in == false)
+            view.error_text = to_u8(host->error_text);
         view.create_blocked_reason = create_blocked_reason(*target);
         view.can_create = view.create_blocked_reason.empty();
         return view;

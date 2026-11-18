@@ -1,11 +1,13 @@
 #include "infrastructure/git_diff_gateway.h"
 
 #include "domain/text_catalog.h"
+#include "infrastructure/git_command_builder.h"
 #include "infrastructure/git_execution_policy.h"
 #include "infrastructure/git_lfs_parser.h"
 
 #include <charconv>
 #include <cstdint>
+#include <exception>
 #include <fstream>
 #include <ios>
 #include <system_error>
@@ -18,11 +20,27 @@ namespace cyella {
             return std::u8string { text.begin(), text.end() };
         }
 
-        // 저장소 상대 경로(`/` 구분, UTF-8)의 마지막 이름이다.
-        std::string base_name(const std::string_view path)
+        // Windows가 폴더와 상관없이 장치로 여는 이름인지 본다. `CON.txt`·`nul .png`처럼 확장자나 공백이 붙어도 장치다.
+        bool is_reserved_device_name(const std::string_view name)
         {
-            const std::size_t slash { path.find_last_of('/') };
-            return std::string { slash == std::string_view::npos ? path : path.substr(slash + 1) };
+            std::string stem { name.substr(0, name.find('.')) };
+            while (stem.empty() == false && stem.back() == ' ')
+                stem.pop_back();
+            for (char& letter : stem)
+            {
+                if (letter >= 'a' && letter <= 'z')
+                    letter = static_cast<char>(letter - 'a' + 'A');
+            }
+            if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || stem == "CONIN$" || stem == "CONOUT$")
+                return true;
+            if (stem.starts_with("COM") == false && stem.starts_with("LPT") == false)
+                return false;
+            // 숫자 하나와 위 첨자 ¹²³(UTF-8)이 붙은 것이 장치다.
+            const std::string_view number { std::string_view { stem }.substr(3) };
+            return (number.size() == 1 && number[0] >= '0' && number[0] <= '9')
+                || number == "\xC2\xB9"
+                || number == "\xC2\xB2"
+                || number == "\xC2\xB3";
         }
 
         std::string object_spec(const diff_side_spec& side)
@@ -86,6 +104,28 @@ namespace cyella {
         }
     } // namespace
 
+    std::string safe_temp_file_name(const std::string_view path)
+    {
+        // git 경로는 `/`로 나뉘지만 `\`는 Windows에서 폴더 구분이라 `..\..\x`가 위로 올라간다. 둘 다로 자른다.
+        const std::size_t separator { path.find_last_of("/\\") };
+        std::string name { separator == std::string_view::npos ? path : path.substr(separator + 1) };
+        // `:`가 남으면 `C:x`가 드라이브 경로, `a:b`가 대체 데이터 스트림이 된다. 나머지는 Windows가 이름에 받지 않는 글자다.
+        for (char& letter : name)
+        {
+            const unsigned char byte { static_cast<unsigned char>(letter) };
+            if (byte < 0x20 || byte == 0x7F || std::string_view { ":*?\"<>|" }.find(letter) != std::string_view::npos)
+                letter = '_';
+        }
+        // Windows는 끝의 점과 공백을 버린다. 남겨 두면 `..`이 위 폴더를, `a.png.`이 다른 이름을 가리킨다.
+        while (name.empty() == false && (name.back() == '.' || name.back() == ' '))
+            name.pop_back();
+        if (name.empty())
+            return "file";
+        if (is_reserved_device_name(name))
+            return "_" + name;
+        return name;
+    }
+
     extracted_sides git_diff_gateway::extract(const diff_side_plan& plan, const bool write_files)
     {
         return extract_cancellable(plan, write_files, {});
@@ -130,13 +170,19 @@ namespace cyella {
             std::filesystem::path target {};
             if (write_files)
             {
-                const std::string name { base_name(spec.path.empty() ? plan.display_path() : spec.path) };
+                const std::string name { safe_temp_file_name(spec.path.empty() ? plan.display_path() : spec.path) };
                 std::error_code error {};
                 std::filesystem::create_directories(directory / folder, error);
                 target = directory / folder / std::filesystem::path { to_u8(name) };
                 if (error)
                 {
                     outcome.error = tr_narrow(u8"git.diff.temp_folder_failed");
+                    return outcome;
+                }
+                // 이름을 다듬었어도 한 번 더 본다. 쓰기 전에 열어 자르므로, 작업 폴더 밖을 가리키면 아무것도 열지 않는다.
+                if (target.lexically_normal().parent_path() != (directory / folder).lexically_normal())
+                {
+                    outcome.error = tr_narrow(u8"git.diff.temp_file_failed");
                     return outcome;
                 }
             }
@@ -244,8 +290,22 @@ namespace cyella {
             return outcome;
         };
 
-        side_outcome left { extract_side(pair.left, "left") };
-        side_outcome right { extract_side(pair.right, "right") };
+        // UTF-8이 아닌 경로 바이트(다른 OS에서 만든 커밋의 Latin-1 이름 등)는 `std::filesystem::path`로 바꿀 때 던진다.
+        // worker 밖으로 새면 앱이 끝나므로 그 쪽은 임시 파일을 만들지 못한 것으로 돌려준다.
+        const auto guarded_side = [&](const diff_side_spec& spec, const char* folder) -> side_outcome {
+            try
+            {
+                return extract_side(spec, folder);
+            }
+            catch (const std::exception&)
+            {
+                side_outcome failed {};
+                failed.error = tr_narrow(u8"git.diff.temp_file_failed");
+                return failed;
+            }
+        };
+        side_outcome left { guarded_side(pair.left, "left") };
+        side_outcome right { guarded_side(pair.right, "right") };
         result.left = std::move(left.side);
         result.right = std::move(right.side);
         if (left.error.empty() == false)
@@ -269,5 +329,40 @@ namespace cyella {
         if (value.empty())
             return std::nullopt;
         return value;
+    }
+
+    std::optional<std::string> git_diff_gateway::empty_tree(const std::u8string_view repository_path)
+    {
+        // 표준 입력을 주지 않으면 NUL 장치라 빈 입력이다. 객체는 쓰지 않는다(`-w`가 없다).
+        const process_request request { make_request(git_executable_, repository_path, make_git_empty_tree_args()) };
+        stdout_sink sink { nullptr };
+        const process_result run { runner_.run(request, &sink, {}) };
+        if (run.succeeded() == false)
+            return std::nullopt;
+        std::string value { sink.text() };
+        while (value.empty() == false && (value.back() == '\n' || value.back() == '\r'))
+            value.pop_back();
+        if (value.size() != 40 && value.size() != 64)
+            return std::nullopt;
+        return value;
+    }
+
+    void git_diff_gateway::release(const extracted_sides& sides) noexcept
+    {
+        // 꺼낸 파일은 `<작업 폴더>/left|right/<이름>`이다. 그 작업 폴더를 지운다. 경로를 다루다 던지면(할당 실패) 앱이
+        // 끝날 때의 정리에 맡긴다.
+        try
+        {
+            for (const extracted_side* const side : { &sides.left, &sides.right })
+            {
+                if (side->file.empty())
+                    continue;
+                temp_.remove_operation_directory(std::filesystem::path { side->file }.parent_path().parent_path());
+            }
+        }
+        catch (...)
+        {
+            // 지우지 못한 폴더는 앱이 끝날 때 `diff_temp_directory`가 지운다.
+        }
     }
 } // namespace cyella

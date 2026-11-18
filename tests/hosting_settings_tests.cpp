@@ -93,10 +93,14 @@ namespace {
         {
             luil::text::text_edit_state* const state { controller->draft(target) };
             REQUIRE(state != nullptr);
+            // 앱의 편집 길(`shell_controller::handle_text_edit`)처럼 글이 실제로 바뀌었을 때만 알린다.
+            const bool changed { state->text != text };
             *state = {};
             state->caret = text.size();
             state->anchor = text.size();
             state->text = std::move(text);
+            if (changed)
+                controller->text_changed(target);
         }
 
         void sign_in_github()
@@ -213,6 +217,42 @@ TEST_CASE("hosting messages that arrive after the settings screen closed are swa
     CHECK(test.controller->is_open() == false);
     CHECK(test.controller->handle(luil::app_message { add_hosting_host_intent {} }));
     CHECK(test.service.settings().hosting.hosts.empty());
+}
+
+TEST_CASE("the reason a registration was refused goes away once its inputs are edited", "[hosting][settings]")
+{
+    harness test {};
+    // Enter로 막힌 등록의 이유는 입력이 비어 있어도 보인다 (칸을 비운 채 눌렀다는 안내다).
+    test.send(add_hosting_host_intent {});
+    CHECK(test.view().hosting.error.empty() == false);
+    test.type(text_target::settings_hosting_host, u8"git corp");
+    test.send(add_hosting_host_intent {});
+    CHECK(test.view().hosting.error.empty() == false);
+    CHECK(test.service.settings().hosting.hosts.empty());
+    // 글을 고치지 않는 편집(칸 누르기·caret 이동)은 이유를 거두지 않는다. 사용자가 읽기 전에 사라지지 않는다.
+    test.type(text_target::settings_hosting_host, u8"git corp");
+    CHECK(test.view().hosting.error.empty() == false);
+
+    // 잘못된 호스트를 모두 지우면 이미 고친 입력에 대한 옛 오류가 남지 않는다.
+    test.type(text_target::settings_hosting_host, u8"");
+    CHECK(test.view().hosting.host.displayed_text().empty());
+    CHECK(test.view().hosting.error.empty());
+
+    // API 주소 칸을 고쳐도 마찬가지다.
+    test.type(text_target::settings_hosting_host, u8"git.corp.example");
+    test.type(text_target::settings_hosting_api_base, u8"ftp://nope");
+    test.send(add_hosting_host_intent {});
+    REQUIRE(test.service.settings().hosting.hosts.empty());
+    test.type(text_target::settings_hosting_host, u8"");
+    test.type(text_target::settings_hosting_api_base, u8"");
+    CHECK(test.view().hosting.error.empty());
+
+    // 웹 링크 쪽도 같다.
+    test.type(text_target::settings_web_link_host, u8"bad host");
+    test.send(add_web_link_intent {});
+    CHECK(test.view().hosting.link_error.empty() == false);
+    test.type(text_target::settings_web_link_host, u8"");
+    CHECK(test.view().hosting.link_error.empty());
 }
 
 TEST_CASE("the web link table lists the built-in services and saves, overrides and removes custom rules", "[hosting][settings][web_link]")

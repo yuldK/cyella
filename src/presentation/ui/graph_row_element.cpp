@@ -228,6 +228,14 @@ namespace cyella::ui {
                 names += (names.empty() ? u8"" : u8", ") + label.text;
             access_name_ += u8" [" + names + u8"]";
         }
+        // 작성자와 시각은 열의 글자로만 서므로 이름에도 싣는다 (WIP 행에는 없다).
+        if (data_.wip == false)
+        {
+            if (data_.author.empty() == false)
+                access_name_ += u8", " + data_.author;
+            if (data_.date.empty() == false)
+                access_name_ += u8", " + data_.date;
+        }
         set_tab_stop(false);
         set_focus_owner(data_.list);
         // 목록 행의 고르기를 가로채지 않도록 같은 고르기 메시지를 누른 순간 낸다 (`press_row_element`).
@@ -471,7 +479,7 @@ namespace cyella::ui {
         if (data_.wip)
         {
             const SkFont code { code_font(context, 12.0f) };
-            const float drawn = luil::draw_text_within(context.canvas, u8"// WIP", x + padding, box.y + luil::centered_text_baseline(code, box.height), summary - padding * 2.0f, code,
+            const float drawn = luil::draw_text_within(context.canvas, tr(u8"graph.wip_label"), x + padding, box.y + luil::centered_text_baseline(code, box.height), summary - padding * 2.0f, code,
                 luil::solid_paint(context.palette.secondary_foreground));
             const SkFont small { ui_font(context, 11.0f) };
             const float count_x { x + padding + drawn + padding };
@@ -531,6 +539,20 @@ namespace cyella::ui {
         set_hit_opaque(false);
     }
 
+    void graph_header_element::follow(const luil::virtual_list_element& list) noexcept
+    {
+        list_ = &list;
+    }
+
+    float graph_header_element::columns_width(const float scale) const noexcept
+    {
+        const float full { bounds().width };
+        // 목록이 세로 막대를 세우면 행이 막대 폭만큼 좁아진다 (`scroll_area_element`). 같은 폭으로 열을 나눠야 제목이 열 위에 선다.
+        if (list_ == nullptr || list_->metrics().overflowing() == false)
+            return full;
+        return std::max(full - std::min(luil::scroll_area_bar_width * scale, full), 0.0f);
+    }
+
     void graph_header_element::arrange(const luil::arrange_context& context)
     {
         set_bounds(context.slot);
@@ -547,7 +569,7 @@ namespace cyella::ui {
         const float baseline { box.y + luil::centered_text_baseline(font, box.height) };
         const float padding { cell_padding * scale };
         const float tail { columns_.compact ? 0.0f : (columns_.author + columns_.date) * scale };
-        const float summary { std::max(box.width - (columns_.refs + columns_.graph) * scale - tail, 0.0f) };
+        const float summary { std::max(columns_width(scale) - (columns_.refs + columns_.graph) * scale - tail, 0.0f) };
         float x { box.x };
         const auto column = [&](const std::u8string_view title, const float width) {
             if (width > padding * 2.0f)

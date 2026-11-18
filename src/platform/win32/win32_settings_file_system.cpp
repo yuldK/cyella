@@ -84,6 +84,23 @@ namespace cyella::win32 {
                 DeleteFileW(path.c_str());
         }
 
+        // 백신이나 OneDrive가 설정 파일을 잠깐 열어 두면 교체가 실패한다. 그 잠금은 대개 수십 ms 안에 풀리고, 종료 직전의 마지막
+        // 저장은 다음 저장으로 회복할 기회가 없으므로 몇 번 다시 해 본다.
+        constexpr int replace_attempts { 6 };
+        constexpr DWORD replace_retry_milliseconds { 50u };
+
+        // 다시 해 볼 만한 교체 실패인가다. 접근 거부는 잠금 말고도 도착 이름이 폴더이거나 읽기 전용이어서도 나므로, 그 둘이면
+        // 기다려도 풀리지 않아 곧바로 포기한다 (저장은 logic thread에서 돈다).
+        bool is_transient_replace_error(const std::uint32_t error, const std::wstring& target) noexcept
+        {
+            if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION)
+                return true;
+            if (error != ERROR_ACCESS_DENIED)
+                return false;
+            const DWORD attributes { GetFileAttributesW(target.c_str()) };
+            return attributes == INVALID_FILE_ATTRIBUTES || (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY)) == 0;
+        }
+
         settings_file_commit_result atomic_commit_impl(const std::u8string_view path, const std::u8string_view bytes)
         {
             prepared_path prepared { prepare_file_path(path) };
@@ -126,11 +143,20 @@ namespace cyella::win32 {
             // 실패해도 내용은 온전하므로 교체를 계속한다.
             static_cast<void>(SetFileAttributesW(temporary.path.c_str(), FILE_ATTRIBUTE_NORMAL));
 
-            SetLastError(ERROR_SUCCESS);
-            if (MoveFileExW(temporary.path.c_str(), prepared.value->c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE)
-                return {};
+            std::uint32_t replace_error { ERROR_WRITE_FAULT };
+            for (int attempt { 0 }; attempt < replace_attempts; ++attempt)
+            {
+                if (attempt > 0)
+                    Sleep(replace_retry_milliseconds);
+                SetLastError(ERROR_SUCCESS);
+                if (MoveFileExW(temporary.path.c_str(), prepared.value->c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE)
+                    return {};
+                replace_error = last_error_or(ERROR_WRITE_FAULT);
+                if (is_transient_replace_error(replace_error, *prepared.value) == false)
+                    break;
+            }
 
-            const std::uint32_t replace_error { last_error_or(ERROR_WRITE_FAULT) };
+            // 임시 파일은 마지막 시도가 실패한 뒤에만 지운다. 다시 해 볼 원본이다.
             delete_temporary_file(temporary.path);
             return { settings_file_commit_failure::replace, replace_error };
         }

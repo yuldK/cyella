@@ -1,6 +1,7 @@
 // 명령 팔레트와 레지스트리 명령 실행이다. shell_controller의 멤버 함수를 파일 하나로 나눠 둔다.
 #include "presentation/shell_controller.h"
 
+#include "presentation/build_view_snapshot.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/palette/palette_intents.h"
@@ -49,6 +50,8 @@ namespace cyella {
                 return settings_page::shortcuts;
             if (id == "app.settings.hosting")
                 return settings_page::hosting;
+            if (id == "app.settings.signing")
+                return settings_page::signing;
             return std::nullopt;
         }
     } // namespace
@@ -107,7 +110,6 @@ namespace cyella {
     command_availability shell_controller::current_availability()
     {
         command_availability availability {};
-        availability.profiles_exist = settings().profiles.empty() == false;
         const repository_session* const session { selected_session() };
         if (session == nullptr)
             return availability;
@@ -119,7 +121,9 @@ namespace cyella {
         availability.pull = ready && summary.has_upstream;
         availability.push = ready && summary.is_detached == false && summary.current_branch.empty() == false;
         availability.branch = ready;
-        availability.stash = ready && summary.changed_file_count > 0;
+        // 첫 커밋 전에는 stash할 HEAD가 없고 태그를 달 커밋도 없다. 툴바가 Stash를 끄는 조건과 맞춘다.
+        availability.stash = ready && summary.head_sha.empty() == false && summary.changed_file_count > 0;
+        availability.no_commits = summary.head_sha.empty();
         availability.pop = ready && session->snapshot().stashes.empty() == false;
         availability.drawer = last_mode_ != layout_mode::wide;
         availability.selection_menu = selection_menu_target().has_value();
@@ -128,7 +132,11 @@ namespace cyella {
         availability.hosting_signed_in = hosting.signed_in;
         availability.hosting_can_create = hosting.can_create;
         if (const tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
-            availability.commit = ready && std::ranges::any_of(tab->commit_subject.text, [](const char8_t value) { return value != u8' ' && value != u8'\t' && value != u8'\r' && value != u8'\n'; });
+        {
+            // 커밋 단추가 켜지는 조건과 같다 (`find_commit_blocker`). 팔레트에 서는 커밋이 실행해도 막히지 않게 한다.
+            const bool has_subject { std::ranges::any_of(tab->commit_subject.text, [](const char8_t value) { return value != u8' ' && value != u8'\t' && value != u8'\r' && value != u8'\n'; }) };
+            availability.commit = ready && find_commit_blocker(session->snapshot(), tab->amend, has_subject, tab->pending_commit != 0) == commit_blocker::none;
+        }
         return availability;
     }
 

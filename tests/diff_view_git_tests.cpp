@@ -221,6 +221,86 @@ TEST_CASE("integration: the gateway reads commits, additions, deletions and Hang
     }
 }
 
+TEST_CASE("temporary file names keep a plain leaf that Windows cannot read as a path or a device", "[diff][gateway][temp]")
+{
+    // 평범한 이름은 확장자까지 그대로다. 도구와 이미지 판단이 확장자를 본다.
+    CHECK(safe_temp_file_name("img/logo.png") == "logo.png");
+    CHECK(safe_temp_file_name("dir with space/\xED\x95\x9C\xEA\xB8\x80.bin") == "\xED\x95\x9C\xEA\xB8\x80.bin");
+    CHECK(safe_temp_file_name("art/a b.psd") == "a b.psd");
+    CHECK(safe_temp_file_name(".gitignore") == ".gitignore");
+    CHECK(safe_temp_file_name("README") == "README");
+
+    // 다른 OS에서 만든 커밋의 이름은 `\`와 드라이브를 담을 수 있다. 마지막 이름만 남고 `:`는 바뀐다.
+    CHECK(safe_temp_file_name("..\\..\\x.png") == "x.png");
+    CHECK(safe_temp_file_name("C:\\Users\\Public\\x.png") == "x.png");
+    CHECK(safe_temp_file_name("\\\\server\\share\\x.png") == "x.png");
+    CHECK(safe_temp_file_name("dir/C:x.png") == "C_x.png");
+    CHECK(safe_temp_file_name("a.txt:stream") == "a.txt_stream");
+
+    // 점과 공백만 남는 이름은 위 폴더나 같은 폴더를 가리키므로 대체 이름이다. 끝의 점·공백은 Windows가 버린다.
+    for (const char* empty : { "", ".", "..", "...", "dir/..", "dir\\..", "dir/", "dir\\", " . " })
+        CHECK(safe_temp_file_name(empty) == "file");
+    CHECK(safe_temp_file_name("a.png. . ") == "a.png");
+
+    // 예약 장치 이름은 확장자나 대소문자와 상관없이 장치다. 앞에 `_`를 붙여 보통 파일로 만든다.
+    for (const char* device : { "CON", "con.txt", "NUL.png", "nul .png", "PRN", "AUX.c", "COM1", "com9.log", "LPT0", "CONIN$", "CONOUT$.txt", "COM\xC2\xB9" })
+        CHECK(safe_temp_file_name(std::string { "dir/" } + device) == std::string { "_" } + device);
+    for (const char* plain : { "CONSOLE.txt", "COM10", "LPT", "aux2", "xNUL", "COMA.png" })
+        CHECK(safe_temp_file_name(plain) == plain);
+
+    // 제어 문자와 Windows가 이름에 받지 않는 글자다.
+    CHECK(safe_temp_file_name(std::string { "a\x01" "b\x7F" "c*?\"<>|.png" }) == "a_b_c______.png");
+    CHECK(safe_temp_file_name("a\tb\n.png") == "a_b_.png");
+}
+
+TEST_CASE("integration: names in a commit that climb up or name a drive are extracted inside the operation folder", "[diff][integration][gateway]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+
+    const environment env {};
+    const test::temp_directory scratch {};
+    const std::filesystem::path root { scratch.path() / "cyella-diff" };
+    // 절대 경로 이름은 실제 드라이브 루트 대신 검사용 폴더를 가리키게 해서, 고치기 전이라도 해롭지 않게 밖에 쓴 것을 본다.
+    const std::filesystem::path escaped { scratch.path() / "escaped.png" };
+    const std::u8string escaped_text { escaped.u8string() };
+    const std::string climbing { "..\\..\\x.png" };
+    const std::string absolute { escaped_text.begin(), escaped_text.end() };
+
+    // `\`가 든 이름은 index에 넣을 수 없으므로 blob과 tree를 직접 만든다.
+    const test::git_run_result hashed { run_git(env.repository, text_list { "hash-object", "-w", "--stdin" }, binary_bytes('e')) };
+    REQUIRE(hashed.exit_code == 0);
+    std::string blob { hashed.standard_output };
+    while (blob.empty() == false && (blob.back() == '\n' || blob.back() == '\r'))
+        blob.pop_back();
+    const std::string entries { "100644 blob " + blob + "\t" + climbing + "\n100644 blob " + blob + "\t" + absolute + "\n" };
+    const test::git_run_result tree { run_git(env.repository, text_list { "mktree" }, entries) };
+    INFO("mktree stderr: " << tree.standard_error);
+    REQUIRE(tree.exit_code == 0);
+    std::string tree_id { tree.standard_output };
+    while (tree_id.empty() == false && (tree_id.back() == '\n' || tree_id.back() == '\r'))
+        tree_id.pop_back();
+    std::string sha { git_output(env.repository, { "commit-tree", tree_id, "-m", "escape" }) };
+    while (sha.empty() == false && (sha.back() == '\n' || sha.back() == '\r'))
+        sha.pop_back();
+
+    diff_temp_directory temp { root };
+    git_diff_gateway gateway { *env.runner, env.tool.executable, temp };
+    for (const std::string& name : { climbing, absolute })
+    {
+        INFO("name: " << name);
+        const extracted_sides sides { gateway.extract(plan_of(env, diff_view::commit, {}, name, 'A', sha), true) };
+        REQUIRE(sides.ok);
+        const std::filesystem::path right { sides.right.file };
+        CHECK(right.parent_path().filename() == "right");
+        CHECK(right.parent_path().parent_path().parent_path() == temp.process_directory());
+        CHECK(env.read(sides.right.file) == binary_bytes('e'));
+    }
+    // 고치기 전에는 `right\..\..\x.png`가 프로세스 폴더에, 절대 경로가 그 자리에 써졌다.
+    CHECK_FALSE(std::filesystem::exists(temp.process_directory() / "x.png"));
+    CHECK_FALSE(std::filesystem::exists(escaped));
+}
+
 TEST_CASE("integration: diff.tool is read from git config", "[diff][integration][gateway]")
 {
     if (test::git_is_available() == false)
@@ -269,6 +349,51 @@ TEST_CASE("integration: temporary directories live until the app ends and stale 
     CHECK_FALSE(std::filesystem::exists(process_directory));
     CHECK_FALSE(std::filesystem::exists(first));
     CHECK(std::filesystem::exists(root / "pfresh"));
+}
+
+TEST_CASE("integration: sweeping keeps the old folder of a live instance and survives names outside the ANSI code page", "[diff][integration][temp]")
+{
+    const test::temp_directory scratch {};
+    const std::filesystem::path root { scratch.path() / "cyella-diff" };
+    const auto long_ago { std::filesystem::file_time_type::clock::now() - std::chrono::hours { 48 } };
+
+    // 이모지는 ANSI 코드 페이지로 바꿀 수 없다. 예전에는 이름을 `string()`으로 바꾸다 던져 noexcept 밖으로 나갔다.
+    const std::filesystem::path emoji_old { root / std::filesystem::path { u8"p\U0001F600old" } };
+    const std::filesystem::path emoji_fresh { root / std::filesystem::path { u8"p\U0001F600fresh" } };
+    std::filesystem::create_directories(emoji_old / "1");
+    std::filesystem::create_directories(emoji_fresh / "1");
+    std::filesystem::last_write_time(emoji_old, long_ago);
+    // 비정상 종료한 인스턴스는 잠금 파일을 남기지만 열고 있지 않으므로 지워진다.
+    const std::filesystem::path dead { root / "pdead" };
+    test::write_file(dead / "lock", "");
+    std::filesystem::create_directories(dead / "1");
+    std::filesystem::last_write_time(dead, long_ago);
+
+    diff_temp_directory live { root };
+    CHECK_FALSE(std::filesystem::exists(emoji_old));
+    CHECK(std::filesystem::exists(emoji_fresh));
+    CHECK_FALSE(std::filesystem::exists(dead));
+
+    // 오래 켜 둔 인스턴스는 하루 넘게 새 작업 폴더를 만들지 않아도 외부 도구가 연 파일을 잃지 않는다.
+    const std::filesystem::path operation { live.create_operation_directory() };
+    REQUIRE_FALSE(operation.empty());
+    test::write_file(operation / "left" / "a.bin", "x");
+    std::filesystem::last_write_time(live.process_directory(), long_ago);
+    diff_temp_directory::sweep_stale(root, std::chrono::hours { 24 });
+    CHECK(std::filesystem::exists(operation / "left" / "a.bin"));
+    {
+        const diff_temp_directory other { root };
+        CHECK(std::filesystem::exists(operation / "left" / "a.bin"));
+    }
+
+    // 자기 폴더는 잠금을 닫고 지운다. 그 뒤에 다시 만들면 잠금도 다시 연다.
+    live.remove_all();
+    CHECK_FALSE(std::filesystem::exists(live.process_directory()));
+    const std::filesystem::path again { live.create_operation_directory() };
+    REQUIRE_FALSE(again.empty());
+    std::filesystem::last_write_time(live.process_directory(), long_ago);
+    diff_temp_directory::sweep_stale(root, std::chrono::hours { 24 });
+    CHECK(std::filesystem::is_directory(again));
 }
 
 TEST_CASE("integration: remove_all deletes everything the directory made", "[diff][integration][temp]")

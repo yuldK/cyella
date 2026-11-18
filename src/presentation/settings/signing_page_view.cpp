@@ -101,8 +101,8 @@ namespace cyella {
 
         void fill_keys(signing_page_view& view, const signing_page_view_inputs& inputs, const signing_info_snapshot& info)
         {
-            const signing_page_state& state { *inputs.state };
-            const signing_config& scope { scope_config(info, state.global_scope) };
+            // 저장소 탭이 없으면 state.global_scope가 거짓이어도 화면은 전역이다. 호출하는 쪽이 정한 view.global_scope를 따라야 같은 범위의 값을 읽는다.
+            const signing_config& scope { scope_config(info, view.global_scope) };
             // 고른 범위가 형식을 정하지 않았으면 이미 적용되는 형식을 따른다.
             view.key_format = scope.at(signing_key_id::gpg_format).is_set() ? scope.format() : info.config.effective.format();
             view.current_key = to_u8(scope.at(signing_key_id::user_signingkey).value);

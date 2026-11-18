@@ -279,7 +279,7 @@ TEST_CASE("rebase editor: the view lists rows, warnings and the summary", "[pres
     CHECK(view.subject.text == u8"one");
 }
 
-TEST_CASE("rebase editor: body caret moves by line and Home/End stay on the line", "[presentation][rebase][text]")
+TEST_CASE("rebase editor: body caret moves by line and Ctrl+Home/End go to the whole text edges", "[presentation][rebase][text]")
 {
     luil::text::text_edit_state state {};
     set_text(state, u8"첫째 줄\nab\n셋째 줄 길다");
@@ -294,10 +294,15 @@ TEST_CASE("rebase editor: body caret moves by line and Home/End stay on the line
     move_text_caret_line(state, true, true);
     CHECK(state.anchor == 0u);
     CHECK(state.caret == u8"첫째 줄\n"sv.size());
-    move_text_caret_line_edge(state, true, false);
-    CHECK(state.caret == u8"첫째 줄\nab"sv.size());
-    move_text_caret_line_edge(state, false, false);
-    CHECK(state.caret == u8"첫째 줄\n"sv.size());
+    // Home·End는 luil이 여러 줄 칸에서 줄 끝으로 옮겨 보낸다. 줄 처음·끝 명령으로 오는 것은 Ctrl+Home·End라 글 전체의 처음·끝이다.
+    luil::text_edit_request edge {};
+    edge.command = luil::text::text_edit_command::move_line_end;
+    luil::apply_text_edit(state, edge);
+    CHECK(state.caret == state.text.size());
+    edge.command = luil::text::text_edit_command::move_line_start;
+    luil::apply_text_edit(state, edge);
+    CHECK(state.caret == 0u);
+    move_text_caret_line(state, true, false);
     move_text_caret_line(state, true, false);
     move_text_caret_line(state, true, false);
     CHECK(state.caret == state.text.size());
@@ -332,6 +337,16 @@ TEST_CASE("rebase editor controller: opening reads the plan, keys edit rows and 
     body.text = u8"한 줄\r\n두 줄";
     REQUIRE(test.controller->edit_text(body));
     CHECK(test.controller->state()->drafts.at("r:" + sha_of('b')).edited);
+    CHECK(test.controller->state()->drafts.at("r:" + sha_of('b')).body.text == u8"한 줄\n두 줄");
+    // 앱의 편집 길로 온 줄 처음·끝 명령(Ctrl+Home·End)은 본문 전체의 처음·끝으로 간다. 글은 그대로다.
+    luil::text_edit_request edge {};
+    edge.target = to_luil_target(text_target::rebase_message_body);
+    edge.command = luil::text::text_edit_command::move_line_start;
+    REQUIRE(test.controller->edit_text(edge));
+    CHECK(test.controller->state()->drafts.at("r:" + sha_of('b')).body.caret == 0u);
+    edge.command = luil::text::text_edit_command::move_line_end;
+    REQUIRE(test.controller->edit_text(edge));
+    CHECK(test.controller->state()->drafts.at("r:" + sha_of('b')).body.caret == u8"한 줄\n두 줄"sv.size());
     CHECK(test.controller->state()->drafts.at("r:" + sha_of('b')).body.text == u8"한 줄\n두 줄");
     // 줄 끌어 놓기도 된다.
     test.send(luil::app_message { rebase_reorder_intent { rebase_row_key(sha_of('c')), rebase_row_key(sha_of('a')) } });

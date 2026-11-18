@@ -170,7 +170,8 @@ namespace cyella {
         // 받아들였으면 true다. 늦게 온 결과면 false이고 상태는 그대로다.
         bool apply(const snapshot_loaded& event);
         bool apply(const commits_loaded& event);
-        bool apply(const remote_tags_loaded& event);
+        // 원격마다 가장 나중에 낸 operation의 목록만 받는다.
+        bool apply(operation_id id, const remote_tags_loaded& event);
         bool apply(operation_id id, const commit_detail_loaded& event);
         bool apply(operation_id id, const file_diff_loaded& event);
         bool apply(operation_id id, const range_detail_loaded& event);
@@ -205,6 +206,8 @@ namespace cyella {
         std::size_t pending_batches_ { 0 };
         // 원격마다 마지막으로 읽은 태그 목록이다. snapshot이 바뀌어도 다시 입힌다.
         std::map<std::string, std::vector<remote_tag>> remote_tags_ {};
+        // 원격마다 마지막으로 태그 목록을 반영한 operation이다. 그보다 먼저 낸 ls-remote의 결과는 버린다.
+        std::map<std::string, operation_id> remote_tags_applied_ {};
         std::optional<commit_detail> commit_detail_ {};
         std::optional<file_diff> file_diff_ {};
         // 마지막으로 요청한 상세·diff의 operation이다. 그보다 앞선 요청의 결과는 버린다.

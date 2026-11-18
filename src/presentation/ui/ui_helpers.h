@@ -60,6 +60,8 @@ namespace cyella::ui {
     [[nodiscard]] std::u8string number_text(std::uint64_t value);
     [[nodiscard]] std::u8string to_u8(std::string_view text);
     [[nodiscard]] std::string to_text(std::u8string_view text);
+    // 탭을 공백 넷으로 펴고 CR을 지운다. Skia는 탭을 그리지 못하고 줄 나누기도 탭 폭을 0으로 재므로, 그리는 글과 재는 글을 이 함수로 먼저 맞춘다.
+    [[nodiscard]] std::u8string expand_tabs(std::u8string text);
 
     // ---------------------------------------------------------------- 조립기
 
@@ -225,10 +227,12 @@ namespace cyella::ui {
     };
 
     // 툴바·좁은 사이드바 단추다. 툴바는 가로, 레일은 아이콘 아래에 글자를 둔다.
+    //  - 보조 기술이 읽는 이름은 `access_name`이다. 비면 보이는 글(`label`)이다. 레일 단추는 보이는 글이 개수뿐이라 구역 이름을 따로 준다.
     class tool_button_element final : public luil::ui_element
     {
     public:
-        tool_button_element(std::u8string owner, char32_t glyph, std::u8string label, std::u8string tooltip, bool show_label, bool enabled, luil::input_action action, bool horizontal = false);
+        tool_button_element(
+            std::u8string owner, char32_t glyph, std::u8string label, std::u8string tooltip, bool show_label, bool enabled, luil::input_action action, bool horizontal = false, std::u8string access_name = {});
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
@@ -237,6 +241,7 @@ namespace cyella::ui {
     private:
         char32_t glyph_ { 0 };
         std::u8string label_ {};
+        std::u8string access_name_ {};
         bool show_label_ { true };
         bool horizontal_ { false };
     };

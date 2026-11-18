@@ -1,4 +1,5 @@
 #include "askpass_test_support.h"
+#include "git_test_support.h"
 #include "infrastructure/git_execution_policy.h"
 #include "infrastructure/git_tool_discovery.h"
 #include "platform/win32/win32_askpass_server.h"
@@ -6,6 +7,8 @@
 #include "platform/win32/win32_process_runner.h"
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <windows.h>
 
 #include <filesystem>
 #include <memory>
@@ -19,9 +22,32 @@ namespace {
 
     std::u8string find_git(process_runner& runner)
     {
+        // 이 파일의 시험은 앱의 process runner로 git을 띄워 `run_git`의 환경 격리를 거치지 않는다. 사용자 전역 설정(credential.username 등)이
+        // 질문의 수를 바꾸지 않도록 먼저 격리한다. 시험을 하나만 따로 돌려도 격리가 빠지지 않게 시험마다 이 함수를 거친다.
+        isolate_git_environment();
         const std::unique_ptr<file_probe> probe { win32::make_file_probe() };
         const git_tool_info info { resolve_git_tool(u8"", win32::current_git_tool_environment(), runner, *probe, {}) };
         return info.usable() ? info.executable : std::u8string {};
+    }
+
+    // 실행 파일에 실린 manifest 글이다. 없거나 읽지 못하면 빈 문자열이다.
+    std::string embedded_manifest(const std::filesystem::path& executable)
+    {
+        const HMODULE library { ::LoadLibraryExW(executable.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE) };
+        if (library == nullptr)
+            return {};
+
+        std::string text {};
+        const HRSRC resource { ::FindResourceW(library, MAKEINTRESOURCEW(1), RT_MANIFEST) };
+        if (resource != nullptr)
+        {
+            const HGLOBAL loaded { ::LoadResource(library, resource) };
+            const void* const bytes { loaded != nullptr ? ::LockResource(loaded) : nullptr };
+            if (bytes != nullptr)
+                text.assign(static_cast<const char*>(bytes), ::SizeofResource(library, resource));
+        }
+        ::FreeLibrary(library);
+        return text;
     }
 
     // 질문을 모두 기록하고 종류별로 정해진 답을 준다.
@@ -153,4 +179,17 @@ TEST_CASE("git without the helper cannot prompt and fails at once", "[askpass][i
     REQUIRE(result.completion == process_completion::exited);
     REQUIRE(result.exit_code.has_value());
     CHECK(*result.exit_code != 0);
+}
+
+TEST_CASE("the helper executables declare long path support in their manifest", "[askpass]")
+{
+    // 도우미는 git이 넘긴 경로(깊은 저장소의 `.git/rebase-merge/git-rebase-todo` 등)를 연다. 앱처럼 longPathAware를 선언하지 않으면
+    // 시스템의 긴 경로 설정이 켜져 있어도 260자를 넘는 경로를 열지 못한다.
+    const std::vector<std::filesystem::path> helpers { askpass_helper_path(), std::filesystem::absolute(std::filesystem::path { CYELLA_REBASE_EDITOR_PATH }) };
+
+    for (const std::filesystem::path& helper : helpers)
+    {
+        INFO(helper.string());
+        CHECK(embedded_manifest(helper).find("longPathAware") != std::string::npos);
+    }
 }

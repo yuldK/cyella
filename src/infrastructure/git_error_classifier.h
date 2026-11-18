@@ -77,6 +77,9 @@ namespace cyella {
     // 번역 대상인 문구(`would be overwritten`, `CONFLICT`, `non-fast-forward` 등)는
     // 영어 출력에서만 보조 신호로 쓴다. 프로세스는 LC_ALL=C로 실행하는 것을 권한다.
     // 그렇게 하면 stderr가 항상 영어가 되어 분류가 안정적이다.
+    //
+    // 서버가 sideband로 보낸 `remote: ` 줄은 서버가 마음대로 쓸 수 있는 글이라 근거로 쓰지 않는다.
+    // 다만 `Repository not found`는 `remote:` 줄로만 오는 서버가 있어, 다른 신호가 전혀 없을 때에 한해 받는다.
     [[nodiscard]] git_failure_kind classify_git_failure(std::string_view standard_error, std::string_view standard_output = {}) noexcept;
 
     [[nodiscard]] std::string_view git_failure_kind_name(git_failure_kind kind) noexcept;

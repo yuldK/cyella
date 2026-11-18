@@ -36,6 +36,11 @@ namespace cyella {
             return false;
         }
 
+        bool is_ascii_alphanumeric(const char value) noexcept
+        {
+            return is_ascii_digit(value) || (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
+        }
+
         bool contains_any(const std::string_view text, const std::span<const std::string_view> needles) noexcept
         {
             for (const std::string_view needle : needles)
@@ -44,9 +49,46 @@ namespace cyella {
             return false;
         }
 
-        // 번역된 문장 안에서도 숫자 인자는 그대로 남는다. 다만 브랜치 이름이나 경로에
-        // 우연히 같은 숫자가 있을 수 있어, 앞뒤가 숫자가 아닌 독립 토큰이면서 HTTP 문맥일
-        // 때만 인정한다.
+        bool ends_with_ignoring_case(const std::string_view text, const std::string_view suffix) noexcept
+        {
+            return text.size() >= suffix.size() && contains_ignoring_case(text.substr(text.size() - suffix.size()), suffix);
+        }
+
+        // 상태 숫자 바로 앞에 와서 HTTP 상태임을 알리는 표지인가. libcurl의 `returned error: 403`, git의 `RPC failed; HTTP 403`,
+        // 번역된 문장의 `error 401`처럼 숫자 앞은 이 표지들로 끝난다.
+        bool follows_http_marker(const std::string_view before) noexcept
+        {
+            constexpr std::array markers {
+                std::string_view { "error: " },
+                std::string_view { "error " },
+                std::string_view { "HTTP " },
+                std::string_view { "HTTP/1.0 " },
+                std::string_view { "HTTP/1.1 " },
+                std::string_view { "HTTP/2 " },
+                std::string_view { "HTTP/3 " },
+            };
+            for (const std::string_view marker : markers)
+            {
+                if (ends_with_ignoring_case(before, marker))
+                    return true;
+            }
+            return false;
+        }
+
+        // 숫자 뒤에 이름이 이어지는가(`404.html`, `403-fix`, `403/index`). 그러면 상태가 아니라 파일이나 브랜치 이름이다.
+        // 문장 끝의 마침표(`error 403.`)는 이름이 아니다.
+        bool continues_name(const std::string_view text, const std::size_t index) noexcept
+        {
+            if (index >= text.size())
+                return false;
+            const char next { text[index] };
+            if (is_ascii_alphanumeric(next) || next == '_' || next == '-' || next == '/')
+                return true;
+            return next == '.' && index + 1 < text.size() && is_ascii_alphanumeric(text[index + 1]);
+        }
+
+        // 번역된 문장 안에서도 숫자 인자는 그대로 남는다. 다만 브랜치 이름이나 경로(`issue-403`, `public/404.html`)에
+        // 우연히 같은 숫자가 있을 수 있어, HTTP 상태 표지 바로 뒤에 오는 독립 토큰일 때만 인정한다.
         bool contains_http_status(const std::string_view text, const std::string_view status) noexcept
         {
             if (contains_ignoring_case(text, "http") == false)
@@ -55,14 +97,30 @@ namespace cyella {
             std::size_t begin { text.find(status) };
             while (begin != std::string_view::npos)
             {
-                const bool digit_before { begin > 0 && is_ascii_digit(text[begin - 1]) };
-                const std::size_t after { begin + status.size() };
-                const bool digit_after { after < text.size() && is_ascii_digit(text[after]) };
-                if (digit_before == false && digit_after == false)
+                if (continues_name(text, begin + status.size()) == false && follows_http_marker(text.substr(0, begin)))
                     return true;
                 begin = text.find(status, begin + 1);
             }
             return false;
+        }
+
+        // 서버가 sideband로 보낸 메시지는 git이 줄마다 `remote: `를 붙여 stderr로 낸다. 서버가 마음대로 쓸 수 있는 글이라
+        // 분류와 경로 해석의 근거에서 뺀다. 진행 표시는 `\r`로도 줄을 바꾸므로 둘 다 줄 끝으로 본다.
+        std::string without_remote_lines(const std::string_view text)
+        {
+            std::string kept {};
+            kept.reserve(text.size());
+            std::string_view rest { text };
+            while (rest.empty() == false)
+            {
+                const std::size_t end { rest.find_first_of("\r\n") };
+                const std::size_t length { end == std::string_view::npos ? rest.size() : end + 1 };
+                const std::string_view line { rest.substr(0, length) };
+                rest.remove_prefix(length);
+                if (line.starts_with("remote:") == false)
+                    kept.append(line);
+            }
+            return kept;
         }
 
         // git이 `--status-fd=2`로 부르는 gpg의 `[GNUPG:] FAILURE sign <코드>`에서 코드의 아래 16비트(gpg-error 코드)를 읽는다.
@@ -163,12 +221,6 @@ namespace cyella {
             if (contains_any(text, connect))
                 return git_failure_kind::connection_failed;
 
-            if (contains_http_status(text, "401") || contains_http_status(text, "403"))
-                return git_failure_kind::authentication_required;
-            // 서버가 돌려주는 문구이거나 HTTP 상태라 번역과 무관하다.
-            if (contains_ignoring_case(text, "Repository not found") || contains_http_status(text, "404"))
-                return git_failure_kind::repository_not_found;
-
             // push 결과 표의 표지다. `[rejected]`와 `[remote rejected]`는 번역되지 않고,
             // 뒤의 사유 문구만 번역된다. 영어 사유로 non-fast-forward를 더 좁힌다.
             if (contains_ignoring_case(text, "[rejected]") || contains_ignoring_case(text, "[remote rejected]"))
@@ -209,6 +261,14 @@ namespace cyella {
             if (contains_any(text, conflict))
                 return git_failure_kind::conflict;
 
+            // HTTP 상태는 push 거절·잠금·덮어쓰기·충돌 판정 뒤에 본다. push 결과 표의 `To https://...`나 경로처럼 같은 출력에
+            // 함께 실린 글이 상태 번호와 닮았을 수 있어서, 더 구체적인 신호를 먼저 가려야 한다.
+            if (contains_http_status(text, "401") || contains_http_status(text, "403"))
+                return git_failure_kind::authentication_required;
+            // 서버가 돌려주는 문구이거나 HTTP 상태라 번역과 무관하다.
+            if (contains_ignoring_case(text, "Repository not found") || contains_http_status(text, "404"))
+                return git_failure_kind::repository_not_found;
+
             constexpr std::array translated_authentication {
                 std::string_view { "could not read Username" },
                 std::string_view { "could not read Password" },
@@ -230,12 +290,14 @@ namespace cyella {
 
     std::optional<known_hosts_location> find_offending_known_hosts_line(const std::string_view standard_error)
     {
-        if (contains_ignoring_case(standard_error, "REMOTE HOST IDENTIFICATION HAS CHANGED") == false)
+        // 경고와 경로 줄은 로컬 ssh가 낸다. 서버가 보낸 `remote:` 줄이 경로를 정하지 못하게 뺀다.
+        const std::string trusted_error { without_remote_lines(standard_error) };
+        if (contains_ignoring_case(trusted_error, "REMOTE HOST IDENTIFICATION HAS CHANGED") == false)
             return std::nullopt;
 
         // `Offending ECDSA key in /c/Users/me/.ssh/known_hosts:3`. 경로에 `:`가 들어갈 수
         // 있어(`C:/...`) 마지막 `:` 뒤의 숫자를 줄 번호로 읽는다.
-        std::string_view rest { standard_error };
+        std::string_view rest { trusted_error };
         while (rest.empty() == false)
         {
             const std::size_t end { rest.find('\n') };
@@ -275,12 +337,15 @@ namespace cyella {
 
     std::optional<std::string> find_checked_out_worktree_path(const std::string_view standard_error)
     {
+        // 분류와 같은 이유로 서버가 보낸 `remote:` 줄은 경로의 근거가 아니다.
+        const std::string trusted_error { without_remote_lines(standard_error) };
+        const std::string_view trusted { trusted_error };
         for (const std::string_view marker : { std::string_view { "is already used by worktree at '" }, std::string_view { "is already checked out at '" } })
         {
-            const std::size_t begin { standard_error.find(marker) };
+            const std::size_t begin { trusted.find(marker) };
             if (begin == std::string_view::npos)
                 continue;
-            const std::string_view rest { standard_error.substr(begin + marker.size()) };
+            const std::string_view rest { trusted.substr(begin + marker.size()) };
             // 경로에 따옴표가 들어갈 수 있어 줄 끝에 가장 가까운 따옴표가 닫는 쪽이다.
             const std::size_t line_end { rest.find_first_of("\r\n") };
             const std::string_view line { rest.substr(0, line_end) };
@@ -299,12 +364,28 @@ namespace cyella {
 
     git_failure_kind classify_git_failure(const std::string_view standard_error, const std::string_view standard_output) noexcept
     {
-        // stderr의 신호가 더 믿을 만하다. stdout은 충돌 문구처럼 git이 stdout으로
-        // 내는 경우를 위한 보조다.
-        const git_failure_kind from_error { classify_text(standard_error) };
-        if (from_error != git_failure_kind::unclassified)
-            return from_error;
-        return classify_text(standard_output);
+        try
+        {
+            // stderr의 신호가 더 믿을 만하다. stdout은 충돌 문구처럼 git이 stdout으로
+            // 내는 경우를 위한 보조다. 서버가 보낸 `remote:` 줄은 서버가 마음대로 쓸 수 있어 뺀 글로만 판정한다.
+            const git_failure_kind from_error { classify_text(without_remote_lines(standard_error)) };
+            if (from_error != git_failure_kind::unclassified)
+                return from_error;
+            const git_failure_kind from_output { classify_text(without_remote_lines(standard_output)) };
+            if (from_output != git_failure_kind::unclassified)
+                return from_output;
+        }
+        catch (...)
+        {
+            // 메모리가 모자라 줄을 거르지 못했다. 근거 없이 분류하느니 원문을 그대로 보이게 둔다.
+            return git_failure_kind::unclassified;
+        }
+
+        // GitHub 등은 저장소가 없다는 사실을 `remote: Repository not found.`로만 알린다. 이 한 문구는 다른 신호가 전혀 없을 때만
+        // 받아들인다. 거짓이어도 화면의 안내 문구만 틀린다.
+        if (contains_ignoring_case(standard_error, "Repository not found") || contains_ignoring_case(standard_output, "Repository not found"))
+            return git_failure_kind::repository_not_found;
+        return git_failure_kind::unclassified;
     }
 
     std::string_view git_failure_kind_name(const git_failure_kind kind) noexcept

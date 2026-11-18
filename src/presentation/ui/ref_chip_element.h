@@ -1,11 +1,13 @@
 #pragma once
 
 #include "presentation/graph_geometry.h"
+#include "presentation/menu_model.h"
 #include "presentation/ui/press_row.h"
 
 #include "luil/ui/ui_element.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,6 +27,10 @@ namespace cyella::ui {
     // 이 라벨의 끌기·메뉴 키다. 브랜치는 사이드바 행과 같은 키(`l:main`, `rb:origin/main`)이고, 그 밖은 라벨 안에서만
     // 유일하다.
     [[nodiscard]] std::u8string ref_label_key(const ref_label& label);
+
+    // 라벨을 우클릭하거나 참조 카드에서 골랐을 때 여는 메뉴의 대상이다 (`commit_sha`는 라벨이 붙은 커밋). 로컬·원격·태그만 메뉴가 있고,
+    // HEAD·stash 라벨은 비어 있다. 칩과 카드가 같은 조립을 쓰므로 메뉴 대상에 필드를 더할 때 한 곳만 고치면 된다.
+    [[nodiscard]] std::optional<menu_target> menu_target_of(const ref_label& label, const std::string& commit_sha);
 
     // 그래프 행 안의 ref 라벨 하나다. 행의 고르기와 따로 눌리고(누름 = 이 커밋 고르기, 두 번 = 체크아웃, 우클릭 =
     // 메뉴), 브랜치 라벨은 끌어서 다른 라벨·커밋·사이드바 항목에 놓을 수 있다.

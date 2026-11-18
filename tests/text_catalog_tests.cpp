@@ -33,8 +33,13 @@ TEST_CASE("josa follows the final syllable", "[domain][text]")
     CHECK(particle(u8"브랜치", u8"{name|을/를}") == u8"브랜치를");
     CHECK(particle(u8"한글", u8"{name|을/를}") == u8"한글을");
     CHECK(particle(u8"main", u8"{name|으로/로}") == u8"main으로");
-    CHECK(particle(u8"feature/x1", u8"{name|으로/로}") == u8"feature/x1으로");
     CHECK(particle(u8"abc1234", u8"{name|으로/로}") == u8"abc1234로");
+    // 숫자는 한글로 읽는다. 일·칠·팔(1·7·8)은 ㄹ 받침이라 `로`, 삼·육(3·6)은 다른 받침이라 `으로`다.
+    CHECK(particle(u8"feature/x1", u8"{name|으로/로}") == u8"feature/x1로");
+    CHECK(particle(u8"release-7", u8"{name|으로/로}") == u8"release-7로");
+    CHECK(particle(u8"v8", u8"{name|으로/로}") == u8"v8로");
+    CHECK(particle(u8"v3", u8"{name|으로/로}") == u8"v3으로");
+    CHECK(particle(u8"v6", u8"{name|으로/로}") == u8"v6으로");
     // ㄹ 받침은 `으로`가 아니라 `로`다.
     CHECK(particle(u8"한글", u8"{name|으로/로}") == u8"한글로");
     CHECK(particle(u8"main", u8"{name|은/는}") == u8"main은");

@@ -127,6 +127,19 @@ namespace cyella::win32 {
             host_.store(host);
         }
 
+        // host가 아직 묶여 있는가다. `stop_workers`가 풀고 나면 거짓이다. 세션 종료(WM_ENDSESSION)에서 luil은 host를 해제한 뒤에도
+        // 메시지 루프를 돌리므로, UI thread의 타이머가 해제된 host를 만지지 않으려면 이것을 먼저 본다.
+        [[nodiscard]] bool host_bound() const noexcept
+        {
+            return host_.load() != nullptr;
+        }
+
+        // 시작할 때 찾은 git이다. 시작 전이면 비어 있다.
+        [[nodiscard]] const git_tool_info& git_tool() const noexcept
+        {
+            return git_tool_;
+        }
+
         // diff 웹뷰를 쥔 조립부다. git을 쓸 수 없으면 null이다.
         [[nodiscard]] const diff_view_coordinator* diff_view() const noexcept
         {
@@ -166,6 +179,9 @@ namespace cyella::win32 {
         void write_signing_config(bool global, const std::u8string& repository_path, std::vector<signing_change> changes);
         // "브라우저에서 열기"를 워커에 맡긴다 (검증용 `open_url_log`가 있으면 파일에 적는다).
         void open_url(const std::string& url);
+        // 작업 영역 파일 메뉴의 "외부 diff 도구로 열기"다. 세션의 status 항목으로 두 쪽 계획을 세워 diff 웹뷰의 외부 열기와
+        // 같은 worker 길로 띄운다.
+        void open_external_diff(const std::string& repository_id, const diff_file_request& request);
         // 저장소의 작성자 신원을 worker가 읽게 하고, 프로필을 `git config --local`로 쓰게 한다. 결과는 relay로 돌아온다.
         void request_identity(const std::string& repository_id, const std::u8string& path);
         void apply_identity(const std::string& repository_id, const std::u8string& path, const local_identity_change& change);

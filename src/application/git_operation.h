@@ -58,8 +58,8 @@ namespace cyella {
 
     // "이번만 연결"이다. 사용자가 호스트 키 지문을 확인하고 이 한 번만 믿기로 했을 때, 그 operation의
     // 모든 git 명령이 임시 known_hosts로 연결한다. 사용자의 `known_hosts`와 `core.sshCommand`는
-    // 바뀌지 않는다. 네트워크를 쓰는 operation(fetch·pull·push_execute·clone·refresh_remote_tags)과
-    // ssh를 바로 부르는 create_ssh_repository만 받는다. 뒤의 것은 `command` 대신 known_hosts 경로로 ssh 인자를 만든다.
+    // 바뀌지 않는다. 네트워크를 쓰는 operation(fetch·pull·push_execute·clone·refresh_remote_tags·push_tag·push_tags·
+    // delete_remote_tag)과 ssh를 바로 부르는 create_ssh_repository만 받는다. 뒤의 것은 `command` 대신 known_hosts 경로로 ssh 인자를 만든다.
     struct temporary_ssh_trust
     {
         // `GIT_SSH_COMMAND` 값이다. `make_temporary_known_hosts_ssh_command`가 만든다. 사용자가 쓰는
@@ -310,19 +310,24 @@ namespace cyella {
         bool include_untracked { true };
     };
 
+    // stash 번호는 다른 곳에서 stash를 더하거나 지우면 밀린다. `expected_sha`가 있으면 실행 직전에 `stash@{index}`가 그 커밋인지
+    // 보고, 다르면 `invalid_request`로 실패한다. 비우면 보지 않는다.
     struct stash_apply_request
     {
         std::uint32_t index { 0 };
+        std::string expected_sha {};
     };
 
     struct stash_pop_request
     {
         std::uint32_t index { 0 };
+        std::string expected_sha {};
     };
 
     struct stash_drop_request
     {
         std::uint32_t index { 0 };
+        std::string expected_sha {};
     };
 
     // ------------------------------------------------------------------ 태그
@@ -340,15 +345,18 @@ namespace cyella {
         std::optional<bool> sign {};
     };
 
+    // 태그를 원격에 보내고 지우는 일도 ssh로 붙으므로 처음 보는 호스트에서 "이번만 연결"로 다시 낼 수 있다.
     struct push_tag_request
     {
         std::string remote {};
         std::string name {};
+        std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 
     struct push_tags_request
     {
         std::string remote {};
+        std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 
     struct delete_tag_request
@@ -360,6 +368,7 @@ namespace cyella {
     {
         std::string remote {};
         std::string name {};
+        std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 
     // ------------------------------------------------------------------ 충돌
@@ -542,11 +551,15 @@ namespace cyella {
 
     // ssh로 서버에 들어가 `git init --bare`로 빈 저장소를 만든다. GitHub·GitLab 같은 호스팅 없이 ssh만 열린 서버에
     // 게시할 때 원격 추가 앞에 선다. 서버의 로그인 셸이 POSIX sh 꼴이고 `git`이 PATH에 있어야 한다.
-    // 경로가 이미 git 저장소면 그대로 쓰고, 저장소가 아닌 것이 있으면 건드리지 않고 실패한다.
+    // 경로가 이미 git 저장소면 그대로 쓰고, 미리 만든 빈 폴더면 그 안에 `git init --bare` 한다.
+    // 그 밖에 저장소가 아닌 것(파일, 내용이 있는 폴더)이 있으면 건드리지 않고 실패한다.
     struct create_ssh_repository_request
     {
         // 원격에 쓸 URL 그대로다 (`ssh://host/srv/x.git`, `me@host:x.git`). `parse_ssh_remote_target`으로 읽는다.
         std::string url {};
+        // 저장소 프로필의 ssh 키다. 비어 있지 않으면 `-i <키> -o IdentitiesOnly=yes`로 들어간다. ssh를 바로 부르므로
+        // 저장소의 `core.sshCommand`가 읽히지 않아 요청이 실어 온다.
+        std::u8string identity_file {};
         std::optional<temporary_ssh_trust> ssh_command_override {};
     };
 

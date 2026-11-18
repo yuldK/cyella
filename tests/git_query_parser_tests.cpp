@@ -29,6 +29,24 @@ TEST_CASE("parse_git_remotes merges fetch and push lines per remote", "[git][que
     CHECK(parse_git_remotes("").empty());
 }
 
+TEST_CASE("parse_git_remotes reads the fetch url of a partial clone remote", "[git][query]")
+{
+    // `--filter=blob:none`으로 복제하면 git이 fetch 줄 끝에 필터를 붙인다.
+    const std::string bytes = "origin\thttps://h/r.git (fetch) [blob:none]\n"
+                              "origin\thttps://h/r.git (push)\n"
+                              "space\thttps://h/a b/r.git (fetch) [tree:0]\r\n"
+                              "space\thttps://h/a b/r.git (push)\r\n";
+    const std::vector<remote_info> remotes { parse_git_remotes(bytes) };
+
+    REQUIRE(remotes.size() == 2);
+    CHECK(remotes[0].name == "origin");
+    CHECK(remotes[0].fetch_url == "https://h/r.git");
+    CHECK(remotes[0].push_url == "https://h/r.git");
+    CHECK(remotes[1].name == "space");
+    CHECK(remotes[1].fetch_url == "https://h/a b/r.git");
+    CHECK(remotes[1].push_url == "https://h/a b/r.git");
+}
+
 TEST_CASE("parse_overwritten_files reads the tab-indented list after the git error", "[git][query]")
 {
     // LC_ALL=C에서 git 2.52가 낸 문구 그대로다.

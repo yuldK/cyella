@@ -70,6 +70,39 @@ TEST_CASE("a key event becomes a chord", "[commands]")
     REQUIRE(chord_of(bare).valid() == false);
 }
 
+TEST_CASE("punctuation, backspace and keypad chords use the named luil keys", "[commands]")
+{
+    // luil은 구두점·Backspace·키패드를 이름 키로 보내므로 표가 플랫폼 대역 값을 쓰면 눌린 키와 맞지 않는다.
+    REQUIRE(chord(u8"Ctrl+,").key == luil::key_code::comma);
+    REQUIRE(chord(u8"Ctrl+=").key == luil::key_code::equal);
+    REQUIRE(chord(u8"Ctrl+-").key == luil::key_code::minus);
+    REQUIRE(chord(u8"Ctrl+.").key == luil::key_code::period);
+    REQUIRE(chord(u8"Ctrl+/").key == luil::key_code::slash);
+    REQUIRE(chord(u8"Ctrl+;").key == luil::key_code::semicolon);
+    REQUIRE(chord(u8"Ctrl+[").key == luil::key_code::bracket_left);
+    REQUIRE(chord(u8"Ctrl+]").key == luil::key_code::bracket_right);
+    REQUIRE(chord(u8"Ctrl+\\").key == luil::key_code::backslash);
+    REQUIRE(chord(u8"Ctrl+'").key == luil::key_code::quote);
+    REQUIRE(chord(u8"Ctrl+`").key == luil::key_code::grave);
+    REQUIRE(chord(u8"Backspace").key == luil::key_code::backspace);
+    REQUIRE(chord(u8"Ctrl+NumpadAdd").key == luil::key_code::numpad_add);
+    REQUIRE(chord(u8"Ctrl+NumpadSubtract").key == luil::key_code::numpad_subtract);
+
+    // 환경 설정 단축키 칸이 같은 키를 눌러 받을 때도 빈 값이 아니라 저장 글자로 되돌아야 한다.
+    REQUIRE(format_key_chord(key_chord { .key = luil::key_code::equal, .control = true }) == u8"Ctrl+=");
+    REQUIRE(format_key_chord(key_chord { .key = luil::key_code::minus, .control = true }) == u8"Ctrl+-");
+    REQUIRE(format_key_chord(key_chord { .key = luil::key_code::backspace, .alt = true }) == u8"Alt+Backspace");
+    REQUIRE(format_key_chord(key_chord { .key = luil::key_code::numpad_add, .control = true }) == u8"Ctrl+NumpadAdd");
+    REQUIRE(format_key_chord(key_chord { .key = luil::key_code::numpad_subtract, .control = true }) == u8"Ctrl+NumpadSubtract");
+    REQUIRE(check_key_chord(key_chord { .key = luil::key_code::comma, .control = true }).empty());
+
+    // 기본 단축키 `Ctrl+,`가 실제 키 이벤트와 만나 환경 설정을 연다.
+    luil::key_pressed_event event {};
+    event.key = luil::key_code::comma;
+    event.control = true;
+    REQUIRE(command_for(resolve_shortcut_bindings(app_settings {}), chord_of(event)) == "app.settings");
+}
+
 TEST_CASE("only keys that reach the app can be shortcuts", "[commands]")
 {
     REQUIRE(check_key_chord(chord(u8"Ctrl+K")).empty());
@@ -234,4 +267,20 @@ TEST_CASE("availability follows the repository state", "[commands]")
     REQUIRE(command_available("git.pull", open) == false);
     REQUIRE(command_available("git.branch.checkout", open));
     REQUIRE(command_available("view.drawer", open) == false);
+}
+
+TEST_CASE("creating a tag needs a first commit but other branch commands do not", "[commands]")
+{
+    command_availability open {};
+    open.repository = true;
+    open.branch = true;
+    CHECK(command_available("git.tag.new", open));
+    // 첫 커밋 전에는 HEAD가 없어 태그를 붙일 곳이 없다. 원격 추가는 HEAD와 무관하다.
+    open.no_commits = true;
+    CHECK_FALSE(command_available("git.tag.new", open));
+    CHECK(command_available("git.remote.add", open));
+    CHECK(command_available("git.branch.new", open));
+    open.branch = false;
+    open.no_commits = false;
+    CHECK_FALSE(command_available("git.tag.new", open));
 }

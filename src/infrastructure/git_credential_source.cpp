@@ -59,12 +59,25 @@ namespace cyella {
     {
         if (query.protocol.empty() || query.host.empty() || safe_value(query.protocol) == false || safe_value(query.host) == false || safe_value(username) == false || safe_value(password) == false)
             return std::nullopt;
-        std::string input { "protocol=" + query.protocol + "\nhost=" + query.host + "\n" };
+        // 비밀번호가 `+`로 만든 임시 문자열이나 재할당 전 버퍼에 남은 채 해제되지 않게, 크기를 먼저 잡고 한 버퍼에 이어 붙인다.
+        constexpr std::string_view protocol_key { "protocol=" };
+        constexpr std::string_view host_key { "\nhost=" };
+        constexpr std::string_view username_key { "username=" };
+        constexpr std::string_view password_key { "password=" };
+        std::size_t size { protocol_key.size() + query.protocol.size() + host_key.size() + query.host.size() + 2 };
         if (username.empty() == false)
-            input += "username=" + std::string { username } + "\n";
+            size += username_key.size() + username.size() + 1;
         if (password.empty() == false)
-            input += "password=" + std::string { password } + "\n";
-        input += "\n";
+            size += password_key.size() + password.size() + 1;
+
+        std::string input {};
+        input.reserve(size);
+        input.append(protocol_key).append(query.protocol).append(host_key).append(query.host).push_back('\n');
+        if (username.empty() == false)
+            input.append(username_key).append(username).push_back('\n');
+        if (password.empty() == false)
+            input.append(password_key).append(password).push_back('\n');
+        input.push_back('\n');
         return input;
     }
 
@@ -112,6 +125,8 @@ namespace cyella {
         if (directory.empty())
             directory = std::filesystem::temp_directory_path().u8string();
         process_request request { make_git_process_request(options_.git_executable, directory, { u8"credential", to_u8(verb) }, git_command_class::network, request_options) };
+        // 요청은 입력을 복사해 간다. reject의 입력에는 토큰이 있으므로 남은 사본을 지운 뒤 해제한다.
+        wipe_secret(request_options.standard_input);
         request.timeout = options_.timeout;
         request.maximum_captured_bytes_per_stream = 64u * 1024u;
         return request;

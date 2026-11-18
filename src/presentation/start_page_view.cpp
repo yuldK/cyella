@@ -15,6 +15,13 @@ namespace cyella {
             return value;
         }
 
+        // 경로 구분자는 '/'와 '\\'를 같은 글자로 접는다. 질의만 접으면 `origin/main` 같은 ref 이름과
+        // `/`로 쓴 worktree 경로가 질의의 '/'와 맞지 않아 걸러 내기가 0건이 된다.
+        constexpr char8_t fold_search_char(const char8_t value) noexcept
+        {
+            return value == u8'/' ? u8'\\' : ascii_lower(value);
+        }
+
         constexpr bool is_search_space(const char8_t value) noexcept
         {
             return value == u8' ' || value == u8'\t' || value == u8'\r' || value == u8'\n';
@@ -30,7 +37,7 @@ namespace cyella {
             std::u8string result {};
             result.reserve(search.size());
             for (const char8_t value : search)
-                result.push_back(value == u8'/' ? u8'\\' : ascii_lower(value));
+                result.push_back(fold_search_char(value));
             return result;
         }
 
@@ -45,7 +52,7 @@ namespace cyella {
             for (std::size_t start = 0; start <= last_start; ++start)
             {
                 std::size_t offset { 0 };
-                while (offset < folded_search.size() && ascii_lower(text[start + offset]) == folded_search[offset])
+                while (offset < folded_search.size() && fold_search_char(text[start + offset]) == folded_search[offset])
                     ++offset;
                 if (offset == folded_search.size())
                     return true;

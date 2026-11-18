@@ -99,12 +99,20 @@ namespace cyella {
 
     void signing_page_controller::adopt_info(signing_info_snapshot info)
     {
-        // 같은 설정을 다시 받은 것(gpg 키 목록이 뒤따라 온 경우)이면 사용자가 치던 입력을 덮지 않는다.
-        const bool same_config { state_.info.has_value() && state_.info->config == info.config };
+        // 새로 받기 전에 이 범위의 저장값을 따로 둔다 (아래에서 info가 바뀐다).
+        const signing_config previous { scope_config() };
         state_.info = std::move(info);
         state_.loading = state_.info->gpg_pending;
-        if (same_config == false)
-            fill_drafts();
+        // 저장값이 바뀐 칸만 새 값으로 채운다. gpg 키 목록이 뒤따라 온 경우나 토글 같은 다른 설정을 쓴 뒤의 읽기가 아직 적용하지 않은
+        // 경로 입력을 덮지 않게 한다. 방금 적용·지운 칸은 저장값이 바뀌므로 화면의 입력도 저장값(슬래시 경로)으로 돌아온다.
+        const signing_config& current { scope_config() };
+        const auto refill = [&previous, &current](luil::text::text_edit_state& draft, const signing_key_id key) {
+            if (previous.at(key).value != current.at(key).value)
+                set_text(draft, to_u8(current.at(key).value));
+        };
+        refill(state_.gpg_program, signing_key_id::gpg_program);
+        refill(state_.ssh_program, signing_key_id::gpg_ssh_program);
+        refill(state_.allowed_signers, signing_key_id::gpg_ssh_allowed_signers);
     }
 
     luil::text::text_edit_state* signing_page_controller::draft(const text_target target)
@@ -174,13 +182,15 @@ namespace cyella {
         }
         if (const auto* const intent { message.get<signing_write_done_intent>() }; intent != nullptr)
         {
-            if (page_open == false)
-                return true;
-            state_.writing = false;
-            state_.message_error = intent->ok == false;
-            state_.message = intent->ok ? tr(u8"signing_page.saved") : intent->error;
-            // 성공해도 실패해도 git의 실제 값을 다시 읽어 화면과 맞춘다.
-            request_info();
+            if (page_open)
+            {
+                state_.writing = false;
+                state_.message_error = intent->ok == false;
+                state_.message = intent->ok ? tr(u8"signing_page.saved") : intent->error;
+                // 성공해도 실패해도 git의 실제 값을 다시 읽어 화면과 맞춘다.
+                request_info();
+            }
+            // 쓰기는 이미 git 설정에 반영됐다. 쓰는 중에 환경 설정을 닫았더라도 열린 저장소의 서명 상태·서명 검증 캐시는 새 설정으로 다시 읽어야 한다.
             if (intent->ok && dependencies_.changed != nullptr)
                 dependencies_.changed(intent->global);
             return true;

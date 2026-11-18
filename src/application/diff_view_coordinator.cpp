@@ -53,6 +53,7 @@ namespace cyella {
     {
         shown_target_.reset();
         shown_serial_ = 0;
+        reload_request_.reset();
         // 다른 파일로 넘어갔으면 앞 파일의 두 쪽 꺼내기는 쓸모없다.
         if (sides_source_ != nullptr)
             sides_source_->request_cancellation();
@@ -75,9 +76,25 @@ namespace cyella {
         {
             if (same_target && shown_serial_ == serial)
                 return;
+            // 대상이 바뀌었으면 앞 대상을 위해 고쳐 낸 다시 읽기 요청은 더는 쓸모없다. 화면이 그 요청으로 따라온 경우도 여기다.
+            if (same_target == false)
+                reload_request_.reset();
             shown_target_ = wanted;
             shown_serial_ = serial;
             // 새로 보이는 diff는 새 ticket을 가지므로 앞 diff의 두 쪽 꺼내기는 쓸모없다.
+            if (sides_source_ != nullptr)
+                sides_source_->request_cancellation();
+            run_effects(controller_.show(*loaded, wanted->repository_path));
+            return;
+        }
+        // 적용 뒤 고쳐 낸 요청(추적하게 된 파일)으로 다시 읽은 diff다. 화면이 원하는 요청은 다음 상태 snapshot이 와야 따라오는데,
+        // 그 refresh가 실패하거나 늦으면 기다리는 동안 웹뷰 단추가 잠긴 채 남는다. 같은 파일의 새 내용이므로 곧바로 보인다.
+        // `shown_target_`은 화면이 원하는 요청 그대로 두어야 위의 같은 대상 판정이 맞는다.
+        if (loaded != nullptr && same_target && reload_request_.has_value() && loaded->request == *reload_request_)
+        {
+            if (shown_serial_ == serial)
+                return;
+            shown_serial_ = serial;
             if (sides_source_ != nullptr)
                 sides_source_->request_cancellation();
             run_effects(controller_.show(*loaded, wanted->repository_path));
@@ -135,7 +152,18 @@ namespace cyella {
             // 적용이 됐다. 같은 파일의 diff를 다시 읽는다. 결과가 오면 `sync`가 다시 보인다.
             if (shown_target_.has_value() == false)
                 return;
-            pending_reload_ = ports_.submit != nullptr ? ports_.submit(shown_target_->repository_id, shown_target_->request) : 0;
+            // 앞서 고친 요청이 있으면 그것에서 시작한다. 화면이 아직 따라오지 않은 채 줄을 버리면(index에 더하지 않는 적용)
+            // 옛 요청으로 돌아가 다시 파일 전체를 `/dev/null`과 비교하게 된다.
+            diff_file_request reload { reload_request_.value_or(shown_target_->request) };
+            // 추적하지 않는 파일을 index에 올렸으면 이제 추적 중이다. 그대로 `/dev/null`과 비교하면 다시 파일 전체가 보이고
+            // 남은 줄의 stage가 생성 patch가 되어 실패한다. 상태 snapshot은 이 뒤의 refresh가 가져오므로 기다리지 않고 여기서 고친다.
+            // `shown_target_`은 그대로 둔다. 바꾸면 `sync`가 화면이 원하는 옛 요청과 맞지 않는다고 보고 지운다.
+            // 고친 요청은 기억해 두어 그 결과가 오면 `sync`가 보이게 한다 (화면 요청이 따라오기 전에도 단추가 풀린다).
+            if (reload.untracked && applied_to_index_)
+                reload.untracked = false;
+            if (reload != shown_target_->request)
+                reload_request_ = reload;
+            pending_reload_ = ports_.submit != nullptr ? ports_.submit(shown_target_->repository_id, std::move(reload)) : 0;
             if (pending_reload_ == 0)
                 controller_.action_failed();
             return;
@@ -143,7 +171,8 @@ namespace cyella {
         if (id == pending_reload_)
         {
             pending_reload_ = 0;
-            // 다시 읽지 못하면 웹뷰의 단추가 잠긴 채 남으므로 풀어 준다. 성공이면 `sync`가 곧 새 diff를 보인다.
+            // 다시 읽지 못하면 웹뷰의 단추가 잠긴 채 남으므로 풀어 준다. 성공이면 `sync`가 곧 새 diff를 보인다
+            // (요청을 고쳐 냈으면 `reload_request_`로 맞춘다).
             if (finished.state != operation_state::succeeded)
                 controller_.action_failed();
         }
@@ -189,6 +218,7 @@ namespace cyella {
             controller_.action_failed();
             return;
         }
+        applied_to_index_ = effect.request.cached && effect.request.reverse == false;
         pending_apply_ = ports_.submit(shown_target_->repository_id, effect.request);
         if (pending_apply_ == 0)
         {
@@ -202,14 +232,23 @@ namespace cyella {
         const std::shared_ptr<process_cancellation_source> source { replace_source(sides_source_) };
         operation_request request {};
         request.repository_key = std::string { diff_view_lane_key };
-        request.job = [gateway = ports_.gateway, plan = effect.plan, write_files = effect.write_files, ticket = effect.ticket, source, post = ports_.sides_ready](const operation_context& context) {
+        request.job = [gateway = ports_.gateway, plan = effect.plan, write_files = effect.write_files, ticket = effect.ticket, source, previous = preview_sides_, post = ports_.sides_ready](const operation_context& context) {
             const process_cancellation_registration link { link_shutdown(context, source) };
+            // 새 미리보기를 준비할 때는 앞의 미리보기가 더는 보이지 않는다. 외부 도구용 사본은 따로 꺼내므로 여기에 없다.
+            if (gateway != nullptr)
+            {
+                gateway->release(*previous);
+                *previous = {};
+            }
             diff_sides_ready_intent message {};
             message.ticket = ticket;
             if (gateway == nullptr || source->token().cancelled())
                 message.sides.error = tr_narrow(u8"diff_action.cancelled");
             else
                 message.sides = gateway->extract_cancellable(plan, write_files, source->token());
+            // 늦게 와 버려지는 결과도 폴더는 만들었으므로 다음 준비 때 함께 놓아준다.
+            if (write_files)
+                *previous = message.sides;
             if (post != nullptr)
                 post(std::move(message));
         };
@@ -238,6 +277,13 @@ namespace cyella {
         if (folder.empty())
             return;
         run_open_external({}, std::move(app), std::move(folder));
+    }
+
+    void diff_view_coordinator::open_external(diff_side_plan plan)
+    {
+        if (plan.repository_path.empty() || plan.display_path().empty())
+            return;
+        run_open_external({ std::move(plan) });
     }
 
     void diff_view_coordinator::run_open_external(const open_external_effect& effect, std::optional<external_file_app> app, std::u8string folder)

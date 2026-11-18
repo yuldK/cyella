@@ -19,10 +19,20 @@ namespace cyella {
             return result;
         }
 
-        // sh의 작은따옴표 안은 아무것도 풀지 않는다. 프로필 검사가 경로의 작은따옴표를 막으므로 이스케이프는 두지 않는다.
+        // sh의 작은따옴표 안은 아무것도 풀지 않는다. 키 경로는 프로필 검사가 작은따옴표를 막지만 ssh 실행 파일 경로는
+        // `C:/Users/O'Neil/...`처럼 가질 수 있으므로, 안의 작은따옴표를 `'\''`(닫고, 따옴표 하나, 다시 열기)로 바꾼다.
         std::u8string quote_single(const std::u8string_view text)
         {
-            return u8"'" + std::u8string { text } + u8"'";
+            std::u8string result { u8"'" };
+            for (const char8_t value : text)
+            {
+                if (value == u8'\'')
+                    result += u8"'\\''";
+                else
+                    result.push_back(value);
+            }
+            result.push_back(u8'\'');
+            return result;
         }
 
         std::vector<std::u8string_view> split_tabs(const std::u8string_view line, const std::size_t limit)

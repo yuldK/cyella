@@ -150,10 +150,10 @@ TEST_CASE("parse_git_refs accepts NUL terminated records and skips foreign refs"
     bytes.append(record({ "refs/stash", "cccc", "", " ", "", "", "", "" }));
 
     const git_ref_list list { parse_git_refs(bytes) };
-    REQUIRE(list.refs.size() == 2);
+    REQUIRE(list.refs.size() == 1);
     CHECK(list.refs[0].name == "a");
-    CHECK(list.refs[1].kind == ref_kind::stash);
-    CHECK(list.skipped_count == 2);
+    // for-each-ref는 refs/heads·refs/remotes·refs/tags만 묻는다. stash는 stash list로 따로 읽으므로 ref로는 세지 않는다.
+    CHECK(list.skipped_count == 3);
 }
 
 TEST_CASE("parse_git_refs handles empty input", "[git][ref]")

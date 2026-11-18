@@ -121,6 +121,10 @@ namespace cyella {
             if (xy[1] != '.')
             {
                 file_change change { make_change(tail, xy[1], change_side::unstaged, is_submodule) };
+                // intent-to-add 뒤에는 작업 트리 쪽 이름 변경·복사(`.R`)도 나온다. 원래 경로가 없으면 상태는 R인데 `원래 → 새` 표시가
+                // 새 경로만 보이게 된다. 원래 경로 레코드는 이미 소비했으므로 여기서 받아 둔다.
+                if (is_rename && (xy[1] == 'R' || xy[1] == 'C'))
+                    change.original_path = std::string { original_path };
                 if (is_submodule)
                     change.submodule_flags = std::string { submodule };
                 result.unstaged.push_back(std::move(change));

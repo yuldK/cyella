@@ -84,6 +84,20 @@ namespace cyella::win32 {
             }
         };
 
+        // 알림 이름이 지금 폴더를 가리키는가다. 지워졌거나 읽지 못하면 아니라고 본다 (알림을 버리지 않는 쪽이 안전하다).
+        bool names_directory(const std::u8string& root_path, const std::u8string_view relative_name)
+        {
+            std::u8string full { root_path };
+            if (full.empty() == false && full.back() != u8'\\' && full.back() != u8'/')
+                full.push_back(u8'\\');
+            full.append(relative_name);
+            const prepared_path prepared { prepare_file_path(full) };
+            if (prepared.value.has_value() == false)
+                return false;
+            const DWORD attributes { GetFileAttributesW(prepared.value->c_str()) };
+            return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        }
+
         std::optional<std::u8string> read_small_text_file(const std::u8string& path)
         {
             const settings_file_read_result file { read_whole_file(path) };
@@ -313,7 +327,12 @@ namespace cyella::win32 {
                     const std::wstring_view name { info->FileName, info->FileNameLength / sizeof(wchar_t) };
                     const auto converted { utf16_to_utf8(name) };
                     // 변환하지 못한 이름은 모르는 채로 두는 것보다 한 번 더 읽는 쪽이 안전하다.
-                    const change_classification classification { converted.value.has_value() ? classify_repository_change(root.kind, *converted.value) : change_classification::working_tree };
+                    change_classification classification { converted.value.has_value() ? classify_repository_change(root.kind, *converted.value) : change_classification::working_tree };
+                    // 폴더 자신의 MODIFIED는 그 안의 항목이 늘거나 줄었다는 시각 갱신일 뿐이고, 그 항목은 따로 알림이 온다. NTFS는 이
+                    // 시각을 늦게 반영해 알림이 따로 뒤늦게 오므로(`refs\heads`), 세면 바뀐 것 없는 전체 새로 고침이 한 번 더 난다.
+                    // 상태로 분류된 것만 확인한다. 작업 트리 쓰기마다 파일 속성을 읽지 않으려는 것이다.
+                    if (info->Action == FILE_ACTION_MODIFIED && classification == change_classification::repository_state && names_directory(root.path, *converted.value))
+                        classification = change_classification::ignored;
                     debouncer_.note(classification, now);
 
                     if (info->NextEntryOffset == 0)

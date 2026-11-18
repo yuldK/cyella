@@ -47,6 +47,10 @@ namespace cyella {
         avatar_fetcher(hosting_transport& transport, avatar_fetch_options options);
 
         [[nodiscard]] avatar_fetch_result fetch(std::string_view email, const process_cancellation_token& cancellation) const;
+        // 보관 폴더에서 `keep_image`보다 오래된 `.img`, `keep_missing`보다 오래된 `.none`과 쓰다 남은 `.part`를 모두 지운다.
+        // 지우지 않으면 작성자를 훑을수록 폴더가 끝없이 커진다. `fetch`와 같은 줄(lane)에서 불러 쓰는 중인 `.part`를 지우지 않게 한다.
+        // 오래된 사진이 지워지면 그 사람은 네트워크가 없을 때 기한 지난 사진으로 되돌아가지 못한다.
+        void prune() const;
 
     private:
         hosting_transport* transport_ { nullptr };

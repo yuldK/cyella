@@ -26,10 +26,16 @@ namespace cyella {
         hosting_token_store& operator=(const hosting_token_store&) = delete;
         ~hosting_token_store();
 
+        // `username`은 도우미가 준 이름이다. 서버가 답한 계정 이름은 `set_account`로 따로 둔다.
         void set(const std::string& host_key, std::string username, secret_text token);
+        // 서버가 답한 계정 이름이다. 도우미의 이름은 그대로 둔다 — `git credential reject`는 저장할 때의 이름이 맞아야 지운다.
+        void set_account(const std::string& host_key, std::string account);
         // 쓰는 동안 지워지지 않도록 공유 손잡이를 준다. 없으면 null이다.
         [[nodiscard]] std::shared_ptr<const secret_text> token(const std::string& host_key) const;
+        // 계정 이름이다. 서버에 아직 묻지 않았으면 도우미가 준 이름이다.
         [[nodiscard]] std::string username(const std::string& host_key) const;
+        // 도우미가 준 이름이다 (`oauth2` 같은 자리표일 수 있다). 도우미에 거절을 알릴 때 쓴다.
+        [[nodiscard]] std::string helper_username(const std::string& host_key) const;
         [[nodiscard]] bool contains(const std::string& host_key) const;
         void forget(const std::string& host_key);
         void forget_all();
@@ -38,7 +44,8 @@ namespace cyella {
     private:
         struct entry
         {
-            std::string username {};
+            std::string helper_username {};
+            std::string account {};
             std::shared_ptr<const secret_text> token {};
         };
 
@@ -54,7 +61,7 @@ namespace cyella {
     //    요청을 보내지 않고 `not_signed_in`으로 돌려준다.
     //  - 401을 받으면 그 토큰을 `git credential reject`로 도우미에서 지우고 메모리에서도 잊은 뒤, 도우미에 한 번 다시 묻고 같은 요청을
     //    한 번 다시 보낸다. 다시 받은 응답도 401이면 토큰을 잊고 `unauthorized`로 끝낸다.
-    //  - 호출 한도가 남지 않았다고 알려 준 호스트는 초기화 시각까지 요청을 보내지 않는다.
+    //  - 호출 한도가 남지 않았다고 알려 준 호스트는 초기화 시각까지, `Retry-After`를 보낸 호스트는 그 시간 동안 요청을 보내지 않는다.
     class hosting_service
     {
     public:
@@ -106,5 +113,7 @@ namespace cyella {
         std::mutex credential_mutex_ {};
         mutable std::mutex limit_mutex_ {};
         std::map<std::string, rate_limit_info> limits_ {};
+        // `Retry-After`가 정한 시각(초)이다. GitHub 2차 한도는 남은 횟수와 초기화 시각을 함께 보내므로 `limits_`만으로는 막지 못한다.
+        std::map<std::string, std::int64_t> blocked_until_ {};
     };
 } // namespace cyella

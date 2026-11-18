@@ -339,6 +339,33 @@ namespace cyella {
             return git_reset_mode::mixed;
         }
 
+        // 요청을 낸 뒤 다른 곳에서 stash를 더하거나 지우면 같은 번호가 다른 stash다. 사용자가 고르지 않은 stash를 적용·삭제하지 않도록
+        // 실행 직전에 그 번호의 커밋이 화면에서 고른 것과 같은지 본다. 기대값이 없으면(예전 요청) 보지 않는다.
+        std::optional<operation_outcome> check_stash_identity(git_operation_context& context, const std::uint32_t index, const std::string& expected_sha)
+        {
+            if (expected_sha.empty())
+                return std::nullopt;
+            const std::string revision { "stash@{" + std::to_string(index) + "}" };
+            git_command_spec spec {};
+            spec.arguments = { u8"rev-parse", u8"--verify", u8"--quiet", std::u8string { revision.begin(), revision.end() } };
+            spec.command_class = git_command_class::local_query;
+            git_command_outcome outcome {};
+            std::optional<operation_outcome> stop {};
+            if (context.run_required(std::move(spec), outcome, stop) == false)
+            {
+                // 그 번호가 없어졌다. git의 원문보다 왜 멈췄는지가 쓸모 있다.
+                if (stop.has_value() && stop->state == operation_state::cancelled)
+                    return stop;
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.stash.changed"));
+            }
+            std::string actual { outcome.standard_output };
+            while (actual.empty() == false && (actual.back() == '\n' || actual.back() == '\r'))
+                actual.pop_back();
+            if (actual != expected_sha)
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.stash.changed"));
+            return std::nullopt;
+        }
+
         operation_outcome stash_restore(git_operation_context& context, git_arguments arguments, std::u8string summary)
         {
             git_command_spec spec {};
@@ -555,11 +582,23 @@ namespace cyella {
                     return run_single(context, make_git_stash_push_args(options), write, tr(u8"git.stash.pushed"));
                 }
                 else if constexpr (std::is_same_v<request_type, stash_apply_request>)
+                {
+                    if (std::optional<operation_outcome> changed { check_stash_identity(context, request.index, request.expected_sha) }; changed.has_value())
+                        return std::move(*changed);
                     return stash_restore(context, make_git_stash_apply_args(request.index), tr(u8"git.stash.applied"));
+                }
                 else if constexpr (std::is_same_v<request_type, stash_pop_request>)
+                {
+                    if (std::optional<operation_outcome> changed { check_stash_identity(context, request.index, request.expected_sha) }; changed.has_value())
+                        return std::move(*changed);
                     return stash_restore(context, make_git_stash_pop_args(request.index), tr(u8"git.stash.popped"));
+                }
                 else if constexpr (std::is_same_v<request_type, stash_drop_request>)
+                {
+                    if (std::optional<operation_outcome> changed { check_stash_identity(context, request.index, request.expected_sha) }; changed.has_value())
+                        return std::move(*changed);
                     return run_single(context, make_git_stash_drop_args(request.index), write, tr(u8"git.stash.dropped"));
+                }
                 else if constexpr (std::is_same_v<request_type, create_tag_request>)
                     return create_tag(context, request);
                 else if constexpr (std::is_same_v<request_type, push_tag_request>)

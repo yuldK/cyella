@@ -12,6 +12,8 @@ namespace cyella {
         using json = nlohmann::json;
 
         constexpr std::size_t message_limit { 300 };
+        // 오류 몸의 중첩을 이 깊이까지만 내려간다. 서버가 아주 깊은 배열을 보내도 재귀가 워커의 스택을 넘지 않는다.
+        constexpr int message_depth_limit { 8 };
 
         std::string lower(const std::string_view text)
         {
@@ -39,6 +41,14 @@ namespace cyella {
             if (error != std::errc {} || end != trimmed.data() + trimmed.size())
                 return std::nullopt;
             return value;
+        }
+
+        // GitLab 프로젝트 path로 그대로 쓸 수 있는 이름인가 (영숫자와 `_-.`, `-`·`.`로 시작하지 않음).
+        bool gitlab_path_compatible(const std::string_view name)
+        {
+            if (name.empty() || name.front() == '-' || name.front() == '.')
+                return false;
+            return std::ranges::all_of(name, [](const char value) { return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == '_' || value == '-' || value == '.'; });
         }
 
         std::string string_of(const json& object, const char* const key)
@@ -90,8 +100,10 @@ namespace cyella {
         }
 
         // 서버 오류 몸에서 사람이 읽을 이유를 뽑는다. GitHub는 `message`와 `errors[].message`, GitLab은 문자열·배열·객체인 `message`나 `error`다.
-        void flatten_message(const json& value, std::string& out)
+        void flatten_message(const json& value, std::string& out, const int depth = 0)
         {
+            if (depth > message_depth_limit)
+                return;
             if (value.is_string())
             {
                 if (out.empty() == false)
@@ -101,7 +113,7 @@ namespace cyella {
             else if (value.is_array())
             {
                 for (const json& item : value)
-                    flatten_message(item, out);
+                    flatten_message(item, out, depth + 1);
             }
             else if (value.is_object())
             {
@@ -110,7 +122,7 @@ namespace cyella {
                     if (item.is_string() || item.is_array())
                     {
                         const std::size_t before { out.size() };
-                        flatten_message(item, out);
+                        flatten_message(item, out, depth + 1);
                         if (out.size() > before)
                             out.insert(before == 0 ? 0 : before + 2, key + " ");
                     }
@@ -370,7 +382,9 @@ namespace cyella {
         {
             request = base_request(repository.provider, hosting_http_method::post, repository.api_base + "/projects");
             body["name"] = params.name;
-            body["path"] = params.name;
+            // path는 영숫자와 `_-.`만 받는다. 이름이 그 꼴이 아니면(`My Project`, 한글) 비워 두어 서버가 이름으로 만들게 한다.
+            if (gitlab_path_compatible(params.name))
+                body["path"] = params.name;
             body["visibility"] = params.is_private ? "private" : "public";
             if (namespace_id.has_value())
                 body["namespace_id"] = *namespace_id;

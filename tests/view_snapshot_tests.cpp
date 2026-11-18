@@ -3,8 +3,39 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+
 using namespace cyella;
 using namespace cyella::test::snapshot;
+
+namespace {
+    // 웹뷰가 없는 대체 보기로 문맥 줄 `line_count`개짜리 diff 하나를 연 화면의 diff 판이다.
+    diff_panel_view fallback_diff_of(const std::int32_t line_count)
+    {
+        snapshot_harness harness {};
+        const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+        repository_session& session { *harness.sessions["repo-1"] };
+        load(session, linear_history(2), 0);
+        const diff_file_request request { .path = "big.txt", .view = diff_view::unstaged };
+        harness.ui.tabs[tab].diff = request;
+
+        session.expect_file_diff(5);
+        file_diff diff {};
+        diff.request = request;
+        diff_file file {};
+        file.old_path = file.new_path = request.path;
+        diff_hunk hunk {};
+        hunk.header = "@@ -1 +1 @@";
+        for (std::int32_t number { 1 }; number <= line_count; ++number)
+            hunk.lines.push_back({ diff_line_kind::context, number, number, "line" });
+        file.hunks.push_back(std::move(hunk));
+        diff.files.push_back(std::move(file));
+        REQUIRE(session.apply(5, file_diff_loaded { std::move(diff) }));
+        return *harness.build().repository->diff;
+    }
+} // namespace
 
 TEST_CASE("start tab snapshot lists recent repositories with open and missing states", "[presentation][snapshot]")
 {
@@ -93,6 +124,25 @@ TEST_CASE("remote toolbar explains unavailable synchronization actions", "[prese
     const toolbar_view detached { harness.build().toolbar };
     CHECK_FALSE(detached.push_enabled);
     CHECK(detached.push_hint.find(u8"HEAD") != std::u8string::npos);
+    // 분리된 HEAD의 표시는 카탈로그 문구에 짧은 SHA를 채운 것이다.
+    const std::string head { sha_of(1) };
+    CHECK(detached.branch_text == u8"(detached) " + std::u8string { head.begin(), head.begin() + 7 });
+}
+
+TEST_CASE("git verbs keep their English names in the operation list", "[presentation][snapshot]")
+{
+    // 한국어 화면에서도 git 동사는 영어 표기다. 카탈로그 키로 옮겨도 보이는 글은 그대로여야 한다.
+    CHECK(operation_display_name(operation_kind::stage_files) == u8"Stage");
+    CHECK(operation_display_name(operation_kind::unstage_files) == u8"Unstage");
+    CHECK(operation_display_name(operation_kind::fetch) == u8"Fetch");
+    CHECK(operation_display_name(operation_kind::pull) == u8"Pull");
+    CHECK(operation_display_name(operation_kind::push_execute) == u8"Push");
+    CHECK(operation_display_name(operation_kind::stash_push) == u8"Stash");
+    CHECK(operation_display_name(operation_kind::stash_pop) == u8"Pop");
+    CHECK(operation_display_name(operation_kind::clone) == u8"Clone");
+    CHECK(operation_display_name(operation_kind::init) == u8"Init");
+    CHECK(operation_display_name(operation_kind::lfs_pull) == u8"LFS pull");
+    CHECK(operation_display_name(operation_kind::lfs_fetch) == u8"LFS fetch");
 }
 
 TEST_CASE("selecting WIP builds the working area and gates the commit button", "[presentation][snapshot]")
@@ -160,6 +210,7 @@ TEST_CASE("a failed operation becomes an error notification with its commands an
     CHECK(value->repository_id == "repo-1");
     REQUIRE(value->details.size() == 3);
     CHECK(value->details[0].starts_with(u8"$ git push --progress"));
+    CHECK(value->details[0].find(u8"→ exit 1") != std::u8string::npos);
     REQUIRE(value->actions.size() == 1);
     CHECK(value->actions[0].key == u8"pull_then_push");
 
@@ -300,11 +351,32 @@ TEST_CASE("sidebar rows group remotes, filter by name and collapse sections", "[
     CHECK(filtered.counts[1] == 0);
     CHECK(filtered.rows.size() == 7);
 
+    // 이름에 '/'가 든 ref는 '/'를 친 질의로도 걸러진다 (질의만 접으면 0건이 된다).
+    const sidebar_rows slashed { build_sidebar_rows(snapshot, u8"feature/", 0) };
+    CHECK(slashed.counts[0] == 1);
+    CHECK(slashed.counts[1] == 0);
+    const sidebar_rows remote_slashed { build_sidebar_rows(snapshot, u8"origin/ma", 0) };
+    CHECK(remote_slashed.counts[0] == 0);
+    CHECK(remote_slashed.counts[1] == 1);
+
     const std::uint8_t collapsed { static_cast<std::uint8_t>((1u << static_cast<unsigned>(sidebar_section::local)) | (1u << static_cast<unsigned>(sidebar_section::tags))) };
     const sidebar_rows folded { build_sidebar_rows(snapshot, {}, collapsed) };
     CHECK(folded.rows[0].collapsed);
     CHECK(folded.rows[1].key == u8"h:REMOTE");
     CHECK(folded.counts[0] == 2);
+}
+
+TEST_CASE("a token in a remote URL does not show in the sidebar row or its tooltip", "[presentation][snapshot]")
+{
+    repository_snapshot snapshot { make_snapshot(sha_of(0), 0) };
+    snapshot.summary.remotes = { { .name = "origin", .fetch_url = "https://user:tok@h/r.git" } };
+    const sidebar_rows rows { build_sidebar_rows(snapshot, {}, 0) };
+    const auto group { std::ranges::find(rows.rows, std::u8string { u8"r:origin" }, &sidebar_row_view::key) };
+    REQUIRE(group != rows.rows.end());
+    CHECK(group->detail.find(u8"tok") == std::u8string::npos);
+    CHECK(group->detail.find(u8"user:***@") != std::u8string::npos);
+    CHECK(group->tooltip.find(u8"tok") == std::u8string::npos);
+    CHECK(group->tooltip.find(u8"user:***@") != std::u8string::npos);
 }
 
 TEST_CASE("relative time and file rows read naturally", "[presentation][snapshot]")
@@ -336,4 +408,121 @@ TEST_CASE("narrow width compacts graph columns and keeps the drawer closed witho
     CHECK(narrow.toolbar.show_detail_toggle);
     const view_snapshot wide { harness.build(1440.0f) };
     CHECK_FALSE(wide.drawer_open);
+}
+
+TEST_CASE("the text fallback tells when it cut a long diff", "[presentation][snapshot]")
+{
+    // 상한(2만 줄) 안이면 자르지 않는다. hunk 머리 한 줄과 본문 19999줄이 정확히 상한이다.
+    const diff_panel_view exact { fallback_diff_of(19999) };
+    CHECK_FALSE(exact.use_webview);
+    CHECK_FALSE(exact.text_truncated);
+    REQUIRE(exact.lines.size() == 20000);
+    CHECK_FALSE(exact.lines.back().hunk_header);
+
+    // 넘치면 상한까지 담고 끝에 안내 행 하나를 세워 diff가 거기서 끝난 것으로 읽히지 않게 한다.
+    const diff_panel_view cut { fallback_diff_of(30000) };
+    CHECK(cut.text_truncated);
+    REQUIRE(cut.lines.size() == 20001);
+    CHECK_FALSE(cut.lines[19999].hunk_header);
+    CHECK(cut.lines.back().hunk_header);
+}
+
+TEST_CASE("forged commit times far outside the calendar still format without throwing", "[presentation][snapshot]")
+{
+    constexpr std::int64_t now { 1700000000 };
+    constexpr std::int64_t forged { 9999999999999 };
+    constexpr std::int64_t lowest { std::numeric_limits<std::int64_t>::min() };
+    constexpr std::int64_t highest { std::numeric_limits<std::int64_t>::max() };
+    CHECK_NOTHROW(absolute_time_text(forged));
+    CHECK_NOTHROW(absolute_time_text(lowest));
+    CHECK_NOTHROW(absolute_time_text(highest));
+    CHECK_NOTHROW(day_text(now, forged));
+    CHECK_NOTHROW(day_text(now, lowest));
+    CHECK_NOTHROW(day_text(highest, now));
+    // 뺄셈이 넘치는 끝값에서도 미래의 시각은 방금이다.
+    CHECK(relative_time_text(now, forged) == u8"방금");
+    CHECK(relative_time_text(0, highest) == u8"방금");
+    CHECK_NOTHROW(relative_time_text(highest, lowest));
+    // 범위 안의 값은 그대로다.
+    CHECK(absolute_time_text(now).find(u8"2023") != std::u8string::npos);
+    CHECK(day_text(now, forged) == tr(u8"snapshot.day.today"));
+}
+
+TEST_CASE("a nested repository path with a trailing slash keeps its name and original path", "[presentation][snapshot]")
+{
+    // git은 작업 폴더 안의 다른 저장소를 `vendor/lib/`처럼 끝에 '/'를 붙여 낸다.
+    const file_row_view nested { make_file_row({ .path = "vendor/lib/", .status = '?' }, u8"u:") };
+    CHECK(nested.name == u8"lib");
+    CHECK(nested.folder == u8"/vendor");
+    // stage·diff 요청이 쓰는 경로와 행 키는 원래 값이다.
+    CHECK(nested.path == "vendor/lib/");
+    CHECK(nested.key == u8"u:vendor/lib/");
+    const file_row_view top { make_file_row({ .path = "lib/", .status = '?' }, u8"u:") };
+    CHECK(top.name == u8"lib");
+    CHECK(top.folder.empty());
+}
+
+TEST_CASE("an opened conflict diff selects its row and steps through the conflict files", "[presentation][snapshot]")
+{
+    snapshot_harness harness {};
+    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    repository_session& session { *harness.sessions["repo-1"] };
+    repository_snapshot snapshot { make_snapshot(sha_of(0), 2) };
+    snapshot.conflicts = {
+        { .path = "c1.cpp", .status = 'U', .side = change_side::unstaged, .conflict_code = "UU" },
+        { .path = "c2.cpp", .status = 'U', .side = change_side::unstaged, .conflict_code = "UU" },
+    };
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+    harness.ui.tabs[tab].selected_sha = std::string { graph_wip_sha };
+    // 충돌 파일 행은 unstaged 보기로 diff를 연다.
+    harness.ui.tabs[tab].diff = diff_file_request { .path = "c1.cpp", .view = diff_view::unstaged };
+
+    const view_snapshot first { harness.build() };
+    REQUIRE(first.repository->working.has_value());
+    REQUIRE(first.repository->working->conflicts.size() == 2);
+    CHECK(first.repository->working->conflicts[0].selected);
+    CHECK_FALSE(first.repository->working->conflicts[1].selected);
+    REQUIRE(first.repository->diff.has_value());
+    CHECK(first.repository->diff->file_position == 1);
+    CHECK(first.repository->diff->file_count == 2);
+    CHECK_FALSE(first.repository->diff->previous_file.has_value());
+    REQUIRE(first.repository->diff->next_file.has_value());
+    CHECK(first.repository->diff->next_file->path == "c2.cpp");
+    CHECK(first.repository->diff->next_file->view == diff_view::unstaged);
+
+    harness.ui.tabs[tab].diff = diff_file_request { .path = "c2.cpp", .view = diff_view::unstaged };
+    const view_snapshot second { harness.build() };
+    CHECK_FALSE(second.repository->working->conflicts[0].selected);
+    CHECK(second.repository->working->conflicts[1].selected);
+    REQUIRE(second.repository->diff->previous_file.has_value());
+    CHECK(second.repository->diff->previous_file->path == "c1.cpp");
+    CHECK_FALSE(second.repository->diff->next_file.has_value());
+    // 충돌 파일이 아닌 unstaged 파일의 diff는 충돌 행을 고르지 않는다.
+    harness.ui.tabs[tab].diff = diff_file_request { .path = "src/a.cpp", .view = diff_view::unstaged };
+    const view_snapshot plain { harness.build() };
+    CHECK_FALSE(plain.repository->working->conflicts[0].selected);
+    CHECK_FALSE(plain.repository->working->conflicts[1].selected);
+    CHECK(plain.repository->working->unstaged[0].selected);
+}
+
+TEST_CASE("Stash stays off before the first commit and says why", "[presentation][snapshot]")
+{
+    snapshot_harness harness {};
+    harness.open(u8"C:\\work\\repo", "repo-1");
+    repository_session& session { *harness.sessions["repo-1"] };
+    // 첫 커밋 전에는 현재 브랜치 이름은 있어도 HEAD 커밋이 없다.
+    repository_snapshot snapshot { make_snapshot({}, 2) };
+    const std::uint64_t generation { session.begin_refresh() };
+    REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+    const toolbar_view unborn { harness.build().toolbar };
+    CHECK(unborn.branch_text == u8"main");
+    CHECK_FALSE(unborn.stash_enabled);
+    CHECK_FALSE(unborn.stash_hint.empty());
+
+    // 이미 그린 행(WIP)이 있으면 새 snapshot은 커밋 목록이 올 때까지 보류되므로 refresh 한 바퀴를 다 돌린다.
+    load(session, linear_history(2), 2);
+    const toolbar_view born { harness.build().toolbar };
+    CHECK(born.stash_enabled);
+    CHECK(born.stash_hint.empty());
 }

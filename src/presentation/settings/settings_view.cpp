@@ -389,7 +389,7 @@ namespace cyella {
     {
         tool_draft_check check {};
         check.extensions = parse_extension_list(extensions);
-        const std::u8string program { trimmed(executable) };
+        const std::u8string program { trimmed_path(executable) };
         const std::u8string argument_template { trimmed(arguments) };
 
         const external_diff_values values { sample_external_diff_values(check.extensions.empty() ? std::u8string_view {} : std::u8string_view { check.extensions.front() }) };
@@ -421,7 +421,7 @@ namespace cyella {
     tool_draft_check check_file_app_draft(const std::u8string_view name, const std::u8string_view executable, const std::u8string_view arguments, const file_probe* const probe)
     {
         tool_draft_check check {};
-        const std::u8string program { trimmed(executable) };
+        const std::u8string program { trimmed_path(executable) };
         external_diff_values values {};
         values.file = u8"C:\\Projects\\sample repo\\src\\main.cpp";
         values.path = u8"src/main.cpp";
@@ -449,9 +449,17 @@ namespace cyella {
     {
         external_diff_tool tool {};
         tool.extensions = parse_extension_list(extensions);
-        tool.executable = trimmed(executable);
+        tool.executable = trimmed_path(executable);
         tool.arguments = trimmed(arguments);
         return tool;
+    }
+
+    std::u8string trimmed_path(const std::u8string_view text)
+    {
+        const std::u8string value { trimmed(text) };
+        if (value.size() >= 2 && value.front() == u8'"' && value.back() == u8'"')
+            return trimmed(std::u8string_view { value }.substr(1, value.size() - 2));
+        return value;
     }
 
     std::u8string check_git_path(const std::u8string_view text, const file_probe* const probe)

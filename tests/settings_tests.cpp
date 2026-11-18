@@ -209,6 +209,27 @@ TEST_CASE("file apps can be added edited cancelled and removed without affecting
     CHECK(test.service.settings().external_file_apps == default_external_file_apps());
 }
 
+TEST_CASE("a quoted executable typed into the tool form is saved without its quotes", "[settings][file_app]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(open_settings_intent { settings_page::diff_tools }));
+    REQUIRE(test.send(add_tool_intent { true }));
+    test.type(text_target::settings_tool_extensions, u8"내 편집기");
+    test.type(text_target::settings_tool_executable, u8" \"C:\\Tools\\editor.exe\" ");
+    test.type(text_target::settings_tool_arguments, u8"{file}");
+    REQUIRE(test.send(save_tool_intent {}));
+    REQUIRE(test.service.settings().external_file_apps.size() == 3);
+    CHECK(test.service.settings().external_file_apps.back().executable == u8"C:\\Tools\\editor.exe");
+
+    REQUIRE(test.send(add_tool_intent { false }));
+    test.type(text_target::settings_tool_extensions, u8".psd");
+    test.type(text_target::settings_tool_executable, u8"\"C:\\Tools\\diff.exe\"");
+    test.type(text_target::settings_tool_arguments, u8"{left} {right}");
+    REQUIRE(test.send(save_tool_intent {}));
+    REQUIRE(test.service.settings().external_diff_tools.empty() == false);
+    CHECK(test.service.settings().external_diff_tools.back().executable == u8"C:\\Tools\\diff.exe");
+}
+
 TEST_CASE("extension lists are normalised, de-duplicated and may use commas or spaces", "[settings][tools]")
 {
     CHECK(parse_extension_list(u8".PNG, psd;*.tar.gz  .png") == std::vector<std::u8string> { u8".png", u8".psd", u8".tar.gz" });
@@ -285,6 +306,29 @@ TEST_CASE("the made tool matches what the form shows", "[settings][tools]")
     CHECK(tool.extensions == std::vector<std::u8string> { u8".psd", u8".bin" });
     CHECK(tool.executable == u8"C:\\x.exe");
     CHECK(tool.arguments == u8"{left} {right}");
+}
+
+TEST_CASE("a path copied with its quotes is taken without them", "[settings][tools]")
+{
+    // 탐색기의 "경로로 복사"는 따옴표로 감싼 경로를 준다. 그대로 저장하면 실행할 때 명령줄이 `""C:\...""`가 된다.
+    CHECK(trimmed_path(u8"  \"C:\\Tools\\x.exe\"  ") == u8"C:\\Tools\\x.exe");
+    CHECK(trimmed_path(u8"\" C:\\Tools\\x.exe \"") == u8"C:\\Tools\\x.exe");
+    CHECK(trimmed_path(u8" C:\\Tools\\x.exe ") == u8"C:\\Tools\\x.exe");
+    CHECK(trimmed_path(u8"\"\"").empty());
+    // 한쪽에만 있는 따옴표는 사용자가 쓴 글이라 그대로 둔다.
+    CHECK(trimmed_path(u8"\"C:\\Tools\\x.exe") == u8"\"C:\\Tools\\x.exe");
+    CHECK(trimmed_path(u8"\"") == u8"\"");
+
+    const external_diff_tool tool { make_external_tool(u8".psd", u8"\"C:\\Tools\\x.exe\"", u8"{left} {right}") };
+    CHECK(tool.executable == u8"C:\\Tools\\x.exe");
+
+    // 검사도 벗긴 경로로 한다: 있는 파일이면 경고가 없고, 없으면 "찾지 못했다"는 경고가 선다.
+    fake_probe probe {};
+    CHECK(check_tool_draft(u8".psd", u8"\"C:\\Tools\\x.exe\"", u8"{left}", &probe).warning.find(u8"찾지 못했") != std::u8string::npos);
+    CHECK(check_file_app_draft(u8"편집기", u8"\"C:\\Tools\\x.exe\"", u8"{file}", &probe).warning.find(u8"찾지 못했") != std::u8string::npos);
+    probe.files.push_back(u8"C:\\Tools\\x.exe");
+    CHECK(check_tool_draft(u8".psd", u8"\"C:\\Tools\\x.exe\"", u8"{left}", &probe).warning.empty());
+    CHECK(check_file_app_draft(u8"편집기", u8"\"C:\\Tools\\x.exe\"", u8"{file}", &probe).warning.empty());
 }
 
 TEST_CASE("git paths must be absolute files or empty", "[settings][general]")
@@ -816,8 +860,8 @@ TEST_CASE("a failed key creation keeps the name the user typed", "[settings][con
     test.controller->after_events();
     const operation_status* const status { test.workspace.find_operation(id) };
     REQUIRE(status != nullptr);
-    if (status->state == operation_state::succeeded)
-        SKIP("the fake runner cannot fail ssh-keygen here");
+    // 가짜 runner의 규칙은 ssh-keygen 인자의 앞(`-t ed25519`)과 맞으므로 늘 실패해야 한다. 건너뛰면 이 시험이 아무것도 보지 않는다.
+    REQUIRE(status->state == operation_state::failed);
     CHECK(test.controller->state()->key_name.text == u8"deploy");
 }
 

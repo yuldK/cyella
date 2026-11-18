@@ -137,7 +137,7 @@ cyella_driver::make_frame
 ## diff 웹뷰
 
 파일을 고르면 `tab_ui_state::diff`가 서고 `diff_file`이 나간다. 그래프 자리를 diff가 덮는 판은 `presentation/ui/diff_webview.cpp`의
-`build_diff_area`다. 머리 막대(돌아가기·파일명·Inline/좌우 분할·이미지 비교 방식)는 luil이 그리고, 본문은 `webview_element` 자리표다.
+`build_diff_area`다. 머리 막대(돌아가기·파일명·인라인/좌우 분할·이미지 비교 방식)는 luil이 그리고, 본문은 `webview_element` 자리표다.
 
 ```text
 cyella_driver
@@ -227,14 +227,19 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 
 - 그래프 목록의 항목 키는 SHA 앞 15자다. 40자 키는 MSVC 짧은 문자열 최적화를 넘어 10만 행이면 frame마다 10만 번
   할당한다. 모델(`virtual_list_item` 벡터)은 세션의 generation·행 수로 cache하고(`shell_controller::graph_items`)
-  frame마다 config로 복사만 한다.
+  frame마다 config의 `shared_items`로 그 불변 모델을 함께 쥔다(frame마다 드는 일은 참조 수 하나다).
 - 목록 행 안의 내용 element가 액션을 가지면 hit test가 그 element를 답해 목록 행의 고르기를 가로챈다. 그래서 내용은
   `hit_opaque(false)`이고, 두 번 누름이 필요한 사이드바 브랜치 행만 한 번 누름에도 같은 고르기 메시지를 다시 낸다.
 - 캡션 띠는 luil의 창 버튼 밖이 전부 끌기 영역(HTCAPTION)이라 앱 단추를 둘 수 없다. 환경 설정·테마 단추는 탭 줄 오른쪽에 둔다.
-- **웹 콘텐츠는 UI Automation에 보이지 않는다.** diff 자리의 `Group 'diff 뷰어'`는 자식이 없고 페이지 글(`Stage hunk`, 줄 내용)은 UIA 트리에 나오지 않는다.
+- **웹 콘텐츠는 UI Automation에 보이지 않는다.** diff 자리의 `Group 'diff 뷰어'`는 자식이 없고 페이지 글(카탈로그의 `diff_viewer.*` 문구와 줄 내용)은 UIA 트리에 나오지 않는다.
   웹뷰는 composition 호스팅이라 자식 HWND가 없고, luil의 `webview_host.cpp`는 `ICoreWebView2CompositionController::get_UIAProvider`를 부르지 않으며
   `uia_root_provider::GetEmbeddedFragmentRoots`는 빈 배열을 돌려준다. 빠진 연결은 자리표의 UIA provider가 컨트롤러의 `UIAProvider`를 자식 fragment root로 내어
   `Navigate(FirstChild)`와 `GetEmbeddedFragmentRoots`로 잇는 것이다. 그래서 UIA(스크린 리더 포함)로 웹뷰 안을 읽거나 누를 수 없고, diff의 핵심 정보(파일명·hunk 수)는 luil 머리 막대가 말한다.
+- **UIA로 닿지 않는 몸짓.** 우클릭 메뉴(submodule·worktree·LFS 메뉴, 태그 대화 상자를 여는 메뉴), 팔레트·단축키의 키 입력(Ctrl+Shift+P·↑↓),
+  라벨 끌어 놓기, rebase 편집기의 p·r·s·f·d·Alt+↑↓는 UI Automation 자동 검증으로 열거나 누를 수 없다. 대신 controller 수준 테스트
+  (`tests/extension_view_tests.cpp`·`rebase_shell_tests.cpp`·`palette_profile_shell_tests.cpp`·`signing_ui_tests.cpp`)가 같은 intent와 정책을 직접 불러 확인한다.
+  이것은 자동 검증 방법의 한계이고 키보드 경로는 있다. 우클릭 메뉴는 고른 사이드바 항목이나 커밋에서 Shift+F10(팔레트의 `view.menu`)으로 열고,
+  끌어 놓기가 고르는 merge·rebase·fast-forward는 브랜치의 우클릭 메뉴에도 있으며, rebase 편집기의 순서는 [위로]·[아래로] 단추로 바꾼다.
 - **luil의 빈 곳**:
   - 웹 콘텐츠의 UIA 연결이 없다(위).
   - 웹뷰 환경 생성 실패가 앱에 알려지지 않는다. `webview_host::fail()`이 이유를 버리고 `webview_event`도 나가지 않아, 앱이 `GetAvailableCoreWebView2BrowserVersionString`으로 직접 확인한다.
@@ -265,7 +270,8 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 
 "이번만 연결"은 질문 중인 operation을 취소(알림 없이 `cancelled`)하고, `request_of`로 꺼낸 같은 요청에 `ssh_command_override`(`make_temporary_known_hosts_ssh_command`,
 임시 known_hosts 경로는 `%TEMP%\cyella-known-hosts-N-<op>.tmp`)를 넣어 다시 낸다. ssh 실행 파일은 `shell_controller::dependencies::ssh_executable`
-(기본 `ssh`, git이 PATH에서 찾는다)이다.
+(기본 `ssh`, git이 PATH에서 찾는다)이다. 받는 요청은 fetch·pull·push_execute·clone·refresh_remote_tags·push_tag·push_tags·delete_remote_tag·
+create_ssh_repository이고, 그 밖의 작업(submodule 갱신 등)은 거두지 않고 안내만 띄운다.
 
 쓰기 뒤 workspace가 자동으로 내는 `refresh_remote_tags`에는 임시 known_hosts가 이미 지워져 같은 호스트 질문이 다시 올 수 있다. 두 가지로 푼다.
 
@@ -317,7 +323,7 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
 
 ### 알아 둘 것
 
-- 확인이 필요한 조치는 `open_confirm_intent{title, lines, confirm_label, danger, operations}`를 내면 같은 확인 상자로 뜬다.
+- 확인이 필요한 조치는 `shell_controller`가 `open_confirm(dialog_state)`로 같은 확인 상자를 직접 연다(메뉴 항목·변경 버리기·중단 확인이 모두 이 길이다). 확인 상자만 따로 여는 메시지는 없다.
 - 실패 알림의 조치(`notification_action_intent`): push 거절(`rejected_non_ff`·`rejected_fetch_first`) → "Pull 후 다시 push"(pull(rebase) 뒤 같은 push, 앞이 성공해야 이어 낸다),
   `stale_info` → fetch, ff-only pull 실패 → "rebase로 Pull", 안 합쳐진 브랜치 삭제 실패 → 강제 삭제 확인, `index_lock` → 잠금 지우기.
 - 앞 operation이 성공해야 이어 내는 열(`submit_sequence`)은 원격 태그를 먼저 지우고 로컬을 지울 때(`delete_remote_tag` → `delete_tag`)도 쓴다.
@@ -332,7 +338,7 @@ TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 
   URL 직접 입력에 GitHub·GitLab이 아닌 ssh 주소(`ssh://host/path`, `user@host:path`)를 넣으면 "서버에 빈 저장소 만들기" 칸(기본 끔)이 나온다. 켜면 맨 앞에
   `create_ssh_repository`(쓰기 lane, `ssh -T <목적지> <명령>`)가 서서 서버의 로그인 셸에서 `git init --bare`를 돌리고, 성공해야 `add_remote` → push가 잇는다.
   경로는 git이 receive-pack에 넘기는 모양 그대로다(`parse_ssh_remote_target`: scp 꼴은 홈 기준, `ssh://host/~/x`는 앞 `/`를 뗀다). 이미 저장소면 그대로 쓰고,
-  저장소가 아닌 것이 있으면 건드리지 않고 실패하며, 결과는 stdout 표지(`cyella:created` 등)로 읽는다. 서버에 git과 POSIX 로그인 셸이 있어야 한다.
+  미리 만든 빈 폴더면 그대로 `git init --bare` 하며, 그 밖에 저장소가 아닌 것(파일, 내용이 있는 폴더)이 있으면 건드리지 않고 실패한다. 결과는 stdout 표지(`cyella:created` 등)로 읽는다. 서버에 git과 POSIX 로그인 셸이 있어야 한다.
   처음 보는 호스트에서 "이번만 연결"을 고르면 다시 낸 operation에 뒤의 열(`chains_`)을 옮겨 붙인다.
 - 사이드바 태그·stash 두 번 누름: 태그는 detached 체크아웃(경고 한 번, "다시 보지 않기"), stash는 apply다.
 
@@ -573,10 +579,11 @@ identity: shell_controller ── request_identity ─▶ driver ─ scheduler("
   신원이 프로필과 같은지는 이름·이메일로 보고, 프로필에 접속 계정이 적혀 있으면 그것도 맞아야 한다(제안·커밋 전 경고가 같은 판단을 쓴다).
 - **로컬 설정 지우기**: 환경 설정 "사용자 프로필" 쪽의 현재 저장소 줄에 [로컬 설정 지우기]가 있다(`clear_local_identity_intent`). 로컬의 `user.name`·`user.email`·`credential.username`과
   앱이 쓴 꼴의 `core.sshCommand`를 지워 전역 신원과 전역 계정으로 돌아가고, 그 저장소의 `profile_assignments`도 지운다. 지울 로컬 설정이 없으면 단추가 꺼진다.
+  worktree 범위(`extensions.worktreeConfig`의 `config.worktree`) 값은 쓰기·지우기가 모두 `--local`이라 지울 수 없으므로 세지 않고, 그 값만 있으면 단추를 켜지 않는다.
 - **제안**: 저장소를 열고 신원을 읽으면, 경로가 규칙의 폴더 아래(폴더 경계 기준, 접두가 가장 긴 규칙)이고 신원이 그 프로필과 다르면 안내 알림에 [적용] 조치를 단다. **제안만 한다 — 눌러야 쓴다.**
   사용자가 이 저장소에 다른 프로필을 적용해 두었고 신원이 그대로 그것이면(규칙을 거스르기로 한 선택) 제안하지 않는다. 저장소마다 앱을 켜 두는 동안 한 번이다.
 - **첫 커밋 경고**: 작성자가 없거나(이름·이메일 중 하나라도) 규칙의 프로필과 다르면, 커밋 단추(또는 Ctrl+Enter)가 커밋하지 않고 경고 알림에 이유와 [프로필 적용 후 커밋]·[그대로 커밋]을 띄운다.
-  저장소마다 한 번이다(다시 커밋하면 경고 없이 커밋한다). "적용 후 커밋"은 worker가 쓰기를 마쳤다고 알리면 커밋한다. 신원을 아직 읽지 못했으면 근거가 없어 막지 않는다.
+  저장소마다 한 번이다(다시 커밋하면 경고 없이 커밋한다). 단 프로필 적용이 실패하면 일부만 적용됐을 수 있어 신원을 다시 읽고 경고도 다시 선다. "적용 후 커밋"은 worker가 쓰기를 마쳤다고 알리면 커밋한다. 신원을 아직 읽지 못했으면 근거가 없어 막지 않는다.
 - 안내 알림의 조치는 `notification::actions`다. `notification_action_intent`가 operation이 없는 조치(`apply_profile:<이름>`·`commit_apply:<이름>`·`commit_anyway`)를 `shell_controller`가 먼저 가져간다.
 
 ### 알아 둘 것

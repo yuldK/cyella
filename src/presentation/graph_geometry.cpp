@@ -84,6 +84,33 @@ namespace cyella {
         if (summary.is_detached && summary.head_sha.empty() == false)
             labels[summary.head_sha].push_back({ .kind = ref_label_kind::head, .text = u8"HEAD", .ref_name = summary.head_sha });
 
+        // upstream이 없는 로컬 브랜치의 짝이다. 같은 커밋을 가리키고 아직 짝이 없는 `<원격>/<이름>`을 원격 목록의 순서대로 찾는다.
+        // 원격 이름 경계를 지켜 이름 끝만 같은 `origin/team/feature`는 로컬 `feature`의 짝으로 보지 않는다.
+        const auto find_twin = [&](const ref& value) -> const ref* {
+            const auto free_remote_branch = [&](const std::string& name) -> const ref* {
+                const auto found { remotes.find(name) };
+                if (found == remotes.end() || paired.contains(name) || found->second->target_sha != value.target_sha)
+                    return nullptr;
+                return found->second;
+            };
+            for (const remote_info& remote : summary.remotes)
+            {
+                if (const ref* const twin { free_remote_branch(remote.name + "/" + value.name) }; twin != nullptr)
+                    return twin;
+            }
+            // 원격 목록을 모르면 첫 '/' 앞을 원격 이름으로 본다.
+            if (summary.remotes.empty())
+            {
+                for (const auto& [name, remote] : remotes)
+                {
+                    const std::size_t slash { name.find('/') };
+                    if (slash != std::string::npos && std::string_view { name }.substr(slash + 1) == value.name && free_remote_branch(name) != nullptr)
+                        return remote;
+                }
+            }
+            return nullptr;
+        };
+
         const auto add_locals = [&](const bool current_pass) {
             for (const ref& value : refs)
             {
@@ -96,12 +123,7 @@ namespace cyella {
                 if (const auto found { remotes.find(value.upstream) }; value.upstream.empty() == false && found != remotes.end())
                     pair = found->second;
                 else if (value.upstream.empty())
-                    for (const auto& [name, remote] : remotes)
-                        if (paired.contains(name) == false && name.ends_with("/" + value.name) && remote->target_sha == value.target_sha)
-                        {
-                            pair = remote;
-                            break;
-                        }
+                    pair = find_twin(value);
                 if (pair != nullptr && pair->target_sha == value.target_sha && paired.contains(pair->name) == false)
                 {
                     label.also_remote = true;

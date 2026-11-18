@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -18,9 +19,9 @@ namespace {
 
     struct workspace_harness
     {
-        explicit workspace_harness(const std::size_t log_page_size = 10000)
+        explicit workspace_harness(const std::size_t log_page_size = 10000, const std::size_t finished_history_limit = 256)
             : runner { process, u8"C:/Git/cmd/git.exe", files, make_options(log_page_size) }
-            , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, make_workspace_options() }
+            , workspace { runner, make_dispatcher(), events.sink(), nullptr, make_workspace_options(finished_history_limit) }
         {
             process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, "C:/work/repo/.git\nC:/work/repo\n" });
             repository = workspace.open_repository(u8"C:/work/repo");
@@ -35,11 +36,25 @@ namespace {
             return options;
         }
 
-        static git_workspace_options make_workspace_options()
+        static git_workspace_options make_workspace_options(const std::size_t finished_history_limit)
         {
             git_workspace_options options {};
             options.refresh_on_open = false;
+            options.finished_history_limit = finished_history_limit;
             return options;
+        }
+
+        // `accepting`을 끄면 종료 중인 scheduler처럼 접수를 거절하고 거절한 수를 센다.
+        operation_dispatcher make_dispatcher()
+        {
+            return [this, accept = dispatcher.dispatcher()](operation_request request) {
+                if (accepting == false)
+                {
+                    ++refused;
+                    return false;
+                }
+                return accept(std::move(request));
+            };
         }
 
         // 대기 중인 job을 모두 실행하고 사건을 상태에 반영한다. 반영이 새 job(자동 refresh)을 낼 수 있다.
@@ -92,6 +107,8 @@ namespace {
         test::fake_workspace_files files {};
         test::manual_dispatcher dispatcher {};
         test::event_queue events {};
+        bool accepting { true };
+        std::size_t refused { 0 };
         git_operation_runner runner;
         git_workspace workspace;
         std::string repository {};
@@ -598,4 +615,262 @@ TEST_CASE("activity_of reports unfinished writes and refreshes of that repositor
     REQUIRE(test.workspace.submit(test.repository, show_commit_request { test::sha_of(2) }) != 0);
     CHECK_FALSE(test.workspace.activity_of(test.repository).write_pending);
     CHECK_FALSE(test.workspace.activity_of(test.repository).refresh_pending);
+}
+
+TEST_CASE("refresh_status after a failed or cancelled full refresh asks for a full refresh again", "[workspace][status]")
+{
+    workspace_harness test {};
+    const std::string head { test::sha_of(1) };
+    load_with_changes(test, head, { "a.txt" });
+
+    SECTION("the refresh failed")
+    {
+        test.process.when_once({ "status" }, scripted_response { 128, "", { "fatal: unable to read the index" } });
+        const operation_id failed { test.workspace.submit(test.repository, refresh_request {}) };
+        REQUIRE(failed != 0);
+        test.settle();
+        REQUIRE(test.status(failed).state == operation_state::failed);
+    }
+    SECTION("the refresh was cancelled")
+    {
+        const operation_id cancelled { test.workspace.submit(test.repository, refresh_request {}) };
+        REQUIRE(cancelled != 0);
+        REQUIRE(test.workspace.cancel(cancelled));
+        test.settle();
+        REQUIRE(test.status(cancelled).state == operation_state::cancelled);
+    }
+    // 화면은 첫 refresh의 것이고 낸 generation만 앞서 있다. 그대로 두면 status 새로 고침이 계속 거절된다.
+    REQUIRE(test.session().requested_generation() != test.session().displayed_generation());
+
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") + test::status_modified("a.txt") + test::status_modified("b.txt") });
+    const operation_id retried { test.workspace.submit(test.repository, refresh_status_request {}, true) };
+    REQUIRE(retried != 0);
+    CHECK(test.status(retried).kind == operation_kind::refresh);
+    CHECK(test.status(retried).automatic);
+    // 올린 refresh가 도는 동안에는 그 refresh가 모든 것을 읽는다.
+    CHECK(test.workspace.submit(test.repository, refresh_status_request {}, true) == 0);
+    test.settle();
+    CHECK(test.status(retried).state == operation_state::succeeded);
+    CHECK(test.session().requested_generation() == test.session().displayed_generation());
+    CHECK(test.session().snapshot().summary.changed_file_count == 2);
+}
+
+TEST_CASE("refresh_status raises a full refresh only once until a refresh succeeds", "[workspace][status]")
+{
+    workspace_harness test {};
+    const std::string head { test::sha_of(1) };
+    load_with_changes(test, head, { "a.txt" });
+
+    // 깨진 index처럼 계속 실패하는 저장소다. watcher 사건마다 전체 refresh를 되풀이하지 않는다.
+    const scripted_response broken { 128, "", { "fatal: unable to read the index" } };
+    test.process.when_once({ "status" }, broken);
+    test.process.when_once({ "status" }, broken);
+    const operation_id failed { test.workspace.submit(test.repository, refresh_request {}) };
+    REQUIRE(failed != 0);
+    test.settle();
+    REQUIRE(test.status(failed).state == operation_state::failed);
+
+    const operation_id raised { test.workspace.submit(test.repository, refresh_status_request {}, true) };
+    REQUIRE(raised != 0);
+    CHECK(test.status(raised).kind == operation_kind::refresh);
+    test.settle();
+    REQUIRE(test.status(raised).state == operation_state::failed);
+    CHECK(test.workspace.submit(test.repository, refresh_status_request {}, true) == 0);
+
+    // 사용자가 낸 전체 refresh가 성공하면 다음 실패 뒤에 다시 한 번 올릴 수 있다.
+    test.process.when_once({ "status" }, scripted_response { 0, test::status_header(head, "main", "origin/main") + test::status_modified("a.txt") });
+    const operation_id manual { test.workspace.submit(test.repository, refresh_request {}) };
+    REQUIRE(manual != 0);
+    test.settle();
+    REQUIRE(test.status(manual).state == operation_state::succeeded);
+    test.process.when_once({ "status" }, broken);
+    const operation_id failed_again { test.workspace.submit(test.repository, refresh_request {}) };
+    REQUIRE(failed_again != 0);
+    test.settle();
+    REQUIRE(test.status(failed_again).state == operation_state::failed);
+    const operation_id raised_again { test.workspace.submit(test.repository, refresh_status_request {}, true) };
+    REQUIRE(raised_again != 0);
+    CHECK(test.status(raised_again).kind == operation_kind::refresh);
+}
+
+TEST_CASE("closing a repository ends its unfinished operations as cancelled", "[workspace][close]")
+{
+    workspace_harness test {};
+    const operation_id running { test.workspace.submit(test.repository, fetch_request {}) };
+    REQUIRE(running != 0);
+    test.workspace.apply(operation_event { running, test.repository, operation_started {} });
+    const operation_id queued { test.workspace.submit(test.repository, push_execute_request {}) };
+    REQUIRE(queued != 0);
+
+    REQUIRE(test.workspace.close_repository(test.repository));
+    CHECK(test.status(running).state == operation_state::cancelled);
+    CHECK(test.status(running).cancel_requested);
+    CHECK(test.status(queued).state == operation_state::cancelled);
+    CHECK_FALSE(test.workspace.activity_of(test.repository).write_pending);
+
+    // worker가 늦게 보낸 끝 사건은 버린다. 결과를 받을 세션이 없으니 refresh도 내지 않는다.
+    const std::size_t recorded { test.workspace.operation_order().size() };
+    test.workspace.apply(operation_event { running, test.repository, operation_finished { operation_state::succeeded, std::nullopt, std::nullopt, {} } });
+    CHECK(test.status(running).state == operation_state::cancelled);
+    CHECK(test.workspace.operation_order().size() == recorded);
+    // 남은 job은 취소된 token을 보고 git 없이 빠진다.
+    test.settle();
+    CHECK(test.process.calls().empty());
+}
+
+TEST_CASE("a reopened repository does not receive events of operations from before it was closed", "[workspace][close]")
+{
+    workspace_harness test {};
+    test.script_history(3, false);
+    const operation_id old_refresh { test.workspace.submit(test.repository, refresh_request {}) };
+    REQUIRE(old_refresh != 0);
+    // 옛 refresh는 git을 다 돌렸지만 사건은 아직 relay에 있다.
+    REQUIRE(test.dispatcher.run());
+    const std::vector<operation_event> late { test.events.take() };
+    REQUIRE(test.workspace.close_repository(test.repository));
+    CHECK(test.status(old_refresh).state == operation_state::cancelled);
+
+    // 같은 경로로 다시 연 세션은 id가 같고 generation도 1부터 다시 센다.
+    REQUIRE(test.workspace.open_repository(u8"C:/work/repo") == test.repository);
+    const operation_id fresh { test.workspace.submit(test.repository, refresh_request {}) };
+    REQUIRE(fresh != 0);
+    REQUIRE(test.session().requested_generation() == 1);
+    for (const operation_event& event : late)
+        test.workspace.apply(event);
+    CHECK_FALSE(test.session().loaded());
+    CHECK(test.session().log_page_loading());
+
+    test.settle();
+    CHECK(test.status(fresh).state == operation_state::succeeded);
+    CHECK(test.session().graph_rows().size() == 3);
+}
+
+TEST_CASE("cancelling while walking the operation order keeps the order and trims later", "[workspace][cancel]")
+{
+    // 끝난 기록을 하나도 남기지 않는 상한이다. 충돌 대기만 지울 수 없어 맨 앞에 남는다.
+    workspace_harness test { 10000, 0 };
+    test.process.when({ "rebase", "--", "main", "feature" }, scripted_response { 1, "CONFLICT (content): Merge conflict in a.txt\n", { "error: could not apply 1234567... feat" } });
+    test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(1), "(detached)") + test::status_conflict("a.txt") });
+    test.files.put(u8"C:/work/repo/.git/rebase-merge/msgnum", "1\n");
+    const operation_id rebase { test.workspace.submit(test.repository, rebase_request { "feature", "main" }) };
+    REQUIRE(test.dispatcher.run());
+    test.apply_events();
+    REQUIRE(test.status(rebase).state == operation_state::needs_input);
+
+    const operation_id stage { test.workspace.submit(test.repository, stage_files_request { { "a.txt" } }) };
+    const operation_id unstage { test.workspace.submit(test.repository, unstage_files_request { { "a.txt" } }) };
+    const std::vector<operation_id> before { test.workspace.operation_order().begin(), test.workspace.operation_order().end() };
+    REQUIRE(before.front() == rebase);
+    REQUIRE(before.size() >= 3);
+
+    // 탭 닫기처럼 작업 로그를 돌며 끝나지 않은 작업을 모두 취소한다. 돌던 반복자가 무효가 되면 안 된다.
+    for (const operation_id id : test.workspace.operation_order())
+    {
+        if (test.status(id).finished() == false)
+            CHECK(test.workspace.cancel(id));
+    }
+    const std::vector<operation_id> after_cancel { test.workspace.operation_order().begin(), test.workspace.operation_order().end() };
+    CHECK(after_cancel == before);
+    CHECK(test.status(stage).state == operation_state::cancelled);
+    CHECK(test.status(unstage).state == operation_state::cancelled);
+
+    // 미뤄 둔 정리는 다음 operation이 끝날 때 한다. 충돌 대기는 그대로 남는다.
+    REQUIRE(test.workspace.submit(test.repository, show_commit_request { test::sha_of(1) }) != 0);
+    test.settle();
+    const std::vector<operation_id> after_trim { test.workspace.operation_order().begin(), test.workspace.operation_order().end() };
+    CHECK(after_trim == std::vector<operation_id> { rebase });
+    CHECK(test.status(rebase).state == operation_state::needs_input);
+}
+
+TEST_CASE("a write whose follow-up refresh is refused still asks for the remote tags", "[workspace][tags]")
+{
+    workspace_harness test { 10000, 0 };
+    const operation_id fetch { test.workspace.submit(test.repository, fetch_request { "origin" }) };
+    REQUIRE(fetch != 0);
+    REQUIRE(test.dispatcher.run());
+    // 앱이 닫히는 중이라 scheduler가 후속 작업을 받지 않는다. 거절된 refresh를 끝내며 한 정리가 fetch 기록을 지운다.
+    test.accepting = false;
+    test.apply_events();
+
+    CHECK(test.workspace.find_operation(fetch) == nullptr);
+    // 지워진 기록을 다시 읽지 않고 refresh와 원격 태그 읽기를 차례로 냈다.
+    CHECK(test.refused == 2);
+    CHECK(test.workspace.operation_order().empty());
+}
+
+TEST_CASE("cancelling a write the worker already picked up waits for it and refreshes afterwards", "[workspace][cancel]")
+{
+    workspace_harness test {};
+    test.script_history(2, false);
+    const operation_id stage { test.workspace.submit(test.repository, stage_files_request { { "a.txt" } }) };
+    REQUIRE(stage != 0);
+    // worker가 git을 돌렸지만 `operation_started`는 아직 relay에 있다.
+    REQUIRE(test.dispatcher.run());
+    REQUIRE(test.status(stage).state == operation_state::queued);
+
+    REQUIRE(test.workspace.cancel(stage));
+    CHECK_FALSE(test.status(stage).finished());
+    CHECK(test.status(stage).cancel_requested);
+
+    test.apply_events();
+    CHECK(test.status(stage).finished());
+    // git이 저장소를 바꿨을 수 있으므로 끝난 뒤 refresh가 이어진다.
+    REQUIRE(test.dispatcher.pending() == 1);
+    CHECK(test.status(test.workspace.operation_order().back()).kind == operation_kind::refresh);
+}
+
+TEST_CASE("pull refreshes the remote tag state after it succeeds", "[workspace][tags]")
+{
+    workspace_harness test {};
+    test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(1), "main", "origin/main") });
+    test.process.when({ "remote", "-v" }, scripted_response { 0, "fork\tC:/fork.git (fetch)\nfork\tC:/fork.git (push)\norigin\tC:/remote.git (fetch)\norigin\tC:/remote.git (push)\n" });
+    test.process.when({ "for-each-ref" }, scripted_response { 0, "refs/tags/v1.0\x1f" + test::sha_of(1) + "\x1f\x1f\x1f\x1f\x1f\x1f\n" });
+    test.process.when({ "ls-remote", "--tags" }, scripted_response { 0, test::sha_of(1) + "\trefs/tags/v1.0\n" });
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    test.settle();
+    REQUIRE(test.session().loaded());
+
+    static_cast<void>(test.workspace.submit(test.repository, pull_request {}));
+    test.settle();
+
+    // pull이 받는 곳은 upstream 원격 하나다. 다른 원격(fork)에는 ls-remote를 보내지 않는다.
+    text_list queried {};
+    for (const test::recorded_call& call : test.process.calls())
+    {
+        if (std::ranges::find(call.arguments, "ls-remote") != call.arguments.end())
+            queried.push_back(call.arguments.back());
+    }
+    CHECK(queried == text_list { "origin" });
+    const std::vector<ref>& refs { test.session().snapshot().refs };
+    const auto tag { std::find_if(refs.begin(), refs.end(), [](const ref& entry) { return entry.name == "v1.0"; }) };
+    REQUIRE(tag != refs.end());
+    CHECK(tag->remotes == text_list { "origin" });
+}
+
+TEST_CASE("an older ls-remote that finishes last does not overwrite the newer remote tags", "[workspace][tags]")
+{
+    workspace_harness test {};
+    test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(1), "main") });
+    test.process.when({ "remote", "-v" }, scripted_response { 0, "origin\tC:/remote.git (fetch)\norigin\tC:/remote.git (push)\n" });
+    test.process.when({ "for-each-ref" }, scripted_response { 0, "refs/tags/v1.0\x1f" + test::sha_of(1) + "\x1f\x1f\x1f\x1f\x1f\x1f\n" });
+    REQUIRE(test.workspace.submit(test.repository, refresh_request {}) != 0);
+    test.settle();
+    REQUIRE(test.session().loaded());
+
+    // 응답은 실행 순서로 쓰인다. 나중에 낸 것이 먼저 돌아 태그를 보고, 먼저 낸 것이 늦게 돌아 push 전의 빈 목록을 본다.
+    test.process.when_once({ "ls-remote", "--tags" }, scripted_response { 0, test::sha_of(1) + "\trefs/tags/v1.0\n" });
+    test.process.when_once({ "ls-remote", "--tags" }, scripted_response { 0, "" });
+    const operation_id older { test.workspace.submit(test.repository, refresh_remote_tags_request { { "origin" } }) };
+    const operation_id newer { test.workspace.submit(test.repository, refresh_remote_tags_request { { "origin" } }) };
+    REQUIRE(test.dispatcher.pending() == 2);
+    REQUIRE(test.dispatcher.run(1));
+    REQUIRE(test.dispatcher.run(0));
+    test.apply_events();
+    CHECK(test.status(older).state == operation_state::succeeded);
+    CHECK(test.status(newer).state == operation_state::succeeded);
+
+    const std::vector<ref>& refs { test.session().snapshot().refs };
+    const auto tag { std::find_if(refs.begin(), refs.end(), [](const ref& entry) { return entry.name == "v1.0"; }) };
+    REQUIRE(tag != refs.end());
+    CHECK(tag->remotes == text_list { "origin" });
 }

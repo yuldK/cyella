@@ -79,7 +79,11 @@ function(cyella_apply_msvc_options target)
         set(option_scope PRIVATE)
     endif()
 
+    # /MP는 한 target 안의 .cpp를 여러 코어로 나눠 컴파일한다. 없으면 Visual Studio 생성기가 파일을 하나씩
+    # 컴파일해 전체 재빌드와 CI에서 코어 하나만 쓰는 구간이 길어진다. 이 함수는 cyella 자신의 target(과 그들이
+    # 링크하는 cyella_project_options)에만 옵션을 걸므로 luil·Catch2 같은 third_party는 영향이 없다.
     target_compile_options("${target}" ${option_scope}
+        $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/MP>
         $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/W4>
         $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/WX>
         $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->

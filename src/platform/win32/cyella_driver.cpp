@@ -100,7 +100,9 @@ namespace cyella::win32 {
         }
 
         // git 확인은 5초 제한이 있는 한 번의 `--version`이다. logic thread라 UI는 기다리지 않는다.
-        git_tool_ = resolve_git_tool({}, current_git_tool_environment(), *process_runner_, *probe_, {});
+        // 환경 설정에서 지정한 git이 있으면 그것만 쓴다. 비어 있으면 PATH와 기본 설치 위치를 찾는다.
+        const std::u8string configured_git { settings_ != nullptr ? settings_->settings().git_executable : std::u8string {} };
+        git_tool_ = resolve_git_tool(configured_git, current_git_tool_environment(), *process_runner_, *probe_, {});
         shell_controller::dependencies dependencies {};
         dependencies.settings = settings_.get();
         dependencies.probe = probe_.get();
@@ -167,6 +169,20 @@ namespace cyella::win32 {
                 avatar_options.sha256_hex = [](const std::string_view text) { return sha256_hex(text); };
                 avatars_ = std::make_unique<avatar_fetcher>(*transport, std::move(avatar_options));
                 dependencies.request_avatar = [this](const std::string& email) { request_avatar(email); };
+                // 기한이 지난 보관 파일은 시작할 때 한 번 거둔다. 사진을 받는 줄과 같은 줄이라 쓰는 중인 `.part`를 지우지 않는다.
+                operation_request prune {};
+                prune.repository_key = "avatar";
+                prune.job = [fetcher = avatars_.get()](const operation_context&) {
+                    try
+                    {
+                        fetcher->prune();
+                    }
+                    catch (...)
+                    {
+                        // 정리는 덤이다. 실패해도 사진 받기에는 영향이 없다.
+                    }
+                };
+                static_cast<void>(scheduler->submit(std::move(prune)));
             }
             workspace_ = std::make_unique<git_workspace>(
                 *executor_, [scheduler](operation_request request) { return scheduler->submit(std::move(request)); },
@@ -174,6 +190,7 @@ namespace cyella::win32 {
             dependencies.workspace = workspace_.get();
             dependencies.git_version = git_tool_.reported_version;
             start_diff_view();
+            dependencies.open_external_diff = [this](const std::string& repository_id, const diff_file_request& request) { open_external_diff(repository_id, request); };
             // 작성자 신원을 읽고 프로필을 저장소의 로컬 설정에 쓴다. 전역 설정 파일의 경로는 includeIf로 끌어온 파일과 가르는 데 쓴다.
             git_identity_options identity_options {};
             identity_options.hints.global_files = global_git_config_files();
@@ -275,6 +292,34 @@ namespace cyella::win32 {
         static_cast<void>(scheduler_->submit(std::move(request)));
     }
 
+    void cyella_driver::open_external_diff(const std::string& repository_id, const diff_file_request& request)
+    {
+        if (diff_ == nullptr || workspace_ == nullptr)
+            return;
+        const repository_session* const session { workspace_->find_session(repository_id) };
+        if (session == nullptr)
+            return;
+
+        diff_side_plan plan {};
+        plan.repository_path = session->path();
+        plan.view = request.view;
+        plan.untracked = request.untracked;
+        plan.old_path = request.path;
+        plan.new_path = request.path;
+        // 추가·삭제·이름 변경은 어느 쪽을 꺼낼지 바꾼다. 메뉴는 경로만 알므로 세션의 status 항목에서 상태와 옛 경로를 찾는다.
+        const repository_snapshot& snapshot { session->snapshot() };
+        const std::vector<file_change>& changes { request.view == diff_view::staged ? snapshot.staged : snapshot.unstaged };
+        const auto found { std::ranges::find_if(changes, [&request](const file_change& change) { return change.path == request.path; }) };
+        if (found != changes.end())
+        {
+            plan.status = found->status;
+            plan.lfs = found->is_lfs;
+            if (found->original_path.empty() == false)
+                plan.old_path = found->original_path;
+        }
+        diff_->open_external(std::move(plan));
+    }
+
     void cyella_driver::request_identity(const std::string& repository_id, const std::u8string& path)
     {
         if (scheduler_ == nullptr || identity_ == nullptr)
@@ -307,16 +352,27 @@ namespace cyella::win32 {
             const process_cancellation_registration link {
                 context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {}
             };
-            const avatar_fetch_result fetched { fetcher->fetch(email, source->token()) };
-            avatar_loaded_intent loaded { .email = email, .image = {}, .failed = fetched.failed };
-            if (fetched.bytes.empty() == false)
+            avatar_loaded_intent loaded { .email = email, .image = {}, .failed = true };
+            // 캐시 경로 변환(코드 페이지 밖 글자)이나 할당이 던져도 실패로 알린다. 알리지 않으면 controller의 항목이 기다림에
+            // 머물러 그 사람의 사진을 다시 묻지 않는다.
+            try
             {
-                // 사진은 20 논리 픽셀 동그라미에 앉는다. 큰 파일이 와도 상한으로 줄여 푼다.
-                luil::image_decode_options options {};
-                options.max_width = 128;
-                options.max_height = 128;
-                luil::image_decode_error error {};
-                loaded.image = luil::decode_image_bytes(std::span { reinterpret_cast<const std::uint8_t*>(fetched.bytes.data()), fetched.bytes.size() }, options, error);
+                const avatar_fetch_result fetched { fetcher->fetch(email, source->token()) };
+                loaded.failed = fetched.failed;
+                if (fetched.bytes.empty() == false)
+                {
+                    // 사진은 20 논리 픽셀 동그라미에 앉는다. 큰 파일이 와도 상한으로 줄여 푼다.
+                    luil::image_decode_options options {};
+                    options.max_width = 128;
+                    options.max_height = 128;
+                    luil::image_decode_error error {};
+                    loaded.image = luil::decode_image_bytes(std::span { reinterpret_cast<const std::uint8_t*>(fetched.bytes.data()), fetched.bytes.size() }, options, error);
+                }
+            }
+            catch (...)
+            {
+                loaded.failed = true;
+                loaded.image = {};
             }
             relay->post(luil::app_message { std::move(loaded) });
         };
@@ -642,19 +698,10 @@ namespace cyella::win32 {
         }
         if (workspace_ == nullptr)
             return false;
-        if (const auto* const close { message.get<close_repository_intent>() }; close != nullptr)
-        {
-            static_cast<void>(workspace_->close_repository(close->repository_id));
-            return true;
-        }
+        // 저장소 닫기는 탭 닫기(`close_tab_intent`)가 맡는다. 세션만 닫으면 탭이 남아 빈 저장소를 가리킨다.
         if (const auto* const submit { message.get<submit_operation_intent>() }; submit != nullptr)
         {
             static_cast<void>(workspace_->submit(submit->repository_id, submit->operation));
-            return true;
-        }
-        if (const auto* const setup { message.get<submit_setup_intent>() }; setup != nullptr)
-        {
-            static_cast<void>(workspace_->submit_setup(setup->operation));
             return true;
         }
         if (const auto* const answer { message.get<answer_input_intent>() }; answer != nullptr)

@@ -32,7 +32,7 @@ TEST_CASE("building and arranging the tree for 100k graph rows", "[.][perf]")
     const std::vector<luil::virtual_list_item> fresh { build_graph_items(session.graph_commits()) };
     const double build_items { milliseconds(clock::now() - start) };
 
-    // cache한 모델을 config로 복사하는 경우다 (`virtual_list_config::items`는 frame마다 값 하나).
+    // 비교용으로 cache한 모델을 복사하는 비용이다. 실제 frame은 `virtual_list_config::shared_items`로 함께 쥐어 복사하지 않는다.
     start = clock::now();
     const std::vector<luil::virtual_list_item> copied { fresh };
     const double copy_items { milliseconds(clock::now() - start) };

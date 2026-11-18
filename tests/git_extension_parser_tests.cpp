@@ -90,6 +90,26 @@ TEST_CASE("parse_git_submodule_status keeps nested paths and tolerates spaces, C
     CHECK(entries[1].description.empty());
 }
 
+TEST_CASE("parse_git_submodule_status keeps a trailing parenthesis in the path of uninitialized and conflicted submodules", "[git][submodule]")
+{
+    // git은 `-`와 `U` 줄에는 설명을 붙이지 않으므로 `(copy)`는 설명이 아니라 경로의 일부다.
+    std::string text { "-5d78d2c7a83e11388390d75e4ed2c4e311003d5d lib (copy)\n" };
+    text += "U" + std::string(40, '0') + " other (x)\n";
+    text += " 1ecfd40f48933961e1d368341744a076db579db3 lib (copy) (heads/main)\n";
+    const std::vector<submodule_status_entry> entries { parse_git_submodule_status(text) };
+
+    REQUIRE(entries.size() == 3);
+    CHECK(entries[0].prefix == '-');
+    CHECK(entries[0].path == "lib (copy)");
+    CHECK(entries[0].description.empty());
+    CHECK(entries[1].prefix == 'U');
+    CHECK(entries[1].path == "other (x)");
+    CHECK(entries[1].description.empty());
+    // 초기화된 submodule은 마지막 ` (설명)`만 설명이다.
+    CHECK(entries[2].path == "lib (copy)");
+    CHECK(entries[2].description == "heads/main");
+}
+
 TEST_CASE("parse_gitmodules_config joins path and url by section name", "[git][submodule]")
 {
     const std::vector<gitmodules_entry> modules { parse_gitmodules_config(read_fixture("gitmodules_config.bin")) };
@@ -425,6 +445,9 @@ TEST_CASE("git lfs support helpers", "[git][lfs]")
 
     CHECK(gitattributes_uses_lfs("*.bin filter=lfs diff=lfs merge=lfs -text\n"));
     CHECK(gitattributes_uses_lfs("# header\n*.txt text\r\n*.psd -text filter=lfs\r\n"));
+    // git은 속성 사이를 탭으로도 나눈다.
+    CHECK(gitattributes_uses_lfs("*.psd\tfilter=lfs\tdiff=lfs\tmerge=lfs -text\n"));
+    CHECK_FALSE(gitattributes_uses_lfs("filter=lfs\n"));
     CHECK_FALSE(gitattributes_uses_lfs("# *.bin filter=lfs\n*.txt text\n"));
     CHECK_FALSE(gitattributes_uses_lfs("*.bin filter=other\n"));
     CHECK_FALSE(gitattributes_uses_lfs(""));

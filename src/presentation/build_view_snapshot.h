@@ -65,6 +65,20 @@ namespace cyella {
     // 탭 표시다. `operations`는 그 저장소의 operation만이다.
     [[nodiscard]] tab_marker compute_tab_marker(std::span<const operation_status* const> operations, std::uint32_t changed_file_count, bool awaiting_input) noexcept;
 
+    // 커밋을 막는 까닭이다. 커밋 단추와 Ctrl+Enter·팔레트의 커밋 명령이 한 판정을 써야 단추가 꺼진 상태에서 단축키로 git이 실패하지 않는다.
+    enum class commit_blocker
+    {
+        none,
+        committing,
+        conflicts,
+        no_subject,
+        nothing_staged,
+    };
+
+    // 앞의 까닭부터 본다 (단추 아래 문구가 하나만 서므로). `has_subject`는 부르는 쪽이 정한다.
+    // 단추는 조합 중인 글자까지 보인 제목을, controller는 확정된 제목을 보기 때문이다.
+    [[nodiscard]] commit_blocker find_commit_blocker(const repository_snapshot& snapshot, bool amend, bool has_subject, bool committing) noexcept;
+
     // 사이드바 행이다. 거르기는 이름의 부분 문자열이고, 접힌 구역은 머리 줄만 남는다.
     struct sidebar_rows
     {

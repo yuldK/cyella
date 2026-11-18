@@ -42,21 +42,10 @@ namespace cyella {
         std::u8string path {};
     };
 
-    struct close_repository_intent
-    {
-        std::string repository_id {};
-    };
-
     // UI가 저장소 operation을 낸다. 값은 `git_operation.h`의 요청 타입이다.
     struct submit_operation_intent
     {
         std::string repository_id {};
-        git_operation operation {};
-    };
-
-    // clone·init·inspect_path를 낸다. 저장소 id 대신 대상 경로로 묶인다.
-    struct submit_setup_intent
-    {
         git_operation operation {};
     };
 

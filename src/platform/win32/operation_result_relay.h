@@ -28,7 +28,7 @@ namespace cyella::win32 {
         ~operation_result_relay() = default;
 
         // 어느 스레드든 부를 수 있다. lock 안에서 큐에 넣고, host가 묶여 있으면
-        // 깨우기 하나를 보낸다. 내용은 큐에 남는다.
+        // 깨우기 하나를 보낸다. 앞서 보낸 깨우기가 아직 배출되지 않았으면 더 보내지 않는다. 내용은 큐에 남는다.
         void post(luil::app_message message);
 
         // UI thread(delegate의 `on_started`)가 부른다. 한 lock 안에서 host를 세우고
@@ -55,5 +55,7 @@ namespace cyella::win32 {
         std::mutex mutex_ {};
         std::vector<luil::app_message> queue_ {};
         luil::app_host* host_ { nullptr };
+        // inbox에 들어간 깨우기가 아직 배출로 이어지지 않았다. 그동안의 post는 깨우기를 더 보내지 않는다.
+        bool wake_pending_ { false };
     };
 } // namespace cyella::win32

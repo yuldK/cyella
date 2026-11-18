@@ -49,6 +49,38 @@ TEST_CASE("classify_git_failure uses HTTP status numbers in a translated sentenc
     // 브랜치 이름에 든 숫자는 HTTP 상태가 아니다.
     CHECK(classify_git_failure("fatal: invalid reference: release-4040") == git_failure_kind::unclassified);
     CHECK(classify_git_failure("fatal: invalid reference: release-4040 (see https://example.com/help)") == git_failure_kind::unclassified);
+    // 상태 표지(`returned error: `, `HTTP `) 없이 이름에 붙은 숫자는 앞뒤가 숫자가 아니어도 상태가 아니다.
+    CHECK(classify_git_failure("fatal: could not checkout https://example.com/r/issue-403") == git_failure_kind::unclassified);
+    CHECK(classify_git_failure("fatal: pathspec 'https://example.com/public/404.html' did not match any file") == git_failure_kind::unclassified);
+    CHECK(classify_git_failure("error: RPC failed; HTTP 403 curl 22 The requested URL returned error: 403") == git_failure_kind::authentication_required);
+    CHECK(classify_git_failure("< HTTP/1.1 401 Unauthorized") == git_failure_kind::authentication_required);
+    // 표지처럼 보이는 글(`error: `) 바로 뒤라도 이름이 이어지면(`404.html`) 상태가 아니다. 문장 끝의 마침표는 이름이 아니다.
+    CHECK(classify_git_failure("From https://example.com/r\nerror: 404.html: needs merge") == git_failure_kind::unclassified);
+    CHECK(classify_git_failure("fatal: unable to access 'https://example.com/r.git/': error 403.") == git_failure_kind::authentication_required);
+}
+
+TEST_CASE("classify_git_failure prefers push rejections and local changes over look-alike HTTP status numbers", "[git][error]")
+{
+    // `To https://...`가 있어 HTTP 문맥이 되고 브랜치 이름 `issue-403`이 상태 번호처럼 보이는 출력이다.
+    CHECK(classify_git_failure("To https://h/r.git\n ! [rejected]        issue-403 -> issue-403 (fetch first)\nerror: failed to push some refs to 'https://h/r.git'")
+        == git_failure_kind::push_rejected_fetch_first);
+    // `From https://...` 뒤의 경로 `public/404.html`이 상태 번호처럼 보인다.
+    CHECK(classify_git_failure("From https://h/r\nerror: Your local changes to the following files would be overwritten by merge:\n\tpublic/404.html\nPlease commit your changes or stash them before you merge.")
+        == git_failure_kind::local_changes_would_be_overwritten);
+    CHECK(classify_git_failure("From https://h/r\nAuto-merging public/403.html\nCONFLICT (content): Merge conflict in public/403.html") == git_failure_kind::conflict);
+}
+
+TEST_CASE("classify_git_failure ignores lines the server sent after remote:", "[git][error]")
+{
+    // 서버가 보낸 글로는 호스트 키 경고도, HTTP 상태도 만들 수 없다.
+    CHECK(classify_git_failure("remote: @@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED @@@\nfatal: Could not read from remote repository.") == git_failure_kind::unclassified);
+    CHECK(classify_git_failure("remote: HTTP 403 returned by the hook\nfatal: https://example.com/r.git: something nobody has seen before") == git_failure_kind::unclassified);
+    CHECK(classify_git_failure("remote: Permission denied (publickey).") == git_failure_kind::unclassified);
+    // `remote:` 줄이 섞여 있어도 그 밖의 줄의 신호는 그대로 찾는다.
+    CHECK(classify_git_failure("remote: Resolving deltas: 100% (1/1), completed with 1 local object.\n ! [remote rejected] main -> main (pre-receive hook declined)") == git_failure_kind::push_rejected);
+    CHECK(classify_git_failure("remote: Invalid username or password.\nfatal: Authentication failed for 'https://example.com/r.git/'") == git_failure_kind::authentication_required);
+    // 저장소 없음은 `remote:` 줄로만 알리는 서버가 있어 다른 신호가 없을 때에 한해 받는다.
+    CHECK(classify_git_failure("remote: Repository not found.") == git_failure_kind::repository_not_found);
 }
 
 TEST_CASE("classify_git_failure recognizes HTTPS prompts that cannot be answered", "[git][error]")
@@ -111,6 +143,27 @@ TEST_CASE("classify_git_failure separates a changed host key from an unknown one
     CHECK(location->line == 12);
 
     CHECK_FALSE(cyella::find_offending_known_hosts_line("Host key verification failed.").has_value());
+}
+
+TEST_CASE("known_hosts and worktree paths are never read from lines the server sent", "[git][error]")
+{
+    const std::string forged = "remote: @@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED @@@\n"
+                               "remote: Offending RSA key in C:/forged/known_hosts:1\n";
+    CHECK_FALSE(cyella::find_offending_known_hosts_line(forged).has_value());
+
+    // 진짜 경고에 서버 줄이 섞여도 경로는 로컬 ssh가 낸 줄에서만 읽는다.
+    const std::string mixed = "remote: Offending RSA key in C:/forged/known_hosts:1\n"
+                              "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n"
+                              "Offending ED25519 key in C:/Users/me/.ssh/known_hosts:12\r\n";
+    const auto location { cyella::find_offending_known_hosts_line(mixed) };
+    REQUIRE(location.has_value());
+    CHECK(location->path == "C:/Users/me/.ssh/known_hosts");
+    CHECK(location->line == 12);
+
+    const auto path { cyella::find_checked_out_worktree_path("fatal: 'main' is already used by worktree at 'C:/work/other'\n") };
+    REQUIRE(path.has_value());
+    CHECK(*path == "C:/work/other");
+    CHECK_FALSE(cyella::find_checked_out_worktree_path("remote: fatal: 'main' is already used by worktree at 'C:/forged'\n").has_value());
 }
 
 TEST_CASE("classify_git_failure recognizes refused connections and impossible fast-forwards", "[git][error]")

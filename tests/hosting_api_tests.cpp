@@ -518,6 +518,15 @@ TEST_CASE("repository creation requests go to the account or the organization wi
     const nlohmann::json personal { nlohmann::json::parse(make_create_repository_request(gitlab, { .name = "x", .is_private = false }, std::nullopt).body) };
     CHECK(personal.contains("namespace_id") == false);
     CHECK(personal["visibility"] == "public");
+    // GitLab path는 영숫자와 `_-.`만 받는다. 그 꼴이 아닌 폴더 이름은 path를 비워 서버가 이름으로 만들게 한다.
+    for (const char* const name : { "My Project", "프로젝트", "-dash", ".dot" })
+    {
+        CAPTURE(name);
+        const nlohmann::json spaced { nlohmann::json::parse(make_create_repository_request(gitlab, { .name = name, .is_private = true }, std::nullopt).body) };
+        CHECK(spaced["name"] == name);
+        CHECK(spaced.contains("path") == false);
+    }
+    CHECK(nlohmann::json::parse(make_create_repository_request(gitlab, { .name = "My_App-2.0", .is_private = true }, std::nullopt).body)["path"] == "My_App-2.0");
     CHECK(make_namespace_request(gitlab, "group/sub").url == "https://gitlab.com/api/v4/namespaces/group%2Fsub");
 }
 
@@ -559,4 +568,18 @@ TEST_CASE("repository creation responses give the clone URLs and rejections carr
     REQUIRE(group.ok());
     CHECK(*group.value == 42u);
     CHECK(parse_namespace_response(hosting_provider::gitlab, make_response(404, R"({ "message": "404 Namespace Not Found" })")).error.kind == hosting_error_kind::not_found);
+}
+
+TEST_CASE("a deeply nested error body is summarized without exhausting the stack", "[hosting]")
+{
+    // 자체 서버가 아주 깊은 배열을 보내도 이유를 뽑다가 워커의 스택을 넘지 않는다. 깊은 곳의 글은 버린다.
+    constexpr std::size_t depth { 100000 };
+    const std::string body { "{\"message\":" + std::string(depth, '[') + "\"deep\"" + std::string(depth, ']') + "}" };
+    hosting_error error {};
+    REQUIRE_NOTHROW(error = classify_hosting_response(hosting_provider::gitlab, make_response(403, body)));
+    CHECK(error.kind == hosting_error_kind::forbidden);
+    CHECK(error.message.find("deep") == std::string::npos);
+
+    // 얕은 중첩은 그대로 읽는다.
+    CHECK(classify_hosting_response(hosting_provider::gitlab, make_response(400, R"({"message": {"name": [["has already been taken"]]}})")).message.find("has already been taken") != std::string::npos);
 }

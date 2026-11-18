@@ -370,7 +370,9 @@ namespace cyella {
 
     git_arguments make_git_restore_staged_args(const std::span<const std::string> paths)
     {
-        git_arguments arguments { make_literal_pathspec_command({ "restore", "--staged" }) };
+        // `restore --staged`는 원본을 HEAD로 잡아 첫 커밋 전 저장소에서 "could not resolve HEAD"로 실패한다.
+        // `reset`은 HEAD가 없으면 빈 트리를 기준으로 삼으므로 두 경우 모두 index 항목을 HEAD 상태로 되돌린다.
+        git_arguments arguments { make_literal_pathspec_command({ "reset", "-q" }) };
         push_paths(arguments, paths);
         return arguments;
     }
@@ -389,7 +391,7 @@ namespace cyella {
 
     git_arguments make_git_restore_staged_from_stdin_args()
     {
-        return make_literal_pathspec_command({ "restore", "--staged", "--pathspec-from-file=-", "--pathspec-file-nul" });
+        return make_literal_pathspec_command({ "reset", "-q", "--pathspec-from-file=-", "--pathspec-file-nul" });
     }
 
     git_arguments make_git_restore_worktree_from_stdin_args()
@@ -411,6 +413,9 @@ namespace cyella {
             push_text(arguments, "--recount");
         if (options.unidiff_zero)
             push_text(arguments, "--unidiff-zero");
+        // 명령줄에 없으면 사용자의 `apply.whitespace`가 기본값이 된다. `fix`면 줄 끝 공백을 지운 내용이
+        // index에 들어가 화면에 보인 hunk와 달라지고, `error`면 그런 hunk의 stage가 실패한다.
+        push_text(arguments, "--whitespace=nowarn");
         push_text(arguments, "-");
         return arguments;
     }
@@ -831,7 +836,8 @@ namespace cyella {
     git_arguments make_git_commit_name_status_args(const std::string_view sha, const bool is_merge)
     {
         git_arguments arguments {};
-        push_all(arguments, { "log", "-1", "-z", "--format=", "--name-status", "--find-renames" });
+        // `--root`가 없으면 사용자의 `log.showRoot=false`가 첫 커밋의 diff를 빼서 파일 목록이 빈다.
+        push_all(arguments, { "log", "-1", "-z", "--format=", "--name-status", "--find-renames", "--root" });
         if (is_merge)
             push_all(arguments, { "-m", "--first-parent" });
         push_all(arguments, { require_revision(sha, "commit"), "--" });

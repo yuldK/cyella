@@ -50,6 +50,9 @@ namespace cyella {
         std::vector<process_environment_override> environment {};
         // 진행 표시가 stderr가 아니라 stdout으로 나온다(git-lfs). 줄바꿈(CR·LF)으로 끊어 진행률로 보낸다.
         bool progress_on_standard_output { false };
+        // 로컬 조회의 stdout이 캡처 상한에 걸리면 실패로 바꾼다. 파일 diff는 화면이 줄 수 상한으로 잘린 diff를
+        // 이미 따로 다루고, 큰 파일의 diff 칸 전체를 오류로 바꾸지 않으려고 끈다.
+        bool fail_on_truncated_output { true };
     };
 
     struct git_command_outcome
@@ -60,6 +63,9 @@ namespace cyella {
         // 진행 표시를 뺀 stderr 줄이다(마스킹됨).
         std::vector<std::u8string> standard_error_lines {};
         bool accepted { false };
+        // 로컬 조회의 stdout이 캡처 상한에 걸려 잘렸다. 잘린 마지막 레코드를 온전한 값으로 읽지 않게
+        // 종료 코드와 상관없이 `accepted`를 끄고, `failure_from`이 출력 과다 실패로 바꾼다.
+        bool standard_output_truncated { false };
 
         [[nodiscard]] std::u8string standard_error_text() const;
         [[nodiscard]] std::string standard_error_bytes() const;

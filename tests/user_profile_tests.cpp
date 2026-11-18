@@ -81,6 +81,21 @@ TEST_CASE("a rule needs a folder path and a known profile", "[profiles]")
     REQUIRE(check_profile_rule(profile_rule { u8"C:\\work", u8"없음" }, profiles).empty() == false);
 }
 
+TEST_CASE("a quote left inside a key path or rule prefix is refused", "[profiles]")
+{
+    // 양 끝의 따옴표는 입력이 벗긴다. 안쪽에 남은 것은 깨진 core.sshCommand나 어떤 저장소에도 맞지 않는 규칙이 된다.
+    const std::vector<user_profile> existing { two_profiles() };
+    user_profile keyed { make_profile(u8"키", u8"홍", u8"a@b.c") };
+    keyed.ssh_key = u8"C:\\Users\\me\\.ssh\\id_corp";
+    REQUIRE(check_user_profile(keyed, existing, std::nullopt).empty());
+    keyed.ssh_key = u8"C:\\a\" \"b";
+    CHECK(check_user_profile(keyed, existing, std::nullopt).empty() == false);
+
+    const std::vector<user_profile> profiles { two_profiles() };
+    CHECK(check_profile_rule(profile_rule { u8"C:\\a\" \"b", u8"회사" }, profiles).empty() == false);
+    CHECK(check_profile_rule(profile_rule { u8"C:\\work\"", u8"회사" }, profiles).empty() == false);
+}
+
 TEST_CASE("renaming and removing a profile keeps rules and assignments consistent", "[profiles]")
 {
     app_settings settings {};
@@ -115,6 +130,48 @@ TEST_CASE("renaming and removing a profile keeps rules and assignments consisten
     REQUIRE(remove_user_profile(settings, 0));
     REQUIRE(settings.profile_rules.empty());
     REQUIRE(remove_user_profile(settings, 0) == false);
+}
+
+TEST_CASE("renaming and removing a profile also follow rules and records written in another letter case", "[profiles]")
+{
+    // 손으로 고친 settings.json은 규칙과 적용 기록의 프로필 이름 대소문자가 프로필과 다를 수 있다 (조회는 대소문자를 가리지 않는다).
+    app_settings settings {};
+    upsert_user_profile(settings, std::nullopt, make_profile(u8"work", u8"홍길동", u8"hong@corp.example"));
+    settings.profile_rules.push_back(profile_rule { u8"C:\\work", u8"Work" });
+    settings.profile_assignments.push_back(profile_assignment { u8"C:\\work\\repo", u8"WORK" });
+    REQUIRE(match_profile_rule(settings.profile_rules, settings.profiles, u8"C:\\work\\repo") == std::size_t { 0 });
+
+    upsert_user_profile(settings, 0, make_profile(u8"job", u8"홍길동", u8"hong@corp.example"));
+    REQUIRE(settings.profile_rules.front().profile == u8"job");
+    REQUIRE(settings.profile_assignments.front().profile == u8"job");
+
+    // 대소문자만 바꾼 이름도 따라간다.
+    upsert_user_profile(settings, 0, make_profile(u8"Job", u8"홍길동", u8"hong@corp.example"));
+    REQUIRE(settings.profile_rules.front().profile == u8"Job");
+    REQUIRE(settings.profile_assignments.front().profile == u8"Job");
+
+    // 지울 때도 대소문자가 다른 규칙과 기록이 남지 않는다.
+    settings.profile_rules.push_back(profile_rule { u8"C:\\play", u8"jOB" });
+    settings.profile_assignments.push_back(profile_assignment { u8"C:\\play\\game", u8"jOB" });
+    REQUIRE(remove_user_profile(settings, 0));
+    REQUIRE(settings.profile_rules.empty());
+    REQUIRE(settings.profile_assignments.empty());
+}
+
+TEST_CASE("a profile name is limited by characters, not utf-8 bytes", "[profiles]")
+{
+    std::u8string forty_hangul {};
+    std::u8string forty_ascii {};
+    for (int count { 0 }; count < 40; ++count)
+    {
+        forty_hangul += u8"가";
+        forty_ascii += u8'a';
+    }
+    // 한글은 글자당 3바이트지만 영문과 같은 40자까지 된다.
+    REQUIRE(check_user_profile(make_profile(forty_hangul, u8"홍", u8"a@b.c"), {}, std::nullopt).empty());
+    REQUIRE(check_user_profile(make_profile(forty_ascii, u8"홍", u8"a@b.c"), {}, std::nullopt).empty());
+    REQUIRE(check_user_profile(make_profile(forty_hangul + u8"나", u8"홍", u8"a@b.c"), {}, std::nullopt).empty() == false);
+    REQUIRE(check_user_profile(make_profile(forty_ascii + u8"b", u8"홍", u8"a@b.c"), {}, std::nullopt).empty() == false);
 }
 
 TEST_CASE("profiles, rules and assignments survive a settings round trip and keep unknown keys", "[profiles]")
@@ -286,6 +343,15 @@ TEST_CASE("the profile ssh command round-trips its key and leaves hand-written c
     CHECK(profile_ssh_key_of(u8"ssh -i C:/k -o IdentitiesOnly=yes").has_value() == false);
     CHECK(profile_ssh_key_of(u8"-i '' -o IdentitiesOnly=yes").has_value() == false);
     CHECK(describe_access(git_identity {}).empty());
+}
+
+TEST_CASE("the profile ssh command escapes a single quote in the ssh executable path", "[profiles][identity]")
+{
+    // sh가 풀 때 따옴표가 깨지면 push·fetch가 셸 구문 오류로 실패한다. `'`는 `'\''`로 닫고 다시 연다.
+    const std::u8string command { make_profile_ssh_command(u8"C:\\Users\\O'Neil\\ssh.exe", u8"C:/k") };
+    CHECK(command == u8"'C:/Users/O'\\''Neil/ssh.exe' -i 'C:/k' -o IdentitiesOnly=yes");
+    // 꼬리부터 읽으므로 실행 파일 쪽의 이스케이프가 키 경로 읽기를 흩뜨리지 않는다.
+    CHECK(profile_ssh_key_of(command) == std::optional<std::u8string> { u8"C:/k" });
 }
 
 TEST_CASE("a profile's sign-in account rejects text that git or sh would misread", "[profiles]")

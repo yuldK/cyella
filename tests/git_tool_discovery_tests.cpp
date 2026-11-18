@@ -86,6 +86,20 @@ TEST_CASE("git version parser reads the first version token", "[git_tool]")
     CHECK_FALSE(parse_git_tool_version(u8"").has_value());
 }
 
+TEST_CASE("git version parser rejects components that do not fit in 32 bits", "[git_tool]")
+{
+    // 32비트에 담기는 가장 큰 값까지는 받는다.
+    const auto largest { parse_git_tool_version(u8"git version 4294967295.0.0") };
+    REQUIRE(largest.has_value());
+    CHECK(*largest == git_tool_version { 4294967295u, 0, 0 });
+
+    // 마지막 자릿수에서 넘치는 값이 0으로 감겨 최소 버전 검사를 통과하면 안 된다.
+    CHECK_FALSE(parse_git_tool_version(u8"git version 4294967296.0.0").has_value());
+    CHECK_FALSE(parse_git_tool_version(u8"git version 4294967299.0.0").has_value());
+    CHECK_FALSE(parse_git_tool_version(u8"git version 2.4294967296.0").has_value());
+    CHECK_FALSE(parse_git_tool_version(u8"git version 2.43.4294967296").has_value());
+}
+
 TEST_CASE("git minimum version is 2.43", "[git_tool]")
 {
     CHECK(meets_minimum_git_version({ 2, 43, 0 }));

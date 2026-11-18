@@ -21,7 +21,14 @@ namespace cyella {
     void hosting_token_store::set(const std::string& host_key, std::string username, secret_text token)
     {
         const std::lock_guard<std::mutex> lock { mutex_ };
-        entries_[host_key] = entry { std::move(username), std::make_shared<const secret_text>(std::move(token)) };
+        entries_[host_key] = entry { std::move(username), std::string {}, std::make_shared<const secret_text>(std::move(token)) };
+    }
+
+    void hosting_token_store::set_account(const std::string& host_key, std::string account)
+    {
+        const std::lock_guard<std::mutex> lock { mutex_ };
+        if (const auto found { entries_.find(host_key) }; found != entries_.end())
+            found->second.account = std::move(account);
     }
 
     std::shared_ptr<const secret_text> hosting_token_store::token(const std::string& host_key) const
@@ -35,7 +42,17 @@ namespace cyella {
     {
         const std::lock_guard<std::mutex> lock { mutex_ };
         const auto found { entries_.find(host_key) };
-        return found == entries_.end() ? std::string {} : found->second.username;
+        if (found == entries_.end())
+            return {};
+        // 401 뒤 다시 받은 토큰처럼 서버에 아직 묻지 않은 항목은 도우미의 이름이라도 준다.
+        return found->second.account.empty() ? found->second.helper_username : found->second.account;
+    }
+
+    std::string hosting_token_store::helper_username(const std::string& host_key) const
+    {
+        const std::lock_guard<std::mutex> lock { mutex_ };
+        const auto found { entries_.find(host_key) };
+        return found == entries_.end() ? std::string {} : found->second.helper_username;
     }
 
     bool hosting_token_store::contains(const std::string& host_key) const
@@ -113,21 +130,42 @@ namespace cyella {
             if (info.remaining.has_value() == false)
                 info.remaining = 0;
         }
+        const std::lock_guard<std::mutex> lock { limit_mutex_ };
+        // 초기화 시각이 함께 와도(GitHub 2차 한도) `Retry-After` 동안은 보내지 않는다.
+        if (reported.retry_after_seconds.has_value() && *reported.retry_after_seconds > 0)
+            blocked_until_[host_key] = clock_() + *reported.retry_after_seconds;
         if (info.remaining.has_value() == false && info.reset_at.has_value() == false)
             return;
-        const std::lock_guard<std::mutex> lock { limit_mutex_ };
         limits_[host_key] = info;
     }
 
     std::optional<hosting_error> hosting_service::exhausted_limit(const std::string& host_key) const
     {
         const rate_limit_info info { last_rate_limit(host_key) };
-        if (info.remaining.has_value() && *info.remaining <= 0 && info.reset_at.has_value() && *info.reset_at > clock_())
+        const std::int64_t now { clock_() };
+        if (info.remaining.has_value() && *info.remaining <= 0 && info.reset_at.has_value() && *info.reset_at > now)
         {
             hosting_error error {};
             error.kind = hosting_error_kind::rate_limited;
             error.status_code = 403;
             error.rate_limit = info;
+            return error;
+        }
+        std::optional<std::int64_t> blocked_until {};
+        {
+            const std::lock_guard<std::mutex> lock { limit_mutex_ };
+            if (const auto found { blocked_until_.find(host_key) }; found != blocked_until_.end())
+                blocked_until = found->second;
+        }
+        if (blocked_until.has_value() && *blocked_until > now)
+        {
+            hosting_error error {};
+            error.kind = hosting_error_kind::rate_limited;
+            error.status_code = 403;
+            error.rate_limit = info;
+            // 안내는 한 시간 뒤의 초기화 시각이 아니라 다시 보낼 시각을 말해야 한다.
+            error.rate_limit.reset_at = *blocked_until;
+            error.rate_limit.retry_after_seconds = *blocked_until - now;
             return error;
         }
         return std::nullopt;
@@ -177,7 +215,7 @@ namespace cyella {
             return attempt;
 
         // 401: 이 토큰은 더는 쓸 수 없다. 도우미의 저장본을 지우고 메모리에서도 잊은 뒤 한 번 다시 묻는다.
-        credentials_->reject(query_of(context), tokens_.username(host_key), *token, cancellation);
+        credentials_->reject(query_of(context), tokens_.helper_username(host_key), *token, cancellation);
         tokens_.forget(host_key);
         token.reset();
         credential_fill_result again { acquire(context, cancellation) };
@@ -199,7 +237,7 @@ namespace cyella {
         remember_rate_limit(host_key, read_rate_limit(attempt.response));
         if (attempt.response.status_code == 401)
         {
-            credentials_->reject(query_of(context), tokens_.username(host_key), *token, cancellation);
+            credentials_->reject(query_of(context), tokens_.helper_username(host_key), *token, cancellation);
             tokens_.forget(host_key);
         }
         return attempt;
@@ -244,10 +282,8 @@ namespace cyella {
             tokens_.forget(host_key);
             return user;
         }
-        // 계정 이름은 서버가 답한 것을 쓴다 (도우미의 `username`은 `oauth2` 같은 자리표일 수 있다).
-        std::shared_ptr<const secret_text> token { tokens_.token(host_key) };
-        if (token != nullptr)
-            tokens_.set(host_key, *user.value, secret_text { token->value() });
+        // 계정 이름은 서버가 답한 것을 쓴다 (도우미의 `username`은 `oauth2` 같은 자리표일 수 있다). 도우미의 이름은 reject에 쓰도록 남긴다.
+        tokens_.set_account(host_key, *user.value);
         return user;
     }
 

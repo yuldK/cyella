@@ -2,6 +2,7 @@
 
 #include "domain/text_catalog.h"
 #include "presentation/rebase/rebase_editor_model.h"
+#include "presentation/text_filters.h"
 
 #include <algorithm>
 #include <utility>
@@ -14,25 +15,6 @@ namespace cyella {
             if (status.state != operation_state::failed || status.failure.has_value() == false)
                 return false;
             return status.failure->kind == failure_kind::invalid_request || status.failure->kind == failure_kind::refused;
-        }
-
-        // 여러 줄 본문에 넣는 글이다. CRLF·CR은 LF로 바꾸고 탭은 그대로 둔다.
-        std::u8string multiline_text(const std::u8string_view text)
-        {
-            std::u8string result {};
-            result.reserve(text.size());
-            for (std::size_t index { 0 }; index < text.size(); ++index)
-            {
-                if (text[index] == u8'\r')
-                {
-                    result.push_back(u8'\n');
-                    if (index + 1 < text.size() && text[index + 1] == u8'\n')
-                        ++index;
-                    continue;
-                }
-                result.push_back(text[index]);
-            }
-            return result;
         }
 
         // 편집기가 받는 메시지인가 (열기 메시지는 따로 본다).
@@ -216,10 +198,9 @@ namespace cyella {
         const bool body { target == text_target::rebase_message_body };
         luil::text::text_edit_state& state { body ? draft->body : draft->subject };
         const std::u8string before { state.text };
-        if (body && (request.command == luil::text::text_edit_command::move_line_start || request.command == luil::text::text_edit_command::move_line_end))
-            move_text_caret_line_edge(state, request.command == luil::text::text_edit_command::move_line_end, request.extend);
-        else
-            luil::apply_text_edit(state, request, [body](const std::u8string_view text) { return body ? multiline_text(text) : single_line_text(text); });
+        // 본문의 Home·End는 luil이 여러 줄 칸에서 줄 끝으로 옮겨 보낸다. 여기 오는 줄 처음·끝 명령은 Ctrl+Home·End라 글 전체의 처음·끝이다
+        // (커밋 본문과 같다).
+        luil::apply_text_edit(state, request, [body](const std::u8string_view text) { return body ? multiline_text(text) : single_line_text(text); });
         if (state.text != before)
         {
             draft->edited = true;

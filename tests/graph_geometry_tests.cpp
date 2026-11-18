@@ -1,9 +1,20 @@
 // 그래프 칸의 기하(레인 x, 선분마다의 곡선 제어점, WIP 점선, 위쪽 짧은 선)와 라벨 짝짓기다.
 #include "presentation/graph_geometry.h"
+#include "presentation/graph_index.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 using namespace cyella;
+
+namespace {
+    commit_info commit_of(std::string sha, std::vector<std::string> parents)
+    {
+        commit_info commit {};
+        commit.sha = std::move(sha);
+        commit.parents = std::move(parents);
+        return commit;
+    }
+} // namespace
 
 TEST_CASE("lane x is the lane center inside the padded graph column", "[presentation][graph]")
 {
@@ -115,6 +126,72 @@ TEST_CASE("labels merge a local branch with its remote twin and mark local-only 
     CHECK(at_c[0].ref_name == "origin/old");
 }
 
+TEST_CASE("a local branch without upstream pairs only with the remote branch named after a remote", "[presentation][graph]")
+{
+    repository_summary summary {};
+    summary.remotes = { { .name = "origin" } };
+
+    SECTION("a remote branch that only ends with the same name is not its twin")
+    {
+        const std::vector<ref> refs {
+            { .kind = ref_kind::local, .name = "feature", .target_sha = "a" },
+            { .kind = ref_kind::remote, .name = "origin/team/feature", .target_sha = "a" },
+        };
+        const ref_label_map labels { build_ref_label_map(refs, summary) };
+        const std::vector<ref_label>& at_a { labels.at("a") };
+        REQUIRE(at_a.size() == 2);
+        CHECK_FALSE(at_a[0].also_remote);
+        // 별개의 원격 브랜치 칩이 따로 선다.
+        CHECK(at_a[1].kind == ref_label_kind::remote);
+        CHECK(at_a[1].ref_name == "origin/team/feature");
+    }
+
+    SECTION("a local name with a slash still pairs with its own remote branch")
+    {
+        const std::vector<ref> refs {
+            { .kind = ref_kind::local, .name = "team/feature", .target_sha = "a" },
+            { .kind = ref_kind::remote, .name = "origin/team/feature", .target_sha = "a" },
+        };
+        const ref_label_map labels { build_ref_label_map(refs, summary) };
+        const std::vector<ref_label>& at_a { labels.at("a") };
+        REQUIRE(at_a.size() == 1);
+        CHECK(at_a[0].also_remote);
+        CHECK(at_a[0].remote_name == u8"origin/team/feature");
+    }
+
+    SECTION("with several remotes the first listed remote wins, not the first by name")
+    {
+        summary.remotes = { { .name = "origin" }, { .name = "backup" } };
+        const std::vector<ref> refs {
+            { .kind = ref_kind::local, .name = "x", .target_sha = "a" },
+            { .kind = ref_kind::remote, .name = "backup/x", .target_sha = "a" },
+            { .kind = ref_kind::remote, .name = "origin/x", .target_sha = "a" },
+        };
+        const ref_label_map labels { build_ref_label_map(refs, summary) };
+        const std::vector<ref_label>& at_a { labels.at("a") };
+        REQUIRE(at_a.size() == 2);
+        CHECK(at_a[0].also_remote);
+        CHECK(at_a[0].remote_name == u8"origin/x");
+        CHECK(at_a[1].ref_name == "backup/x");
+    }
+
+    SECTION("without a remote list the part before the first slash is the remote name")
+    {
+        summary.remotes.clear();
+        const std::vector<ref> refs {
+            { .kind = ref_kind::local, .name = "feature", .target_sha = "a" },
+            { .kind = ref_kind::remote, .name = "origin/team/feature", .target_sha = "a" },
+            { .kind = ref_kind::remote, .name = "origin/feature", .target_sha = "a" },
+        };
+        const ref_label_map labels { build_ref_label_map(refs, summary) };
+        const std::vector<ref_label>& at_a { labels.at("a") };
+        REQUIRE(at_a.size() == 2);
+        CHECK(at_a[0].also_remote);
+        CHECK(at_a[0].remote_name == u8"origin/feature");
+        CHECK(at_a[1].ref_name == "origin/team/feature");
+    }
+}
+
 TEST_CASE("detached HEAD gets its own label and tags are not local-only without remotes", "[presentation][graph]")
 {
     repository_summary summary {};
@@ -133,4 +210,29 @@ TEST_CASE("graph item keys stay inside the short string buffer", "[presentation]
     CHECK(key == u8"0123456789abcde");
     CHECK(key.capacity() <= 15);
     CHECK(graph_item_key("WIP") == u8"WIP");
+}
+
+TEST_CASE("graph index keeps only parents that come after their child", "[presentation][graph]")
+{
+    // 더 읽는 사이에 ref가 바뀌어 부모(p)가 자식(x·y)보다 앞에 온 목록이다. 부모 색인을 배열 첨자로 쓰는 질의가
+    // 범위 밖을 건드리지 않고 그 연결을 없는 것으로 본다.
+    const graph_index reversed { std::vector<commit_info> { commit_of("p", {}), commit_of("x", { "p" }), commit_of("y", { "p" }) } };
+    CHECK(reversed.count("x", "y") == std::uint32_t { 1 });
+    CHECK(reversed.count("y", "x") == std::uint32_t { 1 });
+    CHECK(reversed.range("x", "y") == std::vector<std::size_t> { 2 });
+    CHECK(reversed.range("", "y") == std::vector<std::size_t> { 2 });
+    CHECK(reversed.is_ancestor("p", "x") == false);
+    CHECK(reversed.is_ancestor("x", "p") == false);
+
+    // 같은 SHA가 두 번 들어 있어도 뒤쪽 사본의 부모(앞쪽 색인)는 담지 않는다. 자기 자신을 부모로 가리키는 값도 같다.
+    const graph_index duplicated { std::vector<commit_info> { commit_of("a", { "b" }), commit_of("b", {}), commit_of("a", { "b" }), commit_of("s", { "s" }) } };
+    CHECK(duplicated.count("b", "a") == std::uint32_t { 1 });
+    CHECK(duplicated.count("a", "s") == std::uint32_t { 1 });
+    CHECK(duplicated.is_ancestor("b", "a") == true);
+
+    // 정상 순서(자식이 부모보다 앞)는 그대로 센다.
+    const graph_index linear { std::vector<commit_info> { commit_of("c", { "b" }), commit_of("b", { "a" }), commit_of("a", {}) } };
+    CHECK(linear.count("a", "c") == std::uint32_t { 2 });
+    CHECK(linear.range("a", "c") == std::vector<std::size_t> { 0, 1 });
+    CHECK(linear.is_ancestor("a", "c") == true);
 }

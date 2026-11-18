@@ -136,11 +136,32 @@ namespace cyella {
             });
         }
 
+        // 글꼴 목록은 따옴표로 감싼 이름(한글 포함)과 `\` 이스케이프를 담으므로 색 규칙으로는 늘 걸러진다.
+        // 이름 안의 글자는 살리되 선언·블록을 끝내거나 태그를 여는 글자와 제어 문자만 막는다.
+        bool is_safe_font_value(const std::string_view value) noexcept
+        {
+            if (value.empty() || value.size() > 1024 || is_valid_utf8(value) == false)
+                return false;
+            return std::ranges::none_of(value, [](const char letter) {
+                const auto code { static_cast<unsigned char>(letter) };
+                return code < 0x20 || code == 0x7F || letter == ';' || letter == '{' || letter == '}' || letter == '<' || letter == '>';
+            });
+        }
+
+        bool is_safe_token(const std::string_view name, const std::string_view value) noexcept
+        {
+            if (is_safe_token_name(name) == false)
+                return false;
+            if (name == "--ui-font" || name == "--code-font")
+                return is_safe_font_value(value);
+            return is_safe_token_value(value);
+        }
+
         json theme_entry(const diff_theme& theme)
         {
             json tokens { json::object() };
             for (const auto& [name, value] : theme.tokens)
-                if (is_safe_token_name(name) && is_safe_token_value(value))
+                if (is_safe_token(name, value))
                     tokens[name] = value;
             json result {};
             result["mode"] = theme.mode == diff_theme_mode::light ? "light" : "dark";
@@ -279,7 +300,8 @@ namespace cyella {
         while (offset + 3 <= bytes.size())
         {
             const std::uint32_t group { (static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset])) << 16) | (static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + 1])) << 8)
-                | static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + 2])) };
+                | static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + 2]))
+            };
             encoded.push_back(alphabet[(group >> 18) & 0x3F]);
             encoded.push_back(alphabet[(group >> 12) & 0x3F]);
             encoded.push_back(alphabet[(group >> 6) & 0x3F]);
@@ -297,7 +319,8 @@ namespace cyella {
         else if (rest == 2)
         {
             const std::uint32_t group { (static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset])) << 16)
-                | (static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + 1])) << 8) };
+                | (static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + 1])) << 8)
+            };
             encoded.push_back(alphabet[(group >> 18) & 0x3F]);
             encoded.push_back(alphabet[(group >> 12) & 0x3F]);
             encoded.push_back(alphabet[(group >> 6) & 0x3F]);
@@ -328,7 +351,8 @@ namespace cyella {
         {
             const auto code { static_cast<unsigned char>(letter) };
             const bool plain { (letter >= '0' && letter <= '9') || (letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z') || letter == '-' || letter == '_' || letter == '.'
-                || letter == '~' || letter == '/' || letter == ':' };
+                || letter == '~' || letter == '/' || letter == ':'
+            };
             if (plain)
             {
                 url.push_back(letter);
@@ -445,29 +469,32 @@ namespace cyella {
         return dump(result);
     }
 
-    std::string serialize_set_layout(const std::uint64_t seq, const diff_layout layout)
+    std::string serialize_set_layout(const std::uint64_t seq, const std::uint64_t content_seq, const diff_layout layout)
     {
         json result {};
         result["type"] = "set_layout";
         result["seq"] = seq;
+        result["content_seq"] = content_seq;
         result["layout"] = std::string { diff_layout_name(layout) };
         return dump(result);
     }
 
-    std::string serialize_set_theme(const std::uint64_t seq, const diff_theme& theme)
+    std::string serialize_set_theme(const std::uint64_t seq, const std::uint64_t content_seq, const diff_theme& theme)
     {
         json result {};
         result["type"] = "set_theme";
         result["seq"] = seq;
+        result["content_seq"] = content_seq;
         result["theme"] = theme_entry(theme);
         return dump(result);
     }
 
-    std::string serialize_set_image_mode(const std::uint64_t seq, const image_compare_mode mode)
+    std::string serialize_set_image_mode(const std::uint64_t seq, const std::uint64_t content_seq, const image_compare_mode mode)
     {
         json result {};
         result["type"] = "set_image_mode";
         result["seq"] = seq;
+        result["content_seq"] = content_seq;
         result["mode"] = std::string { image_compare_mode_name(mode) };
         return dump(result);
     }

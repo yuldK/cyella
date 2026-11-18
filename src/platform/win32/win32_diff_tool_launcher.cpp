@@ -1,8 +1,11 @@
 #include "platform/win32/win32_diff_tool_launcher.h"
 
+#include "domain/path_syntax.h"
 #include "domain/text_catalog.h"
 #include "infrastructure/command_line_builder.h"
+#include "infrastructure/git_tool_discovery.h"
 #include "platform/win32/utf8.h"
+#include "platform/win32/win32_file_probe.h"
 
 #include <array>
 #include <string>
@@ -55,6 +58,43 @@ namespace cyella::win32 {
             return executable;
         }
 
+        std::u8string join_directory(const std::u8string_view directory, const std::u8string_view name)
+        {
+            std::u8string path { directory };
+            if (path.ends_with(u8'\\') == false && path.ends_with(u8'/') == false)
+                path.push_back(u8'\\');
+            path.append(name);
+            return path;
+        }
+
+        // GetSystemDirectoryW와 GetSystemWindowsDirectoryW는 모양이 같아 하나로 읽는다. 실패하면 빈 값이고, 빈 값은 찾는 목록에서 빠진다.
+        std::u8string read_system_folder(UINT(WINAPI* const query)(LPWSTR, UINT))
+        {
+            std::array<wchar_t, MAX_PATH + 1> buffer {};
+            const UINT size { query(buffer.data(), static_cast<UINT>(buffer.size())) };
+            if (size == 0 || size >= buffer.size())
+                return {};
+            const utf_conversion_result<std::u8string> text { utf16_to_utf8(buffer.data()) };
+            return text.value.value_or(std::u8string {});
+        }
+
+        std::u8string application_folder()
+        {
+            std::array<wchar_t, 32768> buffer {};
+            const DWORD size { ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size())) };
+            if (size == 0 || size >= buffer.size())
+                return {};
+            const utf_conversion_result<std::u8string> text { utf16_to_utf8(buffer.data()) };
+            if (text.value.has_value() == false)
+                return {};
+            return executable_directory(*text.value);
+        }
+
+        std::vector<std::u8string> current_tool_search_directories()
+        {
+            return tool_search_directories(application_folder(), read_system_folder(&::GetSystemDirectoryW), read_system_folder(&::GetSystemWindowsDirectoryW), read_environment_variable(u8"PATH"));
+        }
+
         class win32_diff_tool_launcher final : public diff_tool_launcher
         {
         public:
@@ -63,7 +103,15 @@ namespace cyella::win32 {
                 if (request.executable.empty())
                     return { false, tr_narrow(u8"diff_tool.executable_empty") };
 
-                const std::u8string command_line_text { build_windows_command_line(resolve_file_app(request.executable), request.arguments) };
+                // 이름만 적힌 도구를 CreateProcessW에 그대로 넘기면 부모의 현재 폴더를 먼저 찾으므로 여기서 절대 경로로 푼다.
+                // 못 찾았을 때도 넘기지 않는다. 넘기면 결국 현재 폴더에서 찾는다. lpApplicationName은 계속 nullptr로 두어
+                // .cmd·.bat 같은 도구가 사용자가 절대 경로를 적었을 때와 똑같이 뜨게 한다.
+                const std::unique_ptr<file_probe> probe { make_file_probe() };
+                const std::optional<std::u8string> executable { resolve_tool_executable(resolve_file_app(request.executable), current_tool_search_directories(), *probe) };
+                if (executable.has_value() == false)
+                    return { false, tr_narrow(u8"diff_tool.create_process_failed", { { u8"error", static_cast<DWORD>(ERROR_FILE_NOT_FOUND) } }) };
+
+                const std::u8string command_line_text { build_windows_command_line(*executable, request.arguments) };
                 const utf_conversion_result<std::wstring> command_line_wide { utf8_to_utf16(command_line_text) };
                 if (command_line_wide.value.has_value() == false)
                     return { false, tr_narrow(u8"diff_tool.command_line_conversion_failed") };
@@ -94,5 +142,40 @@ namespace cyella::win32 {
     std::unique_ptr<diff_tool_launcher> make_diff_tool_launcher()
     {
         return std::make_unique<win32_diff_tool_launcher>();
+    }
+
+    std::vector<std::u8string> tool_search_directories(
+        const std::u8string_view application_directory, const std::u8string_view system_directory, const std::u8string_view windows_directory, const std::u8string_view path_environment)
+    {
+        std::vector<std::u8string> directories {};
+        for (const std::u8string_view directory : { application_directory, system_directory, windows_directory })
+        {
+            if (directory.empty() == false && is_absolute_windows_path(directory))
+                directories.emplace_back(directory);
+        }
+        // split_search_path가 빈 항목·`.` 같은 상대 항목을 이미 버린다. git 탐색과 같은 규칙이다.
+        for (std::u8string& directory : split_search_path(path_environment))
+            directories.push_back(std::move(directory));
+        return directories;
+    }
+
+    std::optional<std::u8string> resolve_tool_executable(const std::u8string_view executable, const std::vector<std::u8string>& directories, const file_probe& probe)
+    {
+        if (executable.find_first_of(u8"\\/:") != std::u8string_view::npos)
+            return std::u8string { executable };
+
+        std::u8string name { executable };
+        if (name.find(u8'.') == std::u8string::npos)
+            name.append(u8".exe");
+        for (const std::u8string& directory : directories)
+        {
+            // probe는 절대 경로만 받는다. 상대 폴더가 섞여 와도 현재 폴더 기준으로 찾지 않게 건너뛴다.
+            if (is_absolute_windows_path(directory) == false)
+                continue;
+            std::u8string candidate { join_directory(directory, name) };
+            if (probe.probe(candidate) == path_kind::file)
+                return candidate;
+        }
+        return std::nullopt;
     }
 } // namespace cyella::win32

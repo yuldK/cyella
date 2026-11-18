@@ -43,8 +43,8 @@ namespace cyella {
     //
     // 작업 트리 뿌리에서는 첫 구성 요소가 `.git`이면 나머지를 위 규칙으로 보내고, 그 밖의
     // 구성 요소에 `.git`이 있으면(중첩 저장소·submodule 내부) 무시한다. `.git` 자체는 무시한다.
-    // 공용 디렉터리에서는 `refs/**`와 `packed-refs`만 본다. HEAD·index는 그 worktree의 것이
-    // 아니기 때문이다. 이름은 ASCII 대소문자를 구분하지 않는다 (NTFS).
+    // 공용 디렉터리에서는 `refs/**`, `packed-refs`와 upstream 설정이 사는 `config`만 본다. HEAD·index는
+    // 그 worktree의 것이 아니기 때문이다. 이름은 ASCII 대소문자를 구분하지 않는다 (NTFS).
     [[nodiscard]] change_classification classify_repository_change(watched_root_kind root, std::u8string_view relative_path) noexcept;
 
     struct debounce_options

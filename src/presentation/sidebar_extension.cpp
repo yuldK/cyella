@@ -60,7 +60,7 @@ namespace cyella {
             if (info.branch.empty() == false)
                 tooltip += u8"\n" + tr(u8"sidebar.worktree.branch", { { u8"branch", info.branch } });
             else if (info.detached)
-                tooltip += u8"\ndetached HEAD " + short_sha(info.head_sha);
+                tooltip += u8"\n" + tr(u8"sidebar.worktree.detached_tooltip", { { u8"sha", short_sha(info.head_sha) } });
             if (info.locked)
                 tooltip += u8"\n" + (info.lock_reason.empty() ? tr(u8"sidebar.worktree.locked") : tr(u8"sidebar.worktree.locked_reason", { { u8"reason", info.lock_reason } }));
             if (info.prunable)
@@ -168,7 +168,7 @@ namespace cyella {
                 else if (info.branch.empty() == false)
                     row.detail = to_u8(info.branch);
                 else
-                    row.detail = u8"detached " + short_sha(info.head_sha);
+                    row.detail = tr(u8"sidebar.worktree.detached", { { u8"sha", short_sha(info.head_sha) } });
                 std::u8string badge {};
                 if (info.is_main)
                     join(badge, tr(u8"sidebar.worktree.main"));

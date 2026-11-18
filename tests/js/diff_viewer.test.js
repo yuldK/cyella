@@ -205,6 +205,14 @@ test('rows for a very large file build quickly', () => {
     assert.ok(elapsed < 3000, 'took ' + elapsed + ' ms');
 });
 
+test('a small state message for content the page never got asks for a resync', () => {
+    // 내용 메시지(seq 5)가 건너뛰어져 페이지는 아직 seq 3의 내용을 보이고 있다.
+    assert.equal(model.needsResync({ type: 'set_theme', seq: 6, content_seq: 5 }, 3), true);
+    assert.equal(model.needsResync({ type: 'set_layout', seq: 6, content_seq: 3 }, 3), false);
+    // content_seq가 없는 메시지(옛 C++·수동 하네스)는 그대로 받아들인다.
+    assert.equal(model.needsResync({ type: 'set_image_mode', seq: 6 }, 3), false);
+});
+
 test('formatBytes picks a unit', () => {
     assert.equal(model.formatBytes(512), '512 B');
     assert.equal(model.formatBytes(2048), '2.0 KB');

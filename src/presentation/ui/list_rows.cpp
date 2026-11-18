@@ -136,6 +136,31 @@ namespace cyella::ui {
                 return u8"U";
             return std::u8string(1, static_cast<char8_t>(row.status));
         }
+
+        // 상태 글자가 말하는 변경 종류다. 보조 기술은 글자 대신 이 글을 읽는다. 모르는 글자면 비어 있다.
+        std::u8string status_text(const file_row_view& row)
+        {
+            if (row.conflicted)
+                return tr(u8"list.file_status_conflicted");
+            if (row.untracked)
+                return tr(u8"list.file_status_untracked");
+            switch (row.status)
+            {
+            case 'A':
+                return tr(u8"diff_viewer.status_added");
+            case 'D':
+                return tr(u8"diff_viewer.status_deleted");
+            case 'M':
+                return tr(u8"diff_viewer.status_modified");
+            case 'R':
+                return tr(u8"diff_viewer.status_renamed");
+            case 'C':
+                return tr(u8"diff_viewer.status_copied");
+            default:
+                break;
+            }
+            return {};
+        }
     } // namespace
 
     // ---------------------------------------------------------------- sidebar_row_element
@@ -421,6 +446,13 @@ namespace cyella::ui {
             name += tr(u8"list.submodule_suffix");
         if (row_.lfs)
             name += u8" (LFS)";
+        // 변경 종류와 줄 수는 그림(상태 글자·색)으로만 서므로 이름에도 싣는다. 충돌 파일이 일반 파일과 같게 읽히지 않는다.
+        if (const std::u8string status { status_text(row_) }; status.empty() == false)
+            name += u8", " + status;
+        if (row_.added.empty() == false)
+            name += u8", " + row_.added;
+        if (row_.removed.empty() == false)
+            name += (row_.added.empty() ? u8", " : u8" ") + row_.removed;
         return { .role = pressable() ? luil::access_role::button : luil::access_role::static_text, .name = std::move(name) };
     }
 
@@ -677,12 +709,7 @@ namespace cyella::ui {
             text.clear();
         text += line_.text;
         // 탭은 Skia가 그리지 못하므로 공백 넷으로 편다.
-        std::u8string expanded {};
-        for (const char8_t value : text)
-            if (value == u8'\t')
-                expanded += u8"    ";
-            else if (value != u8'\r')
-                expanded.push_back(value);
+        const std::u8string expanded { expand_tabs(std::move(text)) };
         static_cast<void>(luil::draw_text_within(
             context.canvas, expanded, x + 4.0f * scale, baseline, box.x + box.width - x - 8.0f * scale, font, line_.hunk_header ? dim : luil::solid_paint(palette.primary_foreground)));
     }
@@ -693,6 +720,8 @@ namespace cyella::ui {
         : ui_element { luil::ui_element_id { kind_log_row, line.key } }
         , line_ { std::move(line) }
     {
+        // 작업 로그에는 git 출력의 들여쓰기 탭이 그대로 온다. 그리는 글과 툴팁이 같도록 한 번에 편다.
+        line_.text = expand_tabs(std::move(line_.text));
         set_hit_opaque(false);
         set_text_tooltip(*this, line_.text);
     }

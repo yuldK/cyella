@@ -51,6 +51,11 @@ namespace cyella {
     std::vector<process_environment_override> git_environment_overrides(const std::u8string_view askpass_helper)
     {
         std::vector<process_environment_override> overrides {};
+        // hook이나 스크립트 안에서 앱을 띄우면 부모의 저장소 지정 변수가 남는다. 그대로 물려주면
+        // working_directory와 상관없이 그 저장소를 대상으로 돌아 엉뚱한 저장소를 바꾼다.
+        // `GIT_CONFIG_COUNT` 같은 설정 주입 변수는 저장소를 바꾸지 않으므로 사용자 환경대로 둔다.
+        for (const std::u8string_view name : { u8"GIT_DIR", u8"GIT_WORK_TREE", u8"GIT_INDEX_FILE", u8"GIT_OBJECT_DIRECTORY", u8"GIT_ALTERNATE_OBJECT_DIRECTORIES", u8"GIT_COMMON_DIR", u8"GIT_NAMESPACE" })
+            overrides.push_back(remove_variable(name));
         overrides.push_back(set_variable(u8"GIT_TERMINAL_PROMPT", u8"0"));
         // 분류기와 track 문구가 영어를 기대한다. 경로 출력은 quotepath 설정이 정하므로 영향이 없다.
         overrides.push_back(set_variable(u8"LC_ALL", u8"C"));
@@ -85,6 +90,10 @@ namespace cyella {
             // ANSI escape가 로그와 해석기에 섞이지 않게 한다.
             std::u8string { u8"-c" },
             std::u8string { u8"color.ui=false" },
+            // 사용자가 켠 서명 검증 문구가 `log -z --format=...`·`show --numstat` 레코드 앞에 붙으면
+            // 해석기가 커밋과 줄 수를 잃는다. 서명 상태는 `%G?` 형식으로 따로 읽는다.
+            std::u8string { u8"-c" },
+            std::u8string { u8"log.showSignature=false" },
             std::u8string { u8"--no-pager" },
         };
     }

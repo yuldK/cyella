@@ -42,7 +42,7 @@ namespace cyella {
     {
         // `https`, `http`, `ssh`, `git`. scp 꼴(`git@host:owner/repo.git`)은 `ssh`다.
         std::string scheme {};
-        // 소문자다. IPv6는 대괄호 없이 담는다.
+        // 소문자다. IPv6는 대괄호 없이 담는다 (주소에 넣을 때는 `url_host`로 감싼다).
         std::string host {};
         // URL에 적힌 포트다. scp 꼴에는 없다.
         std::optional<std::uint16_t> port {};
@@ -54,6 +54,13 @@ namespace cyella {
 
     // 원격 URL 하나를 나눈다. https·http·ssh·git URL과 scp 꼴을 읽고, 로컬 경로(`C:\repo`, `/srv/repo`, `../x`)는 값이 없다.
     [[nodiscard]] std::optional<remote_location> parse_remote_url(std::string_view url);
+
+    // 화면에 보일 원격 URL에서 사용자 정보의 비밀을 `***`로 가린다. 원격 URL에 토큰을 넣어 둔 저장소에서 사이드바나 대화 상자가
+    // 그 토큰을 그대로 보이지 않게 하기 위해서다. 규칙은 작업 로그의 마스킹(`mask_secrets`)과 같다.
+    //  - `scheme://` 뒤 권한 부분(`/`·`?`·`#`·공백 앞)의 마지막 `@` 앞이 사용자 정보다(비밀번호에 `@`가 들어가도 새지 않는다).
+    //  - `user:pw@`는 `user:***@`, 사용자만 있는 `token@`는 `***@`다. 단 ssh·git+ssh·ssh+git의 비밀번호 없는 계정 이름(`git@`)은 둔다.
+    //  - scp 꼴(`git@host:path`)과 로컬 경로는 그대로다. 호스팅·웹 링크 해석은 원본 URL을 쓴다(사용자 정보를 이미 버린다).
+    [[nodiscard]] std::string mask_remote_url_userinfo(std::string_view url);
 
     // 저장소가 호스팅 서비스의 어느 프로젝트인지다.
     struct hosting_repository
@@ -115,4 +122,9 @@ namespace cyella {
     [[nodiscard]] std::optional<std::string> validate_hosting_host_setting(const hosting_host_setting& setting);
     // 호스트 표기를 비교용으로 다듬는다 (앞뒤 공백, 소문자).
     [[nodiscard]] std::string normalize_hosting_host(std::string_view host);
+    // URL의 권한 부분에 넣을 호스트 표기다. IPv6 주소(`::1`)는 포트와 구분되도록 대괄호로 감싼다 (`[::1]`).
+    [[nodiscard]] std::string url_host(std::string_view host);
+    // 퍼센트 해제한 경로(`remote_location::path`)를 브라우저 주소에 다시 넣을 꼴로 인코딩한다. `/`는 구분자로 두고,
+    // 구성 요소의 RFC 3986 unreserved 밖 바이트(UTF-8 포함)는 `%XX`로 바꾼다. 해제한 값을 그대로 이으면 `%2541`이 `%41`로 열린다.
+    [[nodiscard]] std::string encode_url_path(std::string_view path);
 } // namespace cyella

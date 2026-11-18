@@ -22,10 +22,6 @@ namespace cyella {
         float y { 0.0f };
     };
 
-    // 메뉴 키(Shift+F10, 메뉴 키)다. 고른 사이드바 항목이나 커밋의 메뉴를 연다.
-    struct open_menu_for_selection_intent
-    {};
-
     struct close_menu_intent
     {};
 
@@ -102,16 +98,6 @@ namespace cyella {
 
     // ------------------------------------------------------------------ 열기
 
-    // 버리기 같은 확인이 필요한 동작을 확인 상자로 연다. hunk 버리기도 이 길을 쓴다.
-    struct open_confirm_intent
-    {
-        std::u8string title {};
-        std::vector<std::u8string> lines {};
-        std::u8string confirm_label {};
-        bool danger { false };
-        std::vector<git_operation> operations {};
-    };
-
     // 작업 트리의 변경을 버린다. 확인 상자를 먼저 연다.
     struct discard_files_intent
     {
@@ -119,13 +105,6 @@ namespace cyella {
         std::vector<std::string> paths {};
         // 추적하지 않는 파일이다. git으로는 되돌릴 수 없어 확인 상자가 "휴지통으로 보냅니다"를 말하고 `trash_files_request`를 낸다.
         std::vector<std::string> untracked {};
-    };
-
-    // 툴바와 메뉴가 여는 대화 상자다.
-    struct open_branch_dialog_intent
-    {
-        // 비우면 HEAD다.
-        std::string at {};
     };
 
     // ------------------------------------------------------------------ 알림·충돌

@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <string>
 #include <utility>
@@ -51,7 +52,8 @@ namespace {
 
     struct p6_harness
     {
-        explicit p6_harness(const bool with_identity = true)
+        // 커밋까지 가는 test는 `changed`를 주어 staged 파일을 싣는다. 단추처럼 staged가 없으면 커밋 명령이 서지 않기 때문이다.
+        explicit p6_harness(const bool with_identity = true, const std::uint32_t changed = 0)
             : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , controller { make_dependencies(with_identity) }
@@ -61,7 +63,7 @@ namespace {
             repository = controller.selected_repository_id();
             repository_session* const session { workspace.find_session(repository) };
             REQUIRE(session != nullptr);
-            snap::load(*session, snap::linear_history(5), 0);
+            snap::load(*session, snap::linear_history(5), changed);
             controller.after_events();
         }
 
@@ -215,7 +217,7 @@ TEST_CASE("workspace commands switch views while preserving drafts and require a
 
 TEST_CASE("the palette opens from its button intent and lists what the repository can run", "[palette][controller]")
 {
-    p6_harness test {};
+    p6_harness test { true, 2 };
     CHECK_FALSE(test.view().palette.has_value());
     test.send(open_palette_intent {});
     REQUIRE(test.controller.state().palette.has_value());
@@ -429,6 +431,12 @@ TEST_CASE("registry commands run the same actions as the buttons", "[commands][c
     REQUIRE(test.controller.settings_screen().is_open());
     CHECK(test.controller.settings_screen().state()->page == settings_page::shortcuts);
     test.send(close_settings_intent {});
+    // 서명 쪽도 다른 쪽처럼 팔레트에서 바로 연다.
+    REQUIRE(find_command("app.settings.signing") != nullptr);
+    test.send(run_command_intent { "app.settings.signing" });
+    REQUIRE(test.controller.settings_screen().is_open());
+    CHECK(test.controller.settings_screen().state()->page == settings_page::signing);
+    test.send(close_settings_intent {});
 
     // palette.open는 여닫는다.
     test.send(run_command_intent { "palette.open" });
@@ -451,7 +459,7 @@ TEST_CASE("registry commands run the same actions as the buttons", "[commands][c
 
 TEST_CASE("the commit command runs only when there is a subject", "[commands][controller]")
 {
-    p6_harness test {};
+    p6_harness test { true, 2 };
     const std::size_t before { test.dispatcher.pending() };
     test.send(run_command_intent { "git.commit" });
     CHECK(test.dispatcher.pending() == before);
@@ -459,6 +467,42 @@ TEST_CASE("the commit command runs only when there is a subject", "[commands][co
     test.send(run_command_intent { "git.commit" });
     CHECK(test.dispatcher.pending() == before + 1);
     CHECK(test.last_request<commit_request>() != nullptr);
+}
+
+TEST_CASE("the commit shortcut is blocked like the commit button when nothing is staged or a conflict is open", "[commands][controller]")
+{
+    // staged가 없으면 제목이 있어도 Ctrl+Enter(git.commit)가 커밋을 내지 않고 팔레트에도 서지 않는다.
+    {
+        p6_harness test {};
+        test.type(text_target::commit_subject, u8"작업 내용");
+        const std::size_t before { test.dispatcher.pending() };
+        test.send(run_command_intent { "git.commit" });
+        test.send(commit_intent {});
+        CHECK(test.dispatcher.pending() == before);
+        CHECK(test.last_request<commit_request>() == nullptr);
+        test.send(open_palette_intent {});
+        test.type(text_target::palette_filter, u8"커밋하기");
+        CHECK_FALSE(test.palette_has(u8"cmd:git.commit"));
+    }
+    // staged가 있어도 충돌 중이면 막는다.
+    {
+        p6_harness test { true, 2 };
+        repository_session* const session { test.workspace.find_session(test.repository) };
+        REQUIRE(session != nullptr);
+        std::vector<commit_info> commits { snap::linear_history(5) };
+        repository_snapshot conflicted { snap::make_snapshot(commits.front().sha, 2) };
+        conflicted.conflicts = { { .path = "src/b.cpp", .status = 'U', .side = change_side::unstaged } };
+        const std::uint64_t generation { session->begin_refresh() };
+        REQUIRE(session->apply(snapshot_loaded { generation, std::move(conflicted) }));
+        REQUIRE(session->apply(commits_loaded { .generation = generation, .first_index = 0, .commits = std::move(commits), .page_complete = true, .history_complete = true }));
+        test.controller.after_events();
+
+        test.type(text_target::commit_subject, u8"작업 내용");
+        const std::size_t before { test.dispatcher.pending() };
+        test.send(run_command_intent { "git.commit" });
+        CHECK(test.dispatcher.pending() == before);
+        CHECK(test.last_request<commit_request>() == nullptr);
+    }
 }
 
 // ------------------------------------------------------------------ 키 처리
@@ -727,7 +771,7 @@ TEST_CASE("the selected repository's identity is requested once and shown with i
 
 TEST_CASE("a failed identity read says so instead of staying on reading", "[profiles][controller]")
 {
-    p6_harness test {};
+    p6_harness test { true, 2 };
     test.send(identity_loaded_intent { .repository_id = test.repository, .identity = {}, .ok = false, .error = u8"unknown option --show-scope" });
     const view_snapshot view { test.view() };
     CHECK(view.status.identity_text == u8"작성자: 읽지 못함 · unknown option --show-scope");
@@ -828,7 +872,7 @@ TEST_CASE("no proposal when the identity already matches the rule's profile or a
 
 TEST_CASE("the first commit warns when the identity is missing or differs from the rule, once per repository", "[profiles][controller]")
 {
-    p6_harness test {};
+    p6_harness test { true, 2 };
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
     test.add_rule(u8"C:\\work", u8"회사");
     test.send(close_settings_intent {});
@@ -854,7 +898,7 @@ TEST_CASE("the first commit warns when the identity is missing or differs from t
 
 TEST_CASE("the warning's apply-and-commit applies the profile first and commits when the worker says it worked", "[profiles][controller]")
 {
-    p6_harness test {};
+    p6_harness test { true, 2 };
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
     test.add_rule(u8"C:\\work", u8"회사");
     test.send(close_settings_intent {});
@@ -890,7 +934,7 @@ TEST_CASE("a failed apply neither records the profile nor commits", "[profiles][
 
 TEST_CASE("commit anyway skips the warning and commits", "[profiles][controller]")
 {
-    p6_harness test {};
+    p6_harness test { true, 2 };
     test.identity_is(u8"Solo", u8"");
     test.type(text_target::commit_subject, u8"작업 내용");
     const std::size_t before { test.dispatcher.pending() };
@@ -1008,4 +1052,146 @@ TEST_CASE("clearing local settings asks the worker to remove them and forgets th
     // 전역 값만 있으면 지울 것이 없어 단추가 꺼진다.
     test.identity_is(u8"Global Gal", u8"g@example.com");
     CHECK_FALSE(test.view().settings->profiles->can_clear_local);
+}
+
+TEST_CASE("an apply-and-commit that queued no apply does not arm a commit for a later apply", "[profiles][controller]")
+{
+    p6_harness test {};
+    test.add_profile(u8"개인", u8"길동", u8"me@example.com");
+    test.send(close_settings_intent {});
+    test.identity_is(u8"Global Gal", u8"g@example.com");
+    test.type(text_target::commit_subject, u8"작업 내용");
+    const std::size_t before { test.dispatcher.pending() };
+
+    // 경고 알림이 남은 사이 그 프로필이 지워졌다. 적용 일감은 나가지 않고 안내만 한다.
+    test.send(notification_action_intent { u8"commit_apply:없는 프로필", 0 });
+    CHECK(test.writes.empty());
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
+
+    // 나중에 다른 길(여기서는 프로필 적용)로 적용이 성공해도 누르지 않은 커밋은 나가지 않는다.
+    test.send(apply_profile_intent { u8"개인" });
+    REQUIRE(test.writes.size() == 1);
+    test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = {} });
+    CHECK(test.dispatcher.pending() == before);
+    CHECK(test.last_request<commit_request>() == nullptr);
+}
+
+TEST_CASE("clearing the local settings cancels a pending apply-and-commit", "[profiles][controller]")
+{
+    p6_harness test {};
+    test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
+    test.send(close_settings_intent {});
+    test.identity_is(u8"Global Gal", u8"g@example.com");
+    test.type(text_target::commit_subject, u8"작업 내용");
+    const std::size_t before { test.dispatcher.pending() };
+
+    test.send(notification_action_intent { u8"commit_apply:회사", 0 });
+    REQUIRE(test.writes.size() == 1);
+    test.send(clear_local_identity_intent {});
+    REQUIRE(test.writes.size() == 2);
+    CHECK(test.writes[1].clear);
+    // 앞서 낸 적용의 결과가 늦게 와도 사용자가 지우기를 고른 뒤에는 커밋하지 않는다.
+    test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = {} });
+    CHECK(test.dispatcher.pending() == before);
+    CHECK(test.last_request<commit_request>() == nullptr);
+}
+
+TEST_CASE("closing the tab forgets the identity and a pending apply-and-commit of that repository", "[profiles][controller]")
+{
+    p6_harness test {};
+    test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
+    test.send(close_settings_intent {});
+    test.identity_is(u8"Global Gal", u8"g@example.com");
+    test.type(text_target::commit_subject, u8"작업 내용");
+    test.send(notification_action_intent { u8"commit_apply:회사", 0 });
+    REQUIRE(test.writes.size() == 1);
+
+    // 저장소 id가 경로 기반이라 닫았다 다시 열어도 같다. 다른 탭을 하나 두고 이 탭만 닫는다.
+    const repository_tab_id first { test.controller.tabs().selected().id };
+    test.controller.open_repository(u8"C:\\work\\other");
+    test.send(close_tab_intent { first });
+    test.controller.open_repository(u8"C:\\work\\repo");
+    REQUIRE(test.controller.selected_repository_id() == test.repository);
+    repository_session* const session { test.workspace.find_session(test.repository) };
+    REQUIRE(session != nullptr);
+    snap::load(*session, snap::linear_history(5), 0);
+    test.controller.after_events();
+
+    // 닫기 직전의 신원이 다시 연 첫 frame에 남아 있지 않고 다시 읽는다.
+    CHECK(test.view().status.identity_text == u8"작성자: 읽는 중…");
+    // 닫기 전에 낸 적용의 결과가 이제 와도 "적용 후 커밋"은 이어지지 않는다.
+    test.type(text_target::commit_subject, u8"다시 연 뒤의 작업");
+    const std::size_t before { test.dispatcher.pending() };
+    test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = {} });
+    CHECK(test.dispatcher.pending() == before);
+    CHECK(test.last_request<commit_request>() == nullptr);
+}
+
+TEST_CASE("a failed apply reads the identity again and warns again before the next commit", "[profiles][controller]")
+{
+    p6_harness test { true, 2 };
+    test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
+    test.add_rule(u8"C:\\work", u8"회사");
+    test.send(close_settings_intent {});
+    test.identity_is(u8"Global Gal", u8"g@example.com");
+    test.type(text_target::commit_subject, u8"작업 내용");
+    const std::size_t before { test.dispatcher.pending() };
+    test.send(commit_intent {});
+    CHECK(test.dispatcher.pending() == before);
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->actions.size() == 2);
+
+    // 이름만 쓰고 이메일에서 멈춘 식으로 실패했다. 낡은 신원을 15초 동안 보이지 않고 바로 다시 읽는다.
+    test.send(apply_profile_intent { u8"회사" });
+    REQUIRE(test.writes.size() == 1);
+    const std::size_t reads_before { test.reads.size() };
+    test.send(identity_applied_intent { .repository_id = test.repository, .ok = false, .message = u8"lock 파일이 있습니다" });
+    CHECK(test.reads.size() == reads_before + 1);
+    CHECK(test.controller.settings().profile_assignments.empty());
+
+    // 섞인 신원이 읽혔다. 이미 한 번 경고했더라도 다음 커밋은 다시 경고하고 커밋하지 않는다.
+    test.identity_is(u8"홍길동", u8"g@example.com");
+    test.send(dismiss_notification_intent {});
+    test.send(commit_intent {});
+    CHECK(test.dispatcher.pending() == before);
+    REQUIRE(test.controller.state().latest_notification() != nullptr);
+    CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
+    CHECK(test.controller.state().latest_notification()->actions.size() == 2);
+}
+
+TEST_CASE("a value that lives only in the worktree config does not enable the local clear button", "[profiles][controller]")
+{
+    p6_harness test {};
+    test.send(open_settings_intent { settings_page::profiles });
+    // extensions.worktreeConfig를 쓰는 저장소의 config.worktree 값이다. 지우기가 --local이라 지워지지 않는다.
+    test.identity_is(u8"홍길동", u8"hong@corp.example", identity_origin::worktree);
+    REQUIRE(test.view().settings->profiles.has_value());
+    CHECK_FALSE(test.view().settings->profiles->can_clear_local);
+
+    test.identity_is(u8"홍길동", u8"hong@corp.example", identity_origin::local);
+    CHECK(test.view().settings->profiles->can_clear_local);
+}
+
+TEST_CASE("a quoted key path or rule prefix is stored without its quotes", "[profiles][settings]")
+{
+    p6_harness test {};
+    test.send(open_settings_intent { settings_page::profiles });
+    test.send(add_profile_intent {});
+    test.type(text_target::settings_profile_name, u8"회사");
+    test.type(text_target::settings_profile_user_name, u8"홍길동");
+    test.type(text_target::settings_profile_user_email, u8"hong@corp.example");
+    // 탐색기의 "경로로 복사"가 주는 꼴이다.
+    test.type(text_target::settings_profile_ssh_key, u8" \"C:\\Users\\me\\.ssh\\id_corp\" ");
+    test.send(save_profile_intent {});
+    REQUIRE(test.controller.settings().profiles.size() == 1);
+    CHECK(test.controller.settings().profiles[0].ssh_key == u8"C:\\Users\\me\\.ssh\\id_corp");
+
+    test.type(text_target::settings_rule_prefix, u8"\"C:\\work\"");
+    test.send(choose_rule_profile_intent { u8"회사" });
+    REQUIRE(test.view().settings->profiles.has_value());
+    CHECK(test.view().settings->profiles->can_add_rule);
+    test.send(add_profile_rule_intent {});
+    REQUIRE(test.controller.settings().profile_rules.size() == 1);
+    CHECK(test.controller.settings().profile_rules[0].path_prefix == u8"C:\\work");
 }

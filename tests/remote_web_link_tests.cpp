@@ -90,6 +90,60 @@ TEST_CASE("configured rules come before the hosting table and the built-in servi
     CHECK(url_of("git@github.com:octo/hello.git", links, hosts) == "https://mirror.example/github/octo/hello");
 }
 
+TEST_CASE("web links encode the decoded path again", "[web_link]")
+{
+    // 원격 경로는 퍼센트 해제해 읽는다. 브라우저 주소에는 다시 인코딩해 넣어야 `%2541`이 `%41`(곧 `A`)로 열리지 않는다.
+    CHECK(url_of("https://github.com/o/r%20x.git") == "https://github.com/o/r%20x");
+    CHECK(url_of("https://github.com/o/r%2541.git") == "https://github.com/o/r%2541");
+    CHECK(url_of("https://github.com/o/r%22x.git") == "https://github.com/o/r%22x");
+    CHECK(url_of("https://git.unknown.example/팀/저장소.git") == "https://git.unknown.example/%ED%8C%80/%EC%A0%80%EC%9E%A5%EC%86%8C");
+    // unreserved 글자와 구분자 `/`는 그대로다.
+    CHECK(url_of("git@gitlab.com:group/sub/my_app-1.0~x.git") == "https://gitlab.com/group/sub/my_app-1.0~x");
+    CHECK(encode_url_path("a b/c%d") == "a%20b/c%25d");
+}
+
+TEST_CASE("an IPv6 remote keeps its brackets in the web address", "[web_link]")
+{
+    CHECK(url_of("http://[::1]:8080/o/r.git") == "http://[::1]:8080/o/r");
+    CHECK(url_of("https://[::1]/o/r.git") == "https://[::1]/o/r");
+    CHECK(url_of("ssh://git@[::1]:2222/o/r.git") == "https://[::1]/o/r");
+    // 포트가 붙은 열쇠도 대괄호로 주소와 포트를 가른다.
+    CHECK(resolve_remote_web_link("http://[::1]:8080/o/r.git", {}, {})->host == "[::1]:8080");
+}
+
+TEST_CASE("a web link rule written with the default port matches the remote without one", "[web_link]")
+{
+    // 검사는 `host:443`을 받는다. 같은 호스트의 기본 포트이므로 이 줄을 무시하지 않는다.
+    const std::vector<web_link_setting> links { { .host = "code.example:443", .service = web_link_service::gitea, .web_base = "https://web.code.example", .icon = {} } };
+    REQUIRE_FALSE(validate_web_link_setting(links.front()).has_value());
+    CHECK(url_of("https://code.example/me/tool.git", links) == "https://web.code.example/me/tool");
+    CHECK(url_of("git@code.example:me/tool.git", links) == "https://web.code.example/me/tool");
+    // 다른 포트의 원격은 기본 포트를 적은 줄과 같은 서버가 아니다. 원격의 출처를 그대로 쓴다.
+    CHECK(url_of("https://code.example:8443/me/tool.git", links) == "https://code.example:8443/me/tool");
+}
+
+TEST_CASE("only http(s) addresses that cannot break the browser command line are opened", "[web_link][url]")
+{
+    CHECK(is_safe_web_url("https://github.com/o/r/pull/1"));
+    CHECK(is_safe_web_url("http://127.0.0.1:8123/o/r"));
+    CHECK(is_safe_web_url("https://ci.example/build?id=1&x=%22y%22#log"));
+    CHECK(is_safe_web_url("https://git.example/팀/저장소"));
+
+    // 따옴표·역슬래시는 `"%1"`로 감싼 인자 경계를 넘을 수 있다.
+    CHECK_FALSE(is_safe_web_url("https://x/\" --some-flag \""));
+    CHECK_FALSE(is_safe_web_url("https://x/\"--flag"));
+    CHECK_FALSE(is_safe_web_url("https://x/a\\"));
+    for (const std::string_view unsafe : { "https://x/<a>", "https://x/a^b", "https://x/a|b", "https://x/a`b", "https://x/a b", "https://x/a\tb", "https://x/a\x7f" })
+        CHECK_FALSE(is_safe_web_url(unsafe));
+    // 호스트가 없거나 http(s)가 아니거나 너무 길면 열지 않는다.
+    CHECK_FALSE(is_safe_web_url("https://"));
+    CHECK_FALSE(is_safe_web_url("https:///path"));
+    CHECK_FALSE(is_safe_web_url("http://?q"));
+    CHECK_FALSE(is_safe_web_url("file:///C:/Windows/notepad.exe"));
+    CHECK_FALSE(is_safe_web_url("javascript:alert(1)"));
+    CHECK_FALSE(is_safe_web_url("https://x/" + std::string(5000, 'a')));
+}
+
 TEST_CASE("a web link rule needs a readable host and an http(s) web address", "[web_link]")
 {
     CHECK_FALSE(validate_web_link_setting({ .host = "git.example.com" }).has_value());

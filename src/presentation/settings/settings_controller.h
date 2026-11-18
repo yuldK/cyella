@@ -79,6 +79,9 @@ namespace cyella {
 
         // 텍스트 입력 칸의 초안이다. 환경 설정 칸이 아니거나 닫혀 있으면 null이다.
         [[nodiscard]] luil::text::text_edit_state* draft(text_target target);
+        // 칸의 글이 실제로 바뀌었다. 호스팅 등록 칸이면 그 등록이 막혔던 옛 이유(`hosting_error`·`web_link_error`)를 거둔다.
+        // caret 이동·선택·복사처럼 글이 그대로인 편집에서는 부르지 않아, 사용자가 이유를 읽기 전에 사라지지 않는다.
+        void text_changed(text_target target);
 
         // 열려 있을 때만 값이 있다.
         [[nodiscard]] std::optional<settings_view> make_view(const std::optional<luil::text_composition_event>& composition) const;

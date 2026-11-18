@@ -264,3 +264,26 @@ add_test(NAME cyella_source_style
         "-DPOWERSHELL_EXECUTABLE=${CYELLA_POWERSHELL_EXECUTABLE}"
         "-DROOT_DIRECTORY=${PROJECT_SOURCE_DIR}"
         -P "${CYELLA_SOURCE_STYLE_CMAKE_SCRIPT}")
+
+# 검사기 자신의 시험이다 (cmake/run_style_check_samples.cmake). 임시 폴더의 표본으로 위반을 잡고
+# 멀쩡한 소스를 받아들이는지 본다.
+add_test(NAME cyella_source_style_samples
+    COMMAND "${CMAKE_COMMAND}"
+        "-DPOWERSHELL_EXECUTABLE=${CYELLA_POWERSHELL_EXECUTABLE}"
+        "-DROOT_DIRECTORY=${PROJECT_SOURCE_DIR}"
+        -P "${CYELLA_CMAKE_DIRECTORY}/run_style_check_samples.cmake")
+set_tests_properties(cyella_source_style_samples PROPERTIES TIMEOUT 120)
+
+# PowerShell 7(pwsh)이 있는 PC에서는 위 시험이 Windows PowerShell 5.1을 덮지 못한다. 5.1은
+# .NET Framework라 .NET Core에만 있는 메서드를 부르면 서식과 무관하게 검사가 멈춘다. 캐시에
+# 남은 경로가 낡을 수 있어 configure마다 새로 찾는다.
+find_program(CYELLA_WINDOWS_POWERSHELL_EXECUTABLE NAMES powershell NO_CACHE)
+if(CYELLA_WINDOWS_POWERSHELL_EXECUTABLE
+    AND NOT CYELLA_WINDOWS_POWERSHELL_EXECUTABLE STREQUAL CYELLA_POWERSHELL_EXECUTABLE)
+    add_test(NAME cyella_source_style_samples_windows_powershell
+        COMMAND "${CMAKE_COMMAND}"
+            "-DPOWERSHELL_EXECUTABLE=${CYELLA_WINDOWS_POWERSHELL_EXECUTABLE}"
+            "-DROOT_DIRECTORY=${PROJECT_SOURCE_DIR}"
+            -P "${CYELLA_CMAKE_DIRECTORY}/run_style_check_samples.cmake")
+    set_tests_properties(cyella_source_style_samples_windows_powershell PROPERTIES TIMEOUT 120)
+endif()

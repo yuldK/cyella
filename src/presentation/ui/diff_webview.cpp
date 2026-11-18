@@ -52,7 +52,7 @@ namespace cyella::ui {
             config.owner = u8"diff-layout";
             config.style = luil::choice_style::toggle;
             config.name = tr(u8"diff.layout_name");
-            config.items = { { u8"inline", u8"Inline" }, { u8"split", tr(u8"diff.layout_split") } };
+            config.items = { { u8"inline", tr(u8"diff.layout_inline") }, { u8"split", tr(u8"diff.layout_split") } };
             config.selected = surface.layout == diff_layout::split ? u8"split" : u8"inline";
             config.select = [](const std::u8string& value) { return message(set_diff_layout_intent { value == u8"split" ? diff_layout::split : diff_layout::inline_view }); };
             return make_segmented_control(std::move(config));

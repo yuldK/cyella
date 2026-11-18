@@ -22,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 
 namespace {
@@ -33,6 +34,21 @@ namespace {
         return std::string { std::istreambuf_iterator<char> { in }, std::istreambuf_iterator<char> {} };
     }
 
+    // 요청 본문의 저장소 이름이 `std::system`의 cmd.exe 명령에 그대로 들어가므로, 셸이 해석하는 글자(따옴표·&·%·^ 등)와 `..`로 폴더 밖을 가리키는
+    // 이름은 받지 않는다. 영문자·숫자·`.`·`_`·`-`와 구분자 `/`만 허용한다.
+    bool is_safe_repository_name(const std::string_view full_name)
+    {
+        if (full_name.empty() || full_name.find("..") != std::string_view::npos)
+            return false;
+        for (const char letter : full_name)
+        {
+            const bool plain { (letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z') || (letter >= '0' && letter <= '9') || letter == '.' || letter == '_' || letter == '-' || letter == '/' };
+            if (plain == false)
+                return false;
+        }
+        return true;
+    }
+
     // `git upload-pack --stateless-rpc`로 smart HTTP 요청 하나에 답한다. 임시 파일로 입출력을 잇는다.
     class git_http_backend
     {
@@ -42,7 +58,13 @@ namespace {
             , repository_ { std::move(repository) }
             , scratch_ { std::filesystem::temp_directory_path() / ("cyella-fake-hosting-" + std::to_string(::GetCurrentProcessId())) }
         {
-            std::filesystem::create_directories(scratch_);
+        }
+
+        // 임시 폴더는 처음 요청이 올 때 만들고(`--git-repo` 없이 뜬 서버는 만들지 않는다), 서버가 끝날 때 지운다.
+        ~git_http_backend()
+        {
+            std::error_code ignored {};
+            std::filesystem::remove_all(scratch_, ignored);
         }
 
         [[nodiscard]] bool enabled() const noexcept
@@ -59,6 +81,8 @@ namespace {
             if (enabled() == false || (advertise == false && rpc == false))
                 return std::nullopt;
             const std::lock_guard<std::mutex> lock { mutex_ };
+            std::error_code ignored {};
+            std::filesystem::create_directories(scratch_, ignored);
             // 요청의 Git-Protocol 헤더를 git에 환경 변수로 넘긴다 (v2 협상). 이 도구는 요청을 하나씩 처리한다.
             const std::string protocol { request.header("git-protocol") };
             ::SetEnvironmentVariableA("GIT_PROTOCOL", protocol.empty() ? nullptr : protocol.c_str());
@@ -158,6 +182,9 @@ int main(const int count, char** const arguments)
     {
         api.set_clone_root(clone_root);
         api.on_repository_created([clone_root, git = argument_value(count, arguments, "git", "git")](const std::string& full_name) {
+            // 이름은 요청 본문에서 오므로 셸 명령에 넣기 전에 거른다. 거절한 이름은 bare 저장소를 만들지 않는다.
+            if (is_safe_repository_name(full_name) == false)
+                return;
             const std::string target { clone_root + "/" + full_name + ".git" };
             const std::string command { "\"\"" + git + "\" init -q --bare \"" + target + "\" > NUL 2> NUL\"" };
             static_cast<void>(std::system(command.c_str()));

@@ -6,7 +6,8 @@
 namespace cyella {
     // askpass 프로그램이 받는 `argv[1]`의 종류다. git과 OpenSSH가 물어 보는 문구는 로캘에
     // 따라 번역될 수 있어, 분류는 영어 원문에 대한 최선 노력이다. 알아보지 못하면 `unknown`이며
-    // 그때는 원문을 그대로 보여 주고 자유 텍스트를 받는다.
+    // 그때는 원문을 그대로 보여 주고 자유 텍스트를 받는다. 원문이 비밀을 가리키는 낱말(PIN, Password 등)을 담았으면
+    // 입력은 가린다 (`credential_prompt_expects_secret(const credential_prompt&)`).
     enum class credential_prompt_kind
     {
         unknown,
@@ -50,6 +51,14 @@ namespace cyella {
 
     // 비밀(passphrase, 비밀번호)을 받는 부류인지다. 대화 상자는 입력을 가리고, 답은 기록하지 않는다.
     [[nodiscard]] bool credential_prompt_expects_secret(credential_prompt_kind kind) noexcept;
+
+    // 원문 마지막 줄에 비밀을 뜻하는 낱말(password, passphrase, pin, passcode, verification code, token, otp)이
+    // 있는지다. 대소문자를 무시하고 낱말 경계를 지킨다. 분류기가 알아보지 못한 질문의 마스킹 판단에 쓴다.
+    [[nodiscard]] bool credential_prompt_text_hints_secret(std::u8string_view text) noexcept;
+
+    // 분류된 부류가 비밀을 받거나, `unknown`이어도 원문이 비밀 입력을 가리키면 true다. 대화 상자의 마스킹은
+    // 부류만 보는 위 함수 대신 이 함수로 정한다.
+    [[nodiscard]] bool credential_prompt_expects_secret(const credential_prompt& prompt) noexcept;
 
     // 답이 문자 그대로 `yes` 또는 `no`여야 하는 부류인지다.
     [[nodiscard]] bool credential_prompt_expects_yes_no(credential_prompt_kind kind) noexcept;

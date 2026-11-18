@@ -16,7 +16,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -115,6 +117,19 @@ TEST_CASE("collapsed folders hide what is under them but keep their count", "[pr
     CHECK(build_file_tree({}, {}).empty());
 }
 
+TEST_CASE("a nested repository path with a trailing slash is a named leaf, not an empty file row", "[presentation][file_tree]")
+{
+    // git은 작업 폴더 안의 다른 저장소를 `vendor/lib/`처럼 끝에 '/'를 붙여 낸다.
+    const std::vector<std::string> paths { "vendor/lib/", "vendor/zlib/", "README.md", "tool/" };
+    const std::vector<file_tree_row> rows { build_file_tree(paths, {}) };
+    CHECK(labels_of(rows) == std::vector<std::string> { "[vendor]", "  lib", "  zlib", "README.md", "tool" });
+    CHECK(rows[1].file_index == 0);
+    CHECK(rows[2].file_index == 1);
+    CHECK(rows[4].file_index == 3);
+    for (const file_tree_row& row : rows)
+        CHECK(row.label.empty() == false);
+}
+
 TEST_CASE("wrapping breaks at spaces, keeps newlines and splits only overlong words", "[presentation][text_wrap]")
 {
     CHECK(wrapped(u8"aaa bbb ccc", 7.0f) == std::vector<std::u8string> { u8"aaa bbb", u8"ccc" });
@@ -128,6 +143,26 @@ TEST_CASE("wrapping breaks at spaces, keeps newlines and splits only overlong wo
     CHECK(wrapped(u8"abc", 0.0f) == std::vector<std::u8string> { u8"abc" });
 }
 
+TEST_CASE("an overlong word is never cut between a base character and what combines with it", "[presentation][text_wrap]")
+{
+    // 폭은 byte 수다. 아래 덩어리는 모두 폭보다 길어서 덩어리 하나씩 줄에 서야 한다.
+    // NFD 한글 한(U+1112 U+1161 U+11AB): 초성 뒤의 중성·종성 자모가 따로 줄 맨 앞에 서면 안 된다.
+    const std::u8string syllable { u8"한" };
+    CHECK(wrapped(syllable + syllable + syllable, 7.0f) == std::vector<std::u8string> { syllable, syllable, syllable });
+    // 이모지 피부색 수정자, 변이 선택자, 결합 부호(e + U+0301)도 앞 글자와 함께 간다.
+    const std::u8string thumbs { u8"\U0001F44D\U0001F3FD" };
+    CHECK(wrapped(thumbs + thumbs, 5.0f) == std::vector<std::u8string> { thumbs, thumbs });
+    const std::u8string heart { u8"❤️" };
+    CHECK(wrapped(heart + heart, 4.0f) == std::vector<std::u8string> { heart, heart });
+    const std::u8string accent { u8"é" };
+    CHECK(wrapped(accent + accent, 2.0f) == std::vector<std::u8string> { accent, accent });
+    // ZWJ로 이은 이모지는 한 덩어리다.
+    const std::u8string family { u8"\U0001F468‍\U0001F469" };
+    CHECK(wrapped(family + family, 5.0f) == std::vector<std::u8string> { family, family });
+    // 덩어리가 아닌 글자는 예전처럼 글자 단위로 자른다.
+    CHECK(wrapped(u8"abcdef", 3.0f) == std::vector<std::u8string> { u8"abc", u8"def" });
+}
+
 TEST_CASE("the width estimate is generous for Korean and Latin text", "[presentation][text_wrap]")
 {
     CHECK(estimate_text_width(u8"가나다", 12.0f, false) == 36.0f);
@@ -135,6 +170,20 @@ TEST_CASE("the width estimate is generous for Korean and Latin text", "[presenta
     CHECK(estimate_text_width(u8"abc", 10.0f, true) > estimate_text_width(u8"abc", 10.0f, false));
     CHECK(estimate_wrapped_line_count(u8"", 100.0f, 12.0f, false) == 0);
     CHECK(estimate_wrapped_line_count(u8"가나다 라마바 사아자", 80.0f, 12.0f, false) == 2);
+}
+
+TEST_CASE("combining marks and joiners add no estimated width", "[presentation][text_wrap]")
+{
+    const float letter { estimate_text_width(u8"e", 10.0f, false) };
+    // 변이 선택자와 결합 부호는 앞 글자에 겹쳐 그려진다. 폭을 더하면 줄 수를 많이 잡아 아래 여백이 커진다.
+    CHECK(estimate_text_width(u8"e️", 10.0f, false) == letter);
+    CHECK(estimate_text_width(u8"é", 10.0f, false) == letter);
+    CHECK(estimate_text_width(u8"e‍", 10.0f, false) == letter);
+    // NFD 한글은 초성 하나만큼이다 (중성·종성 자모는 같은 칸에 쌓인다).
+    CHECK(estimate_text_width(u8"한", 10.0f, false) == estimate_text_width(u8"ᄒ", 10.0f, false));
+    CHECK(estimate_text_width(u8"ᄒ", 10.0f, false) == 10.0f);
+    // 영문자와 한글 완성형은 그대로다.
+    CHECK(estimate_text_width(u8"가", 10.0f, false) == 10.0f);
 }
 
 TEST_CASE("commit detail snapshot splits author fields and builds the file tree on request", "[presentation][snapshot][file_tree]")
@@ -373,6 +422,55 @@ TEST_CASE("avatar fetcher keeps pictures and missing answers on disk and asks on
     CHECK(offline.bytes.empty());
     CHECK(fetcher.fetch("not an email", cancellation.token()).missing);
     CHECK(transport.urls.size() == 3);
+}
+
+TEST_CASE("avatar fetcher does not keep an html answer as a picture", "[presentation][avatar]")
+{
+    const cyella::test::temp_directory directory {};
+    avatar_transport transport {};
+    const avatar_fetcher fetcher { transport, avatar_options(directory.path()) };
+    const process_cancellation_source cancellation {};
+
+    // 프록시의 안내 페이지 같은 답이다. 사진으로 보관하면 기한 동안 깨진 사진이 남는다.
+    hosting_http_response html { answer(200, "<html>sign in</html>") };
+    html.headers.push_back({ "Content-Type", "text/html; charset=utf-8" });
+    transport.answers = { html };
+    const avatar_fetch_result fetched { fetcher.fetch("ann@example.com", cancellation.token()) };
+    CHECK(fetched.failed);
+    CHECK(fetched.bytes.empty());
+    CHECK_FALSE(std::filesystem::exists(directory.path() / "hash-ann@example.com.img"));
+}
+
+TEST_CASE("avatar prune removes expired pictures, missing answers and leftover parts", "[presentation][avatar]")
+{
+    const cyella::test::temp_directory directory {};
+    avatar_transport transport {};
+    const avatar_fetcher fetcher { transport, avatar_options(directory.path()) };
+    const auto write = [&directory](const char* name, const std::chrono::hours age) {
+        const std::filesystem::path path { directory.path() / name };
+        {
+            std::ofstream stream { path, std::ios::binary };
+            stream << "x";
+        }
+        std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now() - age);
+        return path;
+    };
+    // 기본 기한은 사진 7일, 없음 1일이다.
+    const std::filesystem::path old_image { write("a.img", std::chrono::hours { 24 * 8 }) };
+    const std::filesystem::path new_image { write("b.img", std::chrono::hours { 1 }) };
+    const std::filesystem::path old_none { write("c.none", std::chrono::hours { 25 }) };
+    const std::filesystem::path new_none { write("d.none", std::chrono::hours { 1 }) };
+    const std::filesystem::path part { write("e.img.part", std::chrono::hours { 0 }) };
+    const std::filesystem::path other { write("notes.txt", std::chrono::hours { 24 * 30 }) };
+
+    fetcher.prune();
+    CHECK_FALSE(std::filesystem::exists(old_image));
+    CHECK(std::filesystem::exists(new_image));
+    CHECK_FALSE(std::filesystem::exists(old_none));
+    CHECK(std::filesystem::exists(new_none));
+    CHECK_FALSE(std::filesystem::exists(part));
+    // 보관 꼴이 아닌 파일은 건드리지 않는다.
+    CHECK(std::filesystem::exists(other));
 }
 
 TEST_CASE("the rebase button counts the current branch commits and words a commit off the branch differently", "[presentation][ui][rebase]")

@@ -169,3 +169,68 @@ TEST_CASE("classifier falls back to unknown for unrecognized text", "[credential
         CHECK_FALSE(credential_prompt_expects_yes_no(prompt.kind));
     }
 }
+
+TEST_CASE("classifier keeps a key path that contains a quote character", "[credential]")
+{
+    // 사용자 폴더 이름의 작은따옴표에서 끊기면 passphrase 질문이 unknown이 되어 평문 입력칸이 뜬다.
+    const credential_prompt single_quoted { classify_credential_prompt(u8"Enter passphrase for key 'C:/Users/O'Brien/.ssh/id_ed25519': ") };
+    CHECK(single_quoted.kind == credential_prompt_kind::ssh_key_passphrase);
+    CHECK(single_quoted.key_path == u8"C:/Users/O'Brien/.ssh/id_ed25519");
+    CHECK(credential_prompt_expects_secret(single_quoted.kind));
+
+    const credential_prompt double_quoted { classify_credential_prompt(u8"Enter passphrase for \"C:\\Users\\O'Brien\\.ssh\\id_ed25519\": ") };
+    CHECK(double_quoted.kind == credential_prompt_kind::ssh_key_passphrase);
+    CHECK(double_quoted.key_path == u8"C:\\Users\\O'Brien\\.ssh\\id_ed25519");
+
+    // 줄 끝이 `<따옴표>:`가 아니면 여전히 경로로 읽지 않는다.
+    CHECK(classify_credential_prompt(u8"Enter passphrase for key 'C:/Users/O'Brien/.ssh/id: ").kind == credential_prompt_kind::unknown);
+    CHECK(classify_credential_prompt(u8"Enter passphrase for key 'a' b: ").kind == credential_prompt_kind::unknown);
+}
+
+TEST_CASE("unrecognized prompts that ask for a secret are masked", "[credential]")
+{
+    const std::vector<std::u8string_view> secret_samples {
+        u8"Enter PIN for ED25519-SK key SHA256:abc: "
+        , u8"(git@example.invalid) Password: "
+        , u8"(git@example.invalid) Verification code: "
+        , u8"One-time password (OTP): "
+        , u8"Enter your passcode: "
+        , u8"API TOKEN: "
+        , u8"Authenticated with partial success.\n(git@example.invalid) Password: "
+    };
+
+    for (const std::u8string_view text : secret_samples)
+    {
+        const credential_prompt prompt { classify_credential_prompt(text) };
+        CHECK(prompt.kind == credential_prompt_kind::unknown);
+        CHECK(credential_prompt_text_hints_secret(text));
+        CHECK(credential_prompt_expects_secret(prompt));
+    }
+
+    // 낱말 경계를 지키고 마지막 줄만 본다. 비밀을 묻지 않는 질문은 그대로 보인다.
+    const std::vector<std::u8string_view> plain_samples {
+        u8""
+        , u8"Enter your OATH response: "
+        , u8"사용자 이름: "
+        , u8"Shipping address: "
+        , u8"Which hotpot do you want? "
+        , u8"Your password was rejected.\nContinue? "
+    };
+
+    for (const std::u8string_view text : plain_samples)
+    {
+        CHECK_FALSE(credential_prompt_text_hints_secret(text));
+        CHECK_FALSE(credential_prompt_expects_secret(classify_credential_prompt(text)));
+    }
+}
+
+TEST_CASE("the keyword rule never changes recognized prompts", "[credential]")
+{
+    // 분류된 부류는 부류가 정한다. 사용자 이름에 token이 있어도 https 사용자 이름 칸은 가리지 않는다.
+    const credential_prompt username { classify_credential_prompt(u8"Username for 'https://token.example.invalid': ") };
+    CHECK(username.kind == credential_prompt_kind::https_username);
+    CHECK_FALSE(credential_prompt_expects_secret(username));
+
+    const credential_prompt passphrase { classify_credential_prompt(u8"Enter passphrase for key 'C:/Users/x/.ssh/id_ed25519': ") };
+    CHECK(credential_prompt_expects_secret(passphrase));
+}

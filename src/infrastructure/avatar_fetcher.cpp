@@ -1,9 +1,13 @@
 #include "infrastructure/avatar_fetcher.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace cyella {
     namespace {
@@ -33,7 +37,9 @@ namespace cyella {
         {
             std::error_code error {};
             std::filesystem::create_directories(path.parent_path(), error);
-            const std::filesystem::path temporary { path.string() + ".part" };
+            // `path.string()`은 코드 페이지 밖 글자(사용자 이름의 한글 등)에서 예외를 던진다. 넓은 경로 그대로 잇는다.
+            std::filesystem::path temporary { path };
+            temporary += ".part";
             {
                 std::ofstream stream { temporary, std::ios::binary | std::ios::trunc };
                 if (stream.is_open() == false)
@@ -51,6 +57,20 @@ namespace cyella {
         {
             std::error_code error {};
             std::filesystem::remove(path, error);
+        }
+
+        constexpr std::size_t avatar_body_limit { std::size_t { 1 } * 1024 * 1024 };
+
+        bool image_or_unspecified(std::string_view content_type)
+        {
+            while (content_type.empty() == false && (content_type.front() == ' ' || content_type.front() == '\t'))
+                content_type.remove_prefix(1);
+            if (content_type.empty())
+                return true;
+            constexpr std::string_view image { "image/" };
+            if (content_type.size() < image.size())
+                return false;
+            return std::ranges::equal(content_type.substr(0, image.size()), image, [](const char left, const char right) { return (left >= 'A' && left <= 'Z' ? static_cast<char>(left - 'A' + 'a') : left) == right; });
         }
     } // namespace
 
@@ -112,8 +132,11 @@ namespace cyella {
 
         hosting_http_request request {};
         request.url = gravatar_url(hash, options_.pixel_size);
+        // 80픽셀 사진은 수 KB다. 엉뚱한 큰 답을 받아 보관하지 않는다.
+        request.max_body_bytes = avatar_body_limit;
         const hosting_http_response response { transport_->execute(request, secret_text {}, cancellation) };
-        if (response.status_code == 200 && response.body.empty() == false)
+        // 형식을 밝힌 답이 그림이 아니면(프록시의 HTML 안내 등) 사진으로 보관하지 않고 받지 못한 것으로 본다. 형식을 밝히지 않은 답은 예전처럼 받는다.
+        if (response.status_code == 200 && response.body.empty() == false && image_or_unspecified(response.header("content-type")))
         {
             if (cached)
                 write_bytes(image, response.body);
@@ -137,5 +160,31 @@ namespace cyella {
         }
         result.failed = true;
         return result;
+    }
+
+    void avatar_fetcher::prune() const
+    {
+        if (options_.cache_directory.empty())
+            return;
+        std::error_code error {};
+        std::filesystem::directory_iterator entries { options_.cache_directory, error };
+        // 목록을 도는 동안 지우면 순회가 흔들리므로 모아 두었다가 지운다. 넘기기는 오류 코드 꼴로 해 던지지 않는다.
+        std::vector<std::filesystem::path> expired {};
+        for (; error == std::error_code {} && entries != std::filesystem::directory_iterator {}; entries.increment(error))
+        {
+            std::error_code kind_error {};
+            if (entries->is_regular_file(kind_error) == false)
+                continue;
+            const std::filesystem::path& path { entries->path() };
+            const std::filesystem::path extension { path.extension() };
+            if (extension == ".part")
+                expired.push_back(path);
+            else if (extension == ".img" && fresh(path, options_.keep_image) == false)
+                expired.push_back(path);
+            else if (extension == ".none" && fresh(path, options_.keep_missing) == false)
+                expired.push_back(path);
+        }
+        for (const std::filesystem::path& path : expired)
+            remove_quietly(path);
     }
 } // namespace cyella

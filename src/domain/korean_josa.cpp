@@ -50,6 +50,9 @@ namespace cyella {
         const char32_t last { last_code_point(text) };
         if (is_hangul_syllable(last))
             return (last - 0xAC00) % 28 == 8;
+        // ends_with_batchim과 같은 한글 읽기 기준이라 일·칠·팔(1·7·8)이 ㄹ 받침이다.
+        if (last == U'1' || last == U'7' || last == U'8')
+            return true;
         return last == U'l' || last == U'L';
     }
 } // namespace cyella

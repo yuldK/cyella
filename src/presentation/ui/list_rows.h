@@ -121,7 +121,7 @@ namespace cyella::ui {
         float button_width_ { 96.0f };
     };
 
-    // diff 임시 본문의 한 줄이다 (웹뷰를 쓸 수 없을 때의 대체 보기).
+    // diff 대체 본문의 한 줄이다 (웹뷰를 쓸 수 없을 때의 대체 보기).
     class diff_row_element final : public luil::ui_element
     {
     public:

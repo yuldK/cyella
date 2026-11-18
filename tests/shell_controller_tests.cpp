@@ -2,14 +2,17 @@
 // workspace는 가짜 runner와 수동 dispatcher로 세운다 — job을 실행하지 않고 낸 것만 센다.
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "presentation/commands/command_intents.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/shell_controller.h"
 #include "presentation/ui/build_ui_tree.h"
+#include "presentation/ui/cyella_policy.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
 
 #include "luil/ui/transition.h"
+#include "luil/ui/ui_tree.h"
 
 #include "fake_git_runner.h"
 
@@ -18,7 +21,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <memory>
 #include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -149,6 +155,30 @@ TEST_CASE("opening a repository replaces the start tab and records it as recent"
     // 같은 저장소(대소문자·구분자 무시)는 새 탭을 만들지 않는다.
     test.controller.open_repository(u8"c:/work/REPO/");
     CHECK(test.controller.tabs().tabs().size() == 1);
+}
+
+TEST_CASE("start with a relative path leaves no tab or open_tabs entry", "[presentation][controller]")
+{
+    test::fake_git_runner process {};
+    test::fake_workspace_files files {};
+    test::manual_dispatcher dispatcher {};
+    test::event_queue events {};
+    git_operation_runner runner { process, u8"C:/Git/cmd/git.exe", files, {} };
+    git_workspace workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} };
+    shell_controller controller { controller_harness::make_dependencies(workspace) };
+
+    // 상대 경로는 앱의 현재 폴더에 따라 뜻이 바뀌어 다음 실행에서 다른 곳을 연다. 경고만 하고 남기지 않는다.
+    controller.start(u8"work\\repo");
+    REQUIRE(controller.tabs().tabs().size() == 1);
+    CHECK(controller.tabs().selected().kind == repository_tab_kind::start);
+    CHECK(workspace.repository_ids().empty());
+    CHECK(controller.settings().open_tabs.empty());
+    CHECK(controller.settings().recent_repositories.empty());
+    CHECK_FALSE(controller.state().notifications.empty());
+
+    controller.open_repository(u8"C:relative");
+    CHECK(workspace.repository_ids().empty());
+    CHECK(controller.settings().open_tabs.empty());
 }
 
 TEST_CASE("new tab, cycling and closing keep the workspace in step", "[presentation][controller]")
@@ -549,7 +579,7 @@ TEST_CASE("text edits land in the targeted draft and stay on one line", "[presen
     CHECK(test.controller.state().start_search.text.empty());
 }
 
-TEST_CASE("the commit body preserves line breaks and moves to the current line edge", "[presentation][controller][working]")
+TEST_CASE("the commit body preserves line breaks and Ctrl+Home and Ctrl+End reach the ends of the text", "[presentation][controller][working]")
 {
     controller_harness test {};
     test.controller.open_repository(u8"C:\\work\\repo");
@@ -561,12 +591,30 @@ TEST_CASE("the commit body preserves line breaks and moves to the current line e
     const auto& tabs { test.controller.state().tabs };
     REQUIRE(tabs.size() == 1);
     CHECK(tabs.begin()->second.commit_body.text == u8"first line\nsecond line");
+    // 여러 줄 칸의 Home·End는 luil이 줄 끝으로 옮긴다. 줄 처음·끝 명령으로 오는 것은 Ctrl+Home·End라 글 전체의 처음·끝이다.
     request.command = luil::text::text_edit_command::move_line_start;
     request.text.clear();
     REQUIRE(test.send(edit_text_intent { request }));
-    CHECK(tabs.begin()->second.commit_body.caret == 11);
-    REQUIRE(test.send(commit_body_line_intent { false, false }));
     CHECK(tabs.begin()->second.commit_body.caret == 0);
+    request.command = luil::text::text_edit_command::move_line_end;
+    REQUIRE(test.send(edit_text_intent { request }));
+    CHECK(tabs.begin()->second.commit_body.caret == tabs.begin()->second.commit_body.text.size());
+    request.command = luil::text::text_edit_command::move_line_start;
+    REQUIRE(test.send(edit_text_intent { request }));
+    REQUIRE(test.send(commit_body_line_intent { true, false }));
+    CHECK(tabs.begin()->second.commit_body.caret == 11);
+}
+
+TEST_CASE("text pasted into the commit body turns CRLF and CR into line breaks", "[presentation][controller][working]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    luil::text_edit_request request {};
+    request.target = to_luil_target(text_target::commit_body);
+    request.command = luil::text::text_edit_command::insert;
+    request.text = u8"a\r\nb\rc\td";
+    REQUIRE(test.send(edit_text_intent { request }));
+    CHECK(test.controller.state().tabs.begin()->second.commit_body.text == u8"a\nb\nc\td");
 }
 
 TEST_CASE("toolbar actions without a dialog submit operations and push without a remote opens the add remote dialog", "[presentation][controller]")
@@ -812,14 +860,23 @@ namespace {
 
         [[nodiscard]] cyella::app_settings_save_result save(std::u8string_view, const cyella::app_settings& settings, std::u8string_view) noexcept override
         {
-            saved = settings;
+            ++saves;
             cyella::app_settings_save_result result {};
+            // 디스크가 잠깐 막힌 경우다. 앞의 몇 번만 실패한다.
+            if (failing_saves > 0)
+            {
+                --failing_saves;
+                return result;
+            }
+            saved = settings;
             result.succeeded = true;
             return result;
         }
 
         cyella::app_settings initial {};
         cyella::app_settings saved {};
+        int failing_saves { 0 };
+        int saves { 0 };
     };
 } // namespace
 
@@ -846,6 +903,32 @@ TEST_CASE("saved pane widths are restored and clamped on start", "[presentation]
     controller.flush();
     CHECK(store.saved.ui.pane_widths.sidebar == 310.0f);
     CHECK(store.saved.ui.pane_widths.commit_meta == 210.0f);
+}
+
+TEST_CASE("flush writes settings a failed save left behind", "[presentation][controller]")
+{
+    using namespace cyella;
+    memory_settings_store store {};
+    app_settings_service service { store, u8"memory" };
+    static_cast<void>(service.load());
+
+    shell_controller::dependencies dependencies {};
+    dependencies.settings = &service;
+    shell_controller controller { std::move(dependencies) };
+    controller.start({});
+
+    // 바꾸는 동안의 저장은 모두 실패하고, 닫기 전에는 디스크가 돌아왔다.
+    store.failing_saves = 1000;
+    REQUIRE(controller.handle(luil::app_message { cycle_theme_intent {} }));
+    REQUIRE(service.has_unsaved_changes());
+    store.failing_saves = 0;
+    const int saves_before { store.saves };
+
+    // 판 폭을 끄는 중이 아니어도 밀린 변경을 닫기 전에 다시 쓴다.
+    controller.flush();
+    CHECK(store.saves > saves_before);
+    CHECK_FALSE(service.has_unsaved_changes());
+    CHECK(store.saved.appearance.theme == theme_preference::light);
 }
 
 TEST_CASE("the open diff of the selected tab is the webview's wanted target", "[presentation][controller][diff]")
@@ -908,4 +991,188 @@ TEST_CASE("changing repository layout preserves the draft and exact diff request
         CHECK(test.dispatcher.pending() == pending);
         CHECK_FALSE(test.controller.state().drawer_open);
     }
+}
+
+TEST_CASE("a run without git keeps the saved open tabs when tabs are touched", "[presentation][controller][tabs]")
+{
+    using namespace cyella;
+    memory_settings_store store {};
+    store.initial.open_tabs = { u8"C:\\work\\one", u8"C:\\work\\two" };
+    store.initial.active_tab = u8"C:\\work\\two";
+    app_settings_service service { store, u8"memory" };
+    static_cast<void>(service.load());
+
+    // git을 찾지 못한 실행이다 (workspace가 없다). 저장된 탭은 되살리지 않지만 지우지도 않는다.
+    shell_controller::dependencies dependencies {};
+    dependencies.settings = &service;
+    shell_controller controller { std::move(dependencies) };
+    controller.start({});
+    REQUIRE(controller.handle(luil::app_message { new_tab_intent {} }));
+    REQUIRE(controller.handle(luil::app_message { cycle_tab_intent { true } }));
+    CHECK(controller.settings().open_tabs == std::vector<std::u8string> { u8"C:\\work\\one", u8"C:\\work\\two" });
+    CHECK(controller.settings().active_tab == u8"C:\\work\\two");
+}
+
+TEST_CASE("a bell press right after an outside close uses the injected clock", "[presentation][controller][notifications]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    REQUIRE(test.send(close_notification_center_intent { .dismissed = true }));
+    // 같은 시각의 종 누름은 방금 닫은 그 누름이다.
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    CHECK_FALSE(test.controller.state().notifications_open);
+    // 주입한 시계로 창을 넘기면 새 누름이다 (실제 시계는 test 동안 거의 흐르지 않는다).
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    REQUIRE(test.send(close_notification_center_intent { .dismissed = true }));
+    test.advance(std::chrono::seconds { 1 });
+    REQUIRE(test.send(toggle_notification_center_intent {}));
+    CHECK(test.controller.state().notifications_open);
+}
+
+TEST_CASE("Enter in the clone fields does not submit the same clone again while it runs", "[presentation][controller][clone]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(open_clone_dialog_intent {}));
+    for (const auto& [target, text] : { std::pair { text_target::clone_url, u8"https://example.com/r.git" }, std::pair { text_target::clone_path, u8"C:\\work\\r" } })
+    {
+        luil::text_edit_request insert {};
+        insert.target = to_luil_target(target);
+        insert.command = luil::text::text_edit_command::insert;
+        insert.text = text;
+        REQUIRE(test.send(edit_text_intent { insert }));
+    }
+    REQUIRE(test.send(submit_clone_intent {}));
+    REQUIRE(test.controller.state().clone.has_value());
+    const operation_id first { test.controller.state().clone->operation };
+    REQUIRE(first != 0);
+    REQUIRE(test.send(submit_clone_intent {}));
+    CHECK(count_operations(test.workspace, operation_kind::clone) == 1);
+    CHECK(test.controller.state().clone->operation == first);
+}
+
+TEST_CASE("the clone folder name drops queries and refuses names that leave the chosen folder", "[presentation][controller][clone]")
+{
+    controller_harness test {};
+    REQUIRE(test.send(open_clone_dialog_intent {}));
+    const auto chosen_path = [&test](const std::u8string& url) {
+        luil::text_edit_request clear {};
+        clear.target = to_luil_target(text_target::clone_url);
+        clear.command = luil::text::text_edit_command::clear;
+        REQUIRE(test.send(edit_text_intent { clear }));
+        luil::text_edit_request insert {};
+        insert.target = to_luil_target(text_target::clone_url);
+        insert.command = luil::text::text_edit_command::insert;
+        insert.text = url;
+        REQUIRE(test.send(edit_text_intent { insert }));
+        REQUIRE(test.send(folder_chosen_intent { .purpose = folder_purpose::clone_target, .path = u8"C:\\work", .origin = {} }));
+        return test.controller.state().clone->path.text;
+    };
+    CHECK(chosen_path(u8"git@example.com:a/b.git") == u8"C:\\work\\b");
+    CHECK(chosen_path(u8"https://example.com/r.git?x=1#top") == u8"C:\\work\\r");
+    CHECK(chosen_path(u8"https://example.com/..") == u8"C:\\work");
+    CHECK(chosen_path(u8"https://example.com/a/.") == u8"C:\\work");
+    CHECK(chosen_path(u8"https://example.com/a|b") == u8"C:\\work");
+}
+
+TEST_CASE("closing a tab cancels every queued operation even when trimming the history shifts the order", "[presentation][controller][tabs]")
+{
+    test::fake_git_runner process {};
+    test::fake_workspace_files files {};
+    test::manual_dispatcher dispatcher {};
+    test::event_queue events {};
+    git_operation_runner runner { process, u8"C:/Git/cmd/git.exe", files, {} };
+    git_workspace_options options {};
+    options.finished_history_limit = 2;
+    git_workspace workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, options };
+    shell_controller::dependencies dependencies {};
+    dependencies.workspace = &workspace;
+    shell_controller controller { std::move(dependencies) };
+    controller.start({});
+    controller.open_repository(u8"C:\\work\\repo");
+    const std::string repository { controller.selected_repository_id() };
+
+    // 앞에는 지워지지 않는 결정 대기(needs_input)가 서고, 끝난 작업이 상한까지 찬다. 대기 작업을 취소해 끝내면 그 사이의 끝난 작업이 지워진다.
+    const operation_id waiting { workspace.submit(repository, checkout_branch_request { "topic" }) };
+    workspace.apply(operation_event { waiting, repository, operation_started {} });
+    input_request needed {};
+    needed.kind = input_kind::dirty_worktree;
+    needed.target = "topic";
+    workspace.apply(operation_event { waiting, repository, operation_finished { operation_state::needs_input, std::nullopt, needed, {} } });
+    const operation_id done { workspace.submit(repository, stash_push_request {}) };
+    workspace.apply(operation_event { done, repository, operation_started {} });
+    workspace.apply(operation_event { done, repository, operation_finished { operation_state::succeeded, std::nullopt, std::nullopt, {} } });
+    std::vector<operation_id> queued {};
+    for (int index { 0 }; index < 3; ++index)
+        queued.push_back(workspace.submit(repository, stash_apply_request { 0 }));
+
+    REQUIRE(controller.handle(luil::app_message { close_tab_intent { controller.tabs().selected().id } }));
+    for (const operation_id id : queued)
+    {
+        const operation_status* const status { workspace.find_operation(id) };
+        CHECK((status == nullptr || status->state == operation_state::cancelled));
+    }
+    CHECK(workspace.repository_ids().empty());
+}
+
+TEST_CASE("switching tabs closes a confirmation opened on another repository", "[presentation][controller][tabs][dialogs]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\one");
+    REQUIRE(test.send(new_tab_intent {}));
+    test.controller.open_repository(u8"C:\\work\\two");
+    REQUIRE(test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "topic" }, 0.0f, 0.0f }));
+    REQUIRE(test.send(menu_select_intent { u8"delete" }));
+    REQUIRE(test.controller.state().dialog.has_value());
+    CHECK(test.controller.state().dialog->repository_id == test.controller.selected_repository_id());
+
+    // 다른 탭으로 가면 상자가 닫힌다. 남겨 두면 [확인]이 그 탭의 저장소에 같은 이름의 브랜치 삭제를 낸다.
+    const std::size_t before { count_operations(test.workspace, operation_kind::delete_branch) };
+    REQUIRE(test.send(cycle_tab_intent { true }));
+    CHECK_FALSE(test.controller.state().dialog.has_value());
+    REQUIRE(test.send(form_button_intent { u8"submit" }));
+    CHECK(count_operations(test.workspace, operation_kind::delete_branch) == before);
+}
+
+TEST_CASE("a dialog field keeps Enter and the palette closes with its own shortcut", "[presentation][controller][policy]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    ui::cyella_policy policy {};
+    luil::interaction_snapshot snapshot {};
+    const auto ctrl = [](const luil::key_code key, const bool shift = false) {
+        luil::key_pressed_event event {};
+        event.key = key;
+        event.control = true;
+        event.shift = shift;
+        return event;
+    };
+    const auto command_of = [&](const luil::key_pressed_event& event, const luil::interaction_snapshot& state) {
+        const std::shared_ptr<const luil::ui_tree> tree { ui::build_ui_tree(test.controller.make_view(1440.0f, 900.0f, 1.0f)).tree };
+        const std::vector<luil::input_action> actions { policy.on_key(tree.get(), event, state) };
+        if (actions.size() != 1 || std::holds_alternative<luil::app_message>(actions[0]) == false)
+            return std::string {};
+        const run_command_intent* const run { std::get<luil::app_message>(actions[0]).get<run_command_intent>() };
+        return run == nullptr ? std::string {} : run->id;
+    };
+    CHECK(command_of(ctrl(luil::key_code::tab), snapshot) == "tab.next");
+
+    // 확인 상자 칸의 Enter는 상자의 것이다.
+    REQUIRE(test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "topic" }, 0.0f, 0.0f }));
+    REQUIRE(test.send(menu_select_intent { u8"delete" }));
+    REQUIRE(test.controller.state().dialog.has_value());
+    luil::interaction_snapshot in_field {};
+    in_field.focused_input = luil::ui_element_id { ui::kind_form_input_0, u8"confirm-dialog-field-0" };
+    luil::key_pressed_event enter {};
+    enter.key = luil::key_code::enter;
+    const std::shared_ptr<const luil::ui_tree> tree { ui::build_ui_tree(test.controller.make_view(1440.0f, 900.0f, 1.0f)).tree };
+    const std::vector<luil::input_action> entered { policy.on_key(tree.get(), enter, in_field) };
+    REQUIRE(entered.size() == 1);
+    REQUIRE(std::holds_alternative<luil::app_message>(entered[0]));
+    CHECK(std::get<luil::app_message>(entered[0]).get<form_enter_intent>() != nullptr);
+    REQUIRE(test.send(form_button_intent { u8"cancel" }));
+
+    // 명령 팔레트는 같은 단축키로 닫는다.
+    REQUIRE(test.send(run_command_intent { "palette.open" }));
+    REQUIRE(test.controller.state().palette.has_value());
+    CHECK(command_of(ctrl(luil::key_code::key_p, true), snapshot) == "palette.open");
 }

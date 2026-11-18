@@ -413,8 +413,13 @@ TEST_CASE("results and clicks that arrive after the settings were closed are swa
     CHECK(test.view().loaded == false);
     CHECK(test.send(set_signing_toggle_intent { signing_key_id::commit_gpgsign, signing_toggle_choice::enabled }, false));
     CHECK(test.writes.empty());
+    // 쓰기는 이미 git 설정에 반영된 뒤라, 화면이 닫혔어도 서명 상태를 다시 읽도록 밖에는 알린다. 닫힌 화면의 상태는 건드리지 않고 다시 읽지도 않는다.
+    const std::size_t closed_requests { test.info_requests.size() };
     CHECK(test.send(signing_write_done_intent { .ok = true }, false));
-    CHECK(test.changed.empty());
+    CHECK(test.changed == std::vector<bool> { false });
+    CHECK(test.info_requests.size() == closed_requests);
+    CHECK_FALSE(test.view().message_error);
+    CHECK(test.view().message.empty());
 
     // 닫으면 읽은 값과 확인 대기를 버린다. 다시 열면 다시 읽는다.
     REQUIRE(test.send(signing_info_loaded_intent { sample_info() }));
@@ -426,6 +431,85 @@ TEST_CASE("results and clicks that arrive after the settings were closed are swa
 
     // 서명 쪽의 메시지가 아니면 처리하지 않는다.
     CHECK_FALSE(test.send(refresh_ssh_intent {}));
+}
+
+TEST_CASE("a global write that finishes after the settings were closed still tells the open repositories once", "[signing][settings]")
+{
+    signing_harness test {};
+    test.controller.on_page_opened();
+    REQUIRE(test.send(signing_info_loaded_intent { sample_info() }));
+    REQUIRE(test.send(select_signing_scope_intent { true }));
+    REQUIRE(test.send(set_signing_toggle_intent { signing_key_id::commit_gpgsign, signing_toggle_choice::disabled }));
+    REQUIRE(test.send(confirm_global_signing_intent {}));
+    REQUIRE(test.writes.size() == 1);
+
+    // 쓰는 중에 환경 설정을 닫는다.
+    test.controller.on_closed();
+    const std::size_t requests { test.info_requests.size() };
+    CHECK(test.send(signing_write_done_intent { .ok = true, .global = true }, false));
+    REQUIRE(test.changed.size() == 1);
+    CHECK(test.changed[0]);
+    CHECK(test.info_requests.size() == requests);
+
+    // 실패한 쓰기는 설정을 바꾸지 않았으므로 알릴 것이 없다.
+    CHECK(test.send(signing_write_done_intent { .ok = false, .global = true, .error = u8"locked" }, false));
+    CHECK(test.changed.size() == 1);
+}
+
+TEST_CASE("without a repository tab the key section reads the global scope", "[signing][settings]")
+{
+    signing_harness test { u8"" };
+    test.controller.on_page_opened();
+    signing_info_snapshot info { sample_info() };
+    info.repository = false;
+    // 시작 페이지 탭에서 연 설정이다: 전역에만 openpgp 키가 있고 이 저장소 범위는 비어 있다.
+    info.config.local = {};
+    info.config.global.at(signing_key_id::user_signingkey) = entry("6DEFB236E6F1450CB6CC36996B37DB64784DD266", config_origin::global);
+    info.config.effective.at(signing_key_id::gpg_format) = {};
+    info.config.effective.at(signing_key_id::user_signingkey) = info.config.global.at(signing_key_id::user_signingkey);
+    REQUIRE(test.send(signing_info_loaded_intent { std::move(info) }));
+
+    const signing_page_view view { test.view() };
+    REQUIRE(view.global_scope);
+    CHECK(view.key_format == signing_format::openpgp);
+    CHECK(view.current_key == u8"6DEFB236E6F1450CB6CC36996B37DB64784DD266");
+    REQUIRE(view.keys.size() == 2);
+    CHECK(view.keys[0].selected);
+    CHECK_FALSE(view.keys[1].selected);
+}
+
+TEST_CASE("a write of another setting does not overwrite a program path that is still being typed", "[signing][settings]")
+{
+    signing_harness test {};
+    test.controller.on_page_opened();
+    REQUIRE(test.send(signing_info_loaded_intent { sample_info() }));
+    luil::text::text_edit_state* const gpg { test.controller.draft(text_target::settings_signing_gpg_program) };
+    REQUIRE(gpg != nullptr);
+    gpg->text = u8"C:\\Tools\\gnupg\\bin\\gpg.exe";
+    gpg->caret = gpg->anchor = gpg->text.size();
+    CHECK(test.view().gpg_program.can_apply);
+
+    // commit.gpgsign 토글의 쓰기가 끝나 새로 읽은 설정은 그 줄만 다르다. 아직 적용하지 않은 경로 초안은 남는다.
+    signing_info_snapshot toggled { sample_info() };
+    toggled.config.local.at(signing_key_id::commit_gpgsign) = entry("true", config_origin::local);
+    REQUIRE(test.send(signing_info_loaded_intent { std::move(toggled) }));
+    CHECK(gpg->text == u8"C:\\Tools\\gnupg\\bin\\gpg.exe");
+    CHECK(test.view().gpg_program.can_apply);
+
+    // 방금 적용한 칸은 저장값이 바뀌므로 새 저장값(슬래시 경로)으로 돌아오고 [적용]이 꺼진다.
+    REQUIRE(test.send(apply_signing_text_intent { signing_key_id::gpg_program, false }));
+    REQUIRE(test.writes.size() == 1);
+    REQUIRE(test.send(signing_write_done_intent { .ok = true }));
+    signing_info_snapshot applied { sample_info() };
+    applied.config.local.at(signing_key_id::gpg_program) = entry("C:/Tools/gnupg/bin/gpg.exe", config_origin::local);
+    REQUIRE(test.send(signing_info_loaded_intent { std::move(applied) }));
+    CHECK(gpg->text == u8"C:/Tools/gnupg/bin/gpg.exe");
+    CHECK_FALSE(test.view().gpg_program.can_apply);
+
+    // 범위를 바꾸면 지금처럼 모든 초안을 그 범위의 저장값으로 채운다.
+    gpg->text = u8"C:\\typed\\again.exe";
+    REQUIRE(test.send(select_signing_scope_intent { true }));
+    CHECK(gpg->text == u8"C:/Program Files/Git/usr/bin/gpg.exe");
 }
 
 TEST_CASE("check_signing_path accepts absolute paths and the home prefix only where it is allowed", "[signing][settings]")

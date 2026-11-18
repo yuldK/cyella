@@ -175,6 +175,60 @@ TEST_CASE("rebase todo: groups follow git's meld rules and skip dropped lines", 
     CHECK(combined_squash_message(amend, rebase_groups(amend).front(), messages) == "C");
 }
 
+TEST_CASE("rebase todo: squash!, fixup! and amend! subject lines do not survive into the combined message or the preview", "[rebase][todo][preview]")
+{
+    const std::vector<rebase_commit> commits {
+        commit_of('a', "X"),
+        commit_of('b', "squash! X", "extra"),
+        commit_of('c', "squash! X"),
+        commit_of('d', "amend! X", "new subject\n\nnew body"),
+        commit_of('e', "fixup! lonely"),
+        commit_of('f', "fixup! X", "keep"),
+    };
+    // 합친 메시지는 todo 줄마다의 현재 메시지다.
+    const auto messages_of = [&commits](const std::vector<rebase_todo_entry>& todo) {
+        std::vector<std::string> result {};
+        for (const rebase_todo_entry& entry : todo)
+        {
+            for (const rebase_commit& commit : commits)
+            {
+                if (commit.sha == entry.sha)
+                    result.push_back(full_commit_message(commit));
+            }
+        }
+        return result;
+    };
+
+    // 합쳐지는 squash 줄의 표지 제목은 빠지고 본문만 이어진다. 제목뿐인 줄은 아무것도 보태지 않는다.
+    const std::vector<rebase_todo_entry> squashed { { rebase_action::pick, sha_of('a') }, { rebase_action::squash, sha_of('b') }, { rebase_action::squash, sha_of('c') } };
+    CHECK(combined_squash_message(squashed, rebase_groups(squashed).front(), messages_of(squashed)) == "X\n\nextra");
+    // git은 첫 줄이 아니라 첫 빈 줄 전까지의 제목 문단 전체를 지운다. 공백만 있는 줄도 빈 줄이다.
+    const std::vector<rebase_todo_entry> paragraph { { rebase_action::pick, sha_of('a') }, { rebase_action::squash, sha_of('b') } };
+    const std::vector<std::string> paragraph_messages { "X", "squash! X\ncontinued subject\n  \nextra" };
+    CHECK(combined_squash_message(paragraph, rebase_groups(paragraph).front(), paragraph_messages) == "X\n\nextra");
+
+    // 묶음의 첫 줄은 제 제목을 그대로 둔다.
+    const std::vector<rebase_todo_entry> lonely { { rebase_action::pick, sha_of('e') }, { rebase_action::squash, sha_of('b') } };
+    CHECK(combined_squash_message(lonely, rebase_groups(lonely).front(), messages_of(lonely)) == "fixup! lonely\n\nextra");
+
+    // fixup -C로 합친 `amend!` 커밋은 표지 제목을 뺀 새 메시지가 그 묶음의 메시지다.
+    const std::vector<rebase_todo_entry> amended { { rebase_action::pick, sha_of('a') }, { rebase_action::fixup_keep_message, sha_of('d') } };
+    CHECK(combined_squash_message(amended, rebase_groups(amended).front(), messages_of(amended)) == "new subject\n\nnew body");
+    const rebase_preview preview { preview_rebase(amended, commits) };
+    REQUIRE(preview.commits.size() == 1);
+    CHECK(preview.commits.front().subject == "new subject");
+    CHECK(preview.commits.front().message_changed);
+
+    // git은 `fixup!` 제목을 squash로 합칠 때만 지운다. squash 없이 fixup -C로 합친 `fixup!` 커밋은 제목이 남는다.
+    const std::vector<rebase_todo_entry> kept { { rebase_action::pick, sha_of('a') }, { rebase_action::fixup_keep_message, sha_of('f') } };
+    CHECK(combined_squash_message(kept, rebase_groups(kept).front(), messages_of(kept)) == "fixup! X\n\nkeep");
+    CHECK(preview_rebase(kept, commits).commits.front().subject == "fixup! X");
+    // 앞에 squash가 있었으면 fixup -C도 squash처럼 제목 줄을 지운다.
+    const std::vector<rebase_todo_entry> after_squash { { rebase_action::pick, sha_of('a') }, { rebase_action::squash, sha_of('b') }, { rebase_action::fixup_keep_message, sha_of('f') } };
+    CHECK(combined_squash_message(after_squash, rebase_groups(after_squash).front(), messages_of(after_squash)) == "keep");
+    CHECK(preview_rebase(after_squash, commits).commits.front().subject == "keep");
+}
+
 TEST_CASE("rebase todo: autosquash moves fixup!, squash! and amend! commits after their targets", "[rebase][autosquash]")
 {
     const std::vector<rebase_commit> commits {

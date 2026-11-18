@@ -22,7 +22,7 @@ namespace cyella {
     {
         std::vector<ref> refs {};
         std::vector<remote_default_branch> remote_defaults {};
-        // 모양이 맞지 않거나 다루지 않는 ref(`refs/notes/*` 등)라 건너뛴 수다.
+        // 모양이 맞지 않거나 다루지 않는 ref(`refs/notes/*`, `refs/stash` 등)라 건너뛴 수다. stash는 `stash list`로 따로 읽는다.
         std::size_t skipped_count { 0 };
     };
 

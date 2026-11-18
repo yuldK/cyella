@@ -90,7 +90,8 @@ namespace cyella {
         [[nodiscard]] bool operator==(const signing_config&) const noexcept = default;
     };
 
-    // git이 쓰는 불리언 낱말이다 (`true`·`yes`·`on`·`1` / `false`·`no`·`off`·`0`). 알아보지 못하면 false를 돌려주고 값은 건드리지 않는다.
+    // git이 쓰는 불리언 낱말이다 (`true`·`yes`·`on`·`1` / `false`·`no`·`off`·`0`). git처럼 정수(`2`, `-1`, `1k`, `0x10`)도
+    // 받아 0이 아니면 참이다. 알아보지 못하면 false를 돌려주고 값은 건드리지 않는다.
     [[nodiscard]] bool parse_config_bool(std::string_view text, bool& value) noexcept;
 
     // 같은 키 모음을 세 번 읽은 결과다. 실효 값은 git이 정하고, 지역·전역은 각 파일에서 읽는다.

@@ -185,6 +185,10 @@ TEST_CASE("show_diff carries the state and the file in one message", "[diff][pro
     // 뷰어 문구는 카탈로그의 `diff_viewer.*` 틀을 그대로 싣는다 (test는 한국어 카탈로그다).
     CHECK(parsed.at("lang") == "ko");
     CHECK(parsed.at("strings").at("diff_viewer.no_changes") == "변경 사항이 없습니다");
+    // 단추와 표지 글도 뷰어에 하드코딩하지 않고 같은 표로 싣는다.
+    CHECK(parsed.at("strings").at("diff_viewer.stage_hunk") == "Stage hunk");
+    CHECK(parsed.at("strings").at("diff_viewer.layout_inline") == "인라인");
+    CHECK(parsed.at("strings").at("diff_viewer.no_newline") == "\\ No newline at end of file");
     CHECK(parsed.at("strings").contains("menu.copy_path") == false);
     CHECK(parsed.at("can_stage") == false);
     CHECK(parsed.at("can_unstage") == true);
@@ -341,9 +345,10 @@ TEST_CASE("theme tokens are filtered before they reach CSS", "[diff][protocol]")
     theme.tokens["--evil"] = "red; } body { display: none";
     theme.tokens["--empty"] = "";
 
-    const json parsed { json::parse(serialize_set_theme(3, theme)) };
+    const json parsed { json::parse(serialize_set_theme(3, 2, theme)) };
     CHECK(parsed.at("type") == "set_theme");
     CHECK(parsed.at("seq") == 3);
+    CHECK(parsed.at("content_seq") == 2);
     CHECK(parsed.at("theme").at("mode") == "light");
     const json& tokens { parsed.at("theme").at("tokens") };
     CHECK(tokens.size() == 2);
@@ -351,12 +356,31 @@ TEST_CASE("theme tokens are filtered before they reach CSS", "[diff][protocol]")
     CHECK(tokens.at("--diff-add-background") == "rgba(46, 160, 67, 0.15)");
 }
 
+TEST_CASE("font tokens keep quoted and Korean family names but drop values that end the declaration", "[diff][protocol]")
+{
+    diff_theme theme {};
+    theme.tokens["--ui-font"] = "\"맑은 고딕\", \"Segoe UI\", system-ui, sans-serif";
+    theme.tokens["--code-font"] = "\"Example\\\"Mono\", monospace";
+    const json kept_message { json::parse(serialize_set_theme(1, 0, theme)) };
+    const json& kept { kept_message.at("theme").at("tokens") };
+    CHECK(kept.at("--ui-font") == "\"맑은 고딕\", \"Segoe UI\", system-ui, sans-serif");
+    CHECK(kept.at("--code-font") == "\"Example\\\"Mono\", monospace");
+
+    theme.tokens["--ui-font"] = "\"x\";} body { display: none";
+    theme.tokens["--code-font"] = "\"<b>\", monospace";
+    // 글꼴 규칙은 두 글꼴 이름에만 쓴다. 다른 토큰은 여전히 색 규칙이다.
+    theme.tokens["--accent"] = "\"Segoe UI\"";
+    const json dropped_message { json::parse(serialize_set_theme(1, 0, theme)) };
+    const json& dropped { dropped_message.at("theme").at("tokens") };
+    CHECK(dropped.empty());
+}
+
 TEST_CASE("small state messages carry only their own field", "[diff][protocol]")
 {
-    CHECK(json::parse(serialize_set_layout(4, diff_layout::split)) == json::parse(R"({"type":"set_layout","seq":4,"layout":"split"})"));
-    CHECK(json::parse(serialize_set_layout(4, diff_layout::inline_view)).at("layout") == "inline");
-    CHECK(json::parse(serialize_set_image_mode(5, image_compare_mode::onion_skin)) == json::parse(R"({"type":"set_image_mode","seq":5,"mode":"onion"})"));
-    CHECK(json::parse(serialize_set_image_mode(5, image_compare_mode::swipe)).at("mode") == "swipe");
+    CHECK(json::parse(serialize_set_layout(4, 3, diff_layout::split)) == json::parse(R"({"type":"set_layout","seq":4,"content_seq":3,"layout":"split"})"));
+    CHECK(json::parse(serialize_set_layout(4, 3, diff_layout::inline_view)).at("layout") == "inline");
+    CHECK(json::parse(serialize_set_image_mode(5, 3, image_compare_mode::onion_skin)) == json::parse(R"({"type":"set_image_mode","seq":5,"content_seq":3,"mode":"onion"})"));
+    CHECK(json::parse(serialize_set_image_mode(5, 3, image_compare_mode::swipe)).at("mode") == "swipe");
 
     diff_view_state state {};
     state.layout = diff_layout::split;

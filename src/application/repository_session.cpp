@@ -171,8 +171,14 @@ namespace cyella {
         return true;
     }
 
-    bool repository_session::apply(const remote_tags_loaded& event)
+    bool repository_session::apply(const operation_id id, const remote_tags_loaded& event)
     {
+        // ls-remote는 읽기 lane에서 병렬로 돈다. 먼저 낸 것이 늦게 끝나면 낡은 목록이 새 목록을 덮으므로 버린다.
+        // 한 operation이 원격마다 하나씩 보내므로 같은 id는 받는다.
+        operation_id& applied { remote_tags_applied_[event.remote] };
+        if (id < applied)
+            return false;
+        applied = id;
         remote_tags_[event.remote] = event.tags;
         apply_remote_tags(snapshot_.refs, event.remote, event.tags);
         ++revision_;

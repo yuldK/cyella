@@ -19,6 +19,12 @@ namespace cyella {
             return std::ranges::equal(left, right, [](const char8_t a, const char8_t b) { return ascii_lower(a) == ascii_lower(b); });
         }
 
+        // UTF-8 글자(코드 포인트) 수다. 이어지는 바이트(0x80-0xBF)는 세지 않아 한글도 영문과 같은 한 글자다.
+        std::size_t code_point_count(const std::u8string_view text) noexcept
+        {
+            return static_cast<std::size_t>(std::ranges::count_if(text, [](const char8_t value) { return (value & 0xC0u) != 0x80u; }));
+        }
+
         bool has_line_break(const std::u8string_view text) noexcept
         {
             return text.find(u8'\n') != std::u8string_view::npos || text.find(u8'\r') != std::u8string_view::npos;
@@ -53,7 +59,7 @@ namespace cyella {
     {
         if (profile.name.empty())
             return tr(u8"profile.name_required");
-        if (profile.name.size() > maximum_profile_name_length || has_line_break(profile.name) || has_edge_space(profile.name))
+        if (code_point_count(profile.name) > maximum_profile_name_length || has_line_break(profile.name) || has_edge_space(profile.name))
             return tr(u8"profile.name_invalid");
         for (std::size_t index { 0 }; index < existing.size(); ++index)
             if (index != editing && same_name(existing[index].name, profile.name))
@@ -73,6 +79,9 @@ namespace cyella {
         // 키 경로는 sh 명령에 작은따옴표로 들어간다. 줄바꿈과 작은따옴표는 그 따옴표를 깬다.
         if (has_line_break(profile.ssh_key) || profile.ssh_key.find(u8'\'') != std::u8string::npos || has_edge_space(profile.ssh_key))
             return tr(u8"profile.ssh_key_invalid");
+        // 양 끝의 따옴표는 입력할 때 벗긴다. 안쪽에 남은 큰따옴표(`"C:\a" "b`)는 Windows 경로에 올 수 없는 글자라 깨진 core.sshCommand가 된다.
+        if (profile.ssh_key.find(u8'"') != std::u8string::npos)
+            return tr(u8"profile.ssh_key_quote");
         return {};
     }
 
@@ -112,6 +121,9 @@ namespace cyella {
             return tr(u8"profile.rule_path_required");
         if (rule.path_prefix.find(u8'\\') == std::u8string::npos && rule.path_prefix.find(u8'/') == std::u8string::npos)
             return tr(u8"profile.rule_path_not_full");
+        // 안쪽에 큰따옴표가 남은 접두는 Windows 경로가 아니어서 어떤 저장소에도 맞지 않는 규칙이 된다.
+        if (rule.path_prefix.find(u8'"') != std::u8string::npos)
+            return tr(u8"profile.rule_path_quote");
         if (find_profile_index(profiles, rule.profile).has_value() == false)
             return tr(u8"profile.rule_profile_required");
         return {};
@@ -123,13 +135,15 @@ namespace cyella {
         {
             const std::u8string old_name { settings.profiles[*index].name };
             settings.profiles[*index] = profile;
+            // 규칙과 적용 기록은 대소문자를 가리지 않는 조회로도 프로필을 찾으므로(손으로 고친 설정은 `Work`와 `work`가 섞일
+            // 수 있다) 따라가는 비교도 같은 기준으로 한다. 이름이 바뀌었는지는 정확히 비교해 대소문자만 바꾼 이름도 반영한다.
             if (old_name != profile.name)
             {
                 for (profile_rule& rule : settings.profile_rules)
-                    if (rule.profile == old_name)
+                    if (same_name(rule.profile, old_name))
                         rule.profile = profile.name;
                 for (profile_assignment& assignment : settings.profile_assignments)
-                    if (assignment.profile == old_name)
+                    if (same_name(assignment.profile, old_name))
                         assignment.profile = profile.name;
             }
             return;
@@ -143,8 +157,9 @@ namespace cyella {
             return false;
         const std::u8string name { settings.profiles[index].name };
         settings.profiles.erase(settings.profiles.begin() + static_cast<std::ptrdiff_t>(index));
-        std::erase_if(settings.profile_rules, [&name](const profile_rule& rule) { return rule.profile == name; });
-        std::erase_if(settings.profile_assignments, [&name](const profile_assignment& assignment) { return assignment.profile == name; });
+        // 지우는 쪽도 대소문자를 가리지 않아야 존재하지 않는 프로필을 가리키는 규칙이 남지 않는다.
+        std::erase_if(settings.profile_rules, [&name](const profile_rule& rule) { return same_name(rule.profile, name); });
+        std::erase_if(settings.profile_assignments, [&name](const profile_assignment& assignment) { return same_name(assignment.profile, name); });
         return true;
     }
 

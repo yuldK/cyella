@@ -5,6 +5,8 @@
 #include "presentation/commands/command_registry.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/menu_model.h"
+#include "presentation/rebase/rebase_editor_intents.h"
+#include "presentation/rebase/rebase_editor_view.h"
 #include "presentation/selector_intents.h"
 #include "presentation/ui/app_symbol.h"
 #include "presentation/ui/build_ui_tree.h"
@@ -13,6 +15,7 @@
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/graph_row_element.h"
 #include "presentation/ui/press_row.h"
+#include "presentation/ui/rebase/rebase_editor_ui.h"
 #include "presentation/ui/ref_chip_element.h"
 #include "presentation/ui/repository_tabs_element.h"
 #include "presentation/ui/ui_helpers.h"
@@ -23,7 +26,9 @@
 
 #include "luil/generated/codicons.h"
 #include "luil/ui/image_decode.h"
+#include "luil/ui/ui_interaction.h"
 #include "luil/ui/ui_platform.h"
+#include "luil/ui/virtual_list_element.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -97,8 +102,13 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
     CHECK(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-remote" }) != nullptr);
     CHECK(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-tag" }) != nullptr);
     CHECK_FALSE(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-local" })->enabled());
-    for (const auto& [key, expected] :
-        std::vector<std::pair<std::u8string, std::string>> { { u8"ref-list-l:main", "main" }, { u8"ref-list-rb:origin/main", "origin/main" }, { u8"ref-list-l:feature/hidden", "feature/hidden" } })
+    const std::vector<std::pair<std::u8string, ref_label>> picks {
+        { u8"ref-list-l:main", labels[0] },
+        { u8"ref-list-rb:origin/main", ref_label { .kind = ref_label_kind::remote, .text = u8"origin/main", .ref_name = "origin/main" } },
+        { u8"ref-list-l:feature/hidden", labels[1] },
+        { u8"ref-list-t:v1.0", labels[2] },
+    };
+    for (const auto& [key, label] : picks)
     {
         const auto* const item { built.tree->find({ luil::ui_element_kind::menu_item, key }) };
         REQUIRE(item != nullptr);
@@ -108,8 +118,12 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
         REQUIRE(selected.size() == 1);
         const auto* const menu { std::get<luil::app_message>(selected.front()).get<open_context_menu_intent>() };
         REQUIRE(menu != nullptr);
-        CHECK(menu->target.name == expected);
+        CHECK(menu->target.name == label.ref_name);
         CHECK(menu->target.sha == "abc");
+        // 카드의 항목과 칩의 우클릭은 같은 조립이 짓는 대상을 연다 (로컬·원격·태그가 서로 다른 종류로 간다).
+        const std::optional<menu_target> expected { ui::menu_target_of(label, "abc") };
+        REQUIRE(expected.has_value());
+        CHECK(menu->target == *expected);
     }
     static_cast<void>(tab);
 }
@@ -670,12 +684,12 @@ TEST_CASE("an open menu becomes a popup and a form becomes a modal host", "[pres
     const luil::ui_element* const field { built.tree->find(luil::ui_element_id { cyella::ui::kind_form_input_0, u8"branch-dialog-field-0" }) };
     REQUIRE(field != nullptr);
     CHECK(field->bounds().width > 0.0f);
-    // 입력 칸의 UIA 이름은 라벨 글이다 (라벨은 별도 글 요소라서 칸 이름이 비어 있었다).
+    // 입력 칸의 UIA 이름은 라벨 글 그대로다 (라벨은 별도 글 요소라서 칸 이름이 비어 있었다). 안내 글에는 라벨을 다시 싣지 않는다.
     REQUIRE(fixture.view.form.has_value());
     REQUIRE(fixture.view.form->fields.empty() == false);
     const std::u8string field_name { field->accessibility().name };
     CHECK_FALSE(field_name.empty());
-    CHECK(field_name.starts_with(fixture.view.form->fields[0].label));
+    CHECK(field_name == fixture.view.form->fields[0].label);
     const luil::ui_element* const submit { built.tree->find(luil::ui_element_id { cyella::ui::kind_text_button, u8"branch-dialog-submit" }) };
     REQUIRE(submit != nullptr);
     CHECK_FALSE(submit->enabled());
@@ -1174,6 +1188,13 @@ TEST_CASE("working files pick with modifiers on press and the unstaged header di
     CHECK(intent->paths == std::vector<std::string> { "src/a.cpp", "src/b.cpp" });
     CHECK(intent->untracked == std::vector<std::string> { "new.txt" });
 
+    // 머리 줄의 글자 단추도 라벨과 동작을 갖고 선다 (그룹 머리를 짓는 builder가 캡처한 단추를 옮겨 가지 않는다).
+    const luil::ui_element* const stage_all { find_element(built, cyella::ui::kind_text_button, u8"stage-all") };
+    REQUIRE(stage_all != nullptr);
+    CHECK(stage_all->enabled());
+    CHECK(stage_all->accessibility().name == tr(u8"repo.working.stage_all"));
+    CHECK(stage_all->action(luil::ui_trigger::left_click) != nullptr);
+
     // 파일 행을 누르면 초점이 파일 목록에 선다. ↓는 다음 파일, Enter·Space는 커서 파일(고른 a.cpp)의 diff를 연다.
     cyella::ui::cyella_policy policy {};
     luil::interaction_controller interaction { &policy };
@@ -1273,4 +1294,178 @@ TEST_CASE("shift+arrows and dragging over graph rows extend the selection", "[pr
         // 끌기 뒤의 뗌은 클릭이 아니다 (다시 고르지 않는다).
         CHECK(intent_at<select_commit_intent>(interaction.process(luil::pointer_released_event { .x = x, .y = below }), 0) == nullptr);
     }
+}
+
+TEST_CASE("the graph header divides its columns at the row width so author and date titles sit above their cells", "[presentation][ui][graph]")
+{
+    // 커밋이 적으면 막대가 서지 않아 행이 머리줄과 같은 폭이고, 목록 높이를 넘으면 행이 막대 폭만큼 좁아진다.
+    for (const std::size_t count : { std::size_t { 6 }, std::size_t { 120 } })
+    {
+        CAPTURE(count);
+        tree_fixture fixture {};
+        load(*fixture.harness.sessions["repo-1"], linear_history(count), 0);
+        const ui::built_tree built { fixture.build() };
+        const auto* const header { dynamic_cast<const ui::graph_header_element*>(find_element(built, ui::kind_graph_header, u8"graph-header")) };
+        REQUIRE(header != nullptr);
+        const std::vector<luil::ui_element_id> rows { built.tree->ids_of_kind(ui::kind_graph_row) };
+        REQUIRE(rows.empty() == false);
+        const luil::ui_element* const row { built.tree->find(rows.front()) };
+        REQUIRE(row != nullptr);
+        const float columns { header->columns_width(1.0f) };
+        CHECK(std::abs(header->bounds().x - row->bounds().x) < 0.01f);
+        CHECK(std::abs(columns - row->bounds().width) < 0.01f);
+        if (count > 100)
+            CHECK(columns < header->bounds().width);
+        else
+            CHECK(columns == header->bounds().width);
+    }
+}
+
+TEST_CASE("the graph list shares the cached model instead of copying it every frame", "[presentation][ui][graph]")
+{
+    tree_fixture fixture {};
+    const ui::built_tree built { fixture.build() };
+    REQUIRE(fixture.view.repository.has_value());
+    const graph_view& graph { fixture.view.repository->graph };
+    REQUIRE(graph.items != nullptr);
+    const auto* const list { dynamic_cast<const luil::virtual_list_element*>(built.tree->find({ luil::ui_element_kind::virtual_list, u8"graph" })) };
+    REQUIRE(list != nullptr);
+    CHECK(list->model().data() == graph.items->data());
+}
+
+TEST_CASE("narrow rail buttons are named after their section and not only by the count", "[presentation][ui][rail]")
+{
+    tree_fixture fixture {};
+    const ui::built_tree built { fixture.build(480.0f) };
+    const luil::ui_element* const local { find_element(built, ui::kind_tool_button, u8"rail-로컬 브랜치") };
+    const luil::ui_element* const tags { find_element(built, ui::kind_tool_button, u8"rail-태그") };
+    REQUIRE(local != nullptr);
+    REQUIRE(tags != nullptr);
+    const std::u8string local_name { local->accessibility().name };
+    const std::u8string tags_name { tags->accessibility().name };
+    CHECK(local_name.find(tr(u8"repo.section.local")) != std::u8string::npos);
+    CHECK(tags_name.find(tr(u8"repo.section.tags")) != std::u8string::npos);
+    CHECK(local_name != tags_name);
+}
+
+TEST_CASE("the branch selector list hangs from the bottom edge of its pill at every scale", "[presentation][ui][selector]")
+{
+    for (const float scale : { 1.0f, 2.0f })
+    {
+        CAPTURE(scale);
+        tree_fixture fixture {};
+        view_snapshot view { fixture.harness.build() };
+        // harness는 배율 1로 짓는다. 같은 논리 크기를 물리 픽셀로 키워 배율만 바꾼다.
+        view.scale = scale;
+        view.width = view.logical_width * scale;
+        view.height = view.logical_height * scale;
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        const luil::ui_element* const box { find_element(built, ui::kind_selector, u8"branch-selector") };
+        REQUIRE(box != nullptr);
+        const luil::ui_action* const click { box->action(luil::ui_trigger::left_click) };
+        REQUIRE(click != nullptr);
+        const std::vector<luil::input_action> actions { (*click)(luil::ui_action_context {}) };
+        const auto* const intent { intent_at<open_selector_intent>(actions, 0) };
+        REQUIRE(intent != nullptr);
+        // 알약의 아래 끝은 상자 바닥에서 5 논리 픽셀 위다. 물리 픽셀로는 배율을 곱한 만큼이다.
+        CHECK(intent->y == box->bounds().y + box->bounds().height - 5.0f * scale);
+    }
+}
+
+TEST_CASE("file and commit rows tell assistive technology what their picture shows", "[presentation][ui][access]")
+{
+    tree_fixture fixture {};
+    view_snapshot view { fixture.harness.build() };
+    REQUIRE(view.repository.has_value());
+    working_area_view working {};
+    working.conflicts.push_back({ .key = u8"c:clash.ts", .path = "clash.ts", .name = u8"clash.ts", .status = 'U', .conflicted = true });
+    working.unstaged.push_back({ .key = u8"u:note.ts", .path = "note.ts", .name = u8"note.ts", .status = 'M', .added = u8"+3", .removed = u8"-1" });
+    working.unstaged.push_back({ .key = u8"u:new.txt", .path = "new.txt", .name = u8"new.txt", .status = '?', .untracked = true });
+    working.staged.push_back({ .key = u8"s:made.txt", .path = "made.txt", .name = u8"made.txt", .status = 'A', .side = change_side::staged });
+    view.repository->detail = detail_mode::working;
+    view.repository->working = working;
+    const ui::built_tree built { ui::build_ui_tree(view) };
+    const auto name_of = [&built](const std::u8string& key) {
+        const luil::ui_element* const row { find_element(built, ui::kind_file_row, u8"file-" + key) };
+        REQUIRE(row != nullptr);
+        return row->accessibility().name;
+    };
+    const auto contains = [](const std::u8string& text, const std::u8string& part) { return text.find(part) != std::u8string::npos; };
+
+    const std::u8string modified { name_of(u8"u:note.ts") };
+    CHECK(modified.starts_with(u8"note.ts"));
+    CHECK(contains(modified, tr(u8"diff_viewer.status_modified")));
+    CHECK(contains(modified, u8"+3"));
+    CHECK(contains(modified, u8"-1"));
+    // 충돌 파일은 일반 파일과 다르게 읽힌다.
+    const std::u8string conflicted { name_of(u8"c:clash.ts") };
+    CHECK(contains(conflicted, tr(u8"list.file_status_conflicted")));
+    CHECK_FALSE(contains(conflicted, tr(u8"diff_viewer.status_modified")));
+    CHECK(contains(name_of(u8"u:new.txt"), tr(u8"list.file_status_untracked")));
+    CHECK(contains(name_of(u8"s:made.txt"), tr(u8"diff_viewer.status_added")));
+
+    // 그래프 행은 제목 뒤에 작성자와 시각까지 읽는다.
+    const ui::built_tree history { fixture.build() };
+    const luil::ui_element* const commit { find_element(history, ui::kind_graph_row, u8"commit-" + graph_item_key(sha_of(2))) };
+    REQUIRE(commit != nullptr);
+    const std::u8string commit_name { commit->accessibility().name };
+    CHECK(commit_name.starts_with(u8"commit 3"));
+    CHECK(contains(commit_name, u8"Morgan, "));
+}
+
+TEST_CASE("tabs expand to four spaces before text is measured or drawn", "[presentation][ui][text]")
+{
+    CHECK(ui::expand_tabs(u8"a\tb") == u8"a    b");
+    CHECK(ui::expand_tabs(u8"\tfile.txt") == u8"    file.txt");
+    CHECK(ui::expand_tabs(u8"first\r\nsecond") == u8"first\nsecond");
+    CHECK(ui::expand_tabs(u8"plain text") == u8"plain text");
+    CHECK(ui::expand_tabs(std::u8string {}).empty());
+
+    // 그리는 글이 곧 이름이다. 줄 나누기 측정도 같은 글로 한다.
+    const auto body { ui::make_wrapped_text(u8"body", u8"\tindented code", ui::text_style {}, 18.0f) };
+    CHECK(body->accessibility().name == u8"    indented code");
+    const auto detail { ui::make_text(u8"detail", u8"\tfile.txt", ui::text_style {}) };
+    CHECK(detail->accessibility().name == u8"    file.txt");
+}
+
+TEST_CASE("the rebase todo list scrolls to absolute positions inside its range even after the wheel ran past the end", "[presentation][ui][rebase]")
+{
+    rebase_editor_view view {};
+    view.title = u8"rebase";
+    view.phase = rebase_editor_phase::editing;
+    for (std::size_t index { 0 }; index < 30; ++index)
+    {
+        rebase_row_view row {};
+        row.key = u8"rebase-row:" + ui::number_text(index);
+        row.number = index + 1;
+        row.subject = u8"commit " + ui::number_text(index + 1);
+        row.label = ui::number_text(index + 1) + u8"  pick  " + row.subject;
+        view.rows.push_back(std::move(row));
+    }
+    // 앱 값이 끝을 한참 넘은 채로 짓는다 (휠을 끝 너머로 굴려 쌓인 상태). 화면은 끝에 붙는다.
+    view.list_scroll = 100000.0f;
+    const auto tree { luil::make_arranged_tree(ui::build_rebase_editor(view, 1280.0f, 800.0f), { 0.0f, 0.0f, 1280.0f, 800.0f }, 1.0f) };
+    const auto* const list { dynamic_cast<const luil::virtual_list_element*>(tree.find({ luil::ui_element_kind::virtual_list, u8"rebase-todo" })) };
+    REQUIRE(list != nullptr);
+    const float maximum { list->metrics().maximum_scroll };
+    REQUIRE(maximum > 0.0f);
+    CHECK(list->metrics().scroll_offset == maximum);
+
+    const luil::rect_f box { list->bounds() };
+    const float x { box.x + box.width / 2.0f };
+    const float y { box.y + box.height / 2.0f };
+    const auto wheel = [&](const float delta) {
+        const std::vector<luil::input_action> actions { luil::route_wheel(tree, x, y, delta) };
+        const auto* const intent { intent_at<rebase_scroll_intent>(actions, 0) };
+        REQUIRE(intent != nullptr);
+        return *intent;
+    };
+    // 위로 한 칸은 쌓인 값이 아니라 화면이 선 끝에서 한 칸 올라간 절대 값이다.
+    const rebase_scroll_intent up { wheel(-18.0f) };
+    CHECK(up.absolute);
+    CHECK_FALSE(up.side);
+    CHECK(up.value == maximum - 18.0f);
+    // 끝 너머로 더 굴려도 끝을 넘지 않고, 처음 너머로도 0 밑으로 가지 않는다.
+    CHECK(wheel(5000.0f).value == maximum);
+    CHECK(wheel(-100000.0f).value == 0.0f);
 }

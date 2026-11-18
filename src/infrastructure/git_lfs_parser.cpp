@@ -30,18 +30,21 @@ namespace cyella {
             return text;
         }
 
-        // 공백으로 나뉜 첫 토큰이 `filter=lfs`인 속성이 있는가.
+        // 공백이나 탭으로 나뉜 첫 토큰이 `filter=lfs`인 속성이 있는가. git은 속성 사이를 탭으로도 나누므로 둘 다 구분자다.
         bool line_sets_lfs_filter(const std::string_view line) noexcept
         {
+            constexpr std::string_view separators { " \t" };
             std::string_view rest { line };
-            std::string_view token {};
             // 첫 토큰은 경로 패턴이라 건너뛴다. 패턴에 공백이 들어가려면 따옴표를 써야 하므로 이 판정으로 충분하다.
-            git_text::take_field(rest, ' ', token);
+            bool pattern { true };
             while (rest.empty() == false)
             {
-                git_text::take_field(rest, ' ', token);
-                if (token == "filter=lfs")
+                const std::size_t end { rest.find_first_of(separators) };
+                const std::string_view token { rest.substr(0, end) };
+                rest = end == std::string_view::npos ? std::string_view {} : rest.substr(end + 1);
+                if (pattern == false && token == "filter=lfs")
                     return true;
+                pattern = false;
             }
             return false;
         }

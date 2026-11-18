@@ -386,6 +386,8 @@ TEST_CASE("submodule menus offer update, open and copy path", "[presentation][ex
     CHECK(entry_enabled(uninitialized, u8"update"));
 
     const menu_model section { build_context_menu(menu_target { .kind = menu_target_kind::submodules_section }, context) };
+    // 메뉴 제목은 사이드바 구역 제목과 같은 카탈로그 문구라서 화면 언어를 따른다.
+    CHECK(section.title == u8"서브모듈");
     CHECK(entry_enabled(section, u8"update_all"));
     CHECK(entry_enabled(section, u8"sync_all"));
     CHECK_FALSE(entry_enabled(build_context_menu(menu_target { .kind = menu_target_kind::submodules_section }, menu_context {}), u8"update_all"));
@@ -411,6 +413,7 @@ TEST_CASE("worktree menus guard the main and current worktrees", "[presentation]
     CHECK(entry_enabled(stale, u8"remove"));
 
     const menu_model section { build_context_menu(menu_target { .kind = menu_target_kind::worktrees_section }, context) };
+    CHECK(section.title == u8"워크트리");
     CHECK(entry_enabled(section, u8"add"));
     CHECK(entry_enabled(section, u8"prune"));
     menu_context clean { context };

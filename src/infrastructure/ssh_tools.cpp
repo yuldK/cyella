@@ -396,12 +396,14 @@ namespace cyella {
             rest = path.substr(home_prefix.size());
         }
         // `git init`은 없는 상위 폴더까지 만든다. 이미 있는 것이 저장소가 아니면 그 안에 저장소 파일을 흩뿌리지 않게 먼저 멈춘다.
+        // 관리자가 권한을 맞춰 미리 만든 빈 폴더는 저장소가 아니어도 그대로 `git init` 한다.
         // `command -v`로 git부터 본다. 없으면 아래 `git --git-dir`이 실패해 "저장소가 아님"으로 잘못 갈린다.
         std::u8string command { u8"command -v git >/dev/null 2>&1 || { echo cyella:no-git; exit 127; }; p=" };
         command += to_u8(home_prefix);
         command += quote_for_shell(to_u8(rest));
         command += u8"; if [ -e \"$p\" ]; then if git --git-dir=\"$p\" rev-parse --git-dir >/dev/null 2>&1; then echo cyella:existing; exit 0; fi;"
-                   u8" echo cyella:not-repository; exit 3; fi; git init --bare -q -- \"$p\" && echo cyella:created";
+                   u8" if [ ! -d \"$p\" ] || [ -n \"$(ls -A \"$p\" 2>/dev/null)\" ]; then echo cyella:not-repository; exit 3; fi; fi;"
+                   u8" git init --bare -q -- \"$p\" && echo cyella:created";
         return command;
     }
 
@@ -425,6 +427,9 @@ namespace cyella {
         if (options.known_hosts_path.empty() == false)
             for (std::u8string& argument : make_temporary_known_hosts_ssh_arguments(options.known_hosts_path))
                 request.arguments.push_back(std::move(argument));
+        // ssh를 바로 부르므로 저장소의 `core.sshCommand`(프로필 키)가 읽히지 않는다. push와 같은 키로 접속하도록 직접 붙인다.
+        if (options.identity_file.empty() == false)
+            request.arguments.insert(request.arguments.end(), { u8"-i", forward_slashes(options.identity_file), u8"-o", u8"IdentitiesOnly=yes" });
         request.arguments.push_back(to_u8(target.destination()));
         request.arguments.push_back(make_create_bare_repository_command(target.path));
         request.environment_overrides = ssh_askpass_overrides(options.askpass_helper, options.askpass);
@@ -450,7 +455,17 @@ namespace cyella {
 
     std::vector<std::u8string> make_temporary_known_hosts_ssh_arguments(const std::filesystem::path& known_hosts_path)
     {
-        return { u8"-o", u8"UserKnownHostsFile=" + known_hosts_path.generic_u8string(), u8"-o", u8"StrictHostKeyChecking=accept-new" };
+        // ssh는 이 옵션 값을 공백으로 나눠 여러 파일로 읽고 `%`는 토큰으로 펼친다. 큰따옴표로 한 파일로 묶고 `%`는 `%%`로 둔다.
+        // Windows 경로에는 `"`가 올 수 없고 `generic` 꼴이라 역슬래시도 없다.
+        std::u8string value { u8"UserKnownHostsFile=\"" };
+        for (const char8_t character : known_hosts_path.generic_u8string())
+        {
+            value.push_back(character);
+            if (character == u8'%')
+                value.push_back(u8'%');
+        }
+        value.push_back(u8'"');
+        return { u8"-o", std::move(value), u8"-o", u8"StrictHostKeyChecking=accept-new" };
     }
 
     std::u8string make_temporary_known_hosts_ssh_command(const std::u8string_view ssh_executable, const std::filesystem::path& known_hosts_path, const std::u8string_view identity_file)

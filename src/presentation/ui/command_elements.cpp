@@ -1,6 +1,7 @@
 #include "presentation/ui/command_elements.h"
 
 #include "presentation/commands/command_intents.h"
+#include "presentation/commands/command_registry.h"
 #include "presentation/palette/palette_intents.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/ui_helpers.h"
@@ -41,10 +42,16 @@ namespace cyella::ui {
 
     luil::input_action action_for_command(const std::string_view id)
     {
-        if (id == "repo.open_folder")
-            return ui_command(static_cast<std::uint32_t>(ui_command_id::open_folder));
-        if (id == "repo.init")
-            return ui_command(static_cast<std::uint32_t>(ui_command_id::init_folder));
+        // 팔레트와 같은 판정(`is_ui_thread_command`)으로 가른다. UI thread 명령을 logic thread로 보내면 아무 일도 일어나지 않는다.
+        if (is_ui_thread_command(id))
+        {
+            if (id == "repo.open_folder")
+                return ui_command(static_cast<std::uint32_t>(ui_command_id::open_folder));
+            if (id == "repo.init")
+                return ui_command(static_cast<std::uint32_t>(ui_command_id::init_folder));
+            // 판정에 더했는데 UI 명령을 잇지 않은 id다. logic thread로 떨어뜨리지 않고 아무것도 하지 않는다.
+            return luil::input_action {};
+        }
         return message(run_command_intent { std::string { id } });
     }
 

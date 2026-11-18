@@ -25,11 +25,6 @@ namespace cyella {
             return std::u8string { text.begin(), text.end() };
         }
 
-        bool is_ui_thread_command(const std::string_view id) noexcept
-        {
-            return id == "repo.open_folder" || id == "repo.init";
-        }
-
         struct candidate
         {
             palette_item item {};
@@ -89,8 +84,9 @@ namespace cyella {
                 if (value.kind == ref_kind::remote && value.name.ends_with("/HEAD"))
                     continue;
                 palette_item item {};
+                // 모든 후보에 같은 키워드를 달면 두세 글자 부분 수열 질의(`ck` 등)가 이름과 상관없이 모든 브랜치와 맞아 걸러내기가 안 된다.
+                // 로컬·원격 구분은 `detail`이 맡는다.
                 item.title = to_u8(value.name);
-                item.keywords = u8"branch checkout";
                 if (value.kind == ref_kind::local)
                 {
                     item.key = std::u8string { palette_branch_key_prefix } + to_u8(value.name);
@@ -173,7 +169,8 @@ namespace cyella {
                         item.detail += tr(u8"palette.profile_applied_suffix");
                     else if (profile.name == context.suggested_profile)
                         item.detail += tr(u8"palette.profile_suggested_suffix");
-                    item.keywords = profile.user_name + u8" " + profile.user_email + u8" profile identity";
+                    // 후보마다 다른 값(사용자 이름·이메일)만 키워드로 둔다. 모든 프로필에 같은 말을 달면 걸러내기가 안 된다.
+                    item.keywords = profile.user_name + u8" " + profile.user_email;
                     candidates.push_back(candidate { std::move(item), 0, order++ });
                 }
             palette_item manage {};

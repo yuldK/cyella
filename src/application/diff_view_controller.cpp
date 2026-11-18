@@ -201,7 +201,8 @@ namespace cyella {
     bool diff_view_controller::can_discard() const noexcept
     {
         // 추적하지 않는 파일의 줄을 되돌리면 파일을 지우는 일이 되므로 휴지통으로 보내는 `trash_files_request`가 맡는다.
-        return can_stage() && untracked_ == false;
+        // intent-to-add(`git add -N`) 파일도 unstaged diff가 새 파일(상태 A)이라 되돌리면 커밋된 적 없는 내용이 사라지므로 같이 막는다.
+        return can_stage() && untracked_ == false && file_.status != 'A';
     }
 
     bool diff_view_controller::has_actionable_content() const noexcept
@@ -270,11 +271,11 @@ namespace cyella {
         if (content_dirty_ || small_changes > 1)
             latest_message_ = build_content_message();
         else if (layout_dirty_)
-            latest_message_ = serialize_set_layout(++next_seq_, state_.layout);
+            latest_message_ = serialize_set_layout(++next_seq_, content_seq_, state_.layout);
         else if (theme_dirty_)
-            latest_message_ = serialize_set_theme(++next_seq_, state_.theme);
+            latest_message_ = serialize_set_theme(++next_seq_, content_seq_, state_.theme);
         else
-            latest_message_ = serialize_set_image_mode(++next_seq_, state_.image_mode);
+            latest_message_ = serialize_set_image_mode(++next_seq_, content_seq_, state_.image_mode);
 
         content_dirty_ = false;
         layout_dirty_ = false;

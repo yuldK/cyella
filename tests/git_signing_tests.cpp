@@ -182,6 +182,34 @@ TEST_CASE("config booleans follow git's spelling", "[signing][domain]")
     CHECK(parse_config_bool("maybe", value) == false);
     CHECK(value);
 
+    // git은 불리언 자리에 정수도 받는다. 0이 아니면 참이고 부호, 8·16진수, 단위(k·m·g)를 따른다.
+    for (const char* word : { "2", "-1", "+3", "1k", "2M", "1g", "010", "0x10", " 7" })
+    {
+        value = false;
+        CHECK(parse_config_bool(word, value));
+        CHECK(value);
+    }
+    for (const char* word : { "00", "-0", "0k", "0x0", "+0" })
+    {
+        value = true;
+        CHECK(parse_config_bool(word, value));
+        CHECK(value == false);
+    }
+    // 정수가 아니거나 int 범위를 넘으면 git도 잘못된 불리언으로 본다.
+    for (const char* word : { "08", "1x", "0x", "1 ", "2147483648", "2g", "1.5", "--1" })
+    {
+        value = true;
+        CHECK(parse_config_bool(word, value) == false);
+        CHECK(value);
+    }
+
+    // `commit.gpgsign=2`는 git이 서명하는 설정이다.
+    signing_config integer_config {};
+    integer_config.at(signing_key_id::commit_gpgsign) = signing_entry { .value = "2", .origin = config_origin::local };
+    integer_config.at(signing_key_id::tag_gpgsign) = signing_entry { .value = "0", .origin = config_origin::local };
+    CHECK(integer_config.commit_signing());
+    CHECK(integer_config.tag_signing() == false);
+
     signing_format format { signing_format::ssh };
     CHECK(parse_signing_format("OpenPGP", format));
     CHECK(format == signing_format::openpgp);

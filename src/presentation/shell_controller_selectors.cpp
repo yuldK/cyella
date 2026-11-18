@@ -33,7 +33,7 @@ namespace cyella {
         if (ui_.selector.has_value() == false)
             return;
         if (dismissed)
-            selector_dismissed_ = std::pair { ui_.selector->kind, std::chrono::steady_clock::now() };
+            selector_dismissed_ = std::pair { ui_.selector->kind, dependencies_.steady_clock() };
         ui_.selector.reset();
     }
 
@@ -46,7 +46,7 @@ namespace cyella {
             close_selector(false);
             return;
         }
-        if (selector_dismissed_.has_value() && selector_dismissed_->first == intent.kind && std::chrono::steady_clock::now() - selector_dismissed_->second < toggle_window)
+        if (selector_dismissed_.has_value() && selector_dismissed_->first == intent.kind && dependencies_.steady_clock() - selector_dismissed_->second < toggle_window)
         {
             selector_dismissed_.reset();
             return;

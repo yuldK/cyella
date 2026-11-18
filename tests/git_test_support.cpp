@@ -100,7 +100,15 @@ namespace cyella {
             }
 
             std::atomic<unsigned int> run_counter { 0 };
+
+            // git이 이 시간 안에 끝나지 않으면 끝내고 실패로 돌려준다. 자격 증명 질문에 걸린 git이 test를 무기한 붙잡지 않게 한다.
+            constexpr DWORD git_timeout_milliseconds { 120000 };
         } // namespace
+
+        void isolate_git_environment()
+        {
+            configure_environment_once();
+        }
 
         std::string read_fixture(const std::string_view name)
         {
@@ -130,6 +138,7 @@ namespace cyella {
             HANDLE input { open_handle(input_path, GENERIC_READ, OPEN_EXISTING) };
             HANDLE output { open_handle(output_path, GENERIC_WRITE, CREATE_ALWAYS) };
             HANDLE error { open_handle(error_path, GENERIC_WRITE, CREATE_ALWAYS) };
+            const bool redirected { input != INVALID_HANDLE_VALUE && output != INVALID_HANDLE_VALUE && error != INVALID_HANDLE_VALUE };
 
             std::wstring command_line { L"git" };
             for (const std::u8string& argument : arguments)
@@ -146,20 +155,32 @@ namespace cyella {
             git_run_result result {};
             PROCESS_INFORMATION process {};
             const std::wstring directory { working_directory.wstring() };
-            const BOOL started = ::CreateProcessW(nullptr, command_line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, directory.empty() ? nullptr : directory.c_str(), &startup, &process);
+            // 입출력 파일을 하나라도 열지 못했으면 git을 띄우지 않는다. 핸들 없이 띄우면 출력을 잃은 채 성공처럼 보인다.
+            const BOOL started = redirected ? ::CreateProcessW(nullptr, command_line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, directory.empty() ? nullptr : directory.c_str(), &startup, &process) : FALSE;
             if (started)
             {
-                ::WaitForSingleObject(process.hProcess, 120000);
-                DWORD exit_code { 0 };
-                ::GetExitCodeProcess(process.hProcess, &exit_code);
-                result.exit_code = static_cast<int>(exit_code);
+                if (::WaitForSingleObject(process.hProcess, git_timeout_milliseconds) == WAIT_OBJECT_0)
+                {
+                    DWORD exit_code { 0 };
+                    ::GetExitCodeProcess(process.hProcess, &exit_code);
+                    result.exit_code = static_cast<int>(exit_code);
+                }
+                else
+                {
+                    // 시간 안에 끝나지 않은 git을 끝낸다. 그대로 두면 출력 파일과 작업 폴더를 계속 잡고 있어 뒤의 정리가 실패한다.
+                    // 종료 코드는 기본값(-1)으로 남아 실패로 읽힌다. git이 띄운 자손까지는 끝내지 않는다.
+                    ::TerminateProcess(process.hProcess, 1);
+                    ::WaitForSingleObject(process.hProcess, 10000);
+                }
                 ::CloseHandle(process.hThread);
                 ::CloseHandle(process.hProcess);
             }
 
-            ::CloseHandle(input);
-            ::CloseHandle(output);
-            ::CloseHandle(error);
+            for (const HANDLE handle : { input, output, error })
+            {
+                if (handle != INVALID_HANDLE_VALUE)
+                    ::CloseHandle(handle);
+            }
             result.standard_output = drain_file(output_path);
             result.standard_error = drain_file(error_path);
 
@@ -217,9 +238,17 @@ namespace cyella {
 
         temp_directory::~temp_directory()
         {
+            // 소멸자는 암묵적으로 noexcept라 예외가 나가면 프로세스가 끝난다. 범위 for의 증가는 오류 때 filesystem_error를 던지므로
+            // (gc --auto 같은 백그라운드 git이 순회 중에 객체를 지우는 경합) 오류 코드를 받는 `increment`로 돌고, 오류가 나면 거기서
+            // 멈춘다. 남은 것은 아래 `remove_all`이 지운다.
+            std::error_code iteration_error {};
+            std::filesystem::recursive_directory_iterator entries { path_, std::filesystem::directory_options::skip_permission_denied, iteration_error };
+            for (; iteration_error == std::error_code {} && entries != std::filesystem::recursive_directory_iterator {}; entries.increment(iteration_error))
+            {
+                std::error_code permission_error {};
+                std::filesystem::permissions(entries->path(), std::filesystem::perms::owner_write, std::filesystem::perm_options::add, permission_error);
+            }
             std::error_code error {};
-            for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator { path_, std::filesystem::directory_options::skip_permission_denied, error })
-                std::filesystem::permissions(entry.path(), std::filesystem::perms::owner_write, std::filesystem::perm_options::add, error);
             std::filesystem::remove_all(path_, error);
         }
     } // namespace test

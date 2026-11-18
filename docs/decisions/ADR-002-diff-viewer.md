@@ -18,18 +18,25 @@ luil로 직접 그리면 텍스트 배치, 구문 강조, 선택·복사, 단어
    크롬은 luil로 그린다.
 2. 렌더러는 **cyella 저장소 안의 HTML·JS·CSS**(`assets/diff-viewer/`)로 두고, 외부 CDN을 쓰지 않는다.
    실행 파일 리소스나 설치 폴더의 파일을 WebView2 가상 호스트(`https://cyella.diff/`)로 제공한다.
+   **구현 결정 1이 이 방식을 바꿨다.** 가상 호스트 대신 설치 폴더의 `diff-viewer/`를 `file://`로 연다.
 3. C++이 `git diff` 출력을 **구조화된 JSON**(파일 → hunk → 줄, 옛·새 줄 번호, 종류)으로 해석해
    웹뷰로 보낸다. 웹뷰는 unified diff 텍스트를 해석하지 않는다. 그래서 줄 선택을 C++가 가진 같은
    모델로 되돌려 받을 수 있다.
 4. 구문 강조는 번들한 highlight.js(BSD-3-Clause)를, 줄 안의 단어 단위 강조는 jsdiff(BSD-3-Clause)를
    쓴다. 둘 다 고지를 실행 파일 고지에 넣는다.
+   **구현 결정 4가 jsdiff를 대체했다.** 단어 단위 강조는 `word-diff.js`에 직접 구현했고, 고지는 highlight.js만 넣는다.
 5. 메시지는 처음부터 양방향으로 정의한다.
    - C++ → JS: `show_diff`, `set_layout`(inline/split), `set_theme`, `clear`
+     `set_layout`·`set_theme`·`set_image_mode`는 마지막 내용 메시지의 `seq`를 `content_seq`로 함께 싣는다. frame이 건너뛰어
+     앞의 내용 메시지가 닿지 않았으면 페이지의 `contentSeq`와 다르므로, 페이지는 설정을 적용한 뒤 `ready`를 다시 보내
+     상태 전체를 받는다(낡은 seq로 보낸 동작은 모두 거절되기 때문이다). `content_seq`가 없는 메시지는 그대로 받아들인다.
    - JS → C++: `stage_hunk`, `unstage_hunk`, `discard_hunk`, `stage_lines`, `unstage_lines`,
      `discard_lines`(hunk 번호와 줄 범위), `open_external`, `copy`
    - 줄 단위 stage는 C++가 선택한 줄로 부분 patch를 만들어 `git apply --cached`(또는 `-R`)로 적용한다.
 6. 뷰어는 `diff_view` 인터페이스 뒤에 둔다. 나중에 luil 가상 목록으로 직접 그리는 구현으로 바꿀 수 있게
    하기 위해서다.
+   **구현에서는 `diff_view`라는 이름의 인터페이스를 만들지 않았다**(추측성 추상화). 교체 경계는 입출력이 없는 `diff_view_controller`와 JSON 프로토콜
+   `diff_view_protocol`이다. 컨트롤러가 내는 효과는 `diff_view_coordinator`가 실행하고, `diff_webview`가 유일한 렌더러다.
 
 ## 바이너리와 외부 도구
 
@@ -41,7 +48,8 @@ luil로 직접 그리면 텍스트 배치, 구문 강조, 선택·복사, 단어
    - 설정에 확장자별 외부 도구 표를 둔다. 항목은 확장자, 실행 파일, 인자 템플릿(`{left}` `{right}`
      `{base}` `{path}`)이다.
    - 표에 없으면 `diff.tool`·`difftool.<name>.cmd` 설정이 있을 때 `git difftool --no-prompt`로 넘긴다.
-   - 임시 파일은 작업이 끝나거나 앱이 종료될 때 지운다.
+   - 외부 도구용 임시 파일은 앱이 끝날 때 지우고, 이미지 미리보기의 사본은 다음 미리보기를 준비할 때 지운다. 비정상 종료로
+     남은 24시간 넘은 폴더는 다음 실행이 지운다(구현 결정 5).
 
 ## 결과
 
@@ -76,8 +84,10 @@ luil로 직접 그리면 텍스트 배치, 구문 강조, 선택·복사, 단어
 4. **jsdiff는 쓰지 않는다.** 줄 안의 단어 단위 강조는 토큰 LCS를 직접 구현했다(`word-diff.js`). highlight.js
    11.11.1(BSD-3-Clause)은 c·cpp·cmake·js·ts·json·python·markdown·xml·css·powershell·bash·csharp·ini·yaml만 번들(82 KB)하고,
    라이선스 원문은 실행 파일 고지에 덧붙인다(`cyella_append_third_party_notices`).
-5. **임시 파일은 앱이 끝날 때 지운다.** 외부 도구와 웹뷰가 작업이 끝난 뒤에도 파일을 열어 둘 수 있어서
-   작업 단위로 지우지 않는다. 비정상 종료로 남은 24시간 넘은 폴더는 다음 실행이 지운다.
+5. **외부 도구용 임시 파일은 앱이 끝날 때 지운다.** 외부 도구는 작업이 끝난 뒤에도 파일을 열어 둘 수 있어서
+   작업 단위로 지우지 않는다. 이미지 미리보기의 사본은 웹뷰가 보이는 동안만 있으면 되므로 다음 미리보기를 준비하는
+   job이 앞 미리보기의 작업 폴더를 지운다(`diff_git_gateway::release`). 그래야 한 세션에서 이미지를 오래 훑어도
+   폴더가 쌓이지 않는다. 지우지 못한 것과 비정상 종료로 남은 24시간 넘은 폴더는 앱 종료와 다음 실행이 지운다.
 
 ## 2026-10-20 구현 결정: 주 창에 끼우기
 

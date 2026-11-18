@@ -31,8 +31,10 @@ namespace cyella::win32 {
     class ref_hover_monitor
     {
     public:
-        explicit ref_hover_monitor(luil::app_host& host)
+        // driver가 있으면 host가 아직 묶여 있는지 그것으로 안다. 없으면(test 조립) host가 delegate보다 오래 산다고 본다.
+        ref_hover_monitor(luil::app_host& host, const cyella_driver* const driver)
             : host_ { host }
+            , driver_ { driver }
         {
             if (active_ == nullptr)
             {
@@ -93,6 +95,15 @@ namespace cyella::win32 {
         //  - 누름이나 키로 연 카드는 포인터가 떠나도 남는다.
         void update()
         {
+            // 세션 종료(WM_ENDSESSION)에서 luil은 host를 해제한 뒤에도 메시지 루프를 돌려 이 타이머가 계속 온다.
+            // host를 푼 `stop_workers`도 이 UI thread에서 돌므로, 여기서 본 값이 거짓이면 host는 이미 없다.
+            if (driver_ != nullptr && driver_->host_bound() == false)
+            {
+                if (timer_ != 0)
+                    KillTimer(nullptr, timer_);
+                timer_ = 0;
+                return;
+            }
             const auto frame { host_.acquire_frame() };
             if (frame == nullptr || frame->tree == nullptr)
                 return;
@@ -174,6 +185,7 @@ namespace cyella::win32 {
 
         inline static ref_hover_monitor* active_ { nullptr };
         luil::app_host& host_;
+        const cyella_driver* driver_ { nullptr };
         UINT_PTR timer_ { 0 };
         // 카드를 열자고 보낸 "+N" 칩, 포인터가 지금 머무는 칸의 칩과 머물기 시작한 시각, 카드가 닫힐 때 포인터가 있던 칸의 칩이다.
         luil::ui_element_id sent_ {};
@@ -270,7 +282,7 @@ namespace cyella::win32 {
         // 창이 앞으로 돌아오면 선택된 탭을 다시 읽는다. relay에 넣으면 logic thread가 깨어난다.
         if (relay_ != nullptr && foreground_ == nullptr)
             foreground_ = foreground_monitor::start([relay = relay_] { relay->post(luil::app_message { window_focus_intent {} }); });
-        ref_hover_ = std::make_unique<ref_hover_monitor>(host);
+        ref_hover_ = std::make_unique<ref_hover_monitor>(host, driver_);
     }
 
     cyella_delegate::~cyella_delegate() = default;

@@ -136,11 +136,6 @@ namespace cyella {
                     entry.target_sha = std::string { peeled_name };
                 }
             }
-            else if (refname == "refs/stash")
-            {
-                entry.kind = ref_kind::stash;
-                entry.name = "stash";
-            }
             else
             {
                 ++result.skipped_count;

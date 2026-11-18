@@ -6,7 +6,9 @@
 
 namespace cyella {
     namespace {
+        // 곱하기 전에 넘침을 가르려고 한계를 몫과 나머지로 나눠 둔다. 몫만 보면 마지막 자릿수에서 값이 감겨 새어 나간다.
         constexpr std::uint32_t maximum_component { std::numeric_limits<std::uint32_t>::max() / 10u };
+        constexpr std::uint32_t maximum_last_digit { std::numeric_limits<std::uint32_t>::max() % 10u };
 
         bool is_ascii_digit(const char8_t value) noexcept
         {
@@ -22,9 +24,10 @@ namespace cyella {
             std::uint32_t parsed { 0 };
             while (index < text.size() && is_ascii_digit(text[index]))
             {
-                if (parsed > maximum_component)
+                const std::uint32_t digit { static_cast<std::uint32_t>(text[index] - u8'0') };
+                if (parsed > maximum_component || (parsed == maximum_component && digit > maximum_last_digit))
                     return false;
-                parsed = (parsed * 10u) + static_cast<std::uint32_t>(text[index] - u8'0');
+                parsed = (parsed * 10u) + digit;
                 ++index;
             }
             value = parsed;

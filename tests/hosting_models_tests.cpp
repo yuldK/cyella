@@ -18,6 +18,23 @@ TEST_CASE("ISO 8601 timestamps become unix seconds", "[hosting]")
     CHECK(parse_iso8601_seconds("2026-13-01T00:00:00Z") == 0);
 }
 
+TEST_CASE("ISO 8601 timestamps out of range or with signed fields are unreadable", "[hosting]")
+{
+    // 범위를 넘은 시각이나 부호가 붙은 칸은 엉뚱한 시각 대신 읽지 못한 값(0)이다.
+    CHECK(parse_iso8601_seconds("2026-10-20T99:99:99Z") == 0);
+    CHECK(parse_iso8601_seconds("2026-10-20T24:00:00Z") == 0);
+    CHECK(parse_iso8601_seconds("2026-10-20T10:-5:00Z") == 0);
+    CHECK(parse_iso8601_seconds("2026-02-30T00:00:00Z") == 0);
+    CHECK(parse_iso8601_seconds("2026-02-29T00:00:00Z") == 0);
+    CHECK(parse_iso8601_seconds("2026-04-31T00:00:00Z") == 0);
+    CHECK(parse_iso8601_seconds("2026-10-20T10:00:00+-1:00") == 0);
+    CHECK(parse_iso8601_seconds("2026-10-20T10:00:00+24:00") == 0);
+    CHECK(parse_iso8601_seconds("2026-10-20T10:00:00+09:60") == 0);
+    // 윤년의 2월 29일과 윤초는 받는다.
+    CHECK(parse_iso8601_seconds("2024-02-29T00:00:00Z") == 1709164800);
+    CHECK(parse_iso8601_seconds("2026-10-20T09:30:60Z") == 1792488660);
+}
+
 TEST_CASE("CI states are combined into one", "[hosting]")
 {
     CHECK(combine_ci_states({}) == ci_state::none);

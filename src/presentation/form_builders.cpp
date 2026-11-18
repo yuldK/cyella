@@ -294,8 +294,9 @@ namespace cyella {
                 if (info.name != remote)
                     continue;
                 const std::string& url { info.push_url.empty() ? info.fetch_url : info.push_url };
+                // 원격 URL에 넣어 둔 토큰이 push 대화 상자에 보이지 않게 가린다.
                 if (url.empty() == false)
-                    label += u8"   " + to_u8(url);
+                    label += u8"   " + to_u8(mask_remote_url_userinfo(url));
             }
             form.choices.push_back({ .label = std::move(label) });
         }

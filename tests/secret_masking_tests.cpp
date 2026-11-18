@@ -38,6 +38,25 @@ TEST_CASE("masking hides option values and headers", "[masking]")
     CHECK(mask_secrets(u8"Authorization: Bearer abc.def.ghi") == u8"Authorization: ***");
 }
 
+TEST_CASE("masking hides GitLab and Atlassian token prefixes and bare bearer tokens", "[masking]")
+{
+    CHECK(mask_secrets(u8"Using deploy token gldt-abc123XYZ") == u8"Using deploy token ***");
+    CHECK(mask_secrets(u8"runner glrt-0123456789abcdef registered") == u8"runner *** registered");
+    CHECK(mask_secrets(u8"job glcbt-64_abcdef done") == u8"job *** done");
+    CHECK(mask_secrets(u8"token ATBB0123456789abcdef") == u8"token ***");
+    CHECK(mask_secrets(u8"token ATCTT3xFfGF0abc") == u8"token ***");
+    // 헤더 이름 없이 찍힌 `Bearer <토큰>`도 가린다. token68 글자(`-._~+/=`)까지 값이다.
+    CHECK(mask_secrets(u8"sending Bearer eyJhbGciOi.J9-x_y~z+/= now") == u8"sending Bearer *** now");
+    CHECK(mask_secrets(u8"Bearer glrt-xyz0123456789") == u8"Bearer ***");
+    CHECK(mask_secrets(u8"bearer 0123456789abcdef") == u8"bearer ***");
+    // 짧거나 글자뿐인 낱말은 토큰이 아니라 글이다.
+    CHECK(mask_secrets(u8"the bearer of news") == u8"the bearer of news");
+    CHECK(mask_secrets(u8"Bearer authentication failed") == u8"Bearer authentication failed");
+    CHECK(mask_secrets(u8"Bearer x1") == u8"Bearer x1");
+    // 다시 가려도 같다.
+    CHECK(mask_secrets(mask_secrets(u8"Bearer glrt-xyz0123456789")) == u8"Bearer ***");
+}
+
 TEST_CASE("masking is idempotent", "[masking]")
 {
     const std::u8string once { mask_secrets(u8"https://user:token@host/x --password secret") };

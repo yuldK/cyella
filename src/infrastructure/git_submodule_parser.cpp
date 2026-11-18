@@ -75,8 +75,9 @@ namespace cyella {
             entry.sha = std::string { line.substr(0, space) };
             line.remove_prefix(space + 1);
 
-            // 경로에는 공백이 들어갈 수 있다. 줄이 `)`로 끝나면 마지막 ` (`부터가 설명이다.
-            if (line.empty() == false && line.back() == ')')
+            // 경로에는 공백이 들어갈 수 있다. git은 설명(` (heads/main)`)을 초기화된 submodule(` `, `+`)에만 붙이고 `-`와 `U`에는 붙이지
+            // 않는다. 그래서 그 둘은 경로가 `lib (copy)`처럼 `)`로 끝나도 줄 전체가 경로다.
+            if ((prefix == ' ' || prefix == '+') && line.empty() == false && line.back() == ')')
             {
                 const std::size_t open { line.rfind(" (") };
                 if (open != std::string_view::npos && open > 0)

@@ -13,6 +13,7 @@
 
 #include "askpass_test_support.h"
 #include "fake_git_runner.h"
+#include "git_test_support.h"
 #include "temporary_directory_support.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -39,6 +40,8 @@ namespace {
             , files_ { win32::make_workspace_files() }
             , bridge_ { events_.sink() }
         {
+            // 앱의 process runner로 띄우므로 `run_git`의 환경 격리를 거치지 않는다. 사용자 환경이 시험에 새지 않게 먼저 격리한다.
+            test::isolate_git_environment();
             bridge_.start(test::askpass_helper_path());
             REQUIRE(bridge_.available());
 

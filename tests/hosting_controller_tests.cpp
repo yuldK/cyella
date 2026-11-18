@@ -244,6 +244,34 @@ TEST_CASE("a failed sign-in is reported and leaves the repository signed out", "
     CHECK(test.jobs.size() == 2);
 }
 
+TEST_CASE("a failed sign-in keeps its reason in the sidebar under the login row", "[hosting][controller]")
+{
+    harness test {};
+    test.controller.request_sign_in("repo-1");
+    hosting_result<std::string> failed {};
+    failed.error.kind = hosting_error_kind::credential_unavailable;
+    failed.error.message = "no helper";
+    test.deliver(test.jobs[0], failed, false, "");
+    // 토스트가 사라진 뒤에도 로그인 행 아래에 사유가 남는다.
+    const hosting_repository_view view { test.controller.view_of("repo-1") };
+    CHECK(view.signed_in == false);
+    CHECK(view.error_text.empty() == false);
+    const sidebar_rows rows { rows_of(view) };
+    CHECK(find_row(rows, u8"pr:login") != nullptr);
+    REQUIRE(find_row(rows, u8"pr:error") != nullptr);
+    CHECK(find_row(rows, u8"pr:error")->label == view.error_text);
+
+    // 같은 호스트의 아직 열지 않은 저장소 탭에도 같은 사유가 선다.
+    hosting_target second { test.target() };
+    second.repository_id = "repo-2";
+    test.targets["repo-2"] = second;
+    CHECK(test.controller.view_of("repo-2").error_text == view.error_text);
+
+    // 다시 로그인을 시도하면 옛 사유는 지워진다.
+    test.controller.request_sign_in("repo-1");
+    CHECK(test.controller.view_of("repo-1").error_text.empty());
+}
+
 TEST_CASE("the closed toggle reloads and a late list result is ignored", "[hosting][controller]")
 {
     harness test {};
@@ -477,9 +505,12 @@ TEST_CASE("the browser opens only http and https addresses", "[hosting][controll
     evil.web_url = "file:///C:/Windows/System32/calc.exe";
     pull_request_info spaced { make_pull(2, "spaced") };
     spaced.web_url = "https://github.com/x y";
-    test.deliver_list({ evil, spaced, make_pull(3, "fine") });
+    // 따옴표는 셸 명령줄에서 인자를 끊을 수 있어 앱의 다른 링크처럼 열지 않는다.
+    pull_request_info quoted { make_pull(4, "quoted") };
+    quoted.web_url = "https://github.com/x\"y";
+    test.deliver_list({ evil, spaced, make_pull(3, "fine"), quoted });
     const hosting_detail_action_intent open { hosting_detail_action::open_browser };
-    for (const char* number : { "1", "2" })
+    for (const char* number : { "1", "2", "4" })
     {
         test.controller.activate_row("repo-1", number);
         REQUIRE(test.controller.handle(luil::app_message { open }));
@@ -605,6 +636,45 @@ TEST_CASE("closing a repository drops its state and pending results", "[hosting]
     test.controller.on_repository_closed("repo-1");
     test.deliver(pending, hosting_result<pull_request_page> { .value = pull_request_page {} });
     CHECK(test.controller.view_of("repo-1").loaded == false);
+}
+
+TEST_CASE("closing the tab that started a sign-in still lets its result free the host for other tabs", "[hosting][controller]")
+{
+    harness test {};
+    hosting_target second { test.target() };
+    second.repository_id = "repo-2";
+    test.targets["repo-2"] = second;
+
+    test.controller.request_sign_in("repo-1");
+    REQUIRE(test.jobs.size() == 1);
+    const hosting_job sign_in { test.jobs.back() };
+    test.controller.on_repository_closed("repo-1");
+    // 결과가 오기 전에는 같은 호스트의 로그인이 겹치지 않는다.
+    CHECK(test.controller.view_of("repo-2").signing_in);
+    test.controller.request_sign_in("repo-2");
+    CHECK(test.jobs.size() == 1);
+
+    // 결과가 오면 닫은 탭의 목록은 읽지 않고, 호스트의 로그인 상태만 반영한다.
+    test.deliver(sign_in, hosting_result<std::string> { .value = std::string { "octocat" } });
+    CHECK(test.jobs.size() == 1);
+    const hosting_repository_view other { test.controller.view_of("repo-2") };
+    CHECK(other.signing_in == false);
+    CHECK(other.signed_in);
+    CHECK(other.user == u8"octocat");
+    CHECK(test.controller.view_of("repo-1").loaded == false);
+
+    // 실패한 결과도 로그인 중 표시를 푼다. 다른 탭에서 다시 시도할 수 있다.
+    harness failing {};
+    failing.targets["repo-2"] = second;
+    failing.controller.request_sign_in("repo-1");
+    const hosting_job refused_job { failing.jobs.back() };
+    failing.controller.on_repository_closed("repo-1");
+    hosting_result<std::string> refused {};
+    refused.error.kind = hosting_error_kind::credential_unavailable;
+    failing.deliver(refused_job, refused, false, "");
+    CHECK(failing.controller.view_of("repo-2").signing_in == false);
+    failing.controller.request_sign_in("repo-2");
+    CHECK(failing.jobs.size() == 2);
 }
 
 TEST_CASE("the sidebar rows honor the filter and the collapsed bit", "[hosting][controller]")
@@ -801,4 +871,60 @@ TEST_CASE("an overlapping sign-in for the same host creates the repository only 
     const auto creates { std::ranges::count_if(test.jobs, [](const hosting_job& job) { return std::holds_alternative<hosting_create_repository_job>(job.work); }) };
     CHECK(creates == 1);
     CHECK(test.controller.publishing("repo-1"));
+}
+
+TEST_CASE("signing out cancels a publish that waited for the sign-in or for the repository to be created", "[hosting][publish]")
+{
+    publish_repository_request request {};
+    request.host = *hosting_repository_for_host("github.com", {});
+    request.params = { .name = "hello" };
+    const auto create_jobs = [](const harness& test) {
+        return std::ranges::count_if(test.jobs, [](const hosting_job& job) { return std::holds_alternative<hosting_create_repository_job>(job.work); });
+    };
+
+    {
+        // 로그인을 기다리는 중에 로그아웃한다.
+        harness test {};
+        test.controller.request_publish("repo-1", request);
+        REQUIRE(test.jobs.size() == 1);
+        const hosting_job waiting { test.jobs.back() };
+        test.controller.sign_out("github.com");
+        CHECK_FALSE(test.controller.publishing("repo-1"));
+        REQUIRE_FALSE(test.notices.empty());
+        CHECK(test.notices.back().second);
+        // 늦게 온 옛 로그인 결과는 저장소를 만들지 않는다.
+        test.deliver(waiting, hosting_result<std::string> { .value = std::string { "octocat" } });
+        CHECK(create_jobs(test) == 0);
+        CHECK(test.controller.view_of("repo-1").signed_in == false);
+
+        // 탭을 닫지 않고도 다시 게시할 수 있다.
+        test.controller.request_publish("repo-1", request);
+        REQUIRE(test.jobs.size() == 2);
+        CHECK(test.controller.publishing("repo-1"));
+        test.deliver(test.jobs.back(), hosting_result<std::string> { .value = std::string { "octocat" } });
+        CHECK(create_jobs(test) == 1);
+    }
+    {
+        // 저장소 만들기를 보낸 뒤 결과가 오기 전에 로그아웃한다.
+        harness test {};
+        test.sign_in();
+        test.controller.request_publish("repo-1", request);
+        REQUIRE(create_jobs(test) == 1);
+        test.controller.sign_out("github.com");
+        CHECK_FALSE(test.controller.publishing("repo-1"));
+
+        // 다시 로그인해 게시하면 저장소 만들기가 다시 나간다 (이미 보낸 것으로 막히지 않는다).
+        test.controller.request_publish("repo-1", request);
+        REQUIRE(std::holds_alternative<hosting_sign_in_job>(test.jobs.back().work));
+        test.deliver(test.jobs.back(), hosting_result<std::string> { .value = std::string { "octocat" } });
+        CHECK(create_jobs(test) == 2);
+        CHECK(test.controller.publishing("repo-1"));
+    }
+    {
+        // 다른 호스트의 게시는 건드리지 않는다.
+        harness test {};
+        test.controller.request_publish("repo-1", request);
+        test.controller.sign_out("gitlab.com");
+        CHECK(test.controller.publishing("repo-1"));
+    }
 }

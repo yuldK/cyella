@@ -1,5 +1,6 @@
 #include "platform/win32/win32_url_opener.h"
 
+#include "domain/remote_web_link.h"
 #include "platform/win32/utf8.h"
 
 #include <windows.h>
@@ -7,14 +8,14 @@
 #include <objbase.h>
 #include <shellapi.h>
 
-#include <algorithm>
 #include <string>
+#include <string_view>
 
 namespace cyella::win32 {
     bool is_openable_web_url(const std::u8string_view url) noexcept
     {
-        const bool scheme { url.starts_with(u8"https://") || url.starts_with(u8"http://") };
-        return scheme && url.size() < 4096 && std::ranges::none_of(url, [](const char8_t value) { return value < 0x20 || value == u8' ' || value == 0x7f; });
+        // 규칙은 domain 한곳에 둔다. presentation도 같은 규칙으로 링크를 열지 정해야 하기 때문이다.
+        return is_safe_web_url(std::string_view { reinterpret_cast<const char*>(url.data()), url.size() });
     }
 
     bool open_url_in_browser(const std::u8string_view url) noexcept

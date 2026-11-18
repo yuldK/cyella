@@ -91,7 +91,53 @@ namespace cyella {
                 return u8"c:" + to_u8(diff->path);
             return contains(snapshot.unstaged) ? std::optional<std::u8string> { u8"u:" + to_u8(diff->path) } : std::nullopt;
         }
+
+        // 그 경로가 index에 있다는 증거가 snapshot에 있는가. staged 묶음에 있거나 '?'가 아닌 unstaged 행이다.
+        // 행이 아예 없으면 모르는 것이라 false다 (행이 사라진 diff는 지금까지처럼 그대로 둔다).
+        bool tracked_in(const repository_snapshot& snapshot, const std::string& path)
+        {
+            if (std::any_of(snapshot.staged.begin(), snapshot.staged.end(), [&path](const file_change& change) { return change.path == path; }))
+                return true;
+            return std::any_of(snapshot.unstaged.begin(), snapshot.unstaged.end(), [&path](const file_change& change) { return change.path == path && change.status != '?'; });
+        }
+
+        // 그 경로가 다시 추적하지 않는 파일이 됐다는 증거가 snapshot에 있는가. staged 묶음에 없고 unstaged 행이 '?'다.
+        // staged에 남아 있으면(`git rm --cached`의 'D' 등) index와의 관계가 아직 있으므로 건드리지 않는다.
+        bool untracked_in(const repository_snapshot& snapshot, const std::string& path)
+        {
+            if (std::any_of(snapshot.staged.begin(), snapshot.staged.end(), [&path](const file_change& change) { return change.path == path; }))
+                return false;
+            return std::any_of(snapshot.unstaged.begin(), snapshot.unstaged.end(), [&path](const file_change& change) { return change.path == path && change.status == '?'; });
+        }
     } // namespace
+
+    void shell_controller::refit_working_diffs()
+    {
+        git_workspace* const workspace { dependencies_.workspace };
+        if (workspace == nullptr)
+            return;
+        for (auto& [id, tab] : ui_.tabs)
+        {
+            // 요청은 행을 누를 때 한 번 정해진다. 추적하지 않던 파일의 줄 일부를 stage하면 파일이 index에 들어가는데, 요청이 그대로면
+            // 다시 읽을 때마다 `/dev/null`과 비교해 파일 전체가 보이고 남은 줄의 stage가 실패한다. 거꾸로 그 파일을 index에서 다시 빼면
+            // '?'로 돌아가는데, 추적 중인 요청(`git diff -- path`)은 빈 diff를 돌려준다. 두 방향 모두 새 상태에 맞춘다.
+            if (tab.diff.has_value() == false || tab.diff->view != diff_view::unstaged)
+                continue;
+            const auto repository { tab_repositories_.find(id) };
+            if (repository == tab_repositories_.end())
+                continue;
+            const repository_session* const session { workspace->find_session(repository->second) };
+            if (session == nullptr || session->loaded() == false)
+                continue;
+            // 행이 아예 없으면 어느 쪽 증거도 없으니 그대로 둔다. 두 판정은 겹치지 않아 상태가 같으면 다시 내지 않는다.
+            const bool untracked { tab.diff->untracked ? tracked_in(session->snapshot(), tab.diff->path) == false : untracked_in(session->snapshot(), tab.diff->path) };
+            if (untracked == tab.diff->untracked)
+                continue;
+            // 문맥 줄 수와 스크롤은 그대로 두고 요청만 바꾼다. 웹뷰는 새 요청의 diff가 올 때까지 낡은 내용을 지워 둔다 (`diff_view_coordinator::sync`).
+            tab.diff->untracked = untracked;
+            static_cast<void>(submit_to(repository->second, *tab.diff));
+        }
+    }
 
     void shell_controller::open_file_diff(tab_ui_state& tab, diff_file_request request)
     {

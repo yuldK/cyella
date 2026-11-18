@@ -33,6 +33,8 @@ namespace cyella::win32 {
         constexpr std::size_t remembered_cancelled_operations { 256u };
         // scheduler의 종료 예산(약 3초) 안에 끝내기 위한 연결 스레드 대기 상한이다.
         constexpr std::chrono::milliseconds connection_drain_limit { 2000 };
+        // 연결 받기나 인스턴스 만들기가 거듭 실패할 때 다시 하기 전에 쉬는 시간이다. 같은 오류로 바쁘게 돌지 않게 한다.
+        constexpr DWORD listener_retry_milliseconds { 100u };
 
         class scoped_handle
         {
@@ -530,8 +532,32 @@ namespace cyella::win32 {
             if (connect_event.valid() == false)
                 return;
 
-            while (instance.valid())
+            // 연이은 받기 실패 횟수다. 첫 실패는 곧바로 다시 받고, 이어지면 쉬었다 받는다.
+            unsigned int failures { 0 };
+            while (true)
             {
+                if (instance.valid() == false)
+                {
+                    // 지난번에 다음 인스턴스를 만들지 못했거나 되돌리지 못해 닫았다. 여기서 멈추면 세션 내내 인증이 조용히
+                    // 실패하므로 쉬었다가 다시 만든다. 그동안 온 도우미는 그 질문 하나만 실패한다.
+                    // 처리 중인 연결이 없으면 이름에 인스턴스가 하나도 없을 수 있다. 그 틈에 이름을 아는 다른 프로세스가 같은
+                    // 이름을 먼저 만들었으면 그 파이프에 인스턴스를 보태지 않도록 첫 인스턴스로 만든다. 실패하면(누가 차지했거나
+                    // 막 끝난 연결의 핸들이 아직 남았다) 첫 인스턴스로만 다시 시도한다.
+                    bool name_may_be_empty { false };
+                    {
+                        const std::lock_guard<std::mutex> lock { state->mutex };
+                        name_may_be_empty = state->active_connections == 0;
+                    }
+                    DWORD error { 0 };
+                    instance = create_pipe_instance(*state, name_may_be_empty, error);
+                    if (instance.valid() == false)
+                    {
+                        if (WaitForSingleObject(state->stop_event.get(), listener_retry_milliseconds) != WAIT_TIMEOUT)
+                            return;
+                        continue;
+                    }
+                }
+
                 ResetEvent(connect_event.get());
                 OVERLAPPED overlapped {};
                 overlapped.hEvent = connect_event.get();
@@ -565,7 +591,17 @@ namespace cyella::win32 {
                 }
 
                 if (connected == false)
-                    return;
+                {
+                    // 이 연결 하나만의 실패다. 작업을 취소해 job이 도우미를 죽이면 받기 전에 붙었다 끊긴 연결(ERROR_NO_DATA)이 생긴다.
+                    // 인스턴스를 되돌려 다음 연결을 받고, 되돌리지 못하면 닫아 맨 위에서 새로 만든다.
+                    if (DisconnectNamedPipe(instance.get()) == FALSE)
+                        instance.reset();
+                    ++failures;
+                    if (WaitForSingleObject(state->stop_event.get(), failures > 1 ? listener_retry_milliseconds : 0) != WAIT_TIMEOUT)
+                        return;
+                    continue;
+                }
+                failures = 0;
 
                 // 다음 인스턴스를 먼저 만들어 이름이 비는 순간을 없앤다.
                 DWORD error { 0 };

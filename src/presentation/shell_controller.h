@@ -90,6 +90,9 @@ namespace cyella {
             // 저장소 폴더를 탐색기·VS Code 같은 앱으로 연다. driver가 diff의 외부 앱 열기와 같은 worker 길을 꽂는다.
             // 비어 있으면(test) 아무 일도 하지 않는다.
             std::function<void(const external_file_app& app, const std::u8string& folder)> open_folder_app {};
+            // 작업 영역 파일 메뉴의 "외부 diff 도구로 열기"다. 저장소 id와 그 파일의 작업 트리·스테이징 diff 요청을 넘기면 driver가
+            // diff 웹뷰의 외부 열기(`external_diff_opener`)와 같은 worker 길로 띄운다. 비어 있으면 아직 열 수 없다는 안내만 띄운다.
+            std::function<void(const std::string& repository_id, const diff_file_request& request)> open_external_diff {};
         };
 
         explicit shell_controller(dependencies dependencies);
@@ -166,6 +169,9 @@ namespace cyella {
         void save_tabs();
         void close_tab(repository_tab_id id);
         void select_tab_index(std::size_t index);
+        // 선택된 저장소가 바뀌었다(`before`는 바뀌기 전의 id). 앞 저장소에 묶인 대화 상자와 메뉴를 닫는다 — 둘 다 확인할 때
+        // 선택된 저장소에 내므로, 남겨 두면 다른 저장소에 실행된다. 입력 초안은 `sync_form_inputs`가 열쇠가 바뀐 것을 보고 지운다.
+        void close_repository_dialogs(const std::string& before);
         [[nodiscard]] tab_ui_state* selected_tab_state();
         [[nodiscard]] repository_session* selected_session();
         operation_id submit(git_operation operation);
@@ -189,6 +195,9 @@ namespace cyella {
         void handle_select_file(const select_file_intent& intent);
         // 그 파일의 diff를 그래프 자리에 연다.
         void open_file_diff(tab_ui_state& tab, diff_file_request request);
+        // relay를 비운 뒤다. 작업 영역 diff 요청의 추적 여부가 새 상태와 다르면(추적하게 됐거나 index에서 빠져 '?'로 돌아갔으면)
+        // 요청을 고쳐 다시 읽는다.
+        void refit_working_diffs();
         // 우클릭한 작업 영역 파일이 여러 파일 선택 안에 있으면 그 선택의 경로들이다 (고른 순서). 아니면 비어 있다.
         [[nodiscard]] std::vector<std::string> working_menu_paths(const tab_ui_state& tab, const menu_target& target) const;
         // 메뉴의 "버리기"가 낼 확인 요청이다. 여러 파일이면 작업 영역에서 추적하지 않는 파일(휴지통)과 추적 중인 파일(restore)로 가른다.
@@ -319,7 +328,8 @@ namespace cyella {
         bool handle_profile_message(const luil::app_message& message);
         // 선택된 저장소의 신원을 아직 읽지 않았으면 worker에게 읽게 한다. 규칙에 맞는 프로필이 있으면 한 번 제안한다.
         void sync_identity();
-        void apply_profile(const std::u8string& name);
+        // 프로필을 적용하라는 일감을 냈으면 true다. 프로필·저장소·worker가 없어 안내만 하고 돌아오면 false다.
+        bool apply_profile(const std::u8string& name);
         // 선택된 저장소의 로컬 `user.*`·`credential.username`·(앱이 쓴) `core.sshCommand`를 지운다. 전역 신원과 계정으로 돌아간다.
         void clear_local_identity();
         // 선택된 저장소에 로컬 신원·접속 계정 설정이 있는가 (지우기 단추를 켤지).
@@ -351,6 +361,8 @@ namespace cyella {
         [[nodiscard]] luil::text::text_edit_state* draft(text_target target);
         [[nodiscard]] std::shared_ptr<const std::vector<luil::virtual_list_item>> graph_items(const repository_session& session);
         [[nodiscard]] bool repository_exists(std::u8string_view path);
+        // 참조 목록 카드가 가리키는 칩의 자리를 바꾸는 지금 배치다(창 크기·배율·판 폭·그래프 generation·스크롤).
+        [[nodiscard]] ref_list_layout current_ref_list_layout();
 
         dependencies dependencies_ {};
         app_settings memory_settings_ {};
@@ -412,6 +424,9 @@ namespace cyella {
         std::optional<std::u8string> clipboard_text_ {};
         std::uint64_t temporary_counter_ { 0 };
         float last_scale_ { 1.0f };
+        // 마지막 frame의 창 크기(물리 픽셀)다. 참조 목록 카드를 연 때의 배치를 적는 데 쓴다.
+        float last_width_ { 0.0f };
+        float last_height_ { 0.0f };
 
         // ---- 저장소별 작성자 신원. 저장소 id가 열쇠다.
         struct identity_entry

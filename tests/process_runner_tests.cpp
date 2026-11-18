@@ -1,4 +1,5 @@
 #include "infrastructure/ssh_tools.h"
+#include "platform/win32/win32_diff_tool_launcher.h"
 #include "platform/win32/win32_process_runner.h"
 
 #include "process_test_support.h"
@@ -13,6 +14,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
     using namespace cyella;
@@ -69,6 +71,27 @@ namespace {
                 return true;
         return false;
     }
+
+    // 정해 둔 경로만 파일로 보이는 probe다. 현재 폴더를 실제로 바꾸면 같은 실행 파일의 다른 test에 새므로 디스크 대신 쓴다.
+    class listed_file_probe final : public file_probe
+    {
+    public:
+        explicit listed_file_probe(std::vector<std::u8string> files)
+            : files_ { std::move(files) }
+        {
+        }
+
+        [[nodiscard]] path_kind probe(const std::u8string_view absolute_path) const noexcept override
+        {
+            for (const std::u8string& file : files_)
+                if (file == absolute_path)
+                    return path_kind::file;
+            return path_kind::missing;
+        }
+
+    private:
+        std::vector<std::u8string> files_ {};
+    };
 } // namespace
 
 TEST_CASE("runner reports the exit code of a finished child", "[process]")
@@ -247,9 +270,27 @@ TEST_CASE("raw mode honors the capture cap and keeps draining", "[process][raw][
     REQUIRE(result.exit_code.has_value());
     CHECK(*result.exit_code == 5);
     CHECK(result.output_truncated);
+    CHECK(result.standard_output_truncated);
     CHECK(result.captured_bytes == 100000);
     CHECK(sink.standard_output_bytes == pattern_bytes(100000));
     CHECK(has_diagnostic(result, diagnostic_code::process_output_truncated, diagnostic_severity::warning));
+}
+
+TEST_CASE("only an overflowing stdout marks the standard output as truncated", "[process][raw][cap]")
+{
+    // stderr만 넘친 명령의 stdout은 온전하다. 둘을 가리지 못하면 해석기가 멀쩡한 status를 잘린 것으로 버린다.
+    const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
+    process_request request { make_child_request({ "write_text", "ok", "error_lines", "1000" }) };
+    request.standard_output_mode = process_output_mode::raw;
+    request.maximum_captured_bytes_per_stream = 100;
+    collecting_sink sink {};
+
+    const process_result result { runner->run(request, &sink, {}) };
+
+    CHECK(result.completion == process_completion::exited);
+    CHECK(result.output_truncated);
+    CHECK_FALSE(result.standard_output_truncated);
+    CHECK(sink.standard_output_bytes == "ok");
 }
 
 TEST_CASE("line mode honors the capture cap", "[process][cap]")
@@ -447,4 +488,51 @@ TEST_CASE("one runner instance serves concurrent runs", "[process]")
 
     for (std::future<process_result>& run : runs)
         CHECK(run.get().succeeded());
+}
+
+TEST_CASE("a bare tool name is not found in the current folder", "[process][diff_tool][search]")
+{
+    // 저장소 폴더(현재 폴더)에만 심어 둔 meld.exe는 찾는 목록에 없으므로 잡히지 않아야 한다.
+    const listed_file_probe probe { { u8"E:\\repo\\meld.exe" } };
+    const std::vector<std::u8string> directories { win32::tool_search_directories(u8"C:\\apps\\cyella", u8"C:\\Windows\\System32", u8"C:\\Windows", u8"") };
+
+    CHECK_FALSE(win32::resolve_tool_executable(u8"meld.exe", directories, probe).has_value());
+}
+
+TEST_CASE("a bare tool name resolves to the first listed folder that has it", "[process][diff_tool][search]")
+{
+    const listed_file_probe probe { { u8"C:\\Windows\\explorer.exe", u8"C:\\Tools\\Meld\\explorer.exe", u8"C:\\Tools\\Meld\\meld.exe" } };
+    const std::vector<std::u8string> directories { win32::tool_search_directories(u8"C:\\apps\\cyella", u8"C:\\Windows\\System32", u8"C:\\Windows", u8"C:\\Tools\\Meld\\") };
+
+    CHECK(win32::resolve_tool_executable(u8"explorer.exe", directories, probe) == std::optional<std::u8string> { u8"C:\\Windows\\explorer.exe" });
+    CHECK(win32::resolve_tool_executable(u8"meld.exe", directories, probe) == std::optional<std::u8string> { u8"C:\\Tools\\Meld\\meld.exe" });
+}
+
+TEST_CASE("a bare tool name without an extension gets .exe like CreateProcess", "[process][diff_tool][search]")
+{
+    const listed_file_probe probe { { u8"C:\\Windows\\System32\\cmd.exe", u8"C:\\Windows\\System32\\cmd" } };
+    const std::vector<std::u8string> directories { win32::tool_search_directories({}, u8"C:\\Windows\\System32", {}, {}) };
+
+    CHECK(win32::resolve_tool_executable(u8"cmd", directories, probe) == std::optional<std::u8string> { u8"C:\\Windows\\System32\\cmd.exe" });
+    // 확장자가 있으면 PATHEXT처럼 다른 확장자를 덧대지 않는다.
+    CHECK_FALSE(win32::resolve_tool_executable(u8"code.cmd", directories, probe).has_value());
+}
+
+TEST_CASE("a tool name with a separator or a drive is passed through unchanged", "[process][diff_tool][search]")
+{
+    // 상대 경로도 설정 화면이 받는 값이라 여기서 거절하거나 고치지 않는다.
+    const listed_file_probe probe { std::vector<std::u8string> {} };
+    const std::vector<std::u8string> directories { win32::tool_search_directories({}, u8"C:\\Windows\\System32", {}, {}) };
+
+    for (const std::u8string_view executable : { u8"tools\\diff.exe", u8"tools/diff", u8"C:tool.exe", u8"C:\\Program Files\\Meld\\meld.exe" })
+        CHECK(win32::resolve_tool_executable(executable, directories, probe) == std::optional<std::u8string> { std::u8string { executable } });
+}
+
+TEST_CASE("the tool search skips relative PATH entries and empty folders", "[process][diff_tool][search]")
+{
+    const std::vector<std::u8string> directories {
+        win32::tool_search_directories({}, u8"C:\\Windows\\System32", u8"relative", u8".;;bin;\\rooted;C:tools;\"C:\\Program Files\\Git\\cmd\";D:\\bin"),
+    };
+
+    CHECK(directories == std::vector<std::u8string> { u8"C:\\Windows\\System32", u8"C:\\Program Files\\Git\\cmd", u8"D:\\bin" });
 }

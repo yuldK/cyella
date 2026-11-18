@@ -205,9 +205,10 @@ namespace cyella::ui {
                 set_text_tooltip(*this, tr(u8"tree.selector_tooltip", { { u8"caption", caption_ }, { u8"value", value_ } }));
                 set_cursor(luil::ui_cursor::hand);
                 // 목록의 자리는 이 상자의 왼쪽 아래다. 배치가 끝난 뒤의 자리를 눌렀을 때 읽는다 (물리 픽셀).
+                //  - 알약의 아래 끝은 상자 바닥에서 `5 * scale`만큼 위다 (`draw`). 같은 만큼 올려야 어느 배율에서도 목록과 알약 사이가 같다.
                 const auto open_list = [this, kind](const luil::ui_action_context&) -> std::vector<luil::input_action> {
                     const luil::rect_f box { bounds() };
-                    return { message(open_selector_intent { kind, box.x, box.y + box.height - 5.0f, box.width }) };
+                    return { message(open_selector_intent { kind, box.x, box.y + box.height - 5.0f * scale_, box.width }) };
                 };
                 set_action(luil::ui_trigger::left_click, open_list);
                 // 보조 기술(UIA Invoke)도 같은 길로 목록을 연다.
@@ -217,6 +218,7 @@ namespace cyella::ui {
             void arrange(const luil::arrange_context& context) override
             {
                 set_bounds(context.slot);
+                scale_ = context.scale > 0.0f ? context.scale : 1.0f;
             }
 
             [[nodiscard]] luil::access_info accessibility() const override
@@ -256,6 +258,8 @@ namespace cyella::ui {
             std::u8string value_ {};
             std::u8string tail_ {};
             bool open_ { false };
+            // 마지막 배치의 배율이다. 눌렀을 때 목록이 붙을 자리(물리 픽셀)를 배율에 맞춰 구한다.
+            float scale_ { 1.0f };
         };
 
         // 툴바 묶음 사이의 세로 구분선이다.
@@ -315,7 +319,8 @@ namespace cyella::ui {
             row->add_flexible_gap();
             row->add(std::make_unique<separator_element>(u8"toolbar-separator-2"), toolbar_separator_width);
             tool(u8"branch", codicons::icon_git_branch, tr(u8"tree.toolbar.branch"), tr(u8"tree.toolbar.branch_tooltip"), toolbar.branch_enabled, toolbar_action::branch);
-            tool(u8"stash", codicons::icon_git_stash, tr(u8"tree.toolbar.stash"), tr(u8"tree.toolbar.stash_tooltip"), toolbar.stash_enabled, toolbar_action::stash);
+            // 첫 커밋 전처럼 꺼진 이유가 있으면 그 이유를 툴팁으로 보인다.
+            tool(u8"stash", codicons::icon_git_stash, tr(u8"tree.toolbar.stash"), toolbar.stash_hint.empty() ? tr(u8"tree.toolbar.stash_tooltip") : toolbar.stash_hint, toolbar.stash_enabled, toolbar_action::stash);
             tool(u8"pop", codicons::icon_git_stash_pop, tr(u8"tree.toolbar.pop"), tr(u8"tree.toolbar.pop_tooltip"), toolbar.pop_enabled, toolbar_action::pop);
             row->add(std::make_unique<separator_element>(u8"toolbar-separator-3"), toolbar_separator_width);
             // 저장소 폴더를 다른 앱으로 연다. 고를 앱 목록을 단추 밑에 펼치므로 누른 순간의 단추 자리를 함께 보낸다.
@@ -495,12 +500,16 @@ namespace cyella::ui {
             const color_selector dim { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
             body->add(make_text(u8"clone-url-label", tr(u8"tree.clone.url_label"), text_style { .size = 11.0f, .color = dim }), 16.0f);
             luil::text_input_config url_config { .placeholder = tr(u8"tree.clone.url_placeholder") };
-            body->add(std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_clone_url_input, u8"clone-url" }, dialog.url, std::move(url_config)), 28.0f);
+            // clone이 도는 동안 칸을 고치면 명령 미리보기와 실제로 받는 곳이 어긋나 보이므로 끈다.
+            auto url_input { std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_clone_url_input, u8"clone-url" }, dialog.url, std::move(url_config)) };
+            url_input->set_enabled(dialog.running == false);
+            body->add(std::move(url_input), 28.0f);
             body->add(make_text(u8"clone-path-label", tr(u8"tree.clone.path_label"), text_style { .size = 11.0f, .color = dim }), 16.0f);
             auto path_row
                 = std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"clone-path-row" }, luil::stack_config { .direction = luil::stack_direction::row, .spacing = 6.0f });
-            path_row->add_flexible(
-                std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_clone_path_input, u8"clone-path" }, dialog.path, luil::text_input_config { .placeholder = u8"path\\to\\repo" }));
+            auto path_input { std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_clone_path_input, u8"clone-path" }, dialog.path, luil::text_input_config { .placeholder = u8"path\\to\\repo" }) };
+            path_input->set_enabled(dialog.running == false);
+            path_row->add_flexible(std::move(path_input));
             path_row->add(
                 make_text_button(u8"clone-browse", tr(u8"tree.clone.browse"), luil::text_button_visual::normal, ui_command(static_cast<std::uint32_t>(ui_command_id::clone_target_folder))), 86.0f);
             body->add(std::move(path_row), 28.0f);

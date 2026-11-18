@@ -70,6 +70,9 @@ namespace cyella {
                 return change_classification::repository_state;
             if (components.size() == 1 && equals_name(first, u8"packed-refs"))
                 return change_classification::repository_state;
+            // 연결된 worktree의 gitdir에는 config가 없다. 브랜치의 upstream은 공용 디렉터리의 config에 산다.
+            if (common_directory && components.size() == 1 && equals_name(first, u8"config"))
+                return change_classification::repository_state;
             // 아래 항목은 worktree마다 따로 있다. 공용 디렉터리의 것은 다른 worktree의 상태다.
             if (common_directory)
                 return change_classification::ignored;

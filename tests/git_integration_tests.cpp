@@ -4,6 +4,7 @@
 #include "infrastructure/git_diff_parser.h"
 #include "infrastructure/git_error_classifier.h"
 #include "infrastructure/git_log_parser.h"
+#include "infrastructure/git_query_parser.h"
 #include "infrastructure/git_ref_parser.h"
 #include "infrastructure/git_stash_parser.h"
 #include "infrastructure/git_status_parser.h"
@@ -304,6 +305,16 @@ TEST_CASE("integration: real git output flows through every read parser", "[git]
         for (const diff_file& file : root_diff)
             CHECK(file.status == 'A');
     }
+
+    SECTION("the root commit lists its files even when the user turned log.showRoot off")
+    {
+        run_ok(repo, std::vector<std::string> { "config", "log.showRoot", "false" });
+
+        const std::vector<file_change> files { parse_git_name_status(run_ok(repo, make_git_commit_name_status_args(root_sha, false)).standard_output) };
+        REQUIRE(files.size() == 4);
+        for (const file_change& file : files)
+            CHECK(file.status == 'A');
+    }
 }
 
 TEST_CASE("integration: write commands run and leave the repository in the expected state", "[git][integration]")
@@ -426,6 +437,21 @@ TEST_CASE("integration: write commands run and leave the repository in the expec
         // 어긋난 patch는 실패하고 stderr가 남는다.
         const git_run_result failed { run_failing(repo, make_git_apply_args(check), "garbage that is not a patch\n") };
         CHECK_FALSE(failed.standard_error.empty());
+    }
+
+    SECTION("apply stages a hunk with trailing whitespace as shown even when apply.whitespace is fix")
+    {
+        // 사용자 설정이 공백을 고쳐 적용하면 index가 작업 트리와 달라져 보인 것과 다른 내용이 커밋된다.
+        run_ok(repo, std::vector<std::string> { "config", "apply.whitespace", "fix" });
+        write(repo, "a.txt", "one\ntwo  \n");
+        const std::string patch { run_ok(repo, make_git_diff_args("a.txt", diff_source::unstaged)).standard_output };
+        REQUIRE_FALSE(patch.empty());
+
+        run_ok(repo, make_git_apply_args(), patch);
+        CHECK(run_ok(repo, std::vector<std::string> { "show", ":a.txt" }).standard_output == "one\ntwo  \n");
+        const git_status_result status { status_of(repo) };
+        CHECK(status.staged.size() == 1);
+        CHECK(status.unstaged.empty());
     }
 
     SECTION("stash push pop apply drop")
@@ -556,6 +582,34 @@ TEST_CASE("integration: write commands run and leave the repository in the expec
         const git_run_result missing { run_failing(repo, make_git_ls_remote_tags_args((directory.path() / "nowhere").string())) };
         CHECK(classify_git_failure(missing.standard_error, missing.standard_output) == git_failure_kind::repository_not_found);
     }
+}
+
+TEST_CASE("integration: files staged before the first commit can be unstaged", "[git][integration]")
+{
+    if (cyella::test::git_is_available() == false)
+        SKIP("git is not installed");
+
+    // `restore --staged`는 HEAD가 없으면 "could not resolve HEAD"로 실패한다.
+    const cyella::test::temp_directory directory {};
+    const std::filesystem::path repo { make_repository(directory, "unborn") };
+    write(repo, "a.txt", "a\n");
+    write(repo, "b.txt", "b\n");
+    run_ok(repo, make_git_add_args(strings { "a.txt", "b.txt" }));
+    REQUIRE(status_of(repo).staged.size() == 2);
+
+    run_ok(repo, make_git_restore_staged_args(strings { "a.txt" }));
+    git_status_result status { status_of(repo) };
+    REQUIRE(status.staged.size() == 1);
+    CHECK(status.staged[0].path == "b.txt");
+    REQUIRE(status.unstaged.size() == 1);
+    CHECK(status.unstaged[0].path == "a.txt");
+    CHECK(status.unstaged[0].status == '?');
+
+    // 경로 목록을 stdin으로 넘기는 판
+    run_ok(repo, make_git_restore_staged_from_stdin_args(), std::string { "b.txt" } + '\0');
+    status = status_of(repo);
+    CHECK(status.staged.empty());
+    CHECK(status.unstaged.size() == 2);
 }
 
 TEST_CASE("integration: remote commands run against a local bare repository", "[git][integration]")

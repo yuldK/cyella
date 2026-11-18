@@ -233,6 +233,34 @@ TEST_CASE("prompt kinds map to the dialog kind with the answer style", "[workspa
     }
 }
 
+TEST_CASE("an unrecognized prompt that names a secret is masked", "[workspace][auth]")
+{
+    struct expectation
+    {
+        std::u8string_view text;
+        bool secret;
+    };
+    // 분류기가 모르는 질문도 원문 마지막 줄이 비밀을 가리키면 입력을 가린다. 보안 키 PIN이 평문으로 보이면 안 된다.
+    const std::vector<expectation> expectations {
+        { u8"Enter PIN for ED25519-SK key C:/Users/x/.ssh/id_ed25519_sk: ", true },
+        { u8"(user@host) Password: ", true },
+        { u8"Enter your OATH response: ", false },
+    };
+
+    for (const expectation& expected : expectations)
+    {
+        auth_harness test {};
+        const operation_id id { test.start_fetch() };
+        reply_recorder reply {};
+        test.ask(id, 1, expected.text, reply.callback());
+
+        const operation_status& status { test.status(id) };
+        INFO(std::string(expected.text.begin(), expected.text.end()));
+        REQUIRE(status.needs_input.has_value());
+        CHECK(status.needs_input->secret == expected.secret);
+    }
+}
+
 TEST_CASE("a host key prompt keeps the details the dialog shows", "[workspace][auth]")
 {
     auth_harness test {};
@@ -648,6 +676,30 @@ TEST_CASE("connect this time only sets GIT_SSH_COMMAND for that operation and re
     for (const test::recorded_call& call : test.process.calls())
         if (call.arguments.empty() == false && call.arguments.front() != "fetch")
             CHECK_FALSE(call.variable(u8"GIT_SSH_COMMAND").has_value());
+}
+
+TEST_CASE("closing the repository releases a pending prompt and ends the operation", "[workspace][auth]")
+{
+    auth_harness test {};
+    const operation_id id { test.start_fetch() };
+    reply_recorder reply {};
+    test.ask(id, 7, u8"Enter passphrase for key 'C:/k': ", reply.callback());
+    REQUIRE(test.status(id).state == operation_state::needs_input);
+
+    REQUIRE(test.workspace.close_repository(test.repository));
+
+    // 결과를 받을 탭이 없으니 대화 상자를 닫고 기록도 취소로 끝낸다.
+    REQUIRE(reply.replies.size() == 1);
+    CHECK_FALSE(reply.replies[0].answered);
+    CHECK(test.status(id).state == operation_state::cancelled);
+    CHECK_FALSE(test.status(id).needs_input.has_value());
+    REQUIRE_FALSE(test.service.cancelled_operations.empty());
+    CHECK(test.service.cancelled_operations.front() == operation_text(id));
+    // 닫은 뒤에 도착한 질문은 대화 상자 없이 바로 취소된다.
+    reply_recorder late {};
+    test.ask(id, 8, u8"Enter passphrase for key 'C:/k': ", late.callback());
+    REQUIRE(late.replies.size() == 1);
+    CHECK_FALSE(late.replies[0].answered);
 }
 
 TEST_CASE("the temporary known_hosts file is removed even when the operation was cancelled before it ran", "[workspace][auth]")

@@ -7,6 +7,7 @@
 
 #include "luil/ui/ui_element.h"
 #include "luil/ui/ui_tree.h"
+#include "luil/ui/virtual_list_element.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -105,16 +106,23 @@ namespace cyella::ui {
     [[nodiscard]] const luil::ui_element* find_ref_overflow_at(const luil::ui_tree& tree, luil::point_f point);
 
     // 그래프 목록 위의 열 머리다.
+    //  - 제목은 행의 열 위에 서야 하므로 행과 같은 폭으로 열을 나눈다. 목록이 세로 막대를 세우면 행은 막대 폭만큼 좁다.
     class graph_header_element final : public luil::ui_element
     {
     public:
         explicit graph_header_element(graph_columns columns);
+
+        // 열을 나눌 폭을 이 목록의 행 폭에 맞춘다. 목록은 같은 tree 안에 서야 하고, 막대를 세웠는지는 배치가 끝난 뒤 목록에서 읽는다.
+        void follow(const luil::virtual_list_element& list) noexcept;
+        // 열을 나누는 폭이다 (물리 픽셀). 배치가 끝난 뒤에 유효하다.
+        [[nodiscard]] float columns_width(float scale) const noexcept;
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
 
     private:
         graph_columns columns_ {};
+        const luil::virtual_list_element* list_ { nullptr };
     };
 
     // 라벨 칩 하나의 폭이다 (물리 픽셀). 상세 패널의 라벨 줄도 같은 그림을 쓴다.

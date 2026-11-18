@@ -300,17 +300,4 @@ namespace cyella {
         const std::size_t previous_begin { previous_end == 0 ? 0 : (text.rfind(u8'\n', previous_end - 1) == std::u8string_view::npos ? 0 : text.rfind(u8'\n', previous_end - 1) + 1) };
         place_caret(state, previous_begin + offset_at_column(text.substr(previous_begin, previous_end - previous_begin), column), extend);
     }
-
-    void move_text_caret_line_edge(luil::text::text_edit_state& state, const bool end, const bool extend)
-    {
-        const std::u8string_view text { state.text };
-        const std::size_t caret { std::min(state.caret, text.size()) };
-        if (end)
-        {
-            place_caret(state, std::min(text.find(u8'\n', caret), text.size()), extend);
-            return;
-        }
-        const std::size_t previous { caret == 0 ? std::u8string_view::npos : text.rfind(u8'\n', caret - 1) };
-        place_caret(state, previous == std::u8string_view::npos ? 0 : previous + 1, extend);
-    }
 } // namespace cyella

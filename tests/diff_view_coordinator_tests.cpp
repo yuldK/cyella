@@ -70,7 +70,14 @@ namespace {
             return std::nullopt;
         }
 
+        void release(const extracted_sides& sides) noexcept override
+        {
+            if (sides.left.file.empty() == false || sides.right.file.empty() == false)
+                released.push_back(sides.left.file);
+        }
+
         std::vector<diff_side_plan> extractions {};
+        std::vector<std::u8string> released {};
         bool last_write_files { false };
         bool saw_cancellation { false };
         extracted_sides result {};
@@ -208,6 +215,65 @@ TEST_CASE("stage hunk submits apply_patch to the shown repository and re-reads t
     CHECK(test.coordinator.take_notice() == std::nullopt);
 }
 
+TEST_CASE("staging part of an untracked file re-reads it as a tracked file", "[diff][coordinator]")
+{
+    // stage는 파일을 index에 넣으므로 다시 읽기는 더는 `/dev/null`과 비교하지 않는다.
+    harness test {};
+    file_diff diff { text_file_diff() };
+    diff.request.untracked = true;
+    test.show(diff);
+    REQUIRE(test.coordinator.handle_web_message(test.action({ { "type", "stage_lines" }, { "hunk", 0 }, { "ranges", json::array({ json::array({ 2, 3 }) }) } })).accepted);
+    test.coordinator.on_operation_finished(100, finished_with(operation_state::succeeded));
+    REQUIRE(test.submitted.size() == 2);
+    const diff_file_request& reload { test.submitted_request<diff_file_request>(1) };
+    CHECK_FALSE(reload.untracked);
+    CHECK(reload.path == diff.request.path);
+    CHECK(reload.view == diff.request.view);
+    CHECK(reload.context_lines == diff.request.context_lines);
+    // 보이는 대상은 화면이 원하는 요청 그대로다. 바꾸면 `sync`가 화면 요청과 맞지 않는다고 보고 지운다.
+    REQUIRE(test.coordinator.shown().has_value());
+    CHECK(test.coordinator.shown()->request.untracked);
+}
+
+TEST_CASE("a re-read with the fixed request unlocks the viewer while the status refresh has not caught up", "[diff][coordinator]")
+{
+    // 적용 뒤의 refresh가 실패하면 화면 요청은 untracked 그대로 남는다. 고친 요청의 diff가 오면 그래도 보여 단추가 풀려야 한다.
+    harness test {};
+    file_diff diff { text_file_diff() };
+    diff.request.untracked = true;
+    test.show(diff);
+    const diff_target wanted { target_of(diff) };
+    REQUIRE(test.coordinator.handle_web_message(test.action({ { "type", "stage_lines" }, { "hunk", 0 }, { "ranges", json::array({ json::array({ 2, 3 }) }) } })).accepted);
+    CHECK_FALSE(test.coordinator.controller().can_stage());
+    test.coordinator.on_operation_finished(100, finished_with(operation_state::succeeded));
+    test.coordinator.on_operation_finished(101, finished_with(operation_state::succeeded));
+    CHECK_FALSE(test.coordinator.busy());
+
+    // 다른 요청의 diff(다른 보기)는 여전히 보이지 않는다.
+    file_diff other { text_file_diff(diff_view::staged) };
+    test.coordinator.sync(wanted, &other, test.serial + 1);
+    CHECK_FALSE(test.coordinator.controller().can_stage());
+
+    file_diff reloaded { text_file_diff() };
+    reloaded.request = test.submitted_request<diff_file_request>(1);
+    REQUIRE_FALSE(reloaded.request.untracked);
+    test.coordinator.sync(wanted, &reloaded, test.serial + 2);
+    CHECK(test.coordinator.controller().poll());
+    CHECK(test.coordinator.controller().can_stage());
+    REQUIRE(test.coordinator.shown().has_value());
+    CHECK(test.coordinator.shown()->request == wanted.request);
+    // 같은 결과로 다시 맞추면 새로 보내지 않는다.
+    test.coordinator.sync(wanted, &reloaded, test.serial + 2);
+    CHECK_FALSE(test.coordinator.controller().poll());
+
+    // 화면이 따라오기 전에 줄을 버려도 다시 읽기는 고친 요청에서 시작한다.
+    REQUIRE(test.coordinator.handle_web_message(test.action({ { "type", "discard_lines" }, { "hunk", 0 }, { "ranges", json::array({ json::array({ 6, 7 }) }) } })).accepted);
+    REQUIRE(test.submitted.size() == 3);
+    test.coordinator.on_operation_finished(102, finished_with(operation_state::succeeded));
+    REQUIRE(test.submitted.size() == 4);
+    CHECK(test.submitted_request<diff_file_request>(3) == reloaded.request);
+}
+
 TEST_CASE("unstage and discard pick the matching git apply flags", "[diff][coordinator]")
 {
     SECTION("unstage reverses on the index")
@@ -315,6 +381,26 @@ TEST_CASE("an image diff prepares its two sides on the scheduler and shows them 
     REQUIRE(test.coordinator.controller().poll());
     const json message { json::parse(test.coordinator.controller().latest_message()) };
     CHECK(message.at("type") == "show_image");
+}
+
+TEST_CASE("preparing the next image preview releases the folder of the previous one", "[diff][coordinator]")
+{
+    harness test {};
+    const file_diff first { binary_file_diff("a.png") };
+    REQUIRE(test.coordinator.handle_web_message(ready_message).accepted);
+    test.coordinator.sync(target_of(first), &first, 1);
+    test.run_next_job();
+    // 처음에는 놓아줄 앞 미리보기가 없다.
+    CHECK(test.gateway.released.empty());
+    test.coordinator.sides_prepared(test.sides.at(0));
+
+    const file_diff second { binary_file_diff("b.png") };
+    test.gateway.result.left.file = u8"C:\\tmp\\2\\left\\b.png";
+    test.coordinator.sync(target_of(second), &second, 2);
+    test.run_next_job();
+    // 앞 미리보기의 사본만 놓아준다. 세션 동안 훑은 이미지마다 폴더가 쌓이지 않는다.
+    REQUIRE(test.gateway.released.size() == 1);
+    CHECK(test.gateway.released[0] == u8"C:\\tmp\\left\\logo.png");
 }
 
 TEST_CASE("a plain binary file shows the binary card when the sides could not be written", "[diff][coordinator]")

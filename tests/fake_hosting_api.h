@@ -328,6 +328,26 @@ namespace cyella::test {
             return result;
         }
 
+        // GitLab이 `path` 없이 온 표시 이름에서 저장소 경로를 만드는 것을 흉내 낸다. 소문자로 바꾸고 허용 밖 글자는 `-`로 바꾸며,
+        // 이어진 `-`는 하나로 줄이고 앞뒤의 `-`는 뗀다. 남는 것이 없으면 빈 값이라 아래 검사가 거절한다.
+        [[nodiscard]] static std::string to_gitlab_path(const std::string& name)
+        {
+            std::string path {};
+            for (const char letter : name)
+            {
+                const bool kept { (letter >= 'a' && letter <= 'z') || (letter >= '0' && letter <= '9') || letter == '.' || letter == '_' || letter == '-' };
+                if (letter >= 'A' && letter <= 'Z')
+                    path.push_back(static_cast<char>(letter - 'A' + 'a'));
+                else if (kept)
+                    path.push_back(letter);
+                else if (path.empty() == false && path.back() != '-')
+                    path.push_back('-');
+            }
+            while (path.empty() == false && path.back() == '-')
+                path.pop_back();
+            return path;
+        }
+
         // GitHub는 `owner`가 URL에서 오고, GitLab은 본문의 `namespace_id`(없으면 내 계정)에서 온다. 첫 커밋을 만들지 않는 빈 저장소다.
         [[nodiscard]] fake_response create_repository(const fake_request& request, std::string owner)
         {
@@ -336,6 +356,19 @@ namespace cyella::test {
                 return json_response({ { "message", "Problems parsing JSON" } }, 400);
             const std::string name { body.value("name", "") };
             const bool github { kind_ == flavor::github };
+            // 실제 서버처럼 저장소 경로는 영문·숫자·`.`·`_`·`-`만 받는다(GitLab은 표시 이름과 따로 오는 `path`다). 받아 주면 따옴표·`&`·
+            // 공백이 든 이름이 시험 서버의 clone 명령까지 흘러 엉뚱한 결과로 성공한 것처럼 보인다.
+            //  - GitLab은 `path`가 없으면 표시 이름에서 경로를 만든다. 앱은 `My Project`처럼 경로 꼴이 아닌 이름이면 `path`를 빼고 보낸다.
+            //  - GitLab의 표시 이름은 공백·한글을 받지만 따옴표·`&`는 거절한다.
+            const bool explicit_path { github == false && body.contains("path") };
+            const std::string slug { github ? name : explicit_path ? body.value("path", "") : to_gitlab_path(name) };
+            const bool slug_allowed {
+                slug.empty() == false && slug.find("..") == std::string::npos
+                && std::ranges::all_of(slug, [](const char letter) { return (letter >= 'A' && letter <= 'Z') || (letter >= 'a' && letter <= 'z') || (letter >= '0' && letter <= '9') || letter == '.' || letter == '_' || letter == '-'; })
+            };
+            const bool name_allowed { github || name.find_first_of("\"&") == std::string::npos };
+            if (slug_allowed == false || name_allowed == false)
+                return json_response({ { "message", "name is invalid" } }, 422);
             if (github == false)
             {
                 owner = user_;
@@ -344,7 +377,8 @@ namespace cyella::test {
                         if (group_id == id->get<std::uint64_t>())
                             owner = group;
             }
-            const std::string full { owner + "/" + name };
+            // 저장소 주소는 표시 이름이 아니라 경로로 만든다(GitLab의 `path_with_namespace`).
+            const std::string full { owner + "/" + slug };
             if (std::ranges::find(created_repositories_, full) != created_repositories_.end())
             {
                 if (github)

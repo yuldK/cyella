@@ -872,7 +872,12 @@ namespace cyella {
                 result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_invalid, diagnostic_severity::warning, std::move(message)));
             }
             else
+            {
+                // 원본이 그대로 남아 있다. 이 상태로 저장하면 사용자가 손으로 고칠 수 있었던 파일이 백업 없이 기본값으로 교체되므로
+                // 읽지 못한 파일과 같게 이번 실행 동안은 저장하지 않는다.
+                result.read_failed = true;
                 result.diagnostics.push_back(make_diagnostic(diagnostic_code::app_settings_backup_failed, diagnostic_severity::warning, tr(u8"app_settings.corrupt_backup_failed"), backup_error));
+            }
             return result;
         }
         catch (...)

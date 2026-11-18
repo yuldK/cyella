@@ -302,6 +302,8 @@ TEST_CASE("a failed backup is reported but loading still gives defaults", "[json
     CHECK(loaded.settings == app_settings {});
     REQUIRE(loaded.diagnostics.size() == 1);
     CHECK(loaded.diagnostics[0].code == diagnostic_code::app_settings_backup_failed);
+    // 원본이 남아 있으므로 소비자가 이번 실행 동안 저장하지 않도록 읽기 실패로도 알린다.
+    CHECK(loaded.read_failed);
 }
 
 TEST_CASE("a UTF-8 BOM before the JSON is accepted", "[json_app_settings]")
@@ -569,6 +571,28 @@ TEST_CASE("a missing or corrupt file does not make the service read only", "[jso
         CHECK(file_system.commit_count == 1);
         CHECK(file_system.files.contains(settings_path + u8".bad-20261020T093012Z"));
     }
+}
+
+TEST_CASE("a corrupt file that could not be backed up is not overwritten by the service", "[json_app_settings]")
+{
+    const std::u8string original { u8"{ broken" };
+    fake_file_system file_system {};
+    file_system.files[settings_path] = original;
+    file_system.fail_renames = true;
+    json_app_settings_store store { file_system, fixed_clock() };
+    app_settings_service service { store, settings_path };
+
+    // 백업이 없으면 원본이 유일한 사본이라, 손으로 고칠 수 있도록 이번 실행에서는 쓰지 않는다.
+    REQUIRE(service.load().size() == 1);
+    CHECK(service.is_read_only());
+
+    const std::vector<diagnostic> skipped { service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }) };
+
+    REQUIRE(skipped.size() == 1);
+    CHECK(skipped[0].code == diagnostic_code::app_settings_write_failed);
+    CHECK(file_system.commit_count == 0);
+    CHECK(file_system.files.at(settings_path) == original);
+    CHECK(service.has_unsaved_changes());
 }
 
 TEST_CASE("backup timestamp has no characters that are invalid in file names", "[json_app_settings]")

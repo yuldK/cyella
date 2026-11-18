@@ -9,6 +9,8 @@
 namespace cyella {
     namespace {
         constexpr std::u8string_view utf8_replacement_character { u8"�" };
+        // 긴 줄을 강제로 나눌 때 공백을 찾아 거슬러 올라가는 최대 거리다. URL과 token 하나를 담기에 넉넉하다.
+        constexpr std::size_t word_split_window { 1024u };
 
         constexpr bool is_continuation_byte(const char8_t value) noexcept
         {
@@ -201,6 +203,10 @@ namespace cyella {
     {
         for (const char8_t value : bytes)
         {
+            // Windows text 모드로 `\r\n`을 한 번 더 바꾼 hook은 `\r\r\n`을 낸다. 연속된 `\r`을 하나로 접지 않으면
+            // 그 줄이 진행 표시로 분류되어 실패 설명에서 빠진다.
+            if (pending_carriage_return_ && value == u8'\r')
+                continue;
             if (pending_carriage_return_)
             {
                 pending_carriage_return_ = false;
@@ -238,6 +244,15 @@ namespace cyella {
                 split = utf8_split_position(pending_);
             if (split == 0)
                 split = pending_.size();
+            // 조각마다 따로 마스킹하므로 `https://user:token@host`가 경계에서 갈리면 어느 조각에서도 비밀로 알아보지
+            // 못한다. 경계 가까이에 공백이 있으면 그 뒤에서 끊어 낱말을 다음 조각에 온전히 넘긴다. 다만 앞 조각의
+            // 끝이 이미 가려지면(`--password VAL`, `Authorization: Bearer VAL`) 값이 공백 뒤에서 시작하므로, 옮기면
+            // 값 전체가 이름 없이 다음 조각으로 가 가려지지 않는다. 그때는 원래 경계를 쓴다.
+            // 공백과 탭은 UTF-8과 DBCS code page 모두에서 문자 경계이고, 앞 조각은 원래 크기의 절반 이상을 지킨다.
+            const std::size_t window_start { split - std::min(word_split_window, split / 2) };
+            if (const std::size_t space { pending_.find_last_of(u8" \t", split - 1) }; space != std::u8string::npos && space >= window_start
+                && mask_secrets(std::u8string_view { pending_ }.substr(0, split)).ends_with(secret_mask) == false)
+                split = space + 1;
             std::u8string remainder { pending_.substr(split) };
             pending_.resize(split);
             emit(false, true, handler);

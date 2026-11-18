@@ -32,12 +32,12 @@ namespace cyella::win32 {
         return path;
     }
 
-    std::u8string app_settings_file_path()
+    std::u8string roaming_app_data_folder()
     {
         try
         {
             PWSTR known_folder { nullptr };
-            const HRESULT result { SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &known_folder) };
+            const HRESULT result { SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, nullptr, &known_folder) };
             if (FAILED(result) || known_folder == nullptr)
             {
                 CoTaskMemFree(known_folder);
@@ -48,8 +48,34 @@ namespace cyella::win32 {
             CoTaskMemFree(known_folder);
             if (converted.value.has_value() == false)
                 return {};
+            return *converted.value;
+        }
+        catch (...)
+        {
+            return {};
+        }
+    }
 
-            std::u8string path { app_settings_file_path_under(*converted.value) };
+    std::u8string app_settings_file_path()
+    {
+        try
+        {
+            const std::u8string roaming { roaming_app_data_folder() };
+            if (roaming.empty())
+                return {};
+            return prepared_app_settings_file_path_under(roaming);
+        }
+        catch (...)
+        {
+            return {};
+        }
+    }
+
+    std::u8string prepared_app_settings_file_path_under(const std::u8string_view roaming_app_data)
+    {
+        try
+        {
+            std::u8string path { app_settings_file_path_under(roaming_app_data) };
             if (path.empty())
                 return {};
 

@@ -62,7 +62,7 @@ namespace cyella {
         menu_model submodules_section_menu(const menu_context& context)
         {
             menu_model model {};
-            model.title = u8"SUBMODULES";
+            model.title = tr(u8"repo.section.submodules");
             const bool any { context.submodules.empty() == false };
             add_group(model.entries,
                 {
@@ -99,7 +99,7 @@ namespace cyella {
         menu_model worktrees_section_menu(const menu_context& context)
         {
             menu_model model {};
-            model.title = u8"WORKTREES";
+            model.title = tr(u8"repo.section.worktrees");
             const bool prunable { std::ranges::any_of(context.worktrees, [](const worktree_info& info) { return info.prunable; }) };
             add_group(model.entries,
                 {
@@ -160,6 +160,8 @@ namespace cyella {
         case menu_target_kind::tags_section:
         case menu_target_kind::drop:
         case menu_target_kind::commit_file:
+        case menu_target_kind::tab:
+        case menu_target_kind::tab_list:
             break;
         }
         return {};

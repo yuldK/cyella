@@ -172,7 +172,28 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
         REQUIRE(ui.controller.poll());
         ui.controller.set_layout(diff_layout::split);
         REQUIRE(ui.controller.poll());
-        CHECK(ui.latest() == json::parse(R"({"type":"set_layout","seq":3,"layout":"split"})"));
+        CHECK(ui.latest() == json::parse(R"({"type":"set_layout","seq":3,"content_seq":2,"layout":"split"})"));
+    }
+
+    SECTION("a small message names the content it follows so a page that missed it can ask again")
+    {
+        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        REQUIRE(ui.controller.poll());
+        const std::uint64_t shown { ui.controller.content_seq() };
+        // 내용 메시지가 페이지에 닿기 전에 다음 frame의 set_theme이 그 자리를 덮었다고 본다.
+        diff_theme theme {};
+        theme.mode = diff_theme_mode::light;
+        ui.controller.set_theme(theme);
+        REQUIRE(ui.controller.poll());
+        CHECK(ui.latest().at("type") == "set_theme");
+        CHECK(ui.latest().at("content_seq") == shown);
+
+        // 페이지가 다시 `ready`를 보내면 같은 diff를 새 seq로 다시 받는다.
+        REQUIRE(ui.controller.handle_web_message(ready_message).accepted);
+        REQUIRE(ui.controller.poll());
+        CHECK(ui.latest().at("type") == "show_diff");
+        CHECK(ui.latest().at("theme").at("mode") == "light");
+        CHECK(ui.controller.content_seq() > shown);
     }
 
     SECTION("a single theme change is a small message")
@@ -376,6 +397,32 @@ TEST_CASE("actions the current view does not allow are refused", "[diff][control
         CHECK(ui.latest().at("can_stage") == true);
         CHECK(ui.latest().at("can_discard") == false);
         CHECK_FALSE(accepted(ui.controller, "discard_hunk"));
+        CHECK(accepted(ui.controller, "stage_hunk"));
+    }
+
+    SECTION("intent-to-add file: stage but never discard")
+    {
+        // `git add -N` 파일은 추적되지만 unstaged diff가 새 파일이다. 되돌리면 커밋된 적 없는 내용이 휴지통 없이 사라진다.
+        page ui {};
+        const std::string text = join_lines({
+            "diff --git a/n.txt b/n.txt",
+            "new file mode 100644",
+            "index 0000000..814f4a4",
+            "--- /dev/null",
+            "+++ b/n.txt",
+            "@@ -0,0 +1,2 @@",
+            "+one",
+            "+two",
+        });
+        static_cast<void>(ui.controller.show(make_diff(text, "n.txt", diff_view::unstaged, false), u8"C:\\repo"));
+        REQUIRE(ui.controller.poll());
+        REQUIRE(ui.latest().at("file").at("status") == "A");
+        CHECK(ui.latest().at("can_stage") == true);
+        CHECK(ui.latest().at("can_discard") == false);
+        CHECK_FALSE(ui.controller.can_discard());
+        CHECK_FALSE(accepted(ui.controller, "discard_hunk"));
+        json lines { { "type", "discard_lines" }, { "seq", ui.controller.content_seq() }, { "hunk", 0 }, { "ranges", json::array({ json::array({ 0, 0 }) }) } };
+        CHECK_FALSE(ui.controller.handle_web_message(lines.dump()).accepted);
         CHECK(accepted(ui.controller, "stage_hunk"));
     }
 }

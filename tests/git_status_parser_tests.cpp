@@ -98,6 +98,31 @@ TEST_CASE("parse_git_status keeps the original path of a staged rename with spac
     CHECK(find_change(result.unstaged, "old_name.txt") == nullptr);
 }
 
+TEST_CASE("parse_git_status keeps the original path of a rename on the working tree side", "[git][status]")
+{
+    // `git add -N` 뒤의 이름 변경은 작업 트리 쪽(`.R`)에 나온다. 원래 경로는 다음 NUL 레코드다.
+    const std::string bytes = nul_terminated({
+        "2 .R N... 100644 100644 100644 aaaa bbbb R100 new name.txt",
+        "old name.txt",
+        "2 RM N... 100644 100644 100644 aaaa bbbb R90 other new.txt",
+        "other old.txt",
+    });
+    const git_status_result result { parse_git_status(bytes) };
+
+    REQUIRE(result.unstaged.size() == 2);
+    CHECK(result.unstaged[0].path == "new name.txt");
+    CHECK(result.unstaged[0].status == 'R');
+    CHECK(result.unstaged[0].original_path == "old name.txt");
+    // 스테이지된 이름 변경 옆의 작업 트리 수정에는 원래 경로를 붙이지 않는다.
+    CHECK(result.unstaged[1].path == "other new.txt");
+    CHECK(result.unstaged[1].status == 'M');
+    CHECK(result.unstaged[1].original_path.empty());
+
+    REQUIRE(result.staged.size() == 1);
+    CHECK(result.staged[0].original_path == "other old.txt");
+    CHECK(result.skipped_entry_count == 0);
+}
+
 TEST_CASE("parse_git_status reports untracked and ignored files", "[git][status]")
 {
     const git_status_result result { parse_git_status(cyella::test::read_fixture("status_basic.bin")) };

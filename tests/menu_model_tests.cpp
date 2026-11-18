@@ -301,6 +301,109 @@ TEST_CASE("a local branch menu fast-forwards that branch to the current one only
     }
 }
 
+TEST_CASE("branches checked out in another worktree are disabled in the delete and drop menus", "[presentation][menu][drop]")
+{
+    const graph_index index { history() };
+    menu_context context { main_context() };
+    context.refs.push_back({ .kind = ref_kind::local, .name = "busy", .target_sha = sha_of(5), .worktree_path = "C:/work/busy" });
+    context.refs.push_back({ .kind = ref_kind::local, .name = "wt", .target_sha = sha_of(9), .worktree_path = "C:/work/wt" });
+    const auto facts_for = [&index](const drop_party& source, const drop_party& destination) {
+        drop_facts facts {};
+        facts.destination_is_ancestor = index.is_ancestor(destination.sha, source.sha);
+        facts.source_is_ancestor = index.is_ancestor(source.sha, destination.sha);
+        facts.only_in_source = index.count(destination.sha, source.sha);
+        facts.only_in_destination = index.count(source.sha, destination.sha);
+        return facts;
+    };
+    const auto label_of = [](const menu_model& model, const std::u8string& key) {
+        const auto found { std::ranges::find(model.entries, key, &menu_entry::key) };
+        return found == model.entries.end() ? std::u8string {} : found->label;
+    };
+
+    SECTION("git refuses to delete it, so the menu says so instead of failing afterwards")
+    {
+        const menu_model model { build_context_menu({ .kind = menu_target_kind::local_branch, .name = "busy", .sha = sha_of(5) }, context) };
+        REQUIRE(has_entry(model, u8"delete"));
+        CHECK_FALSE(entry_enabled(model, u8"delete"));
+        CHECK(label_of(model, u8"delete").ends_with(u8"다른 worktree에서 사용 중"));
+        // 다른 브랜치의 삭제는 그대로 켜져 있다.
+        CHECK(entry_enabled(build_context_menu({ .kind = menu_target_kind::local_branch, .name = "feature", .sha = sha_of(9) }, context), u8"delete"));
+    }
+
+    SECTION("the drop target cannot be fast-forwarded or merged into")
+    {
+        menu_target target { .kind = menu_target_kind::drop, .source = local("feature", 9), .destination = local("busy", 5) };
+        context.facts = facts_for(target.source, target.destination);
+        const menu_model model { build_context_menu(target, context) };
+        REQUIRE(has_entry(model, u8"fast_forward"));
+        CHECK_FALSE(entry_enabled(model, u8"fast_forward"));
+        CHECK(label_of(model, u8"fast_forward").ends_with(u8"다른 worktree에서 사용 중"));
+        REQUIRE(has_entry(model, u8"merge"));
+        CHECK_FALSE(entry_enabled(model, u8"merge"));
+        CHECK(label_of(model, u8"merge").ends_with(u8"다른 worktree에서 사용 중"));
+    }
+
+    SECTION("the dragged branch cannot be rebased, but can still be merged somewhere")
+    {
+        menu_target target { .kind = menu_target_kind::drop, .source = local("wt", 9), .destination = local("main", 7) };
+        context.facts = facts_for(target.source, target.destination);
+        const menu_model model { build_context_menu(target, context) };
+        REQUIRE(has_entry(model, u8"rebase"));
+        CHECK_FALSE(entry_enabled(model, u8"rebase"));
+        CHECK(label_of(model, u8"rebase").ends_with(u8"다른 worktree에서 사용 중"));
+        CHECK_FALSE(entry_enabled(model, u8"interactive_rebase"));
+        CHECK(entry_enabled(model, u8"merge"));
+
+        // 같은 자리의 worktree 없는 브랜치는 rebase가 켜진다.
+        menu_target plain { .kind = menu_target_kind::drop, .source = local("feature", 9), .destination = local("main", 7) };
+        context.facts = facts_for(plain.source, plain.destination);
+        const menu_model plain_model { build_context_menu(plain, context) };
+        CHECK(entry_enabled(plain_model, u8"rebase"));
+        CHECK(entry_enabled(plain_model, u8"interactive_rebase"));
+    }
+
+    SECTION("with a remote branch target the dragged branch still has to be checked out first")
+    {
+        // merge_remote_into_source와 rebase는 끈 쪽 브랜치로 체크아웃하고 시작한다.
+        menu_target target { .kind = menu_target_kind::drop, .source = local("wt", 9), .destination = remote("origin/side", 7) };
+        context.facts = facts_for(target.source, target.destination);
+        const menu_model model { build_context_menu(target, context) };
+        REQUIRE(has_entry(model, u8"merge_remote_into_source"));
+        CHECK_FALSE(entry_enabled(model, u8"merge_remote_into_source"));
+        CHECK(label_of(model, u8"merge_remote_into_source").ends_with(u8"다른 worktree에서 사용 중"));
+        CHECK_FALSE(entry_enabled(model, u8"rebase"));
+
+        menu_target plain { .kind = menu_target_kind::drop, .source = local("feature", 9), .destination = remote("origin/side", 7) };
+        context.facts = facts_for(plain.source, plain.destination);
+        const menu_model plain_model { build_context_menu(plain, context) };
+        CHECK(entry_enabled(plain_model, u8"merge_remote_into_source"));
+        CHECK(entry_enabled(plain_model, u8"rebase"));
+    }
+}
+
+TEST_CASE("push all tags is offered only while some tag is missing from the remote", "[presentation][menu]")
+{
+    menu_context context { main_context() };
+    const menu_target header { .kind = menu_target_kind::tags_section };
+    // 메뉴 제목은 사이드바 구역 제목과 같은 카탈로그 문구라서 화면 언어를 따른다.
+    CHECK(build_context_menu(header, context).title == u8"태그");
+    // v2는 origin에 없다.
+    CHECK(entry_enabled(build_context_menu(header, context), u8"push_all:origin"));
+
+    // 모든 태그가 원격에 있으면 0개를 보내는 일이라 꺼진다. 태그가 없어도 같다.
+    for (ref& value : context.refs)
+        if (value.kind == ref_kind::tag)
+            value.remotes = { "origin" };
+    const menu_model all_pushed { build_context_menu(header, context) };
+    REQUIRE(has_entry(all_pushed, u8"push_all:origin"));
+    CHECK_FALSE(entry_enabled(all_pushed, u8"push_all:origin"));
+
+    std::erase_if(context.refs, [](const ref& value) { return value.kind == ref_kind::tag; });
+    const menu_model no_tags { build_context_menu(header, context) };
+    REQUIRE(has_entry(no_tags, u8"push_all:origin"));
+    CHECK_FALSE(entry_enabled(no_tags, u8"push_all:origin"));
+}
+
 TEST_CASE("the hover hint names the likely action", "[presentation][drop]")
 {
     auto data { std::make_shared<drop_hint_data>() };
@@ -317,7 +420,11 @@ TEST_CASE("the hover hint names the likely action", "[presentation][drop]")
     // 사이드바 행과 그래프 라벨은 같은 키를 쓴다.
     CHECK(hint(u8"l:feature", u8"row-l:main") == u8"feature를 main 위로 rebase · 커밋 2개");
     CHECK(hint(u8"l:feature", u8"label-l:old") == u8"old를 feature로 fast-forward · 커밋 2개");
-    CHECK(hint(u8"l:feature", u8"label-rb:origin/main") == u8"feature를 origin/main 위로 rebase · 커밋 2개");
+    // 원격 대상(5)이 끈 쪽(9)의 조상이면 메뉴가 rebase를 끈다. 힌트도 커밋 수 대신 이미 위에 있다고 말한다.
+    CHECK(hint(u8"l:feature", u8"label-rb:origin/main") == u8"feature를 origin/main 위로 rebase · 이미 위에 있음");
+    // 원격 대상이 조상이 아니면 올릴 커밋 수를 말한다.
+    data->branches.emplace(u8"rb:origin/side", remote("origin/side", 7));
+    CHECK(hint(u8"l:feature", u8"label-rb:origin/side") == u8"feature를 origin/side 위로 rebase · 커밋 2개");
     CHECK(hint(u8"l:main", u8"label-l:main").empty());
     const std::string commit_sha { sha_of(4) };
     const std::u8string commit_owner { u8"commit-" + std::u8string { commit_sha.begin(), commit_sha.begin() + 15 } };

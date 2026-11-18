@@ -64,6 +64,35 @@ TEST_CASE("a syllable still being composed matches any final consonant", "[hangu
     REQUIRE(matches(u8"브래치", u8"브랜치로 이동…") == false);
 }
 
+TEST_CASE("a syllable composed with a final consonant matches when that final becomes the next initial", "[hangul]")
+{
+    // IME가 "브랜치"를 치는 도중 ㅂ·ㅡ·ㄹ 단계("블")가 지나간다. 이때 결과가 비면 팔레트가 깜박인다.
+    REQUIRE(matches(u8"블", u8"브랜치로 이동…"));
+    REQUIRE(matches(u8"컴", u8"커밋"));
+    REQUIRE(matches(u8"새 블", u8"새 브랜치 만들기…"));
+    // 받침이 다음 글자의 초성이 아니거나 다음 글자가 없으면 맞지 않는다.
+    REQUIRE(matches(u8"블", u8"브치") == false);
+    REQUIRE(matches(u8"블", u8"브") == false);
+    // 겹받침은 뒤 자음만 옮겨 간다. "열기"를 치는 도중 "엵"이 지나가고, 앞 받침이 남은 글자 뒤에 뒤 자음의 초성이 와야 한다.
+    REQUIRE(matches(u8"엵", u8"열기"));
+    REQUIRE(matches(u8"싫", u8"실행"));
+    REQUIRE(matches(u8"듥", u8"만들기"));
+    REQUIRE(matches(u8"엵", u8"여기") == false);
+    REQUIRE(matches(u8"엵", u8"열라") == false);
+    // "넋"은 "넉" 뒤에 ㅅ으로 시작하는 글자가 올 때만 맞는다. 받침이 없는 "너"에는 맞지 않는다.
+    REQUIRE(matches(u8"넋", u8"넉시"));
+    REQUIRE(matches(u8"넋", u8"너가") == false);
+    // 마지막 글자만 느슨하다. 가운데 글자는 정확해야 한다.
+    REQUIRE(matches(u8"블랜치", u8"브랜치로 이동…") == false);
+
+    // 받침까지 정확히 맞는 제목이 조합 중으로 느슨하게 맞은 제목보다 위에 선다.
+    const std::optional<int> exact { fuzzy_match_score(u8"블", u8"블록", u8"") };
+    const std::optional<int> composing { fuzzy_match_score(u8"블", u8"브랜치", u8"") };
+    REQUIRE(exact.has_value());
+    REQUIRE(composing.has_value());
+    REQUIRE(*exact > *composing);
+}
+
 TEST_CASE("latin letters ignore case and keywords are searched too", "[hangul]")
 {
     REQUIRE(matches(u8"FETCH", u8"원격에서 가져오기 (Fetch)"));

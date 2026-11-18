@@ -144,15 +144,19 @@ namespace cyella {
             if (value.kind != ref_kind::local || selector_matches(to_u8(value.name), query) == false)
                 continue;
             const bool current { value.is_current && detached == false };
+            // 다른 worktree가 체크아웃한 브랜치는 git이 체크아웃을 거절한다. 팔레트와 우클릭 메뉴처럼 미리 끈다.
+            const bool elsewhere { value.worktree_path.empty() == false };
             std::u8string label { to_u8(value.name) };
             if (current)
                 label += tr(u8"selector.current_suffix");
+            else if (elsewhere)
+                label += tr(u8"menu.in_other_worktree");
             if (value.ahead > 0)
                 label += u8"   ↑" + number(value.ahead);
             if (value.behind > 0)
                 label += u8"   ↓" + number(value.behind);
-            list.entries.push_back(
-                make_entry(std::u8string { selector_branch_key_prefix } + to_u8(value.name), std::move(label), current ? icons::icon_check : icons::icon_git_branch, current == false));
+            list.entries.push_back(make_entry(
+                std::u8string { selector_branch_key_prefix } + to_u8(value.name), std::move(label), current ? icons::icon_check : icons::icon_git_branch, current == false && elsewhere == false));
         }
         limit_entries(list);
         if (list.hidden > 0)

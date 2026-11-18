@@ -338,11 +338,11 @@ namespace cyella::ui {
             {
                 if (key != std::u8string { ref_list_owner_prefix } + u8"-" + ref_label_key(label))
                     continue;
-                menu_target target {};
-                target.kind = label.kind == ref_label_kind::local ? menu_target_kind::local_branch : label.kind == ref_label_kind::remote ? menu_target_kind::remote_branch : menu_target_kind::tag;
-                target.name = label.ref_name;
-                target.sha = state.sha;
-                return message(open_context_menu_intent { target, state.x, state.y + state.height });
+                // 칩의 우클릭과 같은 조립을 쓴다. HEAD·stash는 메뉴가 없어 아무것도 하지 않는다 (항목도 꺼져 있다).
+                const std::optional<menu_target> target { menu_target_of(label, state.sha) };
+                if (target.has_value() == false)
+                    return {};
+                return message(open_context_menu_intent { *target, state.x, state.y + state.height });
             }
             return {};
         };

@@ -30,9 +30,39 @@ namespace cyella {
             return value;
         }
 
+        constexpr char32_t zero_width_joiner { 0x200Du };
+
+        // 앞 글자에 붙어 자리를 더 차지하지 않는 코드 포인트다: 결합 부호, 한글 중성·종성 자모(NFD), 폭 없는 공백·이음,
+        // 변이 선택자, 가나의 탁점, 이모지 피부색 수정자.
+        bool is_combining(const char32_t value) noexcept
+        {
+            return (value >= 0x0300u && value <= 0x036Fu) || (value >= 0x1160u && value <= 0x11FFu) || (value >= 0x200Bu && value <= 0x200Du) || (value >= 0x3099u && value <= 0x309Au)
+                || (value >= 0xFE00u && value <= 0xFE0Fu) || (value >= 0x1F3FBu && value <= 0x1F3FFu);
+        }
+
+        // `at`에서 시작하는 글자 덩어리의 끝이다. 기본 글자 하나에 결합 코드 포인트가 붙고, ZWJ 뒤의 글자도 한 덩어리다.
+        // 덩어리 가운데서 자르면 기본 글자는 줄 끝에, 결합 부분은 다음 줄 맨 앞에 그려진다.
+        std::size_t cluster_end(const std::u8string_view text, const std::size_t at, const std::size_t end) noexcept
+        {
+            std::size_t position { std::min(at + sequence_length(text[at]), end) };
+            char32_t last { decode(text, at, position - at) };
+            while (position < end)
+            {
+                const std::size_t length { std::min(sequence_length(text[position]), end - position) };
+                const char32_t value { decode(text, position, length) };
+                if (is_combining(value) == false && last != zero_width_joiner)
+                    break;
+                position += length;
+                last = value;
+            }
+            return position;
+        }
+
         // 글자 하나의 짐작 폭이다 (em). 맑은 고딕·Segoe UI보다 조금 넓다.
         float advance_of(const char32_t value) noexcept
         {
+            if (is_combining(value))
+                return 0.0f;
             if (value >= 0x1100u)
                 return 1.0f;
             if (value >= 0x80u)
@@ -101,11 +131,11 @@ namespace cyella {
                 next = fit_next;
                 return { begin, fit_end };
             }
-            // 첫 단어부터 넘친다. 그 단어를 글자 단위로 자른다 (적어도 한 글자는 담는다).
-            std::size_t cut { begin + sequence_length(text[begin]) };
+            // 첫 단어부터 넘친다. 그 단어를 글자 단위로 자른다 (적어도 한 글자는 담는다). 결합 문자는 기본 글자와 한 덩어리다.
+            std::size_t cut { cluster_end(text, begin, end) };
             while (cut < end)
             {
-                const std::size_t step { sequence_length(text[cut]) };
+                const std::size_t step { cluster_end(text, cut, end) - cut };
                 if (text[cut] == u8' ' || measure(text.substr(begin, cut + step - begin)) > width)
                     break;
                 cut += step;

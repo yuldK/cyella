@@ -86,6 +86,8 @@ namespace cyella {
         // 몸을 풀지 않는다: JSON은 nlohmann으로 직접 읽는다.
         prepared.parse.assume_kind = luil::net::http_body_kind::bytes;
         prepared.total_timeout = std::chrono::seconds { 45 };
+        if (request.max_body_bytes > 0)
+            prepared.max_body_bytes = request.max_body_bytes;
 
         std::u8string error {};
         const luil::net::http_ticket ticket { client_ != nullptr ? client_->send(std::move(prepared), error) : luil::net::http_ticket {} };

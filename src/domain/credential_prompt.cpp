@@ -1,5 +1,6 @@
 #include "domain/credential_prompt.h"
 
+#include <array>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -52,6 +53,36 @@ namespace cyella {
             return trim_trailing(line);
         }
 
+        char to_lower_ascii(const char value) noexcept
+        {
+            return value >= 'A' && value <= 'Z' ? static_cast<char>(value - 'A' + 'a') : value;
+        }
+
+        bool is_word_character(const char value) noexcept
+        {
+            return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9');
+        }
+
+        // 낱말 경계를 지켜 찾는다. `shipping`의 `pin`이나 `hotpot`의 `otp`를 비밀 질문으로 오인하지 않는다.
+        bool contains_word_ignore_case(const std::string_view text, const std::string_view word) noexcept
+        {
+            for (std::size_t begin { 0 }; begin + word.size() <= text.size(); ++begin)
+            {
+                if (begin > 0 && is_word_character(text[begin - 1]))
+                    continue;
+                const std::size_t end { begin + word.size() };
+                if (end < text.size() && is_word_character(text[end]))
+                    continue;
+
+                std::size_t matched { 0 };
+                while (matched < word.size() && to_lower_ascii(text[begin + matched]) == word[matched])
+                    ++matched;
+                if (matched == word.size())
+                    return true;
+            }
+            return false;
+        }
+
         // 줄 단위로 훑으며 줄 끝의 `\r`을 무시한다. `\r\n` 줄 끝이어도 같은 결과를 낸다.
         template<typename visitor>
         void for_each_line(const std::string_view text, visitor&& visit)
@@ -98,6 +129,18 @@ namespace cyella {
                 return false;
             quoted = text.substr(1, close - 1);
             text.remove_prefix(close + 1);
+            return true;
+        }
+
+        // 줄 끝의 `<따옴표>:`를 닫는 따옴표로 보고 그 앞의 값을 꺼낸다. 경로 안의 따옴표(`C:/Users/O'Brien`)에서
+        // 끊기면 질문을 못 알아보고 평문 입력칸이 뜨므로, 첫 번째 짝이 아니라 줄 끝을 기준으로 한다.
+        bool read_quoted_before_colon(const std::string_view text, std::string_view& quoted) noexcept
+        {
+            if (text.size() < 3 || (text.front() != '\'' && text.front() != '"'))
+                return false;
+            if (text.back() != ':' || text[text.size() - 2] != text.front())
+                return false;
+            quoted = text.substr(1, text.size() - 3);
             return true;
         }
 
@@ -178,12 +221,7 @@ namespace cyella {
             consume_prefix(text, "key ");
 
             std::string_view path {};
-            if (read_quoted(text, path))
-            {
-                if (text != ":")
-                    return false;
-            }
-            else
+            if (read_quoted_before_colon(text, path) == false)
             {
                 // 여는 따옴표만 있고 닫는 따옴표가 없는 문구는 경로로 읽지 않는다.
                 if (text.ends_with(':') == false || text.empty() || text.front() == '\'' || text.front() == '"')
@@ -271,6 +309,36 @@ namespace cyella {
             return false;
         }
         return false;
+    }
+
+    bool credential_prompt_text_hints_secret(const std::u8string_view text) noexcept
+    {
+        // 소문자로 적는다. 비교는 대소문자를 무시한다.
+        constexpr std::array words {
+            std::string_view { "password" }
+            , std::string_view { "passphrase" }
+            , std::string_view { "pin" }
+            , std::string_view { "passcode" }
+            , std::string_view { "verification code" }
+            , std::string_view { "token" }
+            , std::string_view { "otp" }
+        };
+
+        const std::string_view line { last_line(trim_trailing(as_narrow(text))) };
+        for (const std::string_view word : words)
+        {
+            if (contains_word_ignore_case(line, word))
+                return true;
+        }
+        return false;
+    }
+
+    bool credential_prompt_expects_secret(const credential_prompt& prompt) noexcept
+    {
+        if (credential_prompt_expects_secret(prompt.kind))
+            return true;
+        // 알아보지 못한 질문이라도 원문이 비밀을 가리키면 가린다. 보안 키 PIN·일회용 코드가 화면에 드러나지 않게 한다.
+        return prompt.kind == credential_prompt_kind::unknown && credential_prompt_text_hints_secret(prompt.raw_text);
     }
 
     bool credential_prompt_expects_yes_no(const credential_prompt_kind kind) noexcept

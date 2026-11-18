@@ -54,7 +54,9 @@ askpass 프로그램을 실행한다. 프롬프트 문구가 `argv[1]`, 답이 �
 ### 프롬프트 분류
 
 문구는 로캘에 따라 번역될 수 있어 영어 원문에 대한 최선 노력이다. 알아보지 못하면 `unknown`이고 UI는
-원문을 보이고 자유 텍스트를 받는다. 분류 기준 문구는 OpenSSH 10.2(시스템과 Git for Windows 두 빌드)와 git 2.52의
+원문을 보이고 자유 텍스트를 받는다. 이때 원문 마지막 줄에 password·passphrase·pin·passcode·verification code·token·otp
+낱말(대소문자 무시, 낱말 경계)이 있으면 입력을 가린다. PIN이나 OTP처럼 분류기가 모르는 비밀 질문이 평문으로 보이지 않게
+하기 위해서다. 분류 기준 문구는 OpenSSH 10.2(시스템과 Git for Windows 두 빌드)와 git 2.52의
 것이다. 두 ssh의 호스트 키 문구는 지문 줄이 다르다(`fingerprint is SHA256:...` 마침표 / `fingerprint is:
 SHA256:...`). 분류기는 둘 다 읽는다.
 
@@ -66,8 +68,9 @@ SHA256:...`). 분류기는 둘 다 읽는다.
 판정한다(`classify_ssh_connection_test`가 `host_key_changed`로 분류하고 git 작업의 실패 분류는 operation 쪽이 맡는다).
 
 "이번만 연결"은 임시 `UserKnownHostsFile`로 구현한다. `make_temporary_known_hosts_ssh_command`가
-`GIT_SSH_COMMAND` 값(`<ssh> -o UserKnownHostsFile=<임시> -o StrictHostKeyChecking=accept-new`)을 만든다.
-이 값은 사용자의 `core.sshCommand`를 그 한 번의 실행에서 덮어쓰므로 호출자가 사용자가 쓰는 ssh 실행 파일을
+`GIT_SSH_COMMAND` 값(`<ssh> -o UserKnownHostsFile="<임시>" -o StrictHostKeyChecking=accept-new`)을 만든다.
+ssh는 이 옵션 값을 공백으로 나눠 여러 파일로 읽고 `%`를 토큰으로 펼치므로, 공백이 든 경로가 한 파일로 읽히게
+큰따옴표로 감싸고 경로의 `%`는 `%%`로 겹친다. 이 값은 사용자의 `core.sshCommand`를 그 한 번의 실행에서 덮어쓰므로 호출자가 사용자가 쓰는 ssh 실행 파일을
 넘겨야 한다. 사용자가 지문을 이미 확인했으므로 임시 파일에는 확인 없이 기록해도 되고, 사용자의
 `known_hosts`는 바뀌지 않는다. 임시 파일은 호출자가 지운다.
 

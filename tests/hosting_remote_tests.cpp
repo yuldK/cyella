@@ -50,6 +50,22 @@ TEST_CASE("remote URL forms are split into host and path", "[hosting]")
     }
 }
 
+TEST_CASE("the secret in a remote URL's user info is masked for display", "[hosting]")
+{
+    CHECK(mask_remote_url_userinfo("https://user:tok@h/r.git") == "https://user:***@h/r.git");
+    // 사용자 이름 없이 들어간 값은 token이다.
+    CHECK(mask_remote_url_userinfo("https://tok@h/r.git") == "https://***@h/r.git");
+    // 비밀번호에 `@`가 들어가도 마지막 `@`까지 가린다.
+    CHECK(mask_remote_url_userinfo("https://user:p@ss@h/r.git") == "https://user:***@h/r.git");
+    // ssh의 접속 계정 이름, scp 꼴, 로컬 경로, 사용자 정보가 없는 URL은 그대로다.
+    CHECK(mask_remote_url_userinfo("ssh://git@h/r.git") == "ssh://git@h/r.git");
+    CHECK(mask_remote_url_userinfo("ssh://git:secret@h/r.git") == "ssh://git:***@h/r.git");
+    CHECK(mask_remote_url_userinfo("git@github.com:me/r.git") == "git@github.com:me/r.git");
+    CHECK(mask_remote_url_userinfo("C:/repo") == "C:/repo");
+    CHECK(mask_remote_url_userinfo("https://h/r.git") == "https://h/r.git");
+    CHECK(mask_remote_url_userinfo("https://h/path@x") == "https://h/path@x");
+}
+
 TEST_CASE("local paths and broken URLs are not parsed", "[hosting]")
 {
     const char* const urls[] {
@@ -179,6 +195,67 @@ TEST_CASE("configured self-hosted servers come from the settings table", "[hosti
         REQUIRE(repository.has_value());
         CHECK(repository->provider == hosting_provider::gitlab);
     }
+}
+
+TEST_CASE("a host row written with the default port is the same host", "[hosting]")
+{
+    // 검사가 받는 `host:443`·`host:80` 표기다. 기본 포트로 보고 포트 없는 원격과 맞춘다. 열쇠는 그대로 호스트 이름이다.
+    const std::vector<hosting_host_setting> hosts {
+        { "git.example.com:443", hosting_provider::github, "" },
+        { "intra.example:80", hosting_provider::gitlab, "http://intra.example/api/v4" },
+    };
+    for (const hosting_host_setting& setting : hosts)
+        REQUIRE_FALSE(validate_hosting_host_setting(setting).has_value());
+
+    const std::optional<hosting_repository> repository = resolve_hosting_repository("https://git.example.com/o/r.git", "origin", hosts);
+    REQUIRE(repository.has_value());
+    CHECK(repository->configured);
+    CHECK(repository->provider == hosting_provider::github);
+    CHECK(repository->api_base == "https://git.example.com/api/v3");
+    CHECK(repository->host_key == "git.example.com");
+    CHECK(repository->credential_host == "git.example.com");
+
+    const std::optional<hosting_repository> intra = resolve_hosting_repository("http://intra.example/team/app.git", "origin", hosts);
+    REQUIRE(intra.has_value());
+    CHECK(intra->configured);
+    CHECK(intra->provider == hosting_provider::gitlab);
+
+    // 다른 포트의 원격은 기본 포트를 적은 줄에 맞지 않는다. 그 줄의 provider·API 설정을 빌려 쓰지 않는다.
+    const std::optional<hosting_repository> other_port = resolve_hosting_repository("https://git.example.com:8443/o/r.git", "origin", hosts);
+    REQUIRE(other_port.has_value());
+    CHECK_FALSE(other_port->configured);
+    CHECK(other_port->host_key == "git.example.com:8443");
+
+    // 원격이 아직 없는 게시도 같은 줄로 풀린다.
+    const std::optional<hosting_repository> context = hosting_repository_for_host("git.example.com:443", hosts);
+    REQUIRE(context.has_value());
+    CHECK(context->configured);
+    CHECK(context->host_key == "git.example.com");
+}
+
+TEST_CASE("an IPv6 remote keeps its brackets in the web base and the port key", "[hosting]")
+{
+    const std::optional<hosting_repository> repository = resolve_hosting_repository("http://[::1]:8080/o/r.git", "origin", {});
+    REQUIRE(repository.has_value());
+    CHECK(repository->web_base == "http://[::1]:8080");
+    CHECK(repository->host_key == "[::1]:8080");
+    CHECK(repository->credential_host == "[::1]:8080");
+    CHECK(repository->web_url() == "http://[::1]:8080/o/r");
+
+    const std::optional<hosting_repository> ssh = resolve_hosting_repository("ssh://git@[::1]:2222/o/r.git", "origin", {});
+    REQUIRE(ssh.has_value());
+    CHECK(ssh->web_base == "https://[::1]");
+    CHECK(url_host("::1") == "[::1]");
+    CHECK(url_host("git.example.com") == "git.example.com");
+}
+
+TEST_CASE("the project web address encodes the decoded path again", "[hosting]")
+{
+    // 소유자·이름은 API가 쓰도록 해제한 채 두고, 브라우저 주소만 다시 인코딩한다.
+    const std::optional<hosting_repository> repository = resolve_hosting_repository("https://github.com/o/my%20repo%2541.git", "origin", {});
+    REQUIRE(repository.has_value());
+    CHECK(repository->name == "my repo%41");
+    CHECK(repository->web_url() == "https://github.com/o/my%20repo%2541");
 }
 
 TEST_CASE("one remote is picked for the integration", "[hosting]")

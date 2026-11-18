@@ -26,6 +26,8 @@ cyella는 GitHub·GitLab의 PR·MR 목록과 만들기, CI 상태, PR 체크아�
 - **지우기는 최선 노력이다.** 도우미의 출력 버퍼, 요청 문자열, 지운 뒤의 `secret_text`는 지운다. luil HTTP client와 WinHTTP가 내부에 둔
   요청 사본, OS 파이프 버퍼의 잔여분은 앱이 책임질 수 없다(ADR-004와 같은 한계).
 - **마스킹을 방어 계층으로 둔다.** 앱은 토큰을 명령줄에 싣지 않지만, `mask_secrets`가 `Authorization`·`PRIVATE-TOKEN` 헤더, `ghp_`·`gho_`·`glpat-` 접두어,
+  GitLab의 `gldt-`·`glrt-`·`gloas-`·`glcbt-`·`glptt-`·`glft-`·`glsoat-`·`glimt-`·`glagent-` 접두어, Bitbucket·Atlassian의 `ATBB`·`ATCTT` 접두어,
+  헤더 이름 없이 찍힌 `Bearer <토큰>`(8자 이상이고 글자가 아닌 문자가 섞인 값만. `bearer authentication` 같은 글은 두기 위해서다),
   URL의 사용자 정보에 더해 `git credential`의 `password=`·`oauth_refresh_token=` 줄을 가린다.
 - **401은 한 번만 다시 묻는다.** 요청이 401이면 그 토큰을 `git credential reject`로 도우미에서 지우고 메모리에서도 잊은 뒤, 도우미에 한 번 다시
   물어 같은 요청을 한 번 다시 보낸다. 다시 받은 응답도 401이면 토큰을 잊고 "인증이 거절되었습니다"로 끝낸다. 로그인 확인(`/user`)이 실패한
@@ -46,7 +48,8 @@ cyella는 GitHub·GitLab의 PR·MR 목록과 만들기, CI 상태, PR 체크아�
 - **쪽 매기기와 호출 한도.** GitHub는 `Link: rel="next"`, GitLab은 `X-Next-Page`로 "더 보기"를 판정한다. 호출 한도는 응답 헤더
   (`x-ratelimit-*`, `RateLimit-*`, `Retry-After`)에서 읽는다. GitHub의 403은 남은 횟수가 0이거나 `Retry-After`가 있거나 메시지가 한도를
   말할 때만 한도로 가르고(아니면 권한 오류), 429는 두 서비스 모두 한도다. 한도가 바닥났다고 알려 준 호스트는 초기화 시각까지 요청을 보내지 않고
-  남은 횟수와 초기화까지의 시간을 보인다.
+  남은 횟수와 초기화까지의 시간을 보인다. `Retry-After`를 보낸 호스트에는 남은 횟수나 초기화 시각과 관계없이 그 시간 동안 요청을 보내지 않는다
+  (GitHub 2차 한도는 남은 횟수와 초기화 시각을 함께 보내므로 그것만으로는 막지 못한다).
 - **서비스 종류는 원격 URL로 정한다.** https·http·ssh(`ssh://git@host:port/…`, `git@host:owner/repo`)·git 꼴을 읽어 `github.com`·`gitlab.com`은 내장이고,
   그 밖의 호스트는 설정 `hosting.hosts[{host, provider, api_base}]`에 더해야 한다(GHES·자체 GitLab·시험 서버). 표가 내장 호스트보다 먼저다.
   GitLab 하위 그룹(`g/s/repo`)을 읽는다.

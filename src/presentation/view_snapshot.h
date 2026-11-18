@@ -92,6 +92,8 @@ namespace cyella {
         std::u8string push_hint {};
         bool branch_enabled { false };
         bool stash_enabled { false };
+        // Stash 단추가 첫 커밋이 없어서 꺼졌을 때의 설명이다. 비어 있으면 단추의 기본 설명을 쓴다.
+        std::u8string stash_hint {};
         bool pop_enabled { false };
         // 툴바 오른쪽의 진행 중 작업 한 줄이다.
         std::u8string busy_text {};
@@ -270,7 +272,7 @@ namespace cyella {
         // 세션의 행과 커밋이다 (같은 순서). 위의 포인터 규칙을 따른다.
         const std::vector<graph_row>* rows { nullptr };
         const std::vector<commit_info>* commits { nullptr };
-        // `virtual_list_config::items`에 그대로 옮길 모델이다. 세션 revision이 같으면 같은 벡터를 다시 쓴다.
+        // `virtual_list_config::shared_items`로 함께 쥘 불변 모델이다. 세션 revision이 같으면 같은 벡터를 다시 쓴다.
         std::shared_ptr<const std::vector<luil::virtual_list_item>> items {};
         std::shared_ptr<const ref_label_map> labels {};
         std::u8string selected_key {};
@@ -452,6 +454,9 @@ namespace cyella {
         float scroll { 0.0f };
         // 웹뷰가 본문을 그린다. 참이면 `lines`를 채우지 않는다 (큰 diff를 frame마다 복사하지 않으려는 것이다).
         bool use_webview { false };
+        // 대체 보기의 줄 상한(`lines`)에서 diff가 잘렸다. 참이면 `lines`의 마지막 줄이 잘렸다는 안내 행이다.
+        // 웹뷰의 줄 수 상한(`surface.truncated`)과는 다른 상한이다.
+        bool text_truncated { false };
         diff_surface_state surface {};
         // 텍스트 diff로 보일 수 없는 변경이면 본문 대신 이 카드를 그린다 (웹뷰 여부와 무관하다).
         std::optional<diff_special_view> special {};

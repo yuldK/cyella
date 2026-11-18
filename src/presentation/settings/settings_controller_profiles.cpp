@@ -16,16 +16,6 @@ namespace cyella {
             state.anchor = text.size();
             state.text = std::move(text);
         }
-
-        std::u8string trimmed(std::u8string_view text)
-        {
-            const auto space = [](const char8_t value) { return value == u8' ' || value == u8'\t' || value == u8'\r' || value == u8'\n'; };
-            while (text.empty() == false && space(text.front()))
-                text.remove_prefix(1);
-            while (text.empty() == false && space(text.back()))
-                text.remove_suffix(1);
-            return std::u8string { text };
-        }
     } // namespace
 
     bool settings_controller::is_profile_message(const luil::app_message& message)
@@ -89,7 +79,7 @@ namespace cyella {
             state.rule_draft.profile = choose_intent->name;
         else if (message.get<add_profile_rule_intent>() != nullptr)
         {
-            profile_rule rule { .path_prefix = trimmed(state.rule_draft.prefix.text), .profile = state.rule_draft.profile };
+            profile_rule rule { .path_prefix = trimmed_path(state.rule_draft.prefix.text), .profile = state.rule_draft.profile };
             if (find_profile_index(settings.profiles, rule.profile).has_value() == false && settings.profiles.empty() == false)
                 rule.profile = settings.profiles.front().name;
             if (check_profile_rule(rule, settings.profiles).empty() == false)

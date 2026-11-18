@@ -244,6 +244,10 @@ namespace cyella {
     // 입력으로 만든 도구다. 검사를 통과한 입력에만 쓴다.
     [[nodiscard]] external_diff_tool make_external_tool(std::u8string_view extensions, std::u8string_view executable, std::u8string_view arguments);
 
+    // 경로 입력을 다듬는다. 앞뒤 공백을 벗기고, 탐색기의 "경로로 복사"처럼 양 끝이 모두 큰따옴표면 그 따옴표도 벗긴다.
+    // 실행 파일·키 경로를 다시 따옴표로 감싸 명령줄을 만드는 쪽에서 `""C:\..""`가 되지 않게 입력에서 한 번만 벗긴다.
+    [[nodiscard]] std::u8string trimmed_path(std::u8string_view text);
+
     // git 경로 입력의 검사 결과다. 비어 있으면(자동 탐색) 문제가 없다.
     [[nodiscard]] std::u8string check_git_path(std::u8string_view text, const file_probe* probe);
 

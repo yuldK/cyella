@@ -15,6 +15,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <string>
 
 using namespace cyella;
@@ -100,6 +102,25 @@ TEST_CASE("diff font preferences quote family names and preserve fallback stacks
     CHECK(theme.tokens.at("--ui-font").starts_with("\"맑은 고딕\", "));
     CHECK(theme.tokens.at("--code-font").starts_with("\"Example\\\"Mono\\\\Font\", "));
     CHECK(theme.tokens.at("--code-font").find("monospace") != std::string::npos);
+}
+
+TEST_CASE("diff font preferences survive the set_theme message to the viewer", "[diff][webview][fonts]")
+{
+    // 글꼴 값은 늘 따옴표를 담으므로 직렬화의 토큰 거르기를 통과하는지 메시지까지 따라가 본다.
+    const diff_theme theme { ui::make_diff_theme(luil::color_palette_for(luil::color_theme::dark), u8"맑은 고딕", u8"D2Coding") };
+    const nlohmann::json message { nlohmann::json::parse(serialize_set_theme(1, 0, theme)) };
+    const nlohmann::json& tokens { message.at("theme").at("tokens") };
+    REQUIRE(tokens.contains("--ui-font"));
+    REQUIRE(tokens.contains("--code-font"));
+    CHECK(tokens.at("--ui-font") == theme.tokens.at("--ui-font"));
+    CHECK(tokens.at("--code-font") == theme.tokens.at("--code-font"));
+
+    // 기본 글꼴 목록(사용자가 고르지 않은 경우)도 같다.
+    const diff_theme fallback { ui::make_diff_theme(luil::color_palette_for(luil::color_theme::light)) };
+    const nlohmann::json fallback_message { nlohmann::json::parse(serialize_set_theme(1, 0, fallback)) };
+    const nlohmann::json& fallback_tokens { fallback_message.at("theme").at("tokens") };
+    CHECK(fallback_tokens.at("--ui-font") == fallback.tokens.at("--ui-font"));
+    CHECK(fallback_tokens.at("--code-font") == fallback.tokens.at("--code-font"));
 }
 
 TEST_CASE("the diff webview policy opens only file urls, takes 8 MiB messages and keeps developer tools off", "[diff][webview]")
