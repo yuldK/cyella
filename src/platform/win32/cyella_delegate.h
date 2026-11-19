@@ -9,7 +9,6 @@
 
 namespace cyella::win32 {
     class cyella_driver;
-    class ref_hover_monitor;
 
     // luil UI thread에 꽂는 cyella 훅이다. 창 사건을 앱 메시지로 바꾸기만 하고
     // 상태는 직접 고치지 않는다.
@@ -37,6 +36,5 @@ namespace cyella::win32 {
         cyella_driver* driver_ { nullptr };
         // 다른 앱에서 창으로 돌아오는 순간을 듣는다 (`window_focus_intent`). UI thread에서 만들고 이 객체와 함께 없어진다.
         std::unique_ptr<foreground_monitor> foreground_ {};
-        std::unique_ptr<ref_hover_monitor> ref_hover_ {};
     };
 } // namespace cyella::win32

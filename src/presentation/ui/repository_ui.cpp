@@ -1092,9 +1092,12 @@ namespace cyella::ui {
         const std::vector<commit_info>* const commits { graph.commits };
         const std::shared_ptr<const ref_label_map> labels { graph.labels };
         const std::uint16_t wip_lane { graph.has_wip && rows->empty() == false ? rows->front().lane : std::uint16_t { 0 } };
+        // 떠 있는 참조 목록 카드의 커밋이다. 그 행의 "+N"이 누를 때 낼 메시지(열기·고정·닫기)를 정한다.
+        const std::string card_sha { view.ref_list.has_value() ? view.ref_list->sha : std::string {} };
+        const bool card_pinned { view.ref_list.has_value() && view.ref_list->origin == ref_list_origin::press };
         // 세션의 행을 가리키는 포인터는 이 tree를 짓는 동안(`make_arranged_tree`)만 쓰인다. 행 element는 값을 복사해 간다.
-        config.build_row
-            = [rows, commits, labels, columns, wip_lane, graph_state = graph](const luil::virtual_list_item&, const std::size_t index, const bool selected) -> std::unique_ptr<luil::ui_element> {
+        config.build_row = [rows, commits, labels, columns, wip_lane, card_sha, card_pinned, graph_state = graph](
+                               const luil::virtual_list_item&, const std::size_t index, const bool selected) -> std::unique_ptr<luil::ui_element> {
             if (index >= rows->size() || index >= commits->size())
                 return nullptr;
             const commit_info& commit { (*commits)[index] };
@@ -1111,6 +1114,8 @@ namespace cyella::ui {
             data.sha = commit.sha;
             data.selected = selected;
             data.list = luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"graph" };
+            data.ref_list_open = card_sha.empty() == false && commit.sha == card_sha;
+            data.ref_list_pinned = data.ref_list_open && card_pinned;
             if (graph_state.signatures != nullptr)
                 if (const auto signature { graph_state.signatures->find(commit.sha) }; signature != graph_state.signatures->end())
                 {

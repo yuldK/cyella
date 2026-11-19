@@ -653,17 +653,6 @@ namespace cyella::ui {
             if (titled)
                 root->place(make_app_title(u8"caption-title", u8"cyella"), caption_title_rect(caption_config, app_title_aspect()));
         }
-        // 참조 목록 카드는 그래프·상세 위, 토스트·대화 상자 아래에 선다. 본문 밖(툴바·상태 줄)으로는 나가지 않는다.
-        if (view.ref_list.has_value() && view.repository.has_value() && view.repository->graph.labels != nullptr)
-        {
-            const auto found { view.repository->graph.labels->find(view.ref_list->sha) };
-            if (found != view.repository->graph.labels->end())
-            {
-                placed_ref_list card { build_ref_list_card(*view.ref_list, found->second, scale, rects.body) };
-                if (card.element != nullptr)
-                    root->place(std::move(card.element), card.rect);
-            }
-        }
         // 토스트는 본문 위에 떠서 자리를 밀어내지 않는다. 대화 상자는 그 위에 선다.
         for (placed_toast& toast : build_toasts(view, rects.body.y + rects.body.height))
             root->place(std::move(toast.element), toast.rect);
@@ -709,6 +698,28 @@ namespace cyella::ui {
             }
         }
         built.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(root), { 0.0f, 0.0f, view.width, view.height }, scale));
+        // 참조 목록 카드는 투명 popup이다. 본문 밖(툴바·상태 줄)으로는 나가지 않는다.
+        //  - 꼬리가 가리킬 칩은 이 tree에 선 "+N"이다. 연 때의 사각형과 어긋나지 않고, 항목을 골라 여는 메뉴도 같은 자리에 선다.
+        //    그 행이 보이지 않으면(가상 목록 밖) 연 때의 사각형이다.
+        if (view.ref_list.has_value() && view.repository.has_value() && view.repository->graph.labels != nullptr)
+        {
+            const auto found { view.repository->graph.labels->find(view.ref_list->sha) };
+            if (found != view.repository->graph.labels->end())
+            {
+                ref_list_state state { *view.ref_list };
+                if (const luil::ui_element* const chip { built.tree->find({ kind_ref_overflow, u8"overflow-" + state.row_key }) }; chip != nullptr && chip->visible())
+                {
+                    const luil::rect_f box { chip->bounds() };
+                    state.x = box.x;
+                    state.y = box.y;
+                    state.width = box.width;
+                    state.height = box.height;
+                }
+                placed_ref_list card { build_ref_list_card(state, found->second, scale, rects.body) };
+                if (card.popup.tree != nullptr)
+                    built.popups.push_back(std::move(card.popup));
+            }
+        }
         // 글꼴 목록을 닫은 뒤의 요청은 주 창의 글꼴 칸으로 초점을 돌린다. 그 칸이 이 tree에 섰을 때만 싣는다.
         if (built.focus.has_value() == false && view.popup_focus.has_value())
         {

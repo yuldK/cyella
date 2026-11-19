@@ -5,7 +5,9 @@
 #include "platform/win32/cyella_delegate.h"
 #include "platform/win32/cyella_driver.h"
 #include "platform/win32/operation_result_relay.h"
+#include "presentation/dialog_intents.h"
 #include "presentation/diff_view_intents.h"
+#include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/diff_webview.h"
 #include "presentation/ui/diff_webview_theme.h"
 #include "presentation/ui/element_kinds.h"
@@ -23,6 +25,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -458,20 +461,6 @@ TEST_CASE("operation_result_relay wakes the logic thread once until it is draine
     }
 }
 
-TEST_CASE("cyella_driver reports the host unbound after its workers stop", "[driver]")
-{
-    // UI thread의 참조 카드 타이머가 세션 종료 뒤 해제된 host를 만지지 않으려고 이 값을 본다. 묶인 host를 stop_workers가 풀어야 한다.
-    wake_counting_driver counter {};
-    luil::app_host host { luil::app_host::config {}, counter, nullptr };
-    REQUIRE(wait_until([&] { return counter.started.load(); }));
-    cyella::win32::cyella_driver driver {};
-    CHECK_FALSE(driver.host_bound());
-    driver.bind_host(&host);
-    CHECK(driver.host_bound());
-    driver.stop_workers();
-    CHECK_FALSE(driver.host_bound());
-}
-
 TEST_CASE("cyella_driver falls back to the text diff once when the diff webview cannot be created", "[driver][webview]")
 {
     if (cyella::test::git_is_available() == false)
@@ -709,4 +698,53 @@ TEST_CASE("cyella_driver shows the text diff while the webview surface cannot pr
     CHECK(driver.controller()->state().latest_notification()->text.find(u8"browser_process_failed") != std::u8string::npos);
 
     driver.stop_workers();
+}
+
+TEST_CASE("the ref list popup is transparent, reports its placement and maps its dismiss reasons", "[driver][refs]")
+{
+    using luil::win32::popup_dismiss_reason;
+    cyella::ui::built_popup built {};
+    built.id = u8"ref-list";
+    built.ref_list = true;
+    built.transparent = true;
+    built.border = false;
+    built.x = 40.0f;
+    built.y = 60.0f;
+    built.width = 300.0f;
+    built.height = 200.0f;
+    built.placed = [](const luil::rect_f& rect) { return luil::app_message { cyella::ref_list_placed_intent { .serial = 2, .x = rect.x, .y = rect.y } }; };
+    const luil::win32::ui_popup popup { cyella::win32::make_ui_popup(std::move(built)) };
+    // 꼬리와 그림자는 tree가 그린다. OS 경계·그림자가 서지 않고, 호스트가 민 자리를 알린다.
+    CHECK(popup.transparent);
+    CHECK_FALSE(popup.border);
+    REQUIRE(popup.placed != nullptr);
+    const luil::app_message placed { popup.placed(luil::rect_f { 52.0f, 60.0f, 300.0f, 200.0f }) };
+    REQUIRE(placed.get<cyella::ref_list_placed_intent>() != nullptr);
+    CHECK(placed.get<cyella::ref_list_placed_intent>()->x == 52.0f);
+
+    REQUIRE(popup.dismiss != nullptr);
+    const auto close_of = [&popup](const popup_dismiss_reason reason) -> std::optional<cyella::close_ref_list_intent> {
+        const luil::input_action action { popup.dismiss(reason) };
+        const auto* const message { std::get_if<luil::app_message>(&action) };
+        const auto* const intent { message != nullptr ? message->get<cyella::close_ref_list_intent>() : nullptr };
+        return intent != nullptr ? std::optional { *intent } : std::nullopt;
+    };
+    // 바깥 누름은 그 표식을 단 닫기다 (포인터가 "+N" 칸 안이면 controller가 버린다). Esc와 앵커가 사라짐은 닫는다.
+    REQUIRE(close_of(popup_dismiss_reason::pointer_press_outside).has_value());
+    CHECK(close_of(popup_dismiss_reason::pointer_press_outside)->pressed_outside);
+    REQUIRE(close_of(popup_dismiss_reason::escape_key).has_value());
+    CHECK_FALSE(close_of(popup_dismiss_reason::escape_key)->pressed_outside);
+    CHECK(close_of(popup_dismiss_reason::anchor_closed).has_value());
+    // 휠(사이드바를 굴려도 남는다)·창 이동·크기·활성 전환에는 남는다.
+    for (const popup_dismiss_reason reason :
+        { popup_dismiss_reason::wheel_scrolled, popup_dismiss_reason::surface_moved, popup_dismiss_reason::surface_resized, popup_dismiss_reason::activation_changed })
+        CHECK(std::holds_alternative<std::monostate>(popup.dismiss(reason)));
+
+    // 다른 popup은 transparent가 아니고 경계를 둔다 (지금까지의 모양).
+    cyella::ui::built_popup menu {};
+    menu.id = u8"context-menu";
+    const luil::win32::ui_popup shown { cyella::win32::make_ui_popup(std::move(menu)) };
+    CHECK_FALSE(shown.transparent);
+    CHECK(shown.border);
+    CHECK(shown.placed == nullptr);
 }

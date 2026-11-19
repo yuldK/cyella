@@ -648,7 +648,11 @@ namespace cyella {
         if (intent.target == scroll_target::graph)
         {
             maybe_load_more();
-            // 참조 목록 카드는 칩 자리에 서 있다. 그래프가 흐르면 칩이 떠나므로 닫는다 (popup이던 때 휠이 닫던 것과 같다).
+            // 참조 목록 카드는 칩 자리에 서 있다. 그래프가 흐르면 칩이 떠나므로 닫는다. 카드 popup은 휠에 스스로 닫히지 않는다 —
+            // 사이드바를 굴려도 남아야 해서다.
+            //  - 포인터 아래로 새로 흘러 온 칸도 "닫힌 뒤 포인터가 있는 칸"이라 떠날 때까지 다시 열지 않는다 (`carry_until`).
+            if (ui_.ref_list.has_value())
+                ref_hover_.carry_until = dependencies_.steady_clock() + ref_hover_carry_window;
             ui_.ref_list.reset();
         }
         request_visible_signatures();
@@ -817,6 +821,14 @@ namespace cyella {
     }
 
     bool shell_controller::handle(const luil::app_message& message)
+    {
+        const bool handled { handle_message(message) };
+        // 카드를 닫는 자리가 여럿이라(고르기·스크롤·메뉴·탭 바꾸기…) 닫힘은 메시지마다 전후를 견주어 센다.
+        settle_ref_hover(dependencies_.steady_clock());
+        return handled;
+    }
+
+    bool shell_controller::handle_message(const luil::app_message& message)
     {
         if (const auto* const intent { message.get<select_tab_intent>() }; intent != nullptr)
         {
@@ -1190,8 +1202,8 @@ namespace cyella {
         }
         if (const auto* const intent { message.get<select_commit_intent>() }; intent != nullptr)
         {
-            // 행이나 칩을 눌러 커밋을 고르면 참조 목록 카드를 닫는다. 카드는 주 창 tree에 서서 popup처럼 바깥 누름에 저절로 닫히지 않고,
-            // UI thread의 감시는 상태를 띄엄띄엄 보므로 빠른 누름을 놓친다. 고르기 메시지는 누름마다 반드시 온다.
+            // 행이나 칩을 눌러 커밋을 고르면 참조 목록 카드를 닫는다. 카드 popup은 포인터가 "+N" 칸 안일 때의 바깥 누름을 버리므로
+            // (그 누름이 스스로 메시지를 낸다) 칩·빈 칸 누름의 닫기는 이 고르기가 맡는다. 키로 고를 때도 칩이 움직인다.
             ui_.ref_list.reset();
             // 그래프에서 고른 커밋이 키보드 메뉴(Shift+F10)의 대상이다. 사이드바에서 앞서 고른 항목의 키는 지운다.
             //  - 사이드바 항목 고르기는 키를 먼저 넣고 `handle_select_commit`을 바로 부르므로 여기를 지나지 않는다.
@@ -1669,7 +1681,8 @@ namespace cyella {
             ui_.popup_focus.reset();
             view.popup_focus.reset();
         }
-        if (view.form.has_value() || view.settings.has_value() || view.palette.has_value() || view.clone.has_value() || view.rebase_editor.has_value())
+        ref_list_dialog_up_ = view.form.has_value() || view.settings.has_value() || view.palette.has_value() || view.clone.has_value() || view.rebase_editor.has_value();
+        if (ref_list_dialog_up_)
         {
             ui_.ref_list.reset();
             view.ref_list.reset();
@@ -1706,6 +1719,8 @@ namespace cyella {
         // 상세 서랍은 medium·narrow에서 커밋을 고르면 열린다. 고른 것이 없으면 닫는다.
         if (view.repository.has_value() && view.repository->detail == detail_mode::none)
             view.drawer_open = false;
+        // 배치가 바뀌었거나 대화 상자가 떠서 카드를 닫았으면 여기서 본다. 여는 것은 메시지·tick의 일이다 (이 frame의 view가 이미 섰다).
+        observe_ref_list_close(dependencies_.steady_clock());
         return view;
     }
 
@@ -1768,6 +1783,8 @@ namespace cyella {
             else if (value.toast_until.has_value())
                 earlier(*value.toast_until);
         }
+        if (const std::optional<std::chrono::steady_clock::time_point> hover { ref_hover_deadline() }; hover.has_value())
+            earlier(*hover);
         return next;
     }
 
@@ -1786,6 +1803,8 @@ namespace cyella {
             }
         }
         std::erase_if(ui_.notifications, [](const notification& value) { return value.remove_after_leave && value.toast == false; });
+        // 칸에 머문 지 180ms가 찼거나 칸과 카드를 떠난 지 400ms가 찼다.
+        settle_ref_hover(now);
     }
 
     void shell_controller::save_pane_widths()

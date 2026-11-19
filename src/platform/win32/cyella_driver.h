@@ -43,7 +43,23 @@
 #include <string>
 #include <utility>
 
+namespace cyella::ui {
+    struct built_popup;
+} // namespace cyella::ui
+
 namespace cyella::win32 {
+    // 참조 목록 카드 popup의 닫힘 계기 대응이다.
+    //  - 바깥 누름은 `pressed_outside`로 닫자고 한다. 포인터가 "+N" 칸 안(머무름이 선 뒤 떠나지 않은 칸)이면 controller가 버린다
+    //    (그 누름이 스스로 처리한다).
+    //  - Esc와 앵커가 사라짐은 닫는다.
+    //  - 휠은 남긴다: 주 창 어디의 휠이든 모든 popup에 오는데 사이드바를 굴려도 카드는 남아야 한다. 그래프가 흐르면 controller가 닫는다.
+    //  - 창 이동은 남긴다 (popup이 창을 따라간다). 크기 변경도 남긴다: 최소화에서 되살릴 때도 오고, 실제로 배치가 바뀌면
+    //    controller의 배치 검사가 닫는다.
+    //  - 활성 전환은 남긴다. 누름으로 연 카드는 Alt+Tab에도 남던 동작을 지킨다 (호버로 연 카드는 포인터가 떠나 400ms에 닫힌다).
+    [[nodiscard]] luil::input_action ref_list_dismiss(luil::win32::popup_dismiss_reason reason);
+    // 화면이 지은 popup을 luil popup으로 옮긴다. 닫힘 계기는 popup 종류(메뉴·선택 상자·글꼴 목록·알림 센터·참조 목록 카드)마다 다르다.
+    [[nodiscard]] luil::win32::ui_popup make_ui_popup(ui::built_popup popup);
+
     struct cyella_driver_options
     {
         // 시작할 때 여는 저장소다(명령줄 인자).
@@ -137,13 +153,6 @@ namespace cyella::win32 {
         void bind_host(luil::app_host* host) noexcept
         {
             host_.store(host);
-        }
-
-        // host가 아직 묶여 있는가다. `stop_workers`가 풀고 나면 거짓이다. 세션 종료(WM_ENDSESSION)에서 luil은 host를 해제한 뒤에도
-        // 메시지 루프를 돌리므로, UI thread의 타이머가 해제된 host를 만지지 않으려면 이것을 먼저 본다.
-        [[nodiscard]] bool host_bound() const noexcept
-        {
-            return host_.load() != nullptr;
         }
 
         // 시작할 때 찾은 git이다. 시작 전이면 비어 있다.

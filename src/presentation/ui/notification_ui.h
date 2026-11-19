@@ -11,7 +11,8 @@
 
 namespace cyella::ui {
     // 토스트와 알림 센터다.
-    //  - 토스트는 주 tree에 둔다. popup 창은 불투명한 직사각형이라 둥근 모서리·부드러운 그림자·흐려지기를 그릴 수 없다.
+    //  - 토스트는 주 tree에 둔다. 창 안 모서리에만 서므로 popup일 까닭이 없고, popup(투명 popup 포함)은 주 tree의 대화 상자보다
+    //    늘 위라 "대화 상자는 토스트 위에 선다"를 지킬 수 없다.
     //    diff 웹뷰는 Skia 표면 아래의 composition visual이라 주 tree가 그 위에 그대로 그린다 (luil webview-composition-design.md).
     //  - 알림 센터는 popup이다. 바깥을 누르면 닫혀야 하는데, 주 tree에서 그 누름을 받으려면 창 전체를 덮어야 하고 그러면 웹뷰가 가려진다.
 

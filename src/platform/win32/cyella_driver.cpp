@@ -72,6 +72,65 @@ namespace cyella::win32 {
         }
     } // namespace
 
+    luil::input_action ref_list_dismiss(const luil::win32::popup_dismiss_reason reason)
+    {
+        using luil::win32::popup_dismiss_reason;
+        switch (reason)
+        {
+        case popup_dismiss_reason::pointer_press_outside:
+            return luil::make_app_action(close_ref_list_intent { .pressed_outside = true });
+        case popup_dismiss_reason::escape_key:
+        case popup_dismiss_reason::anchor_closed:
+            return luil::make_app_action(close_ref_list_intent {});
+        case popup_dismiss_reason::wheel_scrolled:
+        case popup_dismiss_reason::surface_moved:
+        case popup_dismiss_reason::surface_resized:
+        case popup_dismiss_reason::activation_changed:
+            break;
+        }
+        return {};
+    }
+
+    luil::win32::ui_popup make_ui_popup(ui::built_popup popup)
+    {
+        luil::win32::ui_popup shown {};
+        shown.id = std::move(popup.id);
+        shown.x = popup.x;
+        shown.y = popup.y;
+        shown.width = popup.width;
+        shown.height = popup.height;
+        shown.tree = std::move(popup.tree);
+        shown.corner = popup.corner;
+        shown.transparent = popup.transparent;
+        shown.border = popup.border;
+        shown.placed = std::move(popup.placed);
+        // 바깥을 누르거나 Esc·휠·창 이동이면 닫는다. 닫는 것은 상태(`ui_state::menu`)이고 popup은 다음 frame에 빠진다.
+        if (popup.ref_list)
+            shown.dismiss = ref_list_dismiss;
+        else if (popup.font)
+            shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
+                if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
+                    return luil::input_action {};
+                return luil::make_app_action(close_font_list_intent { .escape = reason == luil::win32::popup_dismiss_reason::escape_key });
+            };
+        else if (popup.notifications)
+            shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
+                if (reason == luil::win32::popup_dismiss_reason::pointer_press_outside || reason == luil::win32::popup_dismiss_reason::escape_key)
+                    return luil::make_app_action(close_notification_center_intent { .dismissed = reason == luil::win32::popup_dismiss_reason::pointer_press_outside });
+                return luil::input_action {};
+            };
+        else if (popup.selector)
+            // 거르는 칸이 있는 목록이다. 폴더 대화 상자를 열거나 다른 창을 보느라 창 활성이 바뀌어도 남는다 (luil의 검색 popup 규약).
+            shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
+                if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
+                    return luil::input_action {};
+                return luil::make_app_action(close_selector_intent {});
+            };
+        else
+            shown.dismiss = [](const luil::win32::popup_dismiss_reason) { return luil::make_app_action(close_menu_intent {}); };
+        return shown;
+    }
+
     cyella_driver::cyella_driver(std::u8string initial_repository)
         : cyella_driver { cyella_driver_options { .initial_repository = std::move(initial_repository), .settings_path = {} } }
     {}
@@ -801,39 +860,7 @@ namespace cyella::win32 {
         controller_->apply_feedback(built.feedback);
         frame->tree = std::move(built.tree);
         for (ui::built_popup& popup : built.popups)
-        {
-            luil::win32::ui_popup shown {};
-            shown.id = std::move(popup.id);
-            shown.x = popup.x;
-            shown.y = popup.y;
-            shown.width = popup.width;
-            shown.height = popup.height;
-            shown.tree = std::move(popup.tree);
-            shown.corner = popup.corner;
-            // 바깥을 누르거나 Esc·휠·창 이동이면 닫는다. 닫는 것은 상태(`ui_state::menu`)이고 popup은 다음 frame에 빠진다.
-            if (popup.font)
-                shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
-                    if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
-                        return luil::input_action {};
-                    return luil::make_app_action(close_font_list_intent { .escape = reason == luil::win32::popup_dismiss_reason::escape_key });
-                };
-            else if (popup.notifications)
-                shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
-                    if (reason == luil::win32::popup_dismiss_reason::pointer_press_outside || reason == luil::win32::popup_dismiss_reason::escape_key)
-                        return luil::make_app_action(close_notification_center_intent { .dismissed = reason == luil::win32::popup_dismiss_reason::pointer_press_outside });
-                    return luil::input_action {};
-                };
-            else if (popup.selector)
-                // 거르는 칸이 있는 목록이다. 폴더 대화 상자를 열거나 다른 창을 보느라 창 활성이 바뀌어도 남는다 (luil의 검색 popup 규약).
-                shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
-                    if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
-                        return luil::input_action {};
-                    return luil::make_app_action(close_selector_intent {});
-                };
-            else
-                shown.dismiss = [](const luil::win32::popup_dismiss_reason) { return luil::make_app_action(close_menu_intent {}); };
-            frame->popups.push_back(std::move(shown));
-        }
+            frame->popups.push_back(make_ui_popup(std::move(popup)));
         // 방금 연 popup의 칸으로 옮기는 첫 초점, 또는 글꼴 목록을 닫은 뒤 글꼴 칸으로 돌아가는 초점이다. 앱이 frame에 싣는
         // 초점 요청은 이것 하나다 (`ui_state::popup_focus`).
         frame->focus = std::move(built.focus);

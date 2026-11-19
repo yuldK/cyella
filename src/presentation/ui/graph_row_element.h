@@ -67,13 +67,23 @@ namespace cyella::ui {
         bool selected { false };
         // 행과 라벨 칩을 누르면 초점이 갈 그래프 목록이다 (↑↓로 이어 훑는다).
         luil::ui_element_id list {};
+        // 떠 있는 참조 목록 카드가 이 커밋의 것인가와, 누름으로 고정된 카드인가다. "+N"이 누를 때 낼 메시지를 이것으로 정한다
+        // (열기 · 호버 카드 고정 · 닫기).
+        bool ref_list_open { false };
+        bool ref_list_pinned { false };
     };
 
     class ref_chip_element;
+    class ref_cell_element;
+
+    // 그 행의 브랜치/태그 칸의 id다 (`row_key`는 `graph_item_key`). 칩과 "+N"은 이 칸의 자식이다.
+    [[nodiscard]] luil::ui_element_id ref_cell_id(const std::u8string& row_key);
 
     // 커밋 그래프의 행 내용이다 (라벨 | 그래프 | 메시지 | 작성자 | 날짜). hover 표시는 목록의 행이 그린다.
     // 이 element는 눌림을 직접 받으므로 (누름 = 고르기, 두 번 = 체크아웃, 우클릭 = 메뉴, 놓기 = 브랜치 메뉴) 목록 행의
-    // 고르기와 같은 메시지를 다시 낸다. 라벨은 자식 칩이라 칩마다 따로 눌리고 끌린다.
+    // 고르기와 같은 메시지를 다시 낸다. 라벨은 브랜치/태그 칸(`ref_cell_element`)의 자식 칩이라 칩마다 따로 눌리고 끌린다.
+    //  - "+N"이 선 행이면 그 칸이 hover 영역과 머무름으로 포인터가 칸에 들어오고 머무는 것을 알린다. controller가 그것으로
+    //    참조 목록 카드를 호버로 연다 (`ref_cell_hover_intent`·`ref_cell_dwell_intent`).
     class graph_row_element final : public press_row_element
     {
     public:
@@ -83,27 +93,18 @@ namespace cyella::ui {
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
         [[nodiscard]] luil::access_info accessibility() const override;
 
-        // 칸이 모자라 "+N" 칩이 서 있으면 그 칩이고, 아니면 nullptr다.
-        [[nodiscard]] const luil::ui_element* overflow() const noexcept;
-        // 브랜치/태그 칸의 오른쪽 끝이다 (물리 픽셀). 배치 전에는 0이다.
-        [[nodiscard]] float refs_right() const noexcept;
-
     private:
-        luil::ui_element* add_chip(std::unique_ptr<luil::ui_element> chip);
         void draw_graph(luil::draw_context& context, const luil::rect_f& cell) const;
 
         graph_row_data data_ {};
         graph_columns columns_ {};
         std::u8string access_name_ {};
-        // 라벨 칩들이다 (자식이 소유한다). 칸이 모자라면 뒤쪽은 숨고 `overflow_`가 "+N"을 보인다.
+        // 브랜치/태그 칸이다 (자식이 소유한다). 라벨이 없는 행(WIP 포함)에는 없다.
+        ref_cell_element* cell_ { nullptr };
+        // 라벨 칩들이다 (칸이 소유한다). 칸이 모자라면 뒤쪽은 숨고 `overflow_`가 "+N"을 보인다.
         std::vector<ref_chip_element*> chips_ {};
         luil::ui_element* overflow_ { nullptr };
-        float refs_right_ { 0.0f };
     };
-
-    // 포인터(`point`, 주 창 표면 좌표의 물리 픽셀)가 "+N" 칩이 선 행의 브랜치/태그 칸 안에 있으면 그 칩을 돌려준다.
-    // 칩 하나가 아니라 칸 어디에 올려도 참조 목록 카드가 뜨게 하는 판정이다. 칩이 다 보이는 행이나 칸 밖이면 nullptr다.
-    [[nodiscard]] const luil::ui_element* find_ref_overflow_at(const luil::ui_tree& tree, luil::point_f point);
 
     // 그래프 목록 위의 열 머리다.
     //  - 제목은 행의 열 위에 서야 하므로 행과 같은 폭으로 열을 나눈다. 목록이 세로 막대를 세우면 행은 막대 폭만큼 좁다.

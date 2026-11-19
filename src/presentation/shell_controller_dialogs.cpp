@@ -11,6 +11,8 @@
 #include "presentation/shell_controller.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <system_error>
 #include <utility>
@@ -20,6 +22,9 @@ namespace cyella {
     namespace {
         // 확인 상자에 파일을 늘어놓는 수다. 넘치면 "외 N개"다.
         constexpr std::size_t listed_path_limit { 6 };
+        // 참조 목록 카드를 호버로 여는 머무름과, 호버로 연 카드가 칸과 카드를 떠난 뒤 닫히기까지의 시간이다.
+        constexpr std::chrono::milliseconds ref_hover_open_delay { 180 };
+        constexpr std::chrono::milliseconds ref_hover_close_delay { 400 };
 
         std::string to_text(const std::u8string_view text)
         {
@@ -345,29 +350,229 @@ namespace cyella {
                 static_cast<void>(workspace->cancel(id));
     }
 
+    // ---------------------------------------------------------------- 참조 목록 카드의 호버
+
+    bool shell_controller::open_ref_list(
+        const std::string& sha, const std::u8string& row_key, const float x, const float y, const float width, const float height, const ref_list_origin origin)
+    {
+        const repository_session* const session { selected_session() };
+        if (session == nullptr || ui_.menu.has_value() || ui_.dialog.has_value())
+            return false;
+        const auto& commits { session->graph_commits() };
+        if (std::none_of(commits.begin(), commits.end(), [&sha](const commit_info& commit) { return commit.sha == sha; }))
+            return false;
+        ui_.selector.reset();
+        // 배치는 연 뒤 처음 그리는 `make_view`가 적는다. 칩을 누른 frame과 같은 배치이고, 그 사이의 그래프 스크롤은
+        // 스크롤 처리가 이미 카드를 닫는다. 여기서 적으면 아직 frame을 그리지 않은 창의 크기(0)가 들어간다.
+        ui_.ref_list = ref_list_state {
+            .sha = sha,
+            .x = x,
+            .y = y,
+            .width = width,
+            .height = height,
+            .row_key = row_key.empty() ? graph_item_key(sha) : row_key,
+            .origin = origin,
+            .serial = ++ref_list_serial_,
+        };
+        ref_hover_.seen_open = true;
+        ref_hover_.close_at.reset();
+        return true;
+    }
+
+    bool shell_controller::ref_hover_blocked() const noexcept
+    {
+        return ui_.menu.has_value() || ui_.dialog.has_value() || ui_.selector.has_value() || ui_.notifications_open || ref_list_dialog_up_;
+    }
+
+    bool shell_controller::pointer_in_ref_cell() const noexcept
+    {
+        // 영역만으로 보면 덮개(레일 판·토스트) 아래의 칸 위에서도 안이다. 지금 선 머무름만으로 보면 칸 안에서 한 번 누른 뒤(좌·우 모두,
+        // 머무름은 칸을 떠날 때까지 다시 서지 않는다) 포인터가 칸 위인데도 밖이다.
+        //  - 한계: 머문 칸 위에 덮개가 새로 서거나, 포인터가 머문 칸 자리 안에서 덮개 위로 옮기면 그 칸을 떠날 때까지 안이다.
+        //    luil의 머무름 끝(`hover_dwell_target::on_end`)은 누름과 덮개를 가려 알리지 않는다.
+        //  - 한계: 마우스가 머문 칸 위에 있는 동안의 터치 탭도 칸 안의 누름이다. luil에서 터치는 마우스의 hover 영역을 바꾸지 않고
+        //    (`update_hover_regions`) 머무름만 끝내므로, 메시지 없는 자리를 탭해도 마우스가 그 칸을 떠날 때까지 카드가 남는다.
+        return ref_hover_.cell.has_value() && ref_hover_.dwelled_row == ref_hover_.cell->row_key;
+    }
+
+    void shell_controller::observe_ref_list_close(const std::chrono::steady_clock::time_point now)
+    {
+        if (ui_.ref_list.has_value())
+        {
+            ref_hover_.seen_open = true;
+            return;
+        }
+        if (ref_hover_.seen_open == false)
+            return;
+        ref_hover_.seen_open = false;
+        ref_hover_.close_at.reset();
+        // 어느 길로 닫혔든(Esc·바깥 누름·고르기·스크롤·메뉴) 포인터가 그 칸에 있으면 떠날 때까지 다시 열지 않는다. 칩을 눌러 커밋을
+        // 고르자마자 카드가 다시 뜨면 성가시다.
+        if (ref_hover_.cell.has_value())
+            ref_hover_.dismissed = ref_hover_.cell->row_key;
+        // 포인터가 카드 위였으면 카드가 사라진 자리에 드러나는 칸도 그렇다. popup의 영역은 표면이 사라질 때 나감을 알리지만,
+        // 다시 연 카드가 그 나감을 받지 못하는 일이 없게 여기서도 내려놓는다.
+        if (ref_hover_.on_card)
+            ref_hover_.carry_until = now + ref_hover_carry_window;
+        ref_hover_.on_card = false;
+    }
+
+    void shell_controller::settle_ref_hover(const std::chrono::steady_clock::time_point now)
+    {
+        observe_ref_list_close(now);
+        if (ref_hover_.carry_until.has_value() && now > *ref_hover_.carry_until)
+            ref_hover_.carry_until.reset();
+
+        // 호버로 연 카드는 칸과 카드를 모두 떠난 지 400ms가 지나면 닫는다. 누름·키로 연 카드는 남는다. "칸 안"은
+        // `pointer_in_ref_cell`이다 — 덮개 아래로만 지난 칸 위면 닫히고, "+N"이나 칩을 누르거나 우클릭한 뒤의 칸 위면 남는다.
+        if (ui_.ref_list.has_value() && ui_.ref_list->origin == ref_list_origin::hover)
+        {
+            if (pointer_in_ref_cell() || ref_hover_.on_card)
+                ref_hover_.close_at.reset();
+            else if (ref_hover_.close_at.has_value() == false)
+                ref_hover_.close_at = now + ref_hover_close_delay;
+            if (ref_hover_.close_at.has_value() && now >= *ref_hover_.close_at)
+            {
+                // 포인터는 칸 밖이라 "다시 열지 않음"이 서지 않는다. 돌아오면 다시 연다.
+                ui_.ref_list.reset();
+                ref_hover_.seen_open = false;
+                ref_hover_.close_at.reset();
+                ref_hover_.on_card = false;
+            }
+        }
+        else
+            ref_hover_.close_at.reset();
+
+        // 칸 자리 안이고 그 칸에 정말 머물러야 연다. 영역만으로는 덮개(토스트·서랍·레일 판) 아래나 끄는 도중의 칸이 안으로 읽힌다.
+        if (ref_hover_.cell.has_value() == false || ref_hover_.dwell_row != ref_hover_.cell->row_key || ref_hover_.cell->row_key == ref_hover_.dismissed || ref_hover_blocked())
+            return;
+        if (ui_.ref_list.has_value() && ui_.ref_list->row_key == ref_hover_.cell->row_key)
+            return;
+        // 호버로 연 카드가 떠 있는 동안 다른 행의 칸으로 옮기면 기다리지 않고 바로 그 행으로 바꾼다.
+        const bool switching { ui_.ref_list.has_value() && ui_.ref_list->origin == ref_list_origin::hover };
+        if (switching == false && now - std::max(ref_hover_.cell_since, ref_hover_.dwell_since) < ref_hover_open_delay)
+            return;
+        const ref_hover_cell cell { *ref_hover_.cell };
+        // 열지 못한 칸(세션이 없거나 그래프에 없는 커밋)은 떠날 때까지 다시 해 보지 않는다. 그러지 않으면 지난 열 시각이 `next_tick`에
+        // 남아 logic이 쉬지 않고 tick을 돈다.
+        if (open_ref_list(cell.sha, cell.row_key, cell.x, cell.y, cell.width, cell.height, ref_list_origin::hover) == false)
+            ref_hover_.dismissed = cell.row_key;
+    }
+
+    std::optional<std::chrono::steady_clock::time_point> shell_controller::ref_hover_deadline() const noexcept
+    {
+        std::optional<std::chrono::steady_clock::time_point> next { ref_hover_.close_at };
+        if (ref_hover_.cell.has_value() && ref_hover_.dwell_row == ref_hover_.cell->row_key && ref_hover_.cell->row_key != ref_hover_.dismissed && ref_hover_blocked() == false
+            && (ui_.ref_list.has_value() == false || ui_.ref_list->row_key != ref_hover_.cell->row_key))
+        {
+            const std::chrono::steady_clock::time_point open_at { std::max(ref_hover_.cell_since, ref_hover_.dwell_since) + ref_hover_open_delay };
+            if (next.has_value() == false || open_at < *next)
+                next = open_at;
+        }
+        return next;
+    }
+
     // ---------------------------------------------------------------- 메시지
 
     bool shell_controller::handle_dialog_message(const luil::app_message& message)
     {
         if (const auto* const intent { message.get<open_ref_list_intent>() }; intent != nullptr)
         {
-            const repository_session* const session { selected_session() };
-            if (session != nullptr && ui_.menu.has_value() == false && ui_.dialog.has_value() == false)
+            // 호버로 떠 있는 같은 카드를 누르면 고정한다 (떠나도 남는다). 다시 여는 것이 아니라 스크롤도 그대로다.
+            if (ui_.ref_list.has_value() && ui_.ref_list->sha == intent->sha)
+                ui_.ref_list->origin = ref_list_origin::press;
+            else if (open_ref_list(intent->sha, intent->row_key, intent->x, intent->y, intent->width, intent->height, ref_list_origin::press))
             {
-                const auto& commits { session->graph_commits() };
-                if (std::any_of(commits.begin(), commits.end(), [intent](const commit_info& commit) { return commit.sha == intent->sha; }))
-                {
-                    ui_.selector.reset();
-                    // 배치는 연 뒤 처음 그리는 `make_view`가 적는다. 칩을 누른 frame과 같은 배치이고, 그 사이의 그래프 스크롤은
-                    // 스크롤 처리가 이미 카드를 닫는다. 여기서 적으면 아직 frame을 그리지 않은 창의 크기(0)가 들어간다.
-                    ui_.ref_list = ref_list_state { .sha = intent->sha, .x = intent->x, .y = intent->y, .width = intent->width, .height = intent->height };
-                }
+                // 키·보조 기술로 다른 행의 카드를 열었는데 포인터는 이미 머문 칸 위다. 그 칸은 떠날 때까지 호버로 다시 열지 않는다 —
+                // 그러지 않으면 이어지는 호버 판정이 방금 연 카드를 그 칸의 호버 카드로 곧바로 갈아 끼운다.
+                if (ref_hover_.cell.has_value() && ref_hover_.cell->row_key != ui_.ref_list->row_key)
+                    ref_hover_.dismissed = ref_hover_.cell->row_key;
             }
             return true;
         }
-        if (message.get<close_ref_list_intent>() != nullptr)
+        if (const auto* const intent { message.get<close_ref_list_intent>() }; intent != nullptr)
         {
+            // 포인터가 "+N" 칸 안(`pointer_in_ref_cell`)일 때의 바깥 누름은 그 누름이 스스로 처리한다: 칩·빈 칸의 좌클릭은 누를 때의
+            // 커밋 고르기(카드를 닫는다, 칩을 끌 때도 그렇다), 칩·빈 칸의 우클릭은 메뉴 열기(카드를 닫는다), "+N"은 지은 때의 상태로 정한
+            // 열기·고정·닫기다. "+N"·HEAD·stash 칩의 우클릭과 가운데 누름은 메시지가 없어 칸을 떠날 때까지 카드가 남는다.
+            //  - 여기서 먼저 닫으면 "+N"으로 고정하거나 다른 행으로 바꾸는 카드가 지워졌다 다시 서며 깜빡이고 스크롤이 처음으로 돌아간다.
+            //  - 지금 선 머무름으로 거르지 않는 것은, 칸 안에서 한 번 누르면(우클릭 포함) 머무름이 칸을 떠날 때까지 다시 서지 않아서다.
+            //    그러면 우클릭 뒤의 "+N" 누름이 그렇게 깜빡인다.
+            if (intent->pressed_outside && pointer_in_ref_cell())
+                return true;
             ui_.ref_list.reset();
+            return true;
+        }
+        if (const auto* const intent { message.get<ref_cell_hover_intent>() }; intent != nullptr)
+        {
+            const std::chrono::steady_clock::time_point now { dependencies_.steady_clock() };
+            if (intent->inside)
+            {
+                if (ref_hover_.cell.has_value() == false || ref_hover_.cell->row_key != intent->row_key)
+                    ref_hover_.cell_since = now;
+                ref_hover_.cell = ref_hover_cell { .row_key = intent->row_key, .sha = intent->sha, .x = intent->x, .y = intent->y, .width = intent->width, .height = intent->height };
+                // 카드가 닫힌 직후 포인터 아래로 드러나거나 흘러 온 칸이다. 떠날 때까지 다시 열지 않는다.
+                if (ref_hover_.carry_until.has_value() && now <= *ref_hover_.carry_until)
+                    ref_hover_.dismissed = intent->row_key;
+                ref_hover_.carry_until.reset();
+            }
+            else
+            {
+                // 잡은 동안 미룬 나감은 다른 칸에 들어온 뒤에 올 수 있다 (`hold_while_captured`). 제 칸의 것만 지운다.
+                if (ref_hover_.cell.has_value() && ref_hover_.cell->row_key == intent->row_key)
+                    ref_hover_.cell.reset();
+                if (ref_hover_.dismissed == intent->row_key)
+                    ref_hover_.dismissed.clear();
+                if (ref_hover_.dwelled_row == intent->row_key)
+                    ref_hover_.dwelled_row.clear();
+            }
+            return true;
+        }
+        if (const auto* const intent { message.get<ref_cell_dwell_intent>() }; intent != nullptr)
+        {
+            if (intent->live)
+            {
+                ref_hover_.dwell_row = intent->row_key;
+                ref_hover_.dwelled_row = intent->row_key;
+                ref_hover_.dwell_since = dependencies_.steady_clock();
+            }
+            else if (ref_hover_.dwell_row == intent->row_key)
+                ref_hover_.dwell_row.clear();
+            return true;
+        }
+        if (const auto* const intent { message.get<ref_card_hover_intent>() }; intent != nullptr)
+        {
+            // 닫힌 카드의 늦은 들어옴은 버린다. 나감은 언제나 받는다.
+            ref_hover_.on_card = intent->inside && ui_.ref_list.has_value();
+            return true;
+        }
+        if (const auto* const intent { message.get<ref_list_placed_intent>() }; intent != nullptr)
+        {
+            if (ui_.ref_list.has_value() && ui_.ref_list->serial == intent->serial)
+            {
+                // 물리 픽셀로 반올림한 자리를 다시 나눈 값이라 1 논리 픽셀 안의 차이는 보정이 아니다.
+                const float shift_x { intent->x - intent->requested_x };
+                const float shift_y { intent->y - intent->requested_y };
+                const float push { std::abs(shift_y) };
+                // 넘친 쪽의 그림자 여백이다. 위로 밀렸으면(shift_y < 0) 아래가 넘친 것이다.
+                const float margin { shift_y < 0.0f ? intent->margin_below : intent->margin_above };
+                if (push > 1.0f && push <= margin + 1.0f)
+                {
+                    // 몸통은 들어가고 그림자만 넘쳤다. 뒤집지 않고 그쪽 그림자를 깎아 다시 청한다. 호스트는 창 전체를 미므로 그대로
+                    // 두면 몸통도 밀려 꼬리가 칩에서 떨어진다. 깎은 popup은 제자리에 서므로 다음 보고는 밀림이 없다.
+                    ui_.ref_list->shadow_trim += std::min(push, margin);
+                    ui_.ref_list->placed_shift = std::abs(shift_x) > 1.0f ? shift_x : 0.0f;
+                }
+                else if (push > 1.0f && ui_.ref_list->flipped == false)
+                {
+                    // 몸통까지 넘쳤다. 칩 반대쪽으로 한 번 뒤집는다. 뒤집은 쪽도 몸통까지 밀리면 그대로 둔다 (오가지 않게).
+                    ui_.ref_list->flipped = true;
+                    ui_.ref_list->placed_shift = 0.0f;
+                    ui_.ref_list->shadow_trim = 0.0f;
+                }
+                else
+                    ui_.ref_list->placed_shift = std::abs(shift_x) > 1.0f ? shift_x : 0.0f;
+            }
             return true;
         }
         if (const auto* const intent { message.get<scroll_ref_list_intent>() }; intent != nullptr)

@@ -326,20 +326,26 @@ namespace cyella::ui {
 
     // ---------------------------------------------------------------- ref_overflow_element
 
-    ref_overflow_element::ref_overflow_element(std::u8string owner, const std::size_t hidden, std::string sha)
-        : ui_element { luil::ui_element_id { kind_ref_overflow, std::move(owner) } }
-        , text_ { u8"+" + number_text(hidden) }
+    ref_overflow_element::ref_overflow_element(ref_overflow_config config)
+        : ui_element { luil::ui_element_id { kind_ref_overflow, std::move(config.owner) } }
+        , text_ { u8"+" + number_text(config.hidden) }
+        , open_ { config.open }
     {
         set_cursor(luil::ui_cursor::hand);
-        set_action(luil::ui_trigger::left_click, [this, sha = std::move(sha)](const luil::ui_action_context&) -> std::vector<luil::input_action> {
-            const luil::rect_f box { bounds() };
-            return { message(open_ref_list_intent { .sha = sha, .x = box.x, .y = box.y, .width = box.width, .height = box.height }) };
+        const bool close { config.open && config.pinned };
+        set_action(luil::ui_trigger::left_click,
+            [this, close, sha = std::move(config.sha), row_key = std::move(config.row_key)](const luil::ui_action_context&) -> std::vector<luil::input_action> {
+                if (close)
+                    return { message(close_ref_list_intent {}) };
+                const luil::rect_f box { bounds() };
+                return { message(open_ref_list_intent { .sha = sha, .x = box.x, .y = box.y, .width = box.width, .height = box.height, .row_key = row_key }) };
+            });
+        // 펼친 동안의 접기는 닫기다. 펼치기는 이미 펼친 상태라 luil이 먼저 거른다.
+        set_access_handler([](const luil::access_request& request) -> std::optional<std::vector<luil::input_action>> {
+            if (request.command != luil::access_command::collapse)
+                return std::nullopt;
+            return std::vector<luil::input_action> { message(close_ref_list_intent {}) };
         });
-    }
-
-    bool is_ref_list_part(const luil::ui_element_id& id) noexcept
-    {
-        return id.owner.starts_with(ref_list_owner_prefix);
     }
 
     luil::ui_element_id ref_list_card_id()
@@ -354,7 +360,12 @@ namespace cyella::ui {
 
     luil::access_info ref_overflow_element::accessibility() const
     {
-        return { .role = luil::access_role::button, .name = tr(u8"ref_chip.overflow_access_name", { { u8"count", text_ } }) };
+        // 닫혀 있을 때는 펼침을 알리지 않는다. 알리면 Invoke가 빠지고 펼치기에는 기본 동작이 없어 보조 기술로 열 길이 없다.
+        return {
+            .role = luil::access_role::button,
+            .name = tr(u8"ref_chip.overflow_access_name", { { u8"count", text_ } }),
+            .expanded = open_ ? std::optional<bool> { true } : std::nullopt,
+        };
     }
 
     void ref_overflow_element::draw(luil::draw_context& context, const luil::interaction_snapshot&) const

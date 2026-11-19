@@ -74,12 +74,19 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
     CHECK(opened->width == overflow->bounds().width);
     CHECK(opened->height == overflow->bounds().height);
 
-    // 칸 어디에 올려도 "+N" 칩을 찾는다. 칸 밖(메시지 열)이나 다른 높이면 없다.
+    // 칸 어디에 올려도 그 칸의 hover 영역 안이다 (칩 사이 빈 칸 포함). 칸 밖(메시지 열)이나 다른 높이면 없다.
     const luil::rect_f chip { overflow->bounds() };
-    CHECK(ui::find_ref_overflow_at(tree, { 4.0f, 14.0f }) == overflow);
-    CHECK(ui::find_ref_overflow_at(tree, { chip.x + chip.width / 2.0f, 14.0f }) == overflow);
-    CHECK(ui::find_ref_overflow_at(tree, { 300.0f, 14.0f }) == nullptr);
-    CHECK(ui::find_ref_overflow_at(tree, { 4.0f, 40.0f }) == nullptr);
+    const auto regions_at = [&tree](const float x, const float y) {
+        std::vector<luil::ui_element_id> ids {};
+        for (const luil::ui_element* const element : tree.hover_regions_at(x, y))
+            ids.push_back(element->id());
+        return ids;
+    };
+    const std::vector<luil::ui_element_id> cell { ui::ref_cell_id(u8"abc") };
+    CHECK(regions_at(4.0f, 14.0f) == cell);
+    CHECK(regions_at(chip.x + chip.width / 2.0f, 14.0f) == cell);
+    CHECK(regions_at(300.0f, 14.0f).empty());
+    CHECK(regions_at(4.0f, 40.0f).empty());
 
     test::snapshot::snapshot_harness harness {};
     const auto tab { harness.open(u8"C:/work/repo", "repo-1") };
@@ -88,20 +95,48 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
     auto map { std::make_shared<ref_label_map>() };
     (*map)["abc"] = labels;
     view.repository->graph.labels = map;
-    view.ref_list = ref_list_state { .sha = "abc", .x = 140.0f, .y = 200.0f, .width = 24.0f, .height = 20.0f };
+    view.ref_list = ref_list_state { .sha = "abc", .x = 140.0f, .y = 200.0f, .width = 24.0f, .height = 20.0f, .row_key = u8"abc", .serial = 3 };
     const auto built { ui::build_ui_tree(view) };
-    // 카드는 popup 창이 아니라 주 창 tree에 선다 (꼬리를 창 밖으로 내밀 수 없어서다).
-    CHECK(built.popups.empty());
-    CHECK(built.tree->duplicate_ids().empty());
-    const auto* const card { built.tree->find(ui::ref_list_card_id()) };
+    // 카드는 투명 popup이다. 창 모양이 tree의 알파라 꼬리와 그림자를 tree가 그리고, OS 경계는 긋지 않는다. 주 창 tree에는 없다.
+    REQUIRE(built.popups.size() == 1);
+    const ui::built_popup& popup { built.popups.front() };
+    CHECK(popup.id == u8"ref-list");
+    CHECK(popup.ref_list);
+    CHECK(popup.transparent);
+    CHECK_FALSE(popup.border);
+    CHECK(built.tree->find(ui::ref_list_card_id()) == nullptr);
+    REQUIRE(popup.tree != nullptr);
+    CHECK(popup.tree->duplicate_ids().empty());
+    const auto* const card { popup.tree->find(ui::ref_list_card_id()) };
     REQUIRE(card != nullptr);
+    // 보조 기술에는 카드 묶음이 popup의 첫 요소로 선다 (뿌리는 구조라 접힌다).
+    CHECK(card->accessibility().role == luil::access_role::group);
     CHECK(card->accessibility().name.empty() == false);
-    // 칩 아래에 자리가 넉넉하니 카드는 칩 바로 아래에 서고, 묶음 머리는 종류마다 하나다.
-    CHECK(card->bounds().y == 222.0f);
-    CHECK(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-local" }) != nullptr);
-    CHECK(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-remote" }) != nullptr);
-    CHECK(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-tag" }) != nullptr);
-    CHECK_FALSE(built.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-local" })->enabled());
+    REQUIRE(popup.tree->root() != nullptr);
+    CHECK(popup.tree->root()->accessibility().role == luil::access_role::none);
+    // 칩 아래에 자리가 넉넉하니 카드는 칩 바로 아래에 선다. popup은 꼬리 끝(칩 아래 2px)에서 시작하고 옆과 아래로 그림자만큼 넓다.
+    // 그림자 띠는 입력을 받으므로(알파가 0이 아니다) 옆 3, 아래 4로 짧다. 그 밖의 누름은 아래 행이 받는다.
+    CHECK(popup.y == 222.0f);
+    CHECK(card->bounds().y == 0.0f);
+    CHECK(card->bounds().x == 3.0f);
+    CHECK(popup.width == card->bounds().width + 6.0f);
+    CHECK(popup.height == card->bounds().height + 4.0f);
+    // 묶음 머리는 종류마다 하나다.
+    CHECK(popup.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-local" }) != nullptr);
+    CHECK(popup.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-remote" }) != nullptr);
+    CHECK(popup.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-tag" }) != nullptr);
+    CHECK_FALSE(popup.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-group-local" })->enabled());
+    // 호스트가 알린 자리는 이 카드의 번호와 청한 자리를 싣는다.
+    REQUIRE(popup.placed != nullptr);
+    const luil::app_message placed { popup.placed(luil::rect_f { popup.x + 5.0f, popup.y, popup.width, popup.height }) };
+    const auto* const report { placed.get<ref_list_placed_intent>() };
+    REQUIRE(report != nullptr);
+    CHECK(report->serial == 3);
+    CHECK(report->requested_x == popup.x);
+    CHECK(report->x == popup.x + 5.0f);
+    // 그때의 그림자 여백도 싣는다. 아래로 선 카드라 칩 쪽(위)은 0이다.
+    CHECK(report->margin_above == 0.0f);
+    CHECK(report->margin_below == 4.0f);
     const std::vector<std::pair<std::u8string, ref_label>> picks {
         { u8"ref-list-l:main", labels[0] },
         { u8"ref-list-rb:origin/main", ref_label { .kind = ref_label_kind::remote, .text = u8"origin/main", .ref_name = "origin/main" } },
@@ -110,7 +145,7 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
     };
     for (const auto& [key, label] : picks)
     {
-        const auto* const item { built.tree->find({ luil::ui_element_kind::menu_item, key }) };
+        const auto* const item { popup.tree->find({ luil::ui_element_kind::menu_item, key }) };
         REQUIRE(item != nullptr);
         REQUIRE(item->action(luil::ui_trigger::left_click) != nullptr);
         REQUIRE(item->action(luil::ui_trigger::right_click) != nullptr);
@@ -124,6 +159,11 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
         const std::optional<menu_target> expected { ui::menu_target_of(label, "abc") };
         REQUIRE(expected.has_value());
         CHECK(menu->target == *expected);
+        // 메뉴는 카드가 가리키는 칩 아래에 선다.
+        CHECK(menu->x == 140.0f);
+        CHECK(menu->y == 220.0f);
+        // 짧은 이름은 카드 안에 다 보이므로 툴팁을 달지 않는다 (툴팁은 popup 밖으로 나가지 못한다).
+        CHECK_FALSE(item->has_tooltip());
     }
     static_cast<void>(tab);
 }
@@ -139,7 +179,7 @@ TEST_CASE("the ref card points its tail at the overflow chip and flips above nea
 
     // 아래에 자리가 있으면 칩 아래에 서고 꼬리가 위로 칩 가운데를 가리킨다 (배율 2라 상태의 칩은 물리 픽셀이다).
     const ui::placed_ref_list below { ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 400.0f, .width = 40.0f, .height = 40.0f }, labels, 2.0f, area) };
-    REQUIRE(below.element != nullptr);
+    REQUIRE(below.popup.tree != nullptr);
     CHECK(below.tail_up);
     CHECK(below.tail_x == 150.0f);
     CHECK(below.rect.y == 222.0f);
@@ -148,20 +188,500 @@ TEST_CASE("the ref card points its tail at the overflow chip and flips above nea
 
     // 칩이 본문 바닥 가까이 있으면 칩 위에 서고 꼬리가 아래를 가리킨다. 본문 밖으로 나가지 않는다.
     const ui::placed_ref_list above { ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 1360.0f, .width = 40.0f, .height = 40.0f }, labels, 2.0f, area) };
-    REQUIRE(above.element != nullptr);
+    REQUIRE(above.popup.tree != nullptr);
     CHECK_FALSE(above.tail_up);
     CHECK(above.rect.y + above.rect.height == 678.0f);
     CHECK(above.rect.y >= area.y);
+    // 위에 선 카드의 popup은 꼬리 끝(칩 위 2px)에서 끝난다. 아래 그림자가 칩 줄을 덮어 칩 누름을 삼키지 않는다.
+    CHECK(above.popup.y + above.popup.height == 678.0f);
+    CHECK(above.popup.y == above.rect.y - 2.0f);
+
+    // 그림자만 넘쳐 호스트가 밀었으면 칩에서 먼 쪽 여백을 그만큼 깎는다. 카드 자리는 그대로다.
+    const ui::placed_ref_list trimmed {
+        ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 400.0f, .width = 40.0f, .height = 40.0f, .shadow_trim = 3.0f }, labels, 2.0f, area)
+    };
+    REQUIRE(trimmed.popup.tree != nullptr);
+    CHECK(trimmed.rect.y == below.rect.y);
+    CHECK(trimmed.popup.y == below.popup.y);
+    CHECK(trimmed.popup.height == below.popup.height - 3.0f);
+    REQUIRE(trimmed.popup.placed != nullptr);
+    const luil::app_message trimmed_report { trimmed.popup.placed(luil::rect_f { trimmed.popup.x, trimmed.popup.y, trimmed.popup.width, trimmed.popup.height }) };
+    REQUIRE(trimmed_report.get<ref_list_placed_intent>() != nullptr);
+    CHECK(trimmed_report.get<ref_list_placed_intent>()->margin_below == 1.0f);
+    const ui::placed_ref_list trimmed_above {
+        ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 1360.0f, .width = 40.0f, .height = 40.0f, .shadow_trim = 5.0f }, labels, 2.0f, area)
+    };
+    REQUIRE(trimmed_above.popup.tree != nullptr);
+    CHECK(trimmed_above.popup.y == trimmed_above.rect.y);
+    CHECK(trimmed_above.popup.y + trimmed_above.popup.height == 678.0f);
 
     // 창 오른쪽 끝의 칩이면 카드가 안으로 밀리고 꼬리만 칩에 남는다.
     const ui::placed_ref_list edge { ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 2300.0f, .y = 400.0f, .width = 30.0f, .height = 40.0f }, labels, 2.0f, area) };
-    REQUIRE(edge.element != nullptr);
+    REQUIRE(edge.popup.tree != nullptr);
     CHECK(edge.rect.x + edge.rect.width <= 1192.0f);
     CHECK(edge.tail_x == 1157.5f);
     CHECK(edge.tail_x <= edge.rect.x + edge.rect.width);
 
+    // 호스트가 popup을 오른쪽으로 10 밀었으면 카드도 그만큼 옮겨 서므로 꼬리를 거꾸로 옮겨 여전히 칩 가운데를 가리킨다.
+    const ui::placed_ref_list shifted {
+        ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 400.0f, .width = 40.0f, .height = 40.0f, .placed_shift = 10.0f }, labels, 2.0f, area)
+    };
+    REQUIRE(shifted.popup.tree != nullptr);
+    CHECK(shifted.popup.x == below.popup.x);
+    CHECK(shifted.tail_x == 150.0f);
+    const auto* const shifted_card { shifted.popup.tree->find(ui::ref_list_card_id()) };
+    const auto* const below_card { below.popup.tree->find(ui::ref_list_card_id()) };
+    REQUIRE(shifted_card != nullptr);
+    REQUIRE(below_card != nullptr);
+    // 그림을 견주지 않고, 같은 칩에 대한 두 카드의 꼬리가 밀린 거리만큼 다른 픽셀에 서는지 본다.
+    const auto tail_column = [](const luil::ui_element& card) {
+        SkBitmap bitmap {};
+        const luil::rect_f box { card.bounds() };
+        bitmap.allocN32Pixels(static_cast<int>(box.x + box.width) + 4, static_cast<int>(box.y + box.height) + 4);
+        bitmap.eraseColor(SK_ColorTRANSPARENT);
+        SkCanvas canvas { bitmap };
+        const luil::ui_color_palette palette { luil::color_palette_for(luil::color_theme::light) };
+        luil::draw_context context { .canvas = canvas, .palette = palette, .scale = 2.0f };
+        card.draw(context, luil::interaction_snapshot {});
+        // 꼬리 끝 가까운 줄에서 진하게 칠해진 자리의 가운데 x다. 그 높이의 그림자는 옅어 걸리지 않는다.
+        const int y { static_cast<int>(box.y) + 4 };
+        int first { -1 };
+        int last { -1 };
+        for (int x { 0 }; x < bitmap.width(); ++x)
+            if (SkColorGetA(bitmap.getColor(x, y)) > 128)
+            {
+                if (first < 0)
+                    first = x;
+                last = x;
+            }
+        return (first + last) / 2;
+    };
+    CHECK(tail_column(*below_card) - tail_column(*shifted_card) == 20);
+
+    // 호스트가 세로로 밀었으면 칩 반대쪽으로 뒤집어 선다.
+    const ui::placed_ref_list flipped {
+        ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 400.0f, .width = 40.0f, .height = 40.0f, .flipped = true }, labels, 2.0f, area)
+    };
+    CHECK_FALSE(flipped.tail_up);
+    CHECK(flipped.rect.y + flipped.rect.height == 198.0f);
+
     // 참조가 없는 커밋이면 카드가 없다.
-    CHECK(ui::build_ref_list_card(ref_list_state { .sha = "abc" }, {}, 1.0f, area).element == nullptr);
+    CHECK(ui::build_ref_list_card(ref_list_state { .sha = "abc" }, {}, 1.0f, area).popup.tree == nullptr);
+}
+
+TEST_CASE("a long ref name gets a tooltip because the card cannot show it whole", "[ui][refs]")
+{
+    using namespace cyella;
+    const std::vector<ref_label> labels {
+        { .kind = ref_label_kind::local, .text = u8"feature/a-very-long-branch-name-that-does-not-fit-in-the-card-at-all", .ref_name = "feature/long" },
+        { .kind = ref_label_kind::tag, .text = u8"v1.0", .ref_name = "v1.0" },
+    };
+    const ui::placed_ref_list card { ui::build_ref_list_card(ref_list_state { .sha = "abc", .x = 280.0f, .y = 400.0f, .width = 40.0f, .height = 40.0f }, labels, 1.0f, { 0.0f, 0.0f, 1600.0f, 900.0f }) };
+    REQUIRE(card.popup.tree != nullptr);
+    const auto* const long_item { card.popup.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-l:feature/long" }) };
+    const auto* const short_item { card.popup.tree->find({ luil::ui_element_kind::menu_item, u8"ref-list-t:v1.0" }) };
+    REQUIRE(long_item != nullptr);
+    REQUIRE(short_item != nullptr);
+    CHECK(long_item->has_tooltip());
+    CHECK_FALSE(short_item->has_tooltip());
+}
+
+namespace {
+    // 커밋 셋 가운데 앞의 둘에 브랜치를 넉넉히 붙여 두 행 모두 "+N"이 서는 화면이다.
+    struct overflow_fixture
+    {
+        overflow_fixture()
+        {
+            static_cast<void>(harness.open(u8"C:/work/repo", "repo-1"));
+            cyella::test::snapshot::load(*harness.sessions["repo-1"], cyella::test::snapshot::linear_history(3), 0);
+            auto map { std::make_shared<cyella::ref_label_map>() };
+            for (const std::string& sha : { first, second })
+                for (int index { 0 }; index < 5; ++index)
+                {
+                    const std::string name { "topic-" + sha.substr(0, 4) + "-" + std::to_string(index) };
+                    (*map)[sha].push_back({ .kind = cyella::ref_label_kind::local, .text = std::u8string { name.begin(), name.end() }, .ref_name = name });
+                }
+            // 셋째 커밋은 칩이 다 들어가 "+N"이 서지 않는 행이다.
+            (*map)[third].push_back({ .kind = cyella::ref_label_kind::tag, .text = u8"v1", .ref_name = "v1" });
+            labels = map;
+        }
+
+        [[nodiscard]] cyella::ui::built_tree build(const std::optional<cyella::ref_list_state>& card = std::nullopt, const bool dialog = false)
+        {
+            cyella::view_snapshot view { harness.build() };
+            view.repository->graph.labels = labels;
+            view.ref_list = card;
+            if (dialog)
+            {
+                cyella::form_view form {};
+                form.id = u8"covering-form";
+                form.title = u8"확인";
+                form.buttons = { { .key = u8"cancel", .label = u8"취소" } };
+                form.dismiss_key = u8"cancel";
+                view.form = form;
+            }
+            return cyella::ui::build_ui_tree(view);
+        }
+
+        cyella::test::snapshot::snapshot_harness harness {};
+        std::string first { cyella::test::snapshot::sha_of(0) };
+        std::string second { cyella::test::snapshot::sha_of(1) };
+        std::string third { cyella::test::snapshot::sha_of(2) };
+        std::shared_ptr<cyella::ref_label_map> labels {};
+    };
+
+    template<typename intent_type>
+    [[nodiscard]] std::vector<intent_type> messages_of(const std::vector<luil::input_action>& actions)
+    {
+        std::vector<intent_type> found {};
+        for (const luil::input_action& action : actions)
+            if (const auto* const message { std::get_if<luil::app_message>(&action) }; message != nullptr)
+                if (const auto* const intent { message->get<intent_type>() }; intent != nullptr)
+                    found.push_back(*intent);
+        return found;
+    }
+
+    [[nodiscard]] luil::point_f middle_of(const luil::rect_f& box)
+    {
+        return { box.x + box.width / 2.0f, box.y + box.height / 2.0f };
+    }
+} // namespace
+
+TEST_CASE("a refs cell reports entry and exit and its dwell ends on press and drag", "[ui][refs]")
+{
+    using namespace cyella;
+    overflow_fixture fixture {};
+    const ui::built_tree built { fixture.build() };
+    const luil::ui_element* const first { built.tree->find(ui::ref_cell_id(graph_item_key(fixture.first))) };
+    const luil::ui_element* const second { built.tree->find(ui::ref_cell_id(graph_item_key(fixture.second))) };
+    REQUIRE(first != nullptr);
+    REQUIRE(second != nullptr);
+    REQUIRE(first->hover_region() != nullptr);
+    REQUIRE(first->hover_dwell() != nullptr);
+    const luil::ui_element* const chip { built.tree->find({ ui::kind_ref_overflow, u8"overflow-" + graph_item_key(fixture.first) }) };
+    REQUIRE(chip != nullptr);
+    // 칩 줄의 아래(칩과 행 끝 사이의 빈 칸)다. 칩 위가 아니어도 칸이다.
+    const luil::rect_f cell { first->bounds() };
+    const luil::point_f gap { cell.x + 3.0f, cell.y + 1.0f };
+    const luil::point_f message_column { cell.x + cell.width + 200.0f, cell.y + cell.height / 2.0f };
+    const auto t0 { std::chrono::steady_clock::time_point {} + std::chrono::hours { 1 } };
+
+    luil::interaction_controller interaction {};
+    interaction.set_tree(built.tree);
+    // 칸에 들어오면 영역이 곧바로 알리고, 머무름(지연 0)은 그 시각에 찬다. 칸의 사각형은 "+N" 칩의 자리다.
+    const auto entered { messages_of<ref_cell_hover_intent>(interaction.process(luil::pointer_moved_event { .x = gap.x, .y = gap.y, .time = t0 })) };
+    REQUIRE(entered.size() == 1);
+    CHECK(entered.front().inside);
+    CHECK(entered.front().row_key == graph_item_key(fixture.first));
+    CHECK(entered.front().sha == fixture.first);
+    CHECK(entered.front().x == chip->bounds().x);
+    CHECK(entered.front().width == chip->bounds().width);
+    CHECK(interaction.snapshot().hovered == first->id());
+    const auto dwelt { messages_of<ref_cell_dwell_intent>(interaction.advance(t0)) };
+    REQUIRE(dwelt.size() == 1);
+    CHECK(dwelt.front().live);
+
+    // 같은 행의 메시지 열로 옮기면 칸을 떠난다.
+    const auto out { interaction.process(luil::pointer_moved_event { .x = message_column.x, .y = message_column.y, .time = t0 }) };
+    REQUIRE(messages_of<ref_cell_hover_intent>(out).size() == 1);
+    CHECK_FALSE(messages_of<ref_cell_hover_intent>(out).front().inside);
+    REQUIRE(messages_of<ref_cell_dwell_intent>(out).size() == 1);
+    CHECK_FALSE(messages_of<ref_cell_dwell_intent>(out).front().live);
+
+    // 메시지 열을 눌러 커밋을 고른 뒤 같은 행의 칸으로 옮겨도 머무름이 선다 (머무름의 임자가 행이 아니라 칸이다).
+    static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = message_column.x, .y = message_column.y, .time = t0 }));
+    static_cast<void>(interaction.process(luil::pointer_released_event { .x = message_column.x, .y = message_column.y, .time = t0 }));
+    const auto t1 { t0 + std::chrono::seconds { 1 } };
+    CHECK(messages_of<ref_cell_hover_intent>(interaction.process(luil::pointer_moved_event { .x = gap.x, .y = gap.y, .time = t1 })).size() == 1);
+    const auto again { messages_of<ref_cell_dwell_intent>(interaction.advance(t1)) };
+    REQUIRE(again.size() == 1);
+    CHECK(again.front().live);
+
+    // 칸 안을 누르면 머무름이 끝나지만 영역은 남는다 (포인터는 칸 자리 안이다). 칸을 떠날 때까지 머무름은 다시 서지 않는다.
+    const auto pressed { interaction.process(luil::pointer_pressed_event { .x = gap.x, .y = gap.y, .time = t1 }) };
+    REQUIRE(messages_of<ref_cell_dwell_intent>(pressed).size() == 1);
+    CHECK_FALSE(messages_of<ref_cell_dwell_intent>(pressed).front().live);
+    CHECK(messages_of<ref_cell_hover_intent>(pressed).empty());
+    static_cast<void>(interaction.process(luil::pointer_released_event { .x = gap.x, .y = gap.y, .time = t1 }));
+    static_cast<void>(interaction.process(luil::pointer_moved_event { .x = gap.x + 1.0f, .y = gap.y, .time = t1 }));
+    CHECK(messages_of<ref_cell_dwell_intent>(interaction.advance(t1 + std::chrono::seconds { 1 })).empty());
+
+    // 칩을 쥐고 다른 행의 칸까지 끌면, 지나는 칸의 영역은 들어옴을 알려도 머무름은 서지 않는다 (끄는 동안 hover는 쥔 칩에 남는다).
+    const luil::ui_element* branch { nullptr };
+    for (const luil::ui_element_id& id : built.tree->ids_of_kind(ui::kind_ref_chip))
+        if (const luil::ui_element* const found { built.tree->find(id) }; found != nullptr && found->visible() && found->drag() != nullptr && second->bounds().contains(middle_of(found->bounds()).x, middle_of(found->bounds()).y))
+            branch = found;
+    REQUIRE(branch != nullptr);
+    const luil::point_f grip { middle_of(branch->bounds()) };
+    const auto t2 { t1 + std::chrono::seconds { 2 } };
+    static_cast<void>(interaction.process(luil::pointer_moved_event { .x = grip.x, .y = grip.y, .time = t2 }));
+    static_cast<void>(interaction.advance(t2));
+    static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = grip.x, .y = grip.y, .time = t2 }));
+    const auto dragged { interaction.process(luil::pointer_moved_event { .x = gap.x, .y = gap.y, .time = t2, .in_contact = true }) };
+    REQUIRE(interaction.snapshot().drag.has_value());
+    const auto crossed { messages_of<ref_cell_hover_intent>(dragged) };
+    CHECK(std::ranges::any_of(crossed, [&](const ref_cell_hover_intent& intent) { return intent.inside && intent.row_key == graph_item_key(fixture.first); }));
+    const auto during { messages_of<ref_cell_dwell_intent>(interaction.advance(t2 + std::chrono::seconds { 1 })) };
+    CHECK(std::ranges::none_of(during, [](const ref_cell_dwell_intent& intent) { return intent.live; }));
+    static_cast<void>(interaction.process(luil::pointer_released_event { .x = gap.x, .y = gap.y, .time = t2 + std::chrono::seconds { 1 } }));
+
+    // 창을 떠나면 들어와 있던 영역이 모두 나간다.
+    const auto gone { messages_of<ref_cell_hover_intent>(interaction.process(luil::pointer_left_event {})) };
+    REQUIRE_FALSE(gone.empty());
+    CHECK(std::ranges::none_of(gone, [](const ref_cell_hover_intent& intent) { return intent.inside; }));
+    CHECK(second->hover_region() != nullptr);
+
+    // 대화 상자의 scrim이 행을 덮으면 칸의 영역은 들어옴을 알려도 머무름은 서지 않는다 (controller는 둘이 함께 서야 연다).
+    const ui::built_tree covered { fixture.build(std::nullopt, true) };
+    luil::interaction_controller blocked {};
+    blocked.set_tree(covered.tree);
+    const auto t3 { t2 + std::chrono::seconds { 10 } };
+    const auto under { messages_of<ref_cell_hover_intent>(blocked.process(luil::pointer_moved_event { .x = gap.x, .y = gap.y, .time = t3 })) };
+    REQUIRE(under.size() == 1);
+    CHECK(under.front().inside);
+    CHECK(messages_of<ref_cell_dwell_intent>(blocked.advance(t3 + std::chrono::seconds { 1 })).empty());
+}
+
+TEST_CASE("a press between the chips still selects, opens the menu and takes drops like its row", "[ui][refs]")
+{
+    // 칸은 칩 사이 빈 칸의 hit를 받으므로 행의 손짓을 같은 액션으로 갖는다. 놓기는 행이 받는다.
+    using namespace cyella;
+    overflow_fixture fixture {};
+    const ui::built_tree built { fixture.build() };
+    const luil::ui_element* const cell { built.tree->find(ui::ref_cell_id(graph_item_key(fixture.second))) };
+    REQUIRE(cell != nullptr);
+    const luil::point_f gap { cell->bounds().x + 3.0f, cell->bounds().y + 1.0f };
+    const luil::ui_element* const hit { built.tree->hit_test(gap.x, gap.y) };
+    REQUIRE(hit != nullptr);
+    CHECK(hit->id() == cell->id());
+
+    ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(built.tree);
+    const auto pressed { messages_of<select_commit_intent>(interaction.process(luil::pointer_pressed_event { .x = gap.x, .y = gap.y, .control = true })) };
+    REQUIRE(pressed.size() == 1);
+    CHECK(pressed.front().key == graph_item_key(fixture.second));
+    CHECK(pressed.front().control);
+    static_cast<void>(interaction.process(luil::pointer_released_event { .x = gap.x, .y = gap.y }));
+    CHECK(interaction.snapshot().focused == luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"graph" });
+
+    REQUIRE(cell->action(luil::ui_trigger::right_click) != nullptr);
+    const auto menu { messages_of<open_context_menu_intent>((*cell->action(luil::ui_trigger::right_click))({ .element = cell->id(), .x = gap.x, .y = gap.y })) };
+    REQUIRE(menu.size() == 1);
+    CHECK(menu.front().target.kind == menu_target_kind::commit);
+    CHECK(menu.front().target.sha == fixture.second);
+    REQUIRE(cell->action(luil::ui_trigger::double_click) != nullptr);
+    CHECK(messages_of<activate_commit_intent>((*cell->action(luil::ui_trigger::double_click))({ .element = cell->id() })).size() == 1);
+    // 누른 채 끌어 고르기도 같다.
+    REQUIRE(cell->pointer_drag() != nullptr);
+
+    luil::drag_payload payload {};
+    payload.dragged_owner = branch_drag_key(ref_kind::local, "elsewhere");
+    const luil::ui_element* const target { built.tree->find_drop_target(gap.x, gap.y, payload) };
+    REQUIRE(target != nullptr);
+    CHECK(target->id().kind == ui::kind_graph_row);
+}
+
+TEST_CASE("the ref card popup reports pointer entry and leaves when it disappears", "[ui][refs]")
+{
+    using namespace cyella;
+    overflow_fixture fixture {};
+    const ref_list_state open { .sha = fixture.first, .x = 100.0f, .y = 60.0f, .width = 24.0f, .height = 18.0f, .row_key = graph_item_key(fixture.first), .serial = 7 };
+    const ui::built_tree built { fixture.build(open) };
+    REQUIRE(built.popups.size() == 1);
+    const ui::built_popup& popup { built.popups.front() };
+    // 뿌리의 id에 연 번호가 들어간다. 위에서 닫힌 카드의 영역 기록이 다음 카드의 들어옴을 막지 않는다.
+    REQUIRE(popup.tree->root() != nullptr);
+    CHECK(popup.tree->root()->id().owner == u8"ref-list-root-7");
+    const auto* const card { popup.tree->find(ui::ref_list_card_id()) };
+    REQUIRE(card != nullptr);
+
+    luil::interaction_controller interaction {};
+    interaction.set_tree(built.tree);
+    interaction.set_surface_trees({ { u8"ref-list", popup.tree } });
+    // 그림자 띠(카드 옆 3 px 여백)도 카드로 친다.
+    REQUIRE(card->bounds().x == 3.0f);
+    const auto entered { messages_of<ref_card_hover_intent>(interaction.process(luil::pointer_moved_event { .x = 1.0f, .y = 30.0f, .surface = u8"ref-list" })) };
+    REQUIRE(entered.size() == 1);
+    CHECK(entered.front().inside);
+    // 그 자리의 누름은 popup 안의 누름이라 바깥 누름 닫힘이 서지 않는다. 그 누름도 카드를 닫는다.
+    static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = 1.0f, .y = 30.0f, .surface = u8"ref-list" }));
+    const auto clicked { messages_of<close_ref_list_intent>(interaction.process(luil::pointer_released_event { .x = 1.0f, .y = 30.0f, .surface = u8"ref-list" })) };
+    REQUIRE(clicked.size() == 1);
+    CHECK_FALSE(clicked.front().pressed_outside);
+    // popup이 사라지면 새 표면 목록으로 영역을 다시 재어 나감을 알린다.
+    interaction.set_surface_trees({});
+    const auto left { messages_of<ref_card_hover_intent>(interaction.refresh_hover_tracking()) };
+    REQUIRE(left.size() == 1);
+    CHECK_FALSE(left.front().inside);
+}
+
+TEST_CASE("a refs cell without an overflow chip has no hover region or dwell", "[ui][refs]")
+{
+    // 칩이 다 들어간 행에는 카드가 없다. 영역이나 머무름이 남으면 그 칸에 머물기만 해도 빈 카드를 열려 한다.
+    using namespace cyella;
+    overflow_fixture fixture {};
+    const ui::built_tree built { fixture.build() };
+    const std::u8string row { graph_item_key(fixture.third) };
+    const luil::ui_element* const cell { built.tree->find(ui::ref_cell_id(row)) };
+    REQUIRE(cell != nullptr);
+    const luil::ui_element* const overflow { built.tree->find({ ui::kind_ref_overflow, u8"overflow-" + row }) };
+    CHECK((overflow == nullptr || overflow->visible() == false));
+    CHECK(cell->hover_region() == nullptr);
+    CHECK(cell->hover_dwell() == nullptr);
+    const luil::point_f inside { middle_of(cell->bounds()) };
+    CHECK(built.tree->hover_regions_at(inside.x, inside.y).empty());
+
+    luil::interaction_controller interaction {};
+    interaction.set_tree(built.tree);
+    const auto t0 { std::chrono::steady_clock::time_point {} + std::chrono::hours { 1 } };
+    CHECK(messages_of<ref_cell_hover_intent>(interaction.process(luil::pointer_moved_event { .x = inside.x, .y = inside.y, .time = t0 })).empty());
+    CHECK(messages_of<ref_cell_dwell_intent>(interaction.advance(t0 + std::chrono::seconds { 1 })).empty());
+}
+
+TEST_CASE("the ref card popup keeps presses beside its tail and scrolls its list on the wheel", "[ui][refs]")
+{
+    using namespace cyella;
+    overflow_fixture fixture {};
+    // 카드 높이를 넘겨 목록이 흐르게 참조를 넉넉히 붙인다.
+    for (int index { 0 }; index < 40; ++index)
+    {
+        const std::string name { "extra-" + std::to_string(index) };
+        (*fixture.labels)[fixture.first].push_back({ .kind = ref_label_kind::local, .text = std::u8string { name.begin(), name.end() }, .ref_name = name });
+    }
+    const ref_list_state open { .sha = fixture.first, .x = 100.0f, .y = 60.0f, .width = 24.0f, .height = 18.0f, .row_key = graph_item_key(fixture.first), .serial = 2 };
+    const ui::built_tree built { fixture.build(open) };
+    REQUIRE(built.popups.size() == 1);
+    const ui::built_popup& popup { built.popups.front() };
+    REQUIRE(popup.tree != nullptr);
+    const luil::ui_element* const root { popup.tree->root() };
+    const luil::ui_element* const card { popup.tree->find(ui::ref_list_card_id()) };
+    REQUIRE(root != nullptr);
+    REQUIRE(card != nullptr);
+
+    // 카드 자리(꼬리 띠 포함)는 알파가 0이 아니다. 꼬리 옆 빈 자리가 알파 0이면 그 누름이 아래 창으로 가 카드 바로 위의 행을 고른다.
+    // 그림자 밖 popup 모서리는 알파 0이라 입력이 아래 창으로 간다.
+    SkBitmap bitmap {};
+    const luil::rect_f surface { root->bounds() };
+    bitmap.allocN32Pixels(static_cast<int>(surface.width), static_cast<int>(surface.height));
+    bitmap.eraseColor(SK_ColorTRANSPARENT);
+    SkCanvas canvas { bitmap };
+    const luil::ui_color_palette palette { luil::color_palette_for(luil::color_theme::light) };
+    luil::draw_context context { .canvas = canvas, .palette = palette, .scale = 1.0f };
+    root->draw(context, luil::interaction_snapshot {});
+    // 아래로 선 카드라 그 점은 꼬리 띠의 왼쪽 끝이다. 몸통·꼬리·그림자가 닿지 않아 앞치마만 칠한 자리임을 옅은 알파로 함께 본다.
+    REQUIRE(built.popups.front().y > 0.0f);
+    const luil::rect_f box { card->bounds() };
+    const unsigned apron { SkColorGetA(bitmap.getColor(static_cast<int>(box.x) + 4, static_cast<int>(box.y) + 2)) };
+    CHECK(apron > 0);
+    CHECK(apron < 16);
+    CHECK(SkColorGetA(bitmap.getColor(bitmap.width() - 1, bitmap.height() - 1)) == 0);
+
+    // 카드 위의 휠은 popup 표면의 목록을 흘린다 (그래프가 아니다).
+    luil::interaction_controller interaction {};
+    interaction.set_tree(built.tree);
+    interaction.set_surface_trees({ { u8"ref-list", popup.tree } });
+    const luil::point_f middle { middle_of(box) };
+    static_cast<void>(interaction.process(luil::pointer_moved_event { .x = middle.x, .y = middle.y, .surface = u8"ref-list" }));
+    const auto wheeled { interaction.process(luil::mouse_wheel_event { .x = middle.x, .y = middle.y, .delta = -120.0f, .surface = u8"ref-list" }) };
+    const auto scrolled { messages_of<scroll_ref_list_intent>(wheeled) };
+    REQUIRE(scrolled.size() == 1);
+    CHECK(scrolled.front().absolute);
+    CHECK(scrolled.front().value > 0.0f);
+    CHECK(messages_of<scroll_intent>(wheeled).empty());
+}
+
+TEST_CASE("the overflow chip closes a pinned card and reports expanded only while its card is open", "[ui][refs]")
+{
+    using namespace cyella;
+    overflow_fixture fixture {};
+    const std::u8string row { graph_item_key(fixture.first) };
+    const luil::ui_element_id chip_id { ui::kind_ref_overflow, u8"overflow-" + row };
+    const auto press_message = [&chip_id](const ui::built_tree& built) {
+        const luil::ui_element* const chip { built.tree->find(chip_id) };
+        REQUIRE(chip != nullptr);
+        REQUIRE(chip->action(luil::ui_trigger::left_click) != nullptr);
+        const std::vector<luil::input_action> actions { (*chip->action(luil::ui_trigger::left_click))({ .element = chip_id }) };
+        REQUIRE(actions.size() == 1);
+        const auto* const message { std::get_if<luil::app_message>(&actions.front()) };
+        REQUIRE(message != nullptr);
+        return *message;
+    };
+
+    // 닫혀 있으면 열기다. 펼침을 알리지 않아 보조 기술에는 Invoke가 선다.
+    const ui::built_tree closed { fixture.build() };
+    const luil::ui_element* const closed_chip { closed.tree->find(chip_id) };
+    REQUIRE(closed_chip != nullptr);
+    CHECK_FALSE(closed_chip->accessibility().expanded.has_value());
+    const luil::app_message opening { press_message(closed) };
+    REQUIRE(opening.get<open_ref_list_intent>() != nullptr);
+    CHECK(opening.get<open_ref_list_intent>()->row_key == row);
+    const std::optional<std::vector<luil::input_action>> invoked { luil::plan_access_request(*closed_chip, luil::access_request { luil::access_command::invoke }) };
+    REQUIRE(invoked.has_value());
+    CHECK(messages_of<open_ref_list_intent>(*invoked).size() == 1);
+
+    // 호버로 떠 있으면 같은 열기(= 고정)이고, 펼침을 알린다.
+    ref_list_state card { .sha = fixture.first, .x = 100.0f, .y = 60.0f, .width = 24.0f, .height = 18.0f, .row_key = row, .origin = ref_list_origin::hover, .serial = 1 };
+    const ui::built_tree hovered { fixture.build(card) };
+    CHECK(hovered.tree->find(chip_id)->accessibility().expanded == std::optional<bool> { true });
+    CHECK(press_message(hovered).get<open_ref_list_intent>() != nullptr);
+    // 다른 행의 "+N"은 펼치지 않는다.
+    const luil::ui_element* const other { hovered.tree->find({ ui::kind_ref_overflow, u8"overflow-" + graph_item_key(fixture.second) }) };
+    REQUIRE(other != nullptr);
+    CHECK_FALSE(other->accessibility().expanded.has_value());
+
+    // 누름으로 고정된 카드면 닫기다. 보조 기술의 접기도 닫기다.
+    card.origin = ref_list_origin::press;
+    const ui::built_tree pinned { fixture.build(card) };
+    const luil::ui_element* const pinned_chip { pinned.tree->find(chip_id) };
+    REQUIRE(pinned_chip != nullptr);
+    CHECK(press_message(pinned).get<close_ref_list_intent>() != nullptr);
+    const std::optional<std::vector<luil::input_action>> collapsed { luil::plan_access_request(*pinned_chip, luil::access_request { luil::access_command::collapse }) };
+    REQUIRE(collapsed.has_value());
+    CHECK(messages_of<close_ref_list_intent>(*collapsed).size() == 1);
+
+    // 누를 때 펼쳐 있던 "+N"은 누름과 뗌 사이에 닫힌 frame이 와도 누를 때의 tree의 닫기를 뗄 때 낸다 (luil X-4).
+    const luil::point_f point { middle_of(pinned_chip->bounds()) };
+    luil::interaction_controller interaction {};
+    interaction.set_tree(pinned.tree);
+    static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = point.x, .y = point.y }));
+    interaction.set_tree(closed.tree);
+    const auto released { interaction.process(luil::pointer_released_event { .x = point.x, .y = point.y }) };
+    CHECK(messages_of<close_ref_list_intent>(released).size() == 1);
+    CHECK(messages_of<open_ref_list_intent>(released).empty());
+
+    // 닫힌 frame이 누름보다 먼저 왔어도(누름이 popup을 닫았다) 직전 tree에서 펼쳐 있던 "+N"이면 그 tree의 닫기다.
+    luil::interaction_controller late {};
+    late.set_tree(pinned.tree);
+    late.set_tree(closed.tree);
+    static_cast<void>(late.process(luil::pointer_pressed_event { .x = point.x, .y = point.y, .closed_popup = true }));
+    const auto late_release { late.process(luil::pointer_released_event { .x = point.x, .y = point.y }) };
+    CHECK(messages_of<close_ref_list_intent>(late_release).size() == 1);
+    CHECK(messages_of<open_ref_list_intent>(late_release).empty());
+}
+
+TEST_CASE("the ref card menu takes arrow keys and Enter from its popup", "[ui][refs]")
+{
+    // 카드 항목은 Tab 자리가 아니다. 카드가 떠 있는 동안 ↑/↓/Enter는 luil의 메뉴 키 탐색이 popup tree의 메뉴에서 받는다.
+    using namespace cyella;
+    overflow_fixture fixture {};
+    const ref_list_state open { .sha = fixture.first, .x = 100.0f, .y = 60.0f, .width = 24.0f, .height = 18.0f, .row_key = graph_item_key(fixture.first), .serial = 1 };
+    const ui::built_tree built { fixture.build(open) };
+    REQUIRE(built.popups.size() == 1);
+    ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(built.tree);
+    interaction.set_surface_trees({ { u8"ref-list", built.popups.front().tree } });
+    static_cast<void>(interaction.process(luil::key_pressed_event { .key = luil::key_code::arrow_down }));
+    CHECK(interaction.snapshot().menu_surface == u8"ref-list");
+    const auto chosen { messages_of<open_context_menu_intent>(interaction.process(luil::key_pressed_event { .key = luil::key_code::enter })) };
+    REQUIRE(chosen.size() == 1);
+    CHECK(chosen.front().target.sha == fixture.first);
+    // 메뉴는 이 frame에 선 "+N" 칩 아래다 (연 때의 사각형이 아니라 tree의 칩 자리).
+    const luil::ui_element* const chip { built.tree->find({ ui::kind_ref_overflow, u8"overflow-" + graph_item_key(fixture.first) }) };
+    REQUIRE(chip != nullptr);
+    CHECK(chosen.front().x == chip->bounds().x);
+    CHECK(chosen.front().y == chip->bounds().y + chip->bounds().height);
 }
 
 namespace {

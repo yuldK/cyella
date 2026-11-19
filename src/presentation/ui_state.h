@@ -334,6 +334,13 @@ namespace cyella {
         [[nodiscard]] bool operator==(const ref_list_layout&) const noexcept = default;
     };
 
+    // 참조 목록 카드를 연 길이다. 호버로 연 카드만 칸과 카드를 떠나면 닫힌다.
+    enum class ref_list_origin
+    {
+        press,
+        hover,
+    };
+
     // 열린 참조 목록 카드다. 사각형은 카드가 가리키는 "+N" 칩의 자리다 (주 창 표면 좌표, 물리 픽셀).
     struct ref_list_state
     {
@@ -345,6 +352,18 @@ namespace cyella {
         float scroll { 0.0f };
         // 연 뒤 처음 그릴 때의 배치다. 칩을 누른 frame과 같은 배치이므로 그때 적고, 다르면 카드를 닫는다.
         std::optional<ref_list_layout> layout {};
+        // 그 행의 항목 키다 (`graph_item_key`).
+        std::u8string row_key {};
+        ref_list_origin origin { ref_list_origin::press };
+        // 열 때마다 늘어나는 번호다. popup의 늦은 자리 보고(`ref_list_placed_intent`)를 이 카드의 것만 받는다.
+        std::uint64_t serial { 0 };
+        // 호스트가 popup을 작업 영역 안으로 가로로 민 거리다 (논리 픽셀). 꼬리는 그만큼 거꾸로 옮겨 칩을 가리킨다.
+        float placed_shift { 0.0f };
+        // 호스트가 popup을 몸통까지 세로로 밀었다. 그 자리는 화면 끝이라 칩 반대쪽으로 뒤집어 세운다 (카드가 칩을 덮지 않게).
+        bool flipped { false };
+        // 칩에서 먼 쪽의 그림자 여백을 깎은 거리다 (논리 픽셀). 몸통은 작업 영역에 들어가는데 그림자만 넘쳐 호스트가 popup을 민
+        // 만큼이다. 호스트는 창 전체를 밀므로 그대로 두면 몸통도 밀려 꼬리가 칩에서 떨어진다. 뒤집으면 0으로 돌아간다.
+        float shadow_trim { 0.0f };
     };
 
     struct ui_state

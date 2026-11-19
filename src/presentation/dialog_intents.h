@@ -25,7 +25,8 @@ namespace cyella {
     struct close_menu_intent
     {};
 
-    // 커밋 하나의 참조 목록 카드를 연다. 사각형은 카드가 가리킬 "+N" 칩의 자리다 (주 창 표면 좌표, 물리 픽셀).
+    // 커밋 하나의 참조 목록 카드를 누름·키·보조 기술로 연다. 사각형은 카드가 가리킬 "+N" 칩의 자리다 (주 창 표면 좌표, 물리 픽셀).
+    //  - 같은 카드가 호버로 떠 있으면 누름으로 고정한다 (떠나도 남는다). 닫는 것은 "+N"이 상태를 보고 `close_ref_list_intent`로 낸다.
     struct open_ref_list_intent
     {
         std::string sha {};
@@ -33,10 +34,56 @@ namespace cyella {
         float y { 0.0f };
         float width { 0.0f };
         float height { 0.0f };
+        // 그 행의 항목 키다 (`graph_item_key`). 호버 판정이 "카드가 이 행의 것인가"를 이것으로 가린다.
+        std::u8string row_key {};
     };
 
     struct close_ref_list_intent
-    {};
+    {
+        // 카드 popup 밖을 눌러 닫자는 것이다 (`popup_dismiss_reason::pointer_press_outside`). 포인터가 "+N" 칸 안(머무름이 선 뒤
+        // 떠나지 않은 칸)이면 그 누름이 스스로 처리하므로(칩·빈 칸은 고르기·메뉴, "+N"은 열기·고정·닫기) controller가 이것을 버린다.
+        bool pressed_outside { false };
+    };
+
+    // 포인터가 "+N"이 선 브랜치/태그 칸의 자리에 들어오거나 나갔다 (칸의 hover 영역). 칸을 다른 것이 덮어도 자리 안이면 안이다.
+    //  - 사각형은 그 칸의 "+N" 칩 자리다 (주 창 표면 좌표, 물리 픽셀). 호버로 연 카드도 누름으로 연 카드처럼 이 칩을 가리킨다.
+    struct ref_cell_hover_intent
+    {
+        std::u8string row_key {};
+        std::string sha {};
+        float x { 0.0f };
+        float y { 0.0f };
+        float width { 0.0f };
+        float height { 0.0f };
+        bool inside { false };
+    };
+
+    // 포인터가 그 칸 위에 정말 머문다 (칸의 머무름, 지연 0). 덮개가 hover를 가져갔거나 누름·끌기 중이면 서지 않거나 끝난다.
+    struct ref_cell_dwell_intent
+    {
+        std::u8string row_key {};
+        bool live { false };
+    };
+
+    // 포인터가 참조 목록 카드 위에 들어오거나 나갔다 (카드 popup의 hover 영역).
+    struct ref_card_hover_intent
+    {
+        bool inside { false };
+    };
+
+    // 호스트가 작업 영역에 맞춰 카드 popup을 실제로 세운 자리다 (논리 픽셀, 주 창 client 기준). `requested_*`는 그때 청한 자리다.
+    //  - `serial`은 그 카드를 연 번호다 (`ref_list_state::serial`). 앞서 닫은 카드의 늦은 보고를 버린다.
+    //  - `margin_*`는 그때 popup이 카드 몸통 위·아래에 둔 그림자 여백이다. 그 안의 밀림은 그림자만 넘친 것이라 뒤집지 않는다.
+    struct ref_list_placed_intent
+    {
+        std::uint64_t serial { 0 };
+        float requested_x { 0.0f };
+        float requested_y { 0.0f };
+        float x { 0.0f };
+        float y { 0.0f };
+        float margin_above { 0.0f };
+        float margin_below { 0.0f };
+    };
 
     struct scroll_ref_list_intent
     {

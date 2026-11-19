@@ -45,15 +45,19 @@ namespace cyella::ui {
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_form_dialog(const form_view& form, float logical_width, float logical_height, feedback_sources& sources);
     // 우클릭 메뉴 popup이다. 좌표는 논리 픽셀이고 크기는 항목 글로 짐작한다.
     [[nodiscard]] built_popup build_menu_popup(const menu_view& menu, float scale);
-    // 커밋 하나의 브랜치·태그를 종류별로 묶은 카드다. 창 tree에 서서 꼬리로 "+N" 칩을 가리킨다.
-    //  - popup 창이 아닌 것은 popup이 불투명한 사각 창이라 꼬리를 창 밖으로 내밀 수 없기 때문이다.
-    //  - `area`는 카드가 넘지 않을 자리다 (논리 픽셀). 칩 아래 자리가 모자라면 칩 위에 서고 꼬리가 아래를 가리킨다.
-    //  - 그 커밋에 참조가 없으면 element가 비어 있다.
+    // 커밋 하나의 브랜치·태그를 종류별로 묶은 카드다. 투명 popup(`ui_popup::transparent`)에 서서 꼬리로 "+N" 칩을 가리킨다.
+    //  - 창 모양이 tree의 알파라 꼬리와 그림자를 tree가 그린다. popup은 카드를 그림자가 닿는 만큼(옆 3, 위 2, 아래 4) 넓힌
+    //    사각형이고, 칩 쪽은 꼬리 끝에서 끝난다 (그림자가 칩 줄을 덮어 칩 누름을 삼키지 않게). 그림자 띠는 입력을 받으므로 짧다.
+    //  - `area`는 카드가 넘지 않을 자리다 (논리 픽셀). 칩 아래 자리가 모자라면 칩 위에 서고 꼬리가 아래를 가리킨다. 호스트가
+    //    popup을 밀었으면(`ref_list_state::placed_shift`·`shadow_trim`·`flipped`) 꼬리를 거꾸로 옮기거나, 칩에서 먼 쪽 그림자
+    //    여백을 깎거나, 칩 반대쪽으로 뒤집는다.
+    //  - 그 커밋에 참조가 없으면 popup tree가 비어 있다.
     struct placed_ref_list
     {
-        std::unique_ptr<luil::ui_element> element {};
+        built_popup popup {};
+        // 카드(몸통과 꼬리)의 자리다 (논리 픽셀, 주 창 client 기준).
         shell_rect rect {};
-        // 꼬리 끝의 x와, 꼬리가 위를 가리키는가다 (논리 픽셀, 창 원점 기준).
+        // 꼬리 끝의 x와, 꼬리가 위를 가리키는가다 (논리 픽셀, 주 창 client 기준).
         float tail_x { 0.0f };
         bool tail_up { true };
     };

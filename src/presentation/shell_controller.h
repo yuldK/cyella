@@ -370,6 +370,23 @@ namespace cyella {
         // 참조 목록 카드가 가리키는 칩의 자리를 바꾸는 지금 배치다(창 크기·배율·판 폭·그래프 generation·스크롤).
         [[nodiscard]] ref_list_layout current_ref_list_layout();
 
+        // ---- 참조 목록 카드의 호버 (shell_controller_dialogs.cpp)
+        // 메시지 하나를 처리한다 (`handle`이 이것을 부른 뒤 호버 상태를 정리한다).
+        bool handle_message(const luil::app_message& message);
+        // 참조 목록 카드를 여는 한 길이다 (누름·키·보조 기술·호버). 세션·메뉴·대화 상자와 그래프에 그 커밋이 있는지를 본다.
+        bool open_ref_list(const std::string& sha, const std::u8string& row_key, float x, float y, float width, float height, ref_list_origin origin);
+        // 호버로 열지 않는 때다: 메뉴·선택 상자·알림 센터·대화 상자가 떠 있다. 덮개·누름·끌기는 칸의 머무름이 거른다.
+        [[nodiscard]] bool ref_hover_blocked() const noexcept;
+        // 포인터가 "+N" 칸 안인가다: 이번에 들어온 뒤 머무름이 한 번이라도 선 칸의 자리 안이다 (`ref_hover_state::dwelled_row`).
+        // 호버 카드의 닫기 시계와 바깥 누름의 거르기가 같은 판정을 쓴다.
+        [[nodiscard]] bool pointer_in_ref_cell() const noexcept;
+        // 카드가 어떤 길로든 닫힌 것을 본다. 포인터가 그 칸에 있으면 떠날 때까지 다시 열지 않는다.
+        void observe_ref_list_close(std::chrono::steady_clock::time_point now);
+        // 메시지·tick 뒤에 부른다. 닫힘을 보고, 호버로 연 카드의 닫기 시계를 세우거나 닫고, 머문 칸의 카드를 연다.
+        void settle_ref_hover(std::chrono::steady_clock::time_point now);
+        // 호버로 열 칸이 있으면 열 시각이다 (`next_tick`).
+        [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> ref_hover_deadline() const noexcept;
+
         dependencies dependencies_ {};
         app_settings memory_settings_ {};
         repository_tabs tabs_ {};
@@ -406,6 +423,49 @@ namespace cyella {
         std::set<operation_id> notified_failures_ {};
         // 알림 센터가 바깥 누름으로 닫힌 시각이다.
         std::optional<std::chrono::steady_clock::time_point> notifications_dismissed_at_ {};
+
+        // 참조 목록 카드의 호버 상태다. 칸·카드의 hover 영역과 칸의 머무름이 알린 것을 모은다 (UI thread는 포인터를 직접 읽지 않는다).
+        struct ref_hover_cell
+        {
+            std::u8string row_key {};
+            std::string sha {};
+            // 그 칸의 "+N" 칩 자리다 (주 창 표면 좌표, 물리 픽셀).
+            float x { 0.0f };
+            float y { 0.0f };
+            float width { 0.0f };
+            float height { 0.0f };
+        };
+        struct ref_hover_state
+        {
+            // 포인터가 자리로 안에 있는 칸과 들어온 시각이다 (hover 영역). 덮여 있어도 안이다.
+            std::optional<ref_hover_cell> cell {};
+            std::chrono::steady_clock::time_point cell_since {};
+            // 포인터가 정말 머무는 칸과 선 시각이다 (머무름). 덮개가 hover를 가져갔거나 누르거나 끄는 동안은 비어 있다.
+            std::u8string dwell_row {};
+            std::chrono::steady_clock::time_point dwell_since {};
+            // 이번에 들어온 뒤 머무름이 한 번이라도 선 칸이다. 그 칸의 영역을 떠나면 지운다. 호버 카드의 닫기 시계와 바깥 누름의
+            // 거르기가 "칸 안"을 이것으로 본다 (`pointer_in_ref_cell`): 덮개 아래로만 지난 칸은 안이 아니고, 누른 뒤 머무름이 다시
+            // 서지 않는 칸은 안이다.
+            std::u8string dwelled_row {};
+            bool on_card { false };
+            // 카드가 닫힐 때 포인터가 있던 칸이다. 그 칸을 떠날 때까지 호버로 다시 열지 않는다.
+            std::u8string dismissed {};
+            // 닫힌 카드 자리(포인터가 카드 위였다)나 그래프 스크롤로 포인터 아래에 새로 온 칸도 "닫힌 뒤 포인터가 있는 칸"이다.
+            // 이 시각까지 처음 들어오는 칸을 `dismissed`로 삼는다.
+            std::optional<std::chrono::steady_clock::time_point> carry_until {};
+            // 호버로 연 카드를 닫을 시각이다. 칸과 카드를 모두 떠나면 선다.
+            std::optional<std::chrono::steady_clock::time_point> close_at {};
+            // 카드가 떠 있는 것을 본 뒤인가다. 닫힘은 전후를 견주어 센다 (닫는 자리가 여럿이다).
+            bool seen_open { false };
+        };
+        ref_hover_state ref_hover_ {};
+        // 닫힌 뒤 포인터 아래에 새로 드러나거나 흘러 온 칸을 "닫힌 칸"으로 받는 시간이다. tree를 갈아 끼운 뒤 영역을 다시 재는
+        // 한두 frame이면 차고, 그 뒤에 사용자가 옮겨 간 칸은 받지 않는다.
+        static constexpr std::chrono::milliseconds ref_hover_carry_window { 300 };
+        // 마지막 `make_view`가 카드를 닫은 대화 상자(입력 상자·환경 설정·팔레트·clone·rebase 편집기)가 떠 있었는가다.
+        bool ref_list_dialog_up_ { false };
+        // 참조 목록 카드를 연 번호다 (`ref_list_state::serial`).
+        std::uint64_t ref_list_serial_ { 0 };
 
         struct history_cache_entry
         {

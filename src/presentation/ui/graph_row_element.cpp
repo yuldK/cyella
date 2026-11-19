@@ -20,6 +20,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <optional>
 
 namespace cyella::ui {
     namespace {
@@ -87,7 +89,127 @@ namespace cyella::ui {
             const std::array<SkScalar, 2> intervals { on, off };
             paint.setPathEffect(SkDashPathEffect::Make(intervals, 0.0f));
         }
+
+        // 행의 손짓이다. 행과 브랜치/태그 칸(칩 사이 빈 칸의 hit를 받는다)이 같은 것을 단다.
+        //  - 누른 순간 이 커밋을 고른다. Ctrl·Shift는 여러 커밋 고르기다 (`press_row_element`).
+        [[nodiscard]] luil::ui_action row_press(const std::u8string& key)
+        {
+            return [key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                return { message(select_commit_intent { .key = key, .control = context.control, .shift = context.shift }) };
+            };
+        }
+
+        // 누른 채 끌면 지나는 행까지 고른다 (`graph_sweep_intent`). 끌기 거리 안에서 떼면 평소의 클릭·두 번 누름이다.
+        //  - 목록 가장자리에 대면 목록이 스스로 흐르고, 같은 포인터 자리로 다시 불린다.
+        [[nodiscard]] luil::pointer_drag_target row_sweep()
+        {
+            luil::pointer_drag_target sweep {};
+            sweep.on_move = [](const luil::ui_action_context&, const luil::ui_action_context& current) -> std::vector<luil::input_action> { return { message(graph_sweep_intent { current.y }) }; };
+            sweep.start_distance = sweep_start_distance;
+            sweep.auto_scroll = true;
+            return sweep;
+        }
+
+        // 고르지 않은 행을 우클릭하면 그 행만 고른 뒤 메뉴를 연다. 고른 행(비교 중인 커밋 포함)이면 선택을 둔다.
+        [[nodiscard]] luil::ui_action row_context_menu(const graph_row_data& data)
+        {
+            menu_target target {};
+            target.kind = menu_target_kind::commit;
+            target.sha = data.sha;
+            return [target, key = data.row_key, selected = data.selected](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
+                std::vector<luil::input_action> actions {};
+                if (selected == false)
+                    actions.push_back(message(select_commit_intent { .key = key }));
+                actions.push_back(message(open_context_menu_intent { target, context.x, context.y }));
+                return actions;
+            };
+        }
     } // namespace
+
+    // ---------------------------------------------------------------- ref_cell_element
+
+    // 그래프 행의 브랜치/태그 칸이다. 칩과 "+N"을 자식으로 둔다.
+    //  - "+N"이 섰을 때만 hover 영역과 머무름을 단다 (`set_overflow`). 영역은 자리만으로 들어옴·나감을 알리고(덮여도 안이다), 머무름은
+    //    포인터가 정말 칸 위에 있는지(덮개가 hover를 가져가지 않았고 누르거나 끄는 중이 아닌지)를 알린다. controller는 둘이 함께 선
+    //    칸의 카드를 호버로 연다.
+    //  - 머무름의 임자가 행이 아니라 칸인 것은, 머무름이 누른 뒤 임자를 떠날 때까지 다시 재지 않기 때문이다. 행이 임자면 메시지 열을
+    //    눌러 커밋을 고른 뒤 같은 행의 칸으로 옮겨도 카드가 열리지 않는다. 칩이 칸의 자식이라 칩 위에서도 임자는 칸이다.
+    //  - 칩 사이 빈 칸의 hit를 이 칸이 받으므로 행의 누름·끌어 고르기·두 번 누름·우클릭을 같은 액션으로 갖는다. 놓기는 행이 받도록
+    //    hit를 흡수하지 않는다 (빈 칸에 놓으면 아래의 행이 놓을 자리다).
+    class ref_cell_element final : public press_row_element
+    {
+    public:
+        explicit ref_cell_element(const graph_row_data& data)
+            : press_row_element { ref_cell_id(data.row_key) }
+            , row_key_ { data.row_key }
+            , sha_ { data.sha }
+        {
+            set_tab_stop(false);
+            set_focus_owner(data.list);
+            set_press(row_press(data.row_key));
+            set_hit_opaque(false);
+            set_pointer_drag_target(row_sweep());
+            set_action(luil::ui_trigger::double_click, action_of(message(activate_commit_intent { data.sha })));
+            set_action(luil::ui_trigger::right_click, row_context_menu(data));
+        }
+
+        luil::ui_element* add_part(std::unique_ptr<luil::ui_element> part)
+        {
+            luil::ui_element* const raw { part.get() };
+            add_child(std::move(part));
+            return raw;
+        }
+
+        // "+N"이 선 칸이면 그 칩의 자리(물리 픽셀)로 영역과 머무름을 단다. 서지 않았으면 둘 다 뗀다.
+        //  - 액션은 받은 때의 사본으로 늦게 불린다 (tree가 이미 바뀌었을 수 있다). 그래서 element가 아니라 값을 쥔다.
+        void set_overflow(const std::optional<luil::rect_f>& chip)
+        {
+            if (chip.has_value() == false)
+            {
+                set_hover_region(std::nullopt);
+                set_hover_dwell(std::nullopt);
+                return;
+            }
+            const ref_cell_hover_intent entered { .row_key = row_key_, .sha = sha_, .x = chip->x, .y = chip->y, .width = chip->width, .height = chip->height, .inside = true };
+            ref_cell_hover_intent left { entered };
+            left.inside = false;
+            set_hover_region(luil::hover_region_target {
+                .on_enter = [entered] { return message(entered); },
+                .on_leave = [left] { return message(left); },
+                .hold_while_captured = true,
+            });
+            set_hover_dwell(luil::hover_dwell_target {
+                .delay = std::chrono::milliseconds { 0 },
+                .on_dwell = action_of(message(ref_cell_dwell_intent { .row_key = row_key_, .live = true })),
+                .on_end = action_of(message(ref_cell_dwell_intent { .row_key = row_key_, .live = false })),
+            });
+        }
+
+        void arrange(const luil::arrange_context& context) override
+        {
+            set_bounds(context.slot);
+        }
+
+        void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override
+        {
+            draw_children(context, interaction);
+        }
+
+        // 구조라 보조 기술에는 접혀 칩이 행 아래에 바로 선다.
+        [[nodiscard]] luil::access_info accessibility() const override
+        {
+            return {};
+        }
+
+    private:
+        std::u8string row_key_ {};
+        std::string sha_ {};
+    };
+
+    luil::ui_element_id ref_cell_id(const std::u8string& row_key)
+    {
+        return luil::ui_element_id { kind_ref_cell, u8"ref-cell-" + row_key };
+    }
 
     float estimate_ref_label_strip_width(const std::vector<ref_label>& labels) noexcept
     {
@@ -240,32 +362,13 @@ namespace cyella::ui {
         set_focus_owner(data_.list);
         // 목록 행의 고르기를 가로채지 않도록 같은 고르기 메시지를 누른 순간 낸다 (`press_row_element`).
         // Ctrl·Shift는 여러 커밋 고르기다. 목록의 `pick`이 받는 수식 키를 이 element가 대신 싣는다.
-        set_press([key = data_.row_key](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
-            return { message(select_commit_intent { .key = key, .control = context.control, .shift = context.shift }) };
-        });
+        set_press(row_press(data_.row_key));
         if (data_.wip)
             return;
 
-        // 누른 채 끌면 지나는 행까지 고른다 (`graph_sweep_intent`). 끌기 거리 안에서 떼면 평소의 클릭·두 번 누름이다.
-        //  - 목록 가장자리에 대면 목록이 스스로 흐르고, 같은 포인터 자리로 다시 불린다.
-        luil::pointer_drag_target sweep {};
-        sweep.on_move = [](const luil::ui_action_context&, const luil::ui_action_context& current) -> std::vector<luil::input_action> { return { message(graph_sweep_intent { current.y }) }; };
-        sweep.start_distance = sweep_start_distance;
-        sweep.auto_scroll = true;
-        set_pointer_drag_target(std::move(sweep));
-
+        set_pointer_drag_target(row_sweep());
         set_action(luil::ui_trigger::double_click, action_of(message(activate_commit_intent { data_.sha })));
-        menu_target target {};
-        target.kind = menu_target_kind::commit;
-        target.sha = data_.sha;
-        // 고르지 않은 행을 우클릭하면 그 행만 고른 뒤 메뉴를 연다. 고른 행(비교 중인 커밋 포함)이면 선택을 둔다.
-        set_action(luil::ui_trigger::right_click, [target, key = data_.row_key, selected = data_.selected](const luil::ui_action_context& context) -> std::vector<luil::input_action> {
-            std::vector<luil::input_action> actions {};
-            if (selected == false)
-                actions.push_back(message(select_commit_intent { .key = key }));
-            actions.push_back(message(open_context_menu_intent { target, context.x, context.y }));
-            return actions;
-        });
+        set_action(luil::ui_trigger::right_click, row_context_menu(data_));
 
         // 커밋 행은 브랜치를 놓을 자리다 ("이 커밋에서 브랜치 만들기", 현재 브랜치면 reset).
         luil::drop_target drop {};
@@ -281,57 +384,28 @@ namespace cyella::ui {
         };
         set_drop_target(std::move(drop));
 
+        if (data_.labels.empty())
+            return;
+        auto cell { std::make_unique<ref_cell_element>(data_) };
+        cell_ = cell.get();
+        add_child(std::move(cell));
         for (const ref_label& label : data_.labels)
         {
             auto chip { std::make_unique<ref_chip_element>(label, data_.row_key, data_.sha, data_.row.color, data_.selected) };
             chip->set_focus_owner(data_.list);
-            chips_.push_back(static_cast<ref_chip_element*>(add_chip(std::move(chip))));
+            chips_.push_back(static_cast<ref_chip_element*>(cell_->add_part(std::move(chip))));
         }
-    }
-
-    luil::ui_element* graph_row_element::add_chip(std::unique_ptr<luil::ui_element> chip)
-    {
-        luil::ui_element* const raw { chip.get() };
-        add_child(std::move(chip));
-        return raw;
-    }
-
-    const luil::ui_element* graph_row_element::overflow() const noexcept
-    {
-        return overflow_ != nullptr && overflow_->visible() ? overflow_ : nullptr;
-    }
-
-    float graph_row_element::refs_right() const noexcept
-    {
-        return refs_right_;
-    }
-
-    const luil::ui_element* find_ref_overflow_at(const luil::ui_tree& tree, const luil::point_f point)
-    {
-        for (const luil::ui_element_id& id : tree.ids_of_kind(kind_graph_row))
-        {
-            const auto* const row { dynamic_cast<const graph_row_element*>(tree.find(id)) };
-            if (row == nullptr || row->visible() == false)
-                continue;
-            const luil::rect_f box { row->bounds() };
-            if (point.y < box.y || point.y >= box.y + box.height)
-                continue;
-            // 행은 세로로 겹치지 않으므로 포인터 높이의 행은 하나다.
-            if (point.x < box.x || point.x >= row->refs_right())
-                return nullptr;
-            return row->overflow();
-        }
-        return nullptr;
     }
 
     void graph_row_element::arrange(const luil::arrange_context& context)
     {
         set_bounds(context.slot);
         const float scale { context.scale > 0.0f ? context.scale : 1.0f };
-        refs_right_ = bounds().x + columns_.refs * scale;
-        if (chips_.empty())
+        if (cell_ == nullptr)
             return;
         const luil::rect_f box { bounds() };
+        // 칸은 행 왼쪽 끝부터 브랜치/태그 열의 오른쪽 끝까지다. 칩 사이 빈 칸과 칩 위아래도 칸이다.
+        cell_->arrange(context.for_child({ box.x, box.y, columns_.refs * scale, box.height }));
         const float left { box.x + cell_padding * scale };
         const float right { box.x + columns_.refs * scale - label_padding * scale };
         const float available { right - left };
@@ -369,7 +443,14 @@ namespace cyella::ui {
             {
                 overflow_width = (estimate_text_width(u8"+" + number_text(hidden), label_font_size) + 10.0f) * scale;
                 if (overflow_ == nullptr)
-                    overflow_ = add_chip(std::make_unique<ref_overflow_element>(u8"overflow-" + data_.row_key, hidden, data_.sha));
+                    overflow_ = cell_->add_part(std::make_unique<ref_overflow_element>(ref_overflow_config {
+                        .owner = u8"overflow-" + data_.row_key,
+                        .hidden = hidden,
+                        .sha = data_.sha,
+                        .row_key = data_.row_key,
+                        .open = data_.ref_list_open,
+                        .pinned = data_.ref_list_pinned,
+                    }));
             }
             total = used + (overflow_width > 0.0f ? gap + overflow_width : 0.0f);
         }
@@ -388,11 +469,15 @@ namespace cyella::ui {
             chip->arrange(context.for_child({ x, top, width, height }));
             x += width + gap;
         }
+        std::optional<luil::rect_f> overflow_box {};
         if (overflow_ != nullptr)
         {
             overflow_->set_visible(overflow_width > 0.0f);
             overflow_->arrange(context.for_child({ x, top, overflow_width, height }));
+            if (overflow_width > 0.0f)
+                overflow_box = overflow_->bounds();
         }
+        cell_->set_overflow(overflow_box);
     }
 
     luil::access_info graph_row_element::accessibility() const

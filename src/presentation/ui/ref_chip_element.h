@@ -51,11 +51,29 @@ namespace cyella::ui {
         std::u8string access_name_ {};
     };
 
-    // 칸이 모자라 줄어든 라벨들의 "+N" 단추다. 호버·클릭으로 이 커밋의 전체 ref 목록을 연다.
+    struct ref_overflow_config
+    {
+        std::u8string owner {};
+        std::size_t hidden { 0 };
+        std::string sha {};
+        // 그 행의 항목 키다 (`graph_item_key`).
+        std::u8string row_key {};
+        // 떠 있는 참조 목록 카드가 이 커밋의 것인가와, 누름으로 고정된 카드인가다.
+        bool open { false };
+        bool pinned { false };
+    };
+
+    // 칸이 모자라 줄어든 라벨들의 "+N" 단추다. 누르면 이 커밋의 전체 ref 목록 카드를 열고 닫는다 (호버로 여는 것은 칸이 한다).
+    //  - 누름이 낼 메시지는 지은 때의 카드 상태로 정한 **절대 메시지**다: 닫혀 있으면 열기, 호버로 떠 있으면 열기(= 누름으로 고정),
+    //    누름으로 떠 있으면 닫기. 카드 popup이 바깥 누름으로 먼저 닫혀도 끝 상태는 같지만, 호버 카드는 지워졌다 다시 서며
+    //    깜빡이고 스크롤이 처음으로 돌아간다. 그래서 포인터가 칸 안일 때의 바깥 누름은 controller가 버린다.
+    //  - 카드가 떠 있는 동안 펼침(`expanded`)을 알린다. luil은 펼친 요소를 누르면 누를 때의 tree의 액션을 뗄 때 낸다
+    //    (menu-focus-fixes-design.md X-4) — 누름과 뗌 사이에 닫힌 frame이 와도 "닫기"가 나간다. 보조 기술에는 그동안
+    //    Invoke 대신 펼치기·접기가 서므로 접기를 닫기로 잇는다.
     class ref_overflow_element final : public luil::ui_element
     {
     public:
-        ref_overflow_element(std::u8string owner, std::size_t hidden, std::string sha);
+        explicit ref_overflow_element(ref_overflow_config config);
 
         void arrange(const luil::arrange_context& context) override;
         void draw(luil::draw_context& context, const luil::interaction_snapshot& interaction) const override;
@@ -63,12 +81,11 @@ namespace cyella::ui {
 
     private:
         std::u8string text_ {};
+        bool open_ { false };
     };
 
     // 참조 목록 카드와 그 안의 요소(메뉴·항목·흘리는 창)는 owner가 모두 이것으로 시작한다.
-    // 카드는 popup 창이 아니라 주 창 tree에 서므로, 호버 감시는 "포인터가 카드 위인가"를 표면 이름이 아니라 이것으로 가린다.
     inline constexpr std::u8string_view ref_list_owner_prefix { u8"ref-list" };
-    [[nodiscard]] bool is_ref_list_part(const luil::ui_element_id& id) noexcept;
-    // 카드 자신의 id다. tree에 이것이 있으면 카드가 떠 있다.
+    // 카드 자신의 id다. 카드 popup tree에 이것이 있으면 카드가 떠 있다.
     [[nodiscard]] luil::ui_element_id ref_list_card_id();
 } // namespace cyella::ui

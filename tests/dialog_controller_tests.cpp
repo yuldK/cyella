@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -49,7 +50,7 @@ namespace {
         explicit harness(std::function<void(const luil::app_message&)> hook = {})
             : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
-            , controller { make_dependencies(workspace, std::move(hook), opened_folders) }
+            , controller { make_dependencies(workspace, std::move(hook), opened_folders, steady_now) }
         {
             controller.start({});
             controller.open_repository(u8"C:\\work\\repo");
@@ -57,13 +58,16 @@ namespace {
         }
 
         static shell_controller::dependencies make_dependencies(
-            git_workspace& workspace, std::function<void(const luil::app_message&)> hook, std::vector<std::pair<external_file_app, std::u8string>>& opened)
+            git_workspace& workspace, std::function<void(const luil::app_message&)> hook, std::vector<std::pair<external_file_app, std::u8string>>& opened,
+            std::optional<std::chrono::steady_clock::time_point>& steady_now)
         {
             shell_controller::dependencies dependencies {};
             dependencies.workspace = &workspace;
             dependencies.send_backend_intent = std::move(hook);
             dependencies.open_folder_app = [&opened](const external_file_app& app, const std::u8string& folder) { opened.emplace_back(app, folder); };
             dependencies.clock = [] { return std::chrono::system_clock::time_point { std::chrono::seconds { 1700000000 + 3600 } }; };
+            // 호버 시계를 정하는 test만 `steady_now`를 채운다. 비어 있으면 실제 시각이다 (토스트 test는 실제 시계를 쓴다).
+            dependencies.steady_clock = [&steady_now] { return steady_now.value_or(std::chrono::steady_clock::now()); };
             dependencies.temporary_directory = u8"C:\\temp\\cyella-test";
             dependencies.ssh_executable = u8"C:/Git/usr/bin/ssh.exe";
             return dependencies;
@@ -160,6 +164,8 @@ namespace {
         git_workspace workspace;
         // 저장소 폴더를 연 앱과 폴더다 (driver가 꽂는 worker 길의 자리).
         std::vector<std::pair<external_file_app, std::u8string>> opened_folders {};
+        // controller의 steady 시계다. 값이 있으면 그 시각을 준다.
+        std::optional<std::chrono::steady_clock::time_point> steady_now {};
         shell_controller controller;
         std::string repository {};
     };
@@ -213,7 +219,7 @@ TEST_CASE("overflow ref lists open for a loaded commit and hand actions to its b
     test.send(scroll_intent { .target = scroll_target::graph, .value = 30.0f });
     CHECK_FALSE(test.controller.state().ref_list.has_value());
 
-    // 행이나 칩을 눌러 커밋을 고르면 닫힌다. UI thread의 감시가 빠른 누름을 놓쳐도 고르기 메시지는 반드시 온다.
+    // 행이나 칩을 눌러 커밋을 고르면 닫힌다. 포인터가 "+N" 칸 안이면 카드 popup의 바깥 누름을 controller가 버리므로 이 고르기가 닫는다.
     test.send(open_ref_list_intent { .sha = sha, .x = 120.0f, .y = 140.0f, .width = 24.0f, .height = 20.0f });
     REQUIRE(test.controller.state().ref_list.has_value());
     test.send(select_commit_intent { .key = graph_item_key(sha) });
@@ -238,6 +244,560 @@ TEST_CASE("an open ref list closes when the window or the graph moves its chip",
     REQUIRE(test.view().ref_list.has_value());
     test.load();
     CHECK_FALSE(test.view().ref_list.has_value());
+}
+
+namespace {
+    // 참조 목록 카드의 호버 test다. 칸의 hover 영역·머무름과 카드 popup의 영역이 낼 메시지를 controller에 그대로 넣고, 시각은 손으로 정한다.
+    struct ref_hover
+    {
+        ref_hover()
+        {
+            test.load();
+            test.steady_now = start;
+        }
+
+        void at(const int milliseconds)
+        {
+            test.steady_now = start + std::chrono::milliseconds { milliseconds };
+        }
+
+        // 영역 들어옴과 머무름이다. 덮개가 없고 누르지 않은 칸이면 luil이 둘 다 낸다.
+        void enter(const std::string& sha, const bool dwell = true)
+        {
+            test.send(ref_cell_hover_intent { .row_key = graph_item_key(sha), .sha = sha, .x = 100.0f, .y = 40.0f, .width = 24.0f, .height = 18.0f, .inside = true });
+            if (dwell)
+                test.send(ref_cell_dwell_intent { .row_key = graph_item_key(sha), .live = true });
+        }
+
+        void leave(const std::string& sha)
+        {
+            test.send(ref_cell_dwell_intent { .row_key = graph_item_key(sha), .live = false });
+            test.send(ref_cell_hover_intent { .row_key = graph_item_key(sha), .sha = sha, .inside = false });
+        }
+
+        void tick()
+        {
+            REQUIRE(test.steady_now.has_value());
+            test.controller.tick(*test.steady_now);
+        }
+
+        [[nodiscard]] bool open() const
+        {
+            return test.controller.state().ref_list.has_value();
+        }
+
+        [[nodiscard]] bool open_for(const std::string& sha) const
+        {
+            return open() && test.controller.state().ref_list->sha == sha;
+        }
+
+        [[nodiscard]] ref_list_origin origin() const
+        {
+            REQUIRE(open());
+            return test.controller.state().ref_list->origin;
+        }
+
+        harness test {};
+        std::chrono::steady_clock::time_point start { std::chrono::steady_clock::time_point {} + std::chrono::hours { 1 } };
+        std::string oldest { snap::sha_of(4) };
+        std::string newest { snap::sha_of(0) };
+    };
+} // namespace
+
+TEST_CASE("hovering a refs cell opens the card after 180ms and closes it 400ms after leaving", "[presentation][dialogs][refs]")
+{
+    ref_hover hover {};
+    hover.enter(hover.oldest);
+    CHECK_FALSE(hover.open());
+    // 열 시각을 tick에 알린다. 그보다 이르면 열지 않는다.
+    REQUIRE(hover.test.controller.next_tick().has_value());
+    CHECK(*hover.test.controller.next_tick() == hover.start + std::chrono::milliseconds { 180 });
+    hover.at(179);
+    hover.tick();
+    CHECK_FALSE(hover.open());
+    hover.at(180);
+    hover.tick();
+    REQUIRE(hover.open_for(hover.oldest));
+    CHECK(hover.origin() == ref_list_origin::hover);
+    // 카드는 호버로 연 칸의 "+N" 칩을 가리킨다. 항목을 고르면 메뉴도 그 칩 아래에 선다.
+    CHECK(hover.test.controller.state().ref_list->x == 100.0f);
+    CHECK(hover.test.controller.state().ref_list->height == 18.0f);
+    CHECK(hover.test.controller.state().ref_list->row_key == graph_item_key(hover.oldest));
+
+    // 칸과 카드를 떠나면 400ms 뒤에 닫는다.
+    hover.at(300);
+    hover.leave(hover.oldest);
+    REQUIRE(hover.test.controller.next_tick().has_value());
+    CHECK(*hover.test.controller.next_tick() == hover.start + std::chrono::milliseconds { 700 });
+    hover.at(699);
+    hover.tick();
+    CHECK(hover.open());
+    hover.at(700);
+    hover.tick();
+    CHECK_FALSE(hover.open());
+    // 떠난 뒤 닫혔으므로 돌아오면 다시 연다.
+    hover.at(1000);
+    hover.enter(hover.oldest);
+    hover.at(1180);
+    hover.tick();
+    CHECK(hover.open_for(hover.oldest));
+
+    // 머무름 없이 영역만 선 칸(덮개 아래, 끄는 도중)은 열지 않는다.
+    ref_hover covered {};
+    covered.enter(covered.oldest, false);
+    covered.at(500);
+    covered.tick();
+    CHECK_FALSE(covered.open());
+    CHECK_FALSE(covered.test.controller.next_tick().has_value());
+    // 덮개가 걷혀 머무름이 서면 그때부터 180ms다.
+    covered.test.send(ref_cell_dwell_intent { .row_key = graph_item_key(covered.oldest), .live = true });
+    covered.at(679);
+    covered.tick();
+    CHECK_FALSE(covered.open());
+    covered.at(680);
+    covered.tick();
+    CHECK(covered.open());
+}
+
+TEST_CASE("an open hover card switches rows at once and stays while the pointer is on the card", "[presentation][dialogs][refs]")
+{
+    ref_hover hover {};
+    hover.enter(hover.oldest);
+    hover.at(200);
+    hover.tick();
+    REQUIRE(hover.open_for(hover.oldest));
+    const std::uint64_t first { hover.test.controller.state().ref_list->serial };
+
+    // 카드 위에 있는 동안은 칸을 떠나도 닫지 않는다.
+    hover.leave(hover.oldest);
+    hover.test.send(ref_card_hover_intent { true });
+    hover.at(2000);
+    hover.tick();
+    CHECK(hover.open_for(hover.oldest));
+    CHECK_FALSE(hover.test.controller.next_tick().has_value());
+    // 카드를 떠나면 그때부터 400ms다.
+    hover.test.send(ref_card_hover_intent { false });
+    hover.at(2399);
+    hover.tick();
+    CHECK(hover.open());
+    hover.enter(hover.newest);
+    // 호버로 연 카드가 떠 있으면 다른 행의 칸으로 옮기는 즉시 그 행으로 바뀐다. 새로 연 카드라 번호가 다르다.
+    REQUIRE(hover.open_for(hover.newest));
+    CHECK(hover.origin() == ref_list_origin::hover);
+    CHECK(hover.test.controller.state().ref_list->serial != first);
+}
+
+TEST_CASE("a press-opened card survives leaving and the overflow chip pins a hover card", "[presentation][dialogs][refs]")
+{
+    ref_hover hover {};
+    hover.enter(hover.oldest);
+    hover.test.send(open_ref_list_intent { .sha = hover.oldest, .x = 100.0f, .y = 40.0f, .width = 24.0f, .height = 18.0f, .row_key = graph_item_key(hover.oldest) });
+    REQUIRE(hover.open_for(hover.oldest));
+    CHECK(hover.origin() == ref_list_origin::press);
+    // 누름으로 연 카드는 칸과 카드를 떠나도 남는다. 같은 칸에 머물러도 호버 카드로 바뀌지 않는다.
+    hover.at(500);
+    hover.tick();
+    CHECK(hover.origin() == ref_list_origin::press);
+    hover.leave(hover.oldest);
+    hover.at(5000);
+    hover.tick();
+    CHECK(hover.open_for(hover.oldest));
+
+    // 호버로 연 카드에서 "+N"을 누르면(같은 커밋의 열기) 고정되어 떠나도 남는다. 스크롤은 그대로다.
+    ref_hover pinned {};
+    pinned.enter(pinned.oldest);
+    pinned.at(200);
+    pinned.tick();
+    REQUIRE(pinned.origin() == ref_list_origin::hover);
+    pinned.test.send(scroll_ref_list_intent { 30.0f, true });
+    // "+N"을 누르면 머무름은 끝나지만 포인터는 칸 자리 안이라 닫기 시계가 서지 않는다.
+    pinned.test.send(ref_cell_dwell_intent { .row_key = graph_item_key(pinned.oldest), .live = false });
+    CHECK_FALSE(pinned.test.controller.next_tick().has_value());
+    pinned.test.send(open_ref_list_intent { .sha = pinned.oldest, .row_key = graph_item_key(pinned.oldest) });
+    CHECK(pinned.origin() == ref_list_origin::press);
+    CHECK(pinned.test.controller.state().ref_list->scroll == 30.0f);
+    pinned.leave(pinned.oldest);
+    pinned.at(5000);
+    pinned.tick();
+    CHECK(pinned.open());
+    // 고정한 카드의 "+N"은 닫기를 낸다 (`ref_overflow_element`).
+    pinned.test.send(close_ref_list_intent {});
+    CHECK_FALSE(pinned.open());
+
+    // "+N"이나 칩을 우클릭해도 머무름은 끝나고 칸을 떠날 때까지 다시 서지 않는다. 포인터는 칸 위라 호버 카드가 남는다.
+    ref_hover clicked {};
+    clicked.enter(clicked.oldest);
+    clicked.at(200);
+    clicked.tick();
+    REQUIRE(clicked.origin() == ref_list_origin::hover);
+    clicked.test.send(ref_cell_dwell_intent { .row_key = graph_item_key(clicked.oldest), .live = false });
+    clicked.at(5000);
+    clicked.tick();
+    CHECK(clicked.open_for(clicked.oldest));
+    CHECK_FALSE(clicked.test.controller.next_tick().has_value());
+}
+
+TEST_CASE("a card opened from the keyboard on another row is not replaced by the hovered cell", "[presentation][dialogs][refs]")
+{
+    // 마우스가 머무는 칸 B의 호버 카드가 떠 있을 때 키·보조 기술로 행 A의 "+N"을 실행했다. 이어지는 호버 판정이 A를 B로 갈아 끼우면
+    // 사용자가 연 카드는 한 frame도 서지 않는다.
+    ref_hover hover {};
+    hover.enter(hover.newest);
+    hover.at(200);
+    hover.tick();
+    REQUIRE(hover.open_for(hover.newest));
+    hover.test.send(open_ref_list_intent { .sha = hover.oldest, .x = 100.0f, .y = 80.0f, .width = 24.0f, .height = 18.0f });
+    REQUIRE(hover.open_for(hover.oldest));
+    CHECK(hover.origin() == ref_list_origin::press);
+    CHECK_FALSE(hover.test.controller.next_tick().has_value());
+    hover.at(2000);
+    hover.tick();
+    CHECK(hover.open_for(hover.oldest));
+
+    // B를 떠났다 돌아와 머물면 평소처럼 그 칸의 카드로 바뀐다 (누름 카드가 떠 있어도 다른 행에 180ms 머물면 바뀐다).
+    hover.leave(hover.newest);
+    hover.at(3000);
+    hover.enter(hover.newest);
+    hover.at(3179);
+    hover.tick();
+    CHECK(hover.open_for(hover.oldest));
+    hover.at(3180);
+    hover.tick();
+    CHECK(hover.open_for(hover.newest));
+}
+
+TEST_CASE("a hover card closes while the pointer is over a cover above another refs cell", "[presentation][dialogs][refs]")
+{
+    // 레일 판·토스트가 덮은 칸은 영역만 들어옴을 알리고 머무름은 서지 않는다. 그 위의 포인터는 칸 밖이라 400ms 뒤 닫는다.
+    ref_hover hover {};
+    hover.enter(hover.oldest);
+    hover.at(200);
+    hover.tick();
+    REQUIRE(hover.open_for(hover.oldest));
+    hover.at(300);
+    hover.leave(hover.oldest);
+    hover.enter(hover.newest, false);
+    REQUIRE(hover.test.controller.next_tick().has_value());
+    CHECK(*hover.test.controller.next_tick() == hover.start + std::chrono::milliseconds { 700 });
+    hover.at(699);
+    hover.tick();
+    CHECK(hover.open());
+    hover.at(700);
+    hover.tick();
+    CHECK_FALSE(hover.open());
+    // 덮개가 걷혀 그 칸에 머물면 평소처럼 연다.
+    hover.test.send(ref_cell_dwell_intent { .row_key = graph_item_key(hover.newest), .live = true });
+    hover.at(880);
+    hover.tick();
+    CHECK(hover.open_for(hover.newest));
+}
+
+TEST_CASE("a card closed with the pointer in its cell does not reopen until the cell is left", "[presentation][dialogs][refs]")
+{
+    const auto open_by_hover = [](ref_hover& hover) {
+        hover.enter(hover.oldest);
+        hover.at(200);
+        hover.tick();
+        REQUIRE(hover.open_for(hover.oldest));
+    };
+    const auto stays_closed = [](ref_hover& hover) {
+        hover.at(5000);
+        hover.tick();
+        CHECK_FALSE(hover.open());
+        // 칸을 떠났다 돌아오면 다시 연다.
+        hover.leave(hover.oldest);
+        hover.at(6000);
+        hover.enter(hover.oldest);
+        hover.at(6180);
+        hover.tick();
+        CHECK(hover.open_for(hover.oldest));
+    };
+
+    SECTION("Esc")
+    {
+        ref_hover hover {};
+        open_by_hover(hover);
+        hover.test.send(close_ref_list_intent {});
+        stays_closed(hover);
+    }
+    SECTION("selecting the commit")
+    {
+        ref_hover hover {};
+        open_by_hover(hover);
+        hover.test.send(select_commit_intent { .key = graph_item_key(hover.oldest) });
+        stays_closed(hover);
+    }
+    SECTION("a press outside the card while the pointer is only under a cover over a refs cell")
+    {
+        ref_hover hover {};
+        open_by_hover(hover);
+        // 칸을 떠났다가 덮개 아래로만 다시 들어온 칸이다(머무름이 선 적 없음). 그 자리의 누름은 덮개 위의 누름이라 닫는다.
+        hover.leave(hover.oldest);
+        hover.enter(hover.oldest, false);
+        hover.test.send(close_ref_list_intent { .pressed_outside = true });
+        CHECK_FALSE(hover.open());
+        hover.test.send(ref_cell_dwell_intent { .row_key = graph_item_key(hover.oldest), .live = true });
+        stays_closed(hover);
+    }
+    SECTION("graph scrolling brings another cell under the pointer")
+    {
+        ref_hover hover {};
+        open_by_hover(hover);
+        hover.test.send(scroll_intent { .target = scroll_target::graph, .value = 30.0f });
+        CHECK_FALSE(hover.open());
+        // 새 tree에서 영역을 다시 재면 옛 칸의 나감과 새 칸의 들어옴이 온다. 새 칸도 떠날 때까지 열지 않는다.
+        hover.at(220);
+        hover.leave(hover.oldest);
+        hover.enter(hover.newest);
+        hover.at(2000);
+        hover.tick();
+        CHECK_FALSE(hover.open());
+        hover.leave(hover.newest);
+        hover.at(3000);
+        hover.enter(hover.newest);
+        hover.at(3180);
+        hover.tick();
+        CHECK(hover.open_for(hover.newest));
+    }
+    SECTION("closing while the pointer is on the card keeps the revealed cell closed")
+    {
+        ref_hover hover {};
+        open_by_hover(hover);
+        hover.leave(hover.oldest);
+        hover.test.send(ref_card_hover_intent { true });
+        hover.test.send(close_ref_list_intent {});
+        CHECK_FALSE(hover.open());
+        // 카드가 사라진 자리에 드러난 칸이다. popup 영역의 나감이 오지 않아도 카드 위 상태는 내려놓는다.
+        hover.at(250);
+        hover.enter(hover.newest);
+        hover.at(2000);
+        hover.tick();
+        CHECK_FALSE(hover.open());
+        // 늦게 온 카드 들어옴은 닫힌 카드의 것이라 버린다.
+        hover.test.send(ref_card_hover_intent { true });
+        hover.leave(hover.newest);
+        hover.at(3000);
+        hover.enter(hover.newest);
+        hover.at(3180);
+        hover.tick();
+        REQUIRE(hover.open_for(hover.newest));
+        hover.leave(hover.newest);
+        hover.at(3580);
+        hover.tick();
+        CHECK_FALSE(hover.open());
+    }
+    SECTION("a later cell is not caught by the closed one")
+    {
+        ref_hover hover {};
+        open_by_hover(hover);
+        hover.test.send(ref_card_hover_intent { true });
+        hover.test.send(close_ref_list_intent {});
+        // 닫힌 뒤 시간이 지나 옮겨 간 칸은 평소처럼 연다.
+        hover.at(900);
+        hover.enter(hover.newest);
+        hover.at(1080);
+        hover.tick();
+        CHECK(hover.open_for(hover.newest));
+    }
+    SECTION("a delayed leave of another cell keeps the closed cell")
+    {
+        ref_hover hover {};
+        hover.enter(hover.newest);
+        hover.enter(hover.oldest);
+        hover.at(200);
+        hover.tick();
+        REQUIRE(hover.open_for(hover.oldest));
+        hover.test.send(close_ref_list_intent {});
+        // 잡은 동안 미룬 앞 칸의 나감이 이제 온다. 지금 칸의 "다시 열지 않음"은 남는다.
+        hover.test.send(ref_cell_hover_intent { .row_key = graph_item_key(hover.newest), .sha = hover.newest, .inside = false });
+        stays_closed(hover);
+    }
+}
+
+TEST_CASE("a press outside the card is left to the refs cell the pointer is on", "[presentation][dialogs][refs]")
+{
+    // 포인터가 "+N" 칸 안일 때의 바깥 누름은 그 누름이 스스로 처리한다 (칩·빈 칸 = 고르기·메뉴, "+N" = 열기·고정·닫기).
+    ref_hover hover {};
+    hover.enter(hover.newest);
+    hover.test.send(open_ref_list_intent { .sha = hover.oldest, .x = 100.0f, .y = 40.0f, .width = 24.0f, .height = 18.0f });
+    REQUIRE(hover.open_for(hover.oldest));
+    hover.test.send(close_ref_list_intent { .pressed_outside = true });
+    CHECK(hover.open_for(hover.oldest));
+    // 다른 행의 "+N"이면 그 행으로 바뀐다 (지워졌다 다시 서지 않는다).
+    const std::uint64_t serial { hover.test.controller.state().ref_list->serial };
+    hover.test.send(open_ref_list_intent { .sha = hover.newest, .x = 100.0f, .y = 40.0f, .width = 24.0f, .height = 18.0f });
+    REQUIRE(hover.open_for(hover.newest));
+    CHECK(hover.test.controller.state().ref_list->serial == serial + 1);
+    // 칩이나 빈 칸이면 고르기가 닫는다.
+    hover.test.send(close_ref_list_intent { .pressed_outside = true });
+    hover.test.send(select_commit_intent { .key = graph_item_key(hover.newest) });
+    CHECK_FALSE(hover.open());
+    // 칸 밖이면 바로 닫는다.
+    hover.leave(hover.newest);
+    hover.test.send(open_ref_list_intent { .sha = hover.oldest });
+    REQUIRE(hover.open());
+    hover.test.send(close_ref_list_intent { .pressed_outside = true });
+    CHECK_FALSE(hover.open());
+}
+
+TEST_CASE("a press on the overflow chip after a right click in its cell pins the hover card in place", "[presentation][dialogs][refs]")
+{
+    // 칸 안의 우클릭("+N"·HEAD·stash 칩이면 메시지가 없다)도 머무름을 끝내고, 머무름은 칸을 떠날 때까지 다시 서지 않는다. 이어서 "+N"을
+    // 누르면 그 누름의 바깥 누름이 카드를 지우고 뗄 때의 열기가 새 카드를 세워 깜빡이고 스크롤이 처음으로 돌아갔다.
+    ref_hover hover {};
+    hover.enter(hover.oldest);
+    hover.at(200);
+    hover.tick();
+    REQUIRE(hover.origin() == ref_list_origin::hover);
+    hover.test.send(scroll_ref_list_intent { 30.0f, true });
+    const std::uint64_t serial { hover.test.controller.state().ref_list->serial };
+    // 우클릭이다. 누를 때는 머무름이 살아 있어 바깥 누름을 버린다.
+    hover.test.send(close_ref_list_intent { .pressed_outside = true });
+    hover.test.send(ref_cell_dwell_intent { .row_key = graph_item_key(hover.oldest), .live = false });
+    REQUIRE(hover.open_for(hover.oldest));
+    // 칸을 떠나지 않고 "+N"을 누른다. 머무름은 비었지만 포인터는 머문 칸 안이라 바깥 누름을 버린다.
+    hover.at(400);
+    hover.test.send(close_ref_list_intent { .pressed_outside = true });
+    REQUIRE(hover.open_for(hover.oldest));
+    CHECK(hover.test.controller.state().ref_list->serial == serial);
+    // 뗄 때 누를 때의 tree가 낸 같은 커밋의 열기다. 다시 열지 않고 고정하므로 번호와 스크롤이 그대로다.
+    hover.test.send(open_ref_list_intent { .sha = hover.oldest, .x = 100.0f, .y = 40.0f, .width = 24.0f, .height = 18.0f, .row_key = graph_item_key(hover.oldest) });
+    REQUIRE(hover.open_for(hover.oldest));
+    CHECK(hover.origin() == ref_list_origin::press);
+    CHECK(hover.test.controller.state().ref_list->serial == serial);
+    CHECK(hover.test.controller.state().ref_list->scroll == 30.0f);
+    // 고정한 카드에서 머무름이 끝난 뒤의 "+N" 누름은 바깥 누름을 버리고, 뗄 때의 닫기가 닫는다.
+    hover.test.send(close_ref_list_intent { .pressed_outside = true });
+    REQUIRE(hover.open_for(hover.oldest));
+    hover.test.send(close_ref_list_intent {});
+    CHECK_FALSE(hover.open());
+}
+
+TEST_CASE("a press outside the card closes it once the pointer left the cell or only passed under a cover", "[presentation][dialogs][refs]")
+{
+    // 우클릭으로 머무름이 끝난 칸을 떠나면 그 칸의 "칸 안"도 끝난다.
+    ref_hover left {};
+    left.enter(left.oldest);
+    left.at(200);
+    left.tick();
+    REQUIRE(left.open_for(left.oldest));
+    left.test.send(ref_cell_dwell_intent { .row_key = graph_item_key(left.oldest), .live = false });
+    left.test.send(ref_cell_hover_intent { .row_key = graph_item_key(left.oldest), .sha = left.oldest, .inside = false });
+    left.test.send(close_ref_list_intent { .pressed_outside = true });
+    CHECK_FALSE(left.open());
+
+    // 누름으로 연 카드가 떠 있는데 포인터가 덮개(레일 판·토스트) 아래로만 다른 칸에 들어왔다. 머무름이 선 적 없는 칸은 칸 안이 아니다.
+    ref_hover covered {};
+    covered.test.send(open_ref_list_intent { .sha = covered.oldest, .x = 100.0f, .y = 40.0f, .width = 24.0f, .height = 18.0f, .row_key = graph_item_key(covered.oldest) });
+    REQUIRE(covered.open_for(covered.oldest));
+    covered.enter(covered.newest, false);
+    covered.test.send(close_ref_list_intent { .pressed_outside = true });
+    CHECK_FALSE(covered.open());
+}
+
+TEST_CASE("hover does not open while a menu, selector, notification center or dialog is up", "[presentation][dialogs][refs]")
+{
+    const auto check_blocked = [](ref_hover& hover) {
+        hover.enter(hover.oldest);
+        hover.at(500);
+        hover.tick();
+        CHECK_FALSE(hover.open());
+    };
+    SECTION("menu")
+    {
+        ref_hover hover {};
+        hover.test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::commit, .sha = hover.newest }, 10.0f, 10.0f });
+        REQUIRE(hover.test.controller.state().menu.has_value());
+        check_blocked(hover);
+        // 메뉴가 닫히면 이미 머문 칸이라 곧 연다.
+        hover.test.send(close_menu_intent {});
+        CHECK(hover.open_for(hover.oldest));
+    }
+    SECTION("selector")
+    {
+        // 열면 선택 상자를 닫으므로(`open_ref_list`) 막지 않으면 열어 둔 목록이 머무름 하나에 사라진다.
+        ref_hover hover {};
+        hover.test.send(open_selector_intent { selector_kind::repository, 200.0f, 60.0f, 220.0f });
+        REQUIRE(hover.test.controller.state().selector.has_value());
+        check_blocked(hover);
+        CHECK(hover.test.controller.state().selector.has_value());
+        CHECK_FALSE(hover.test.controller.next_tick().has_value());
+    }
+    SECTION("notification center")
+    {
+        ref_hover hover {};
+        hover.test.send(toggle_notification_center_intent {});
+        REQUIRE(hover.test.controller.state().notifications_open);
+        check_blocked(hover);
+    }
+    SECTION("dialog")
+    {
+        ref_hover hover {};
+        hover.test.send(run_command_intent { "git.branch.new" });
+        REQUIRE(hover.test.view().form.has_value());
+        check_blocked(hover);
+    }
+}
+
+TEST_CASE("a refs cell whose card cannot open is not retried until it is left", "[presentation][dialogs][refs]")
+{
+    // 그래프에 없는 커밋의 칸이다. 지난 열 시각이 `next_tick`에 남으면 logic이 쉬지 않고 tick을 돈다.
+    ref_hover hover {};
+    hover.test.send(ref_cell_hover_intent { .row_key = graph_item_key("missing"), .sha = "missing", .inside = true });
+    hover.test.send(ref_cell_dwell_intent { .row_key = graph_item_key("missing"), .live = true });
+    hover.at(200);
+    hover.tick();
+    CHECK_FALSE(hover.open());
+    CHECK_FALSE(hover.test.controller.next_tick().has_value());
+}
+
+TEST_CASE("the ref card takes the placement the host reports for it", "[presentation][dialogs][refs]")
+{
+    ref_hover hover {};
+    hover.test.send(open_ref_list_intent { .sha = hover.oldest, .x = 100.0f, .y = 40.0f, .width = 24.0f, .height = 18.0f });
+    REQUIRE(hover.open());
+    const std::uint64_t serial { hover.test.controller.state().ref_list->serial };
+    // 반올림 차이는 보정이 아니다.
+    hover.test.send(ref_list_placed_intent { .serial = serial, .requested_x = 40.0f, .requested_y = 60.0f, .x = 40.5f, .y = 60.4f });
+    CHECK(hover.test.controller.state().ref_list->placed_shift == 0.0f);
+    CHECK_FALSE(hover.test.controller.state().ref_list->flipped);
+    // 가로로 민 거리는 꼬리가 거꾸로 옮길 거리다.
+    hover.test.send(ref_list_placed_intent { .serial = serial, .requested_x = 40.0f, .requested_y = 60.0f, .x = 52.0f, .y = 60.0f });
+    CHECK(hover.test.controller.state().ref_list->placed_shift == 12.0f);
+    // 앞서 닫은 카드의 늦은 보고는 버린다.
+    hover.test.send(ref_list_placed_intent { .serial = serial - 1, .requested_x = 40.0f, .requested_y = 60.0f, .x = 10.0f, .y = 0.0f });
+    CHECK(hover.test.controller.state().ref_list->placed_shift == 12.0f);
+    CHECK_FALSE(hover.test.controller.state().ref_list->flipped);
+    // 몸통까지 세로로 밀렸으면 화면 끝이라 칩 반대쪽으로 한 번 뒤집는다.
+    hover.test.send(ref_list_placed_intent { .serial = serial, .requested_x = 40.0f, .requested_y = 60.0f, .x = 40.0f, .y = 20.0f, .margin_below = 4.0f });
+    CHECK(hover.test.controller.state().ref_list->flipped);
+    CHECK(hover.test.controller.state().ref_list->placed_shift == 0.0f);
+    CHECK(hover.test.controller.state().ref_list->shadow_trim == 0.0f);
+    // 뒤집은 쪽도 몸통까지 밀리면 오가지 않도록 그대로 둔다.
+    hover.test.send(ref_list_placed_intent { .serial = serial, .requested_x = 40.0f, .requested_y = 60.0f, .x = 40.0f, .y = 90.0f });
+    CHECK(hover.test.controller.state().ref_list->flipped);
+}
+
+TEST_CASE("a ref card pushed only by its shadow trims the shadow instead of flipping", "[presentation][dialogs][refs]")
+{
+    // 호스트는 그림자 여백까지 포함한 popup 전체를 작업 영역 안으로 민다. 몸통은 들어가는데 그림자만 넘쳤으면 뒤집지 않는다.
+    ref_hover hover {};
+    hover.test.send(open_ref_list_intent { .sha = hover.oldest, .x = 100.0f, .y = 40.0f, .width = 24.0f, .height = 18.0f });
+    REQUIRE(hover.open());
+    const std::uint64_t serial { hover.test.controller.state().ref_list->serial };
+    hover.test.send(ref_list_placed_intent { .serial = serial, .requested_x = 40.0f, .requested_y = 60.0f, .x = 43.0f, .y = 57.0f, .margin_below = 4.0f });
+    CHECK_FALSE(hover.test.controller.state().ref_list->flipped);
+    CHECK(hover.test.controller.state().ref_list->shadow_trim == 3.0f);
+    CHECK(hover.test.controller.state().ref_list->placed_shift == 3.0f);
+    // 깎은 popup이 제자리에 서면 다음 보고는 밀림이 없다. 깎은 값은 그대로다 (0과 값 사이를 오가지 않는다).
+    hover.test.send(ref_list_placed_intent { .serial = serial, .requested_x = 40.0f, .requested_y = 60.0f, .x = 40.0f, .y = 60.0f, .margin_below = 1.0f });
+    CHECK(hover.test.controller.state().ref_list->shadow_trim == 3.0f);
+    CHECK(hover.test.controller.state().ref_list->placed_shift == 0.0f);
+    CHECK_FALSE(hover.test.controller.state().ref_list->flipped);
+    // 칩 쪽(여백 0)으로 밀렸으면 몸통이 밀린 것이라 뒤집는다.
+    hover.test.send(ref_list_placed_intent { .serial = serial, .requested_x = 40.0f, .requested_y = 60.0f, .x = 40.0f, .y = 63.0f, .margin_below = 1.0f });
+    CHECK(hover.test.controller.state().ref_list->flipped);
+    CHECK(hover.test.controller.state().ref_list->shadow_trim == 0.0f);
 }
 
 TEST_CASE("form scrolling clamps to layout feedback and resets for the next dialog", "[presentation][dialogs]")

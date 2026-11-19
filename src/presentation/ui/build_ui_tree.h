@@ -7,6 +7,7 @@
 #include "luil/theme/ui_style.h"
 #include "luil/ui/ui_tree.h"
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -27,6 +28,15 @@ namespace cyella::ui {
         bool font { false };
         // 알림 센터다. 바깥 누름과 Esc에 닫힌다.
         bool notifications { false };
+        // 참조 목록 카드다. 바깥 누름은 닫자고 청하고(포인터가 "+N" 칸 안이면 controller가 버린다), Esc·앵커가 사라짐에 닫히고,
+        // 휠·창 이동·크기·활성 전환에는 남는다 (driver의 닫힘 계기 대응).
+        bool ref_list { false };
+        // tree의 픽셀 알파로 창 모양과 입력 자리를 정한다 (luil `ui_popup::transparent`). 꼬리와 그림자를 tree가 그린다.
+        bool transparent { false };
+        // popup 둘레의 경계다 (luil `ui_popup::border`). 둥근 카드가 제 테두리를 긋는 popup만 끈다.
+        bool border { true };
+        // 호스트가 작업 영역에 맞춰 세운 최종 자리를 받을 메시지다 (luil `ui_popup::placed`). 비면 받지 않는다.
+        std::function<luil::app_message(const luil::rect_f&)> placed {};
         // 표면 모서리다 (luil `ui_popup::corner`). 비면 앱 스타일(OS 기본)이다.
         //  - 둥근 창은 OS가 잘라 내고 같은 모양의 테두리와 그림자를 얹는다. 둥글게 못 하는 환경에서는 직각 창과 1px 선이다.
         std::optional<luil::popup_corner> corner {};
