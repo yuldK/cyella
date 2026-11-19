@@ -49,7 +49,7 @@ TEST_CASE("short single-line tooltips stay on the plain luil tooltip", "[present
 
 TEST_CASE("multi-line tooltips become a card no wider than the card width", "[presentation][tooltip]")
 {
-    const std::u8string text { u8"codex/branch-overflow-refresh\nupstream 없음\n다른 worktree에서 체크아웃됨\nC:/Users/Lusain/.codex/worktrees/branch-overflow-refresh/cyella" };
+    const std::u8string text { u8"codex/branch-overflow-refresh\nupstream 없음\n다른 worktree에서 체크아웃됨\nC:/Users/tester/work/worktrees/branch-overflow-refresh/cyella" };
     const auto card { ui::make_tooltip_card(text) };
     REQUIRE(card.has_value());
     const luil::rect_f bounds { content_bounds(*card) };
@@ -66,7 +66,7 @@ TEST_CASE("multi-line tooltips become a card no wider than the card width", "[pr
 
 TEST_CASE("a long single line wraps inside a card instead of running off the window", "[presentation][tooltip]")
 {
-    const std::u8string path { u8"C:/Users/Lusain/.codex/worktrees/branch-overflow-refresh/cyella/src/presentation/ui/repository_tabs_element.cpp" };
+    const std::u8string path { u8"C:/Users/tester/work/worktrees/branch-overflow-refresh/cyella/src/presentation/ui/repository_tabs_element.cpp" };
     const auto card { ui::make_tooltip_card(path) };
     REQUIRE(card.has_value());
     const luil::rect_f bounds { content_bounds(*card) };

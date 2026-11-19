@@ -35,7 +35,7 @@ namespace cyella::test::snapshot {
             if (index > 1)
                 commit.parents = { sha_of(index - 2) };
             commit.subject = "commit " + std::to_string(index);
-            commit.author_name = "Lusain";
+            commit.author_name = "Morgan";
             commit.author_time = time;
             commits.push_back(std::move(commit));
         }

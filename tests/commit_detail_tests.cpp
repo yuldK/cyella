@@ -54,7 +54,7 @@ namespace {
         for (const commit_info& commit : session.graph_commits())
             if (commit.sha == sha)
                 detail.commit = commit;
-        detail.commit.author_email = "lusain@example.com";
+        detail.commit.author_email = "morgan@example.com";
         detail.commit.body = "- 첫 줄\n- 둘째 줄\n";
         detail.files = std::move(files);
         session.expect_commit_detail(operation_id { 7 });
@@ -149,8 +149,8 @@ TEST_CASE("commit detail snapshot splits author fields and builds the file tree 
     REQUIRE(view.repository->commit.has_value());
     const commit_detail_view* commit { &*view.repository->commit };
     CHECK_FALSE(commit->loading);
-    CHECK(commit->author_name == u8"Lusain");
-    CHECK(commit->author_email == u8"lusain@example.com");
+    CHECK(commit->author_name == u8"Morgan");
+    CHECK(commit->author_email == u8"morgan@example.com");
     CHECK(commit->date_absolute.size() >= 16);
     CHECK(commit->parent_shas == std::vector<std::string> { sha_of(0) });
     CHECK(commit->added_total == u8"+115");
@@ -204,7 +204,7 @@ TEST_CASE("commit detail tree shows wrapped text, label columns, folder rows and
     CHECK(find(ui::kind_label, u8"detail-body") != nullptr);
     const luil::ui_element* const author { find(ui::kind_label, u8"detail-author") };
     REQUIRE(author != nullptr);
-    CHECK(author->accessibility().name == u8"Lusain <lusain@example.com>");
+    CHECK(author->accessibility().name == u8"Morgan <morgan@example.com>");
     CHECK(find(ui::kind_label, u8"detail-date") != nullptr);
     CHECK(find(ui::kind_label, u8"detail-sha-label") != nullptr);
     CHECK(find(ui::kind_label, u8"detail-sha") != nullptr);
@@ -341,7 +341,7 @@ namespace {
 
 TEST_CASE("gravatar addresses use the trimmed lowercase email and ask for 404 when there is no picture", "[presentation][avatar]")
 {
-    CHECK(normalize_avatar_email("  Lusain@Example.COM\t") == "lusain@example.com");
+    CHECK(normalize_avatar_email("  Morgan@Example.COM\t") == "morgan@example.com");
     CHECK(gravatar_url("abc", 80) == "https://gravatar.com/avatar/abc?s=80&d=404");
 }
 
@@ -379,9 +379,9 @@ TEST_CASE("the rebase button counts the current branch commits and words a commi
 {
     // c1 ← c2(다른 갈래 끝), c1 ← c3(HEAD) 꼴이다. topo 순서로 HEAD가 맨 앞이다.
     std::vector<commit_info> commits(3);
-    commits[0] = { .sha = sha_of(2), .parents = { sha_of(0) }, .author_name = "Lusain", .author_time = 1700000000, .subject = "head" };
-    commits[1] = { .sha = sha_of(1), .parents = { sha_of(0) }, .author_name = "Lusain", .author_time = 1700000000, .subject = "other" };
-    commits[2] = { .sha = sha_of(0), .author_name = "Lusain", .author_time = 1700000000, .subject = "root" };
+    commits[0] = { .sha = sha_of(2), .parents = { sha_of(0) }, .author_name = "Morgan", .author_time = 1700000000, .subject = "head" };
+    commits[1] = { .sha = sha_of(1), .parents = { sha_of(0) }, .author_name = "Morgan", .author_time = 1700000000, .subject = "other" };
+    commits[2] = { .sha = sha_of(0), .author_name = "Morgan", .author_time = 1700000000, .subject = "root" };
 
     snapshot_harness harness {};
     const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
