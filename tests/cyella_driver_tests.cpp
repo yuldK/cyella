@@ -2,6 +2,7 @@
 #include "platform/win32/askpass_helper_path.h"
 #include "platform/win32/cyella_driver.h"
 #include "platform/win32/operation_result_relay.h"
+#include "presentation/ui/diff_webview.h"
 #include "presentation/ui_intents.h"
 
 #include "git_test_support.h"
@@ -461,4 +462,43 @@ TEST_CASE("cyella_driver reports the host unbound after its workers stop", "[dri
     CHECK(driver.host_bound());
     driver.stop_workers();
     CHECK_FALSE(driver.host_bound());
+}
+
+TEST_CASE("cyella_driver falls back to the text diff once when the diff webview cannot be created", "[driver][webview]")
+{
+    if (cyella::test::git_is_available() == false)
+        SKIP("git is not installed");
+
+    cyella::win32::cyella_driver driver {};
+    driver.start();
+    REQUIRE(driver.diff_view() != nullptr);
+    REQUIRE(driver.controller() != nullptr);
+    const std::size_t before { driver.controller()->state().notifications.size() };
+
+    luil::webview_event event {};
+    event.id = std::u8string { cyella::ui::diff_webview_id };
+    event.kind = luil::webview_event_kind::creation_failed;
+    event.failure = luil::webview_creation_failure::runtime_too_old;
+    event.error = u8"found 119, need 120";
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { event } });
+
+    // 이 PC에 Runtime이 있든 없든 실패를 본 뒤로는 웹뷰를 쓰지 않고 frame에도 싣지 않는다. diff를 열지 않은 test라 이 둘은
+    // 고치기 전에도 참일 수 있다. 고친 것을 가리는 것은 아래의 알림이다.
+    CHECK_FALSE(driver.webview_usable());
+    const std::shared_ptr<const luil::win32::ui_frame> frame { driver.make_frame() };
+    REQUIRE(frame != nullptr);
+    CHECK(frame->webviews.empty());
+    // 까닭은 경고 알림 하나로 남는다.
+    REQUIRE(driver.controller()->state().notifications.size() == before + 1);
+    const cyella::notification* const notice { driver.controller()->state().latest_notification() };
+    REQUIRE(notice != nullptr);
+    CHECK(notice->severity == cyella::notification_severity::warning);
+    CHECK(notice->text.find(u8"runtime_too_old") != std::u8string::npos);
+    CHECK(notice->text.find(u8"found 119, need 120") != std::u8string::npos);
+
+    // 같은 실패가 또 와도(luil이 늦게 보낸 것) 다시 알리지 않는다.
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { event } });
+    CHECK(driver.controller()->state().notifications.size() == before + 1);
+
+    driver.stop_workers();
 }

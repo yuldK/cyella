@@ -270,7 +270,9 @@ namespace cyella {
         diff_layout layout { diff_layout::inline_view };
         image_compare_mode image_mode { image_compare_mode::side_by_side };
         diff_content content { diff_content::empty };
-        // 웹뷰로 그릴 수 있는가. 거짓이면 텍스트 대체 보기를 쓴다 (WebView2 Runtime이 없거나 뷰어를 못 찾은 경우).
+        // 웹뷰로 그릴 수 있는가. 거짓이면 텍스트 대체 보기를 쓴다. 시작할 때의 확인이 걸렀거나(WebView2 Runtime이 없거나
+        // 뷰어를 못 찾은 경우) 실행 중 웹뷰 사건(`ui::diff_webview_health`: 생성·항해 실패, 브라우저 프로세스 종료, 렌더러의 잇단 종료)이
+        // 물러서게 한 경우다. 실행 중 참에서 거짓이 될 수 있고, 한 번 물러서면 이번 실행 동안 거짓이다.
         // 기본이 거짓인 것은 웹뷰를 쥔 쪽이 확인해 올리기 전에는 대체 보기가 안전하기 때문이다.
         bool webview_available { false };
         // 줄 수 상한으로 잘린 diff다. 머리 막대가 알려 준다.
@@ -290,6 +292,28 @@ namespace cyella {
         float width { 0.0f };
         // 거르는 글이다. 열 때마다 비운다.
         luil::text::text_edit_state filter {};
+    };
+
+    // 열 때 첫 초점을 받는 popup 안의 칸이거나, 닫을 때 초점을 돌려받는 주 창의 칸이다. 칸의 element id와 표면 id는 ui 쪽이 정한다.
+    enum class popup_focus_target
+    {
+        selector_filter,
+        ui_font_search,
+        code_font_search,
+        // 글꼴 목록에서 고르거나 Enter·Esc로 닫은 뒤 돌아갈 환경 설정의 글꼴 칸이다. 검색 칸이 쥔 초점은 popup과 함께
+        // 사라지는데, 그대로 두면 환경 설정의 가둠 진입이 다시 서서 초점이 페이지 목록으로 튄다.
+        ui_font_field,
+        code_font_field,
+    };
+
+    // popup을 열 때 그 안의 칸으로, 또는 닫을 때 주 창의 칸으로 초점을 옮기는 요청이다 (luil `focus_request`).
+    //  - luil은 번호가 바뀔 때만 새 요청으로 본다. 그래서 번호는 popup을 **열거나 닫을 때만** 올린다. 열린 채 다시 그리는
+    //    frame마다 새 번호를 내면 사용자가 popup 밖으로 옮긴 초점을 도로 빼앗는다.
+    //  - 칸 하나다. 나중에 연 popup의 요청이 앞의 것을 덮는다 — frame도 요청을 하나만 싣는다.
+    struct popup_focus_request
+    {
+        std::uint64_t id { 0 };
+        popup_focus_target target { popup_focus_target::selector_filter };
     };
 
     // 참조 목록 카드를 연 때의 배치다. 이것이 바뀌면 칩이 다른 자리로 가므로 연 때의 사각형이 엉뚱한 곳을 가리킨다.
@@ -359,6 +383,9 @@ namespace cyella {
         dialog_memory memory {};
         // 열린 저장소·브랜치 선택 상자 목록이다.
         std::optional<selector_state> selector {};
+        // 마지막으로 연 popup의 첫 초점 요청이다(글꼴 목록을 닫았으면 글꼴 칸으로 돌아가는 요청). popup이 닫혀도 지우지 않는다 —
+        // 그 popup이나 칸이 tree에 설 때만 frame에 싣는다. 글꼴 칸의 요청만은 환경 설정이 닫히면 버린다.
+        std::optional<popup_focus_request> popup_focus {};
         // 열린 명령 팔레트다.
         std::optional<palette_state> palette {};
 

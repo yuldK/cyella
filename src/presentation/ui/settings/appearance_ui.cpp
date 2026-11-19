@@ -281,7 +281,7 @@ namespace cyella::ui {
             {
                 const std::u8string owner { code ? u8"settings-code-font" : u8"settings-ui-font" };
                 const luil::text_input_config input_config { .placeholder = tr(u8"settings.appearance.font_placeholder") };
-                const luil::ui_element_id input_id { code ? kind_code_font_input : kind_ui_font_input, owner };
+                const luil::ui_element_id input_id { font_field_id(code) };
                 auto input { std::make_unique<luil::text_input_element>(input_id, code ? view.code_font : view.ui_font, input_config) };
                 input->set_access_name(code ? tr(u8"settings.general.code_font") : tr(u8"settings.general.ui_font"));
                 add_child(std::move(input));
@@ -423,6 +423,11 @@ namespace cyella::ui {
         return std::make_unique<font_combo_element>(view, code);
     }
 
+    luil::ui_element_id font_field_id(const bool code)
+    {
+        return { code ? kind_code_font_input : kind_ui_font_input, code ? u8"settings-code-font" : u8"settings-ui-font" };
+    }
+
     built_popup build_font_popup(const settings_view& view, const float scale)
     {
         const font_list_state& anchor { *view.font_list };
@@ -458,6 +463,9 @@ namespace cyella::ui {
         const luil::stack_config column_config { .spacing = font_popup_padding, .padding = luil::edge_insets::all(font_popup_padding) };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"font-list-column" }, column_config) };
         const luil::ui_element_id search { anchor.code ? kind_code_font_input : kind_ui_font_input, u8"settings-font-search" };
+        // 열 때 검색 칸이 첫 초점을 받는다. 아래의 가둠 진입(`set_focus_entry`)은 popup tree에서는 저절로 서지 않아 frame의 요청이 옮긴다.
+        popup.focus = anchor.code ? popup_focus_target::code_font_search : popup_focus_target::ui_font_search;
+        popup.focus_target = search;
         const luil::text_input_config filter_config { .placeholder = tr(u8"settings.appearance.search_fonts"), .leading_glyph = codicons::icon_search };
         auto filter { std::make_unique<luil::text_input_element>(search, input, filter_config) };
         filter->set_access_name(tr(u8"settings.appearance.search_fonts"));
@@ -467,7 +475,8 @@ namespace cyella::ui {
         panel->set_content(std::move(column));
         panel->set_focus_trap(true);
         panel->set_focus_entry(search);
-        panel->set_dismiss_action(action_of(message(close_font_list_intent {})));
+        // 가둠의 닫기는 Esc 키다.
+        panel->set_dismiss_action(action_of(message(close_font_list_intent { .escape = true })));
         popup.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(panel), { 0.0f, 0.0f, popup.width * scale, popup.height * scale }, scale));
         return popup;
     }

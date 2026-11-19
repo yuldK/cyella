@@ -56,6 +56,13 @@ namespace cyella {
             return;
         ui_.menu.reset();
         ui_.selector = selector_state { .kind = intent.kind, .x = intent.x, .y = intent.y, .width = intent.width, .filter = {} };
+        // 목록은 거르는 칸에 쳐서 좁히는 것이 주된 쓰임이다. 칸을 다시 누르지 않아도 바로 칠 수 있게 연 순간 한 번만 초점을 옮긴다.
+        request_popup_focus(popup_focus_target::selector_filter);
+    }
+
+    void shell_controller::request_popup_focus(const popup_focus_target target)
+    {
+        ui_.popup_focus = popup_focus_request { .id = ++popup_focus_revision_, .target = target };
     }
 
     void shell_controller::select_from_selector(const std::u8string& key)

@@ -16,6 +16,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -336,7 +337,14 @@ TEST_CASE("a handle divides the commit message and changed files and holds the d
     CHECK(resized->delta == 10.0f);
     CHECK(resized->current == 300.0f);
     CHECK(resized->maximum > resized->minimum);
-    static_cast<void>(interaction.process(luil::pointer_released_event { .x = x, .y = y + 10.0f }));
+    // 놓는 순간 한 번 끝을 알린다. controller가 그때 높이를 저장한다.
+    const std::vector<luil::input_action> released { interaction.process(luil::pointer_released_event { .x = x, .y = y + 10.0f }) };
+    const auto finished = [](const luil::input_action& action) {
+        const auto* const message { std::get_if<luil::app_message>(&action) };
+        return message != nullptr && message->get<finish_pane_resize_intent>() != nullptr;
+    };
+    CHECK(std::ranges::count_if(moved, finished) == 0);
+    CHECK(std::ranges::count_if(released, finished) == 1);
 
     // 판보다 큰 높이는 파일 칸의 최소 높이를 남기고 다듬는다.
     harness.ui.commit_meta_height = 5000.0f;

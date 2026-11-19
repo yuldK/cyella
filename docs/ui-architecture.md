@@ -42,8 +42,15 @@ cyella_driver::make_frame
 - 탭 줄은 `repository_tabs_element`가 luil 탭 막대와 끝의 추가 단추를 한 가로 띠에 담는다. 넘칠 때만 가로 스크롤 막대를 보이고,
   선택·추가·창 너비 변경 때 선택 탭을 화면 안으로 들인다. 수동 스크롤은 그대로 유지하며, 배치에서 다듬은 위치를 `frame_feedback`으로 되돌린다.
   탭 경계와 선택 테두리를 표시하고, 끌어 놓으면 이동할 대상 앞·뒤 가장자리를 강조한다.
-- 판 폭은 `app_settings::ui.pane_widths`에 남긴다. 손잡이에 "놓았다"는 사건이 없어서 끄는 동안(`resize_pane_intent`)은 쓸 시각만 500 ms 뒤로 미루고,
-  `shell_controller::tick`(driver의 `next_tick`)이 한 번 쓴다. 앱을 닫을 때는 `flush`가 바로 쓴다. 시작할 때 저장된 폭을 범위로 다듬어 되살린다.
+- 판 폭은 `app_settings::ui.pane_widths`에 남긴다. 끄는 동안(`resize_pane_intent`·`resize_commit_meta_intent`)은 쓰지 않고, 손잡이를 놓을 때
+  luil의 끝 알림(`split_handle_config::finish` → `finish_pane_resize_intent`)으로 바로 한 번 쓴다. 폭이 그대로면(움직이지 않은 누름, 끝까지 넓힌 판) 쓰지 않는다.
+  - 앞 끝 알림에서 500 ms 안에 온 끝 알림은 바로 쓰지 않고, 바꾸기가 멈추고 500 ms 뒤의 예약을 `shell_controller::tick`(driver의 `next_tick`)이
+    한 번 쓴다. 키와 끌기를 가리지 않으므로 놓은 뒤 500 ms 안에 다시 끌어 놓으면 그 폭은 놓는 순간이 아니라 예약 시각(늦어야 500 ms)에 쓴다.
+  - 키로 옮기면 luil이 되풀이마다 끝을 알린다. 이어지는 되풀이는 위 규칙으로 묶인다. 첫 되풀이는 OS의 지연(Windows 기본 약 500 ms, 최대 약 1 s)만큼
+    늦게 와서 500 ms를 넘기면 묶이지 않는다. 그래서 눌러 둔 키는 첫 누름, (지연이 500 ms 이상이면) 첫 되풀이, 뗀 뒤의 예약으로 두세 번 쓴다.
+    창을 1 s 넘게 늘리면 이 한 번은 없앨 수 있지만 잇단 마우스 놓기가 더 자주 늦어져 그렇게 하지 않는다.
+  - 끄는 도중 손잡이가 tree에서 사라지면 끝 알림이 오지 않는다. 그때도 같은 예약이 마지막 폭을 쓴다. 끌다 500 ms 넘게 쉬면 이 예약이 중간 폭을 한 번 더 쓴다.
+  - 앱을 닫을 때는 `flush`가 바로 쓴다. 시작할 때 저장된 폭을 범위로 다듬어 되살린다.
 - 텍스트 칸은 luil 규약 그대로다. `cyella_policy::text_target_of`가 kind → `text_target`을 답하고, 편집은
   `edit_text_intent`로 와서 `ui_state`의 `text_edit_state`에 `luil::apply_text_edit`로 적용된다. 한 줄 칸이라 붙여넣은 줄바꿈은 공백이 된다.
 
@@ -149,18 +156,27 @@ cyella_driver
  └ make_frame: sync_diff_view() → controller.poll() → frame->webviews (id "diff", 한 개)
 ```
 
-- **웹뷰는 창에 하나다.** 한 번 diff를 열면 그 뒤로 frame마다 같은 `ui_webview`(id `diff`)를 싣는다(`navigate_revision`은 늘 1이라 다시 읽지
-  않는다). 자리표(`webview_element`)가 tree에 없는 동안은 luil이 웹뷰를 숨기고 페이지 상태는 남는다. 탭·파일을 바꾸면 컨트롤러가 `show_diff`만
+- **웹뷰는 창에 하나다.** 한 번 diff를 열면 그 뒤로 웹뷰가 실패하기 전까지 frame마다 같은 `ui_webview`(id `diff`)를 싣는다(`navigate_revision`은
+  늘 1이라 다시 읽지 않는다. 실패하면 빼고 다시 싣지 않는다 — 아래 "웹뷰를 쓸 수 없을 때"). 자리표(`webview_element`)가 tree에 없는 동안은 luil이 웹뷰를 숨기고 페이지 상태는 남는다. 탭·파일을 바꾸면 컨트롤러가 `show_diff`만
   새로 보낸다.
 - **무엇을 보일지는 `sync`가 맞춘다.** driver가 frame마다 (선택된 탭의 열린 diff 요청, 그 저장소 세션의 `selected_diff`, 그 저장소에서 `file_diff_loaded`가
   온 횟수)를 넘기면, 요청이 같은 diff가 읽혀 있고 횟수가 바뀌었을 때만 `show`한다. 읽는 중이면 낡은 내용을 지워 stage 단추가 엉뚱한 파일에 걸리지
   않게 한다. 동작은 **보이고 있는 diff의 저장소**로 나가므로 탭을 옮긴 사이에 끝나도 맞는 저장소를 고친다.
 - **정책**: `allowed_schemes={file}`, 메시지 8 MiB, **개발자 도구 끔**, 기본 컨텍스트 메뉴 끔. 웹뷰가 보낸 메시지는 문서 주소가 우리가 연 뷰어와 같을 때만
   믿는다(`is_viewer_document`). 뷰어 파일은 실행 파일 옆 `diff-viewer\index.html`이다.
-- **WebView2 Runtime이 없을 때**: luil은 환경을 만들지 못해도 앱에 사건을 보내지 않고 자리표의 placeholder만 남긴다. 그래서 앱이 시작할 때
-  `GetAvailableCoreWebView2BrowserVersionString`으로 직접 확인하고(`webview_runtime_installed`), 뷰어 파일이 없거나 프로필 폴더를 모를 때도 같이 거른다.
-  쓸 수 없으면 `diff_surface_state::webview_available`이 거짓이고 본문은 텍스트 hunk 목록(`diff_row_element`)이다. `--no-webview`로 강제할 수 있다.
-  웹뷰가 뜬 뒤의 `navigation_failed`·`browser_process_failed`도 같은 대체 보기로 넘긴다.
+- **웹뷰를 쓸 수 없을 때**: 쓸 수 없으면 `diff_surface_state::webview_available`이 거짓이고 본문은 텍스트 hunk 목록(`diff_row_element`)이다.
+  `--no-webview`로 강제할 수 있다. 판단은 두 겹이다.
+  - **시작할 때의 빠른 확인**: `GetAvailableCoreWebView2BrowserVersionString`으로 Runtime 설치를 묻고(`webview_runtime_installed`), 뷰어 파일이 없거나
+    프로필 폴더를 모를 때도 같이 거른다. Runtime이 없는 PC에서 처음 diff를 열 때 placeholder가 잠깐 비쳤다가 텍스트로 바뀌지 않게 하려는 것이다
+    (이 확인이 없어도 물러선 뒤로는 텍스트라 비치는 것은 실행당 한 번이다).
+  - **웹뷰 사건**: 확인이 못 보는 실패는 luil의 사건이 알리고 `ui::diff_webview_health`가 판정한다. `creation_failed`(luil의 갈래 `runtime_missing`·
+    `runtime_too_old`·`environment_failed`·`controller_failed`·`not_built`), 뷰어 문서 열기 실패(`navigation_failed`), `browser_process_failed`,
+    그리고 `render_process_failed`가 30초 안에 두 번 오면 물러선다. 렌더러가 한 번 죽으면 luil이 주 문서를 다시 읽고 다시 읽힌 뷰어의 `ready`가
+    내용 전체를 다시 받으므로 앱은 `page_reloading`만 한다(luil은 10초 안에 다시 죽으면 다시 읽지 않는데 그 갈래는 `error` 글로만 구분되어, 앱이 더 넓은
+    창으로 따로 센다).
+  - **물러서면 이번 실행 동안 그대로다.** 웹뷰를 frame의 목록에서 빼고 다시 싣지 않는다. luil은 다시 실린 id를 다시 세우므로, 실으면 브라우저 프로세스가
+    죽은 웹뷰도 새로 서지만 같은 까닭으로 또 실패하면 만들고 실패하기가 되풀이되고 화면이 placeholder와 텍스트 사이를 오간다. 열려 있던 diff는 다음
+    frame부터 텍스트로 보이고, 까닭(사건의 갈래·HRESULT·luil의 설명)은 경고 알림(`diff.viewer_failed`) 한 번으로 남는다. 물러선 뒤 늦게 온 사건은 버린다.
 - **테마**: driver가 `luil::resolve_color_theme` + `color_palette_for`로 팔레트를 얻어 `make_diff_theme`이 뷰어의 CSS 변수(`--window-background` …)로 옮긴다.
   테마가 바뀌면 `set_theme` 메시지 하나가 간다. 시스템 모드는 `AppsUseLightTheme`를 읽는다(고대비 PC는 luil의 고대비 팔레트를 쓰지 않으므로 뷰어는 어두운 기본 색에 가깝다).
 - **복사**는 `host->post_clipboard_request(clipboard_copy_request{text})`다.
@@ -219,7 +235,22 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 - 브랜치 목록: 로컬 브랜치. 현재 브랜치는 체크 표시와 "(현재)"가 붙고 고를 수 없다. 고르면 사이드바 더블클릭과 같은 `checkout_branch`(정책 `ask`)다 — 작업 트리가 막으면 기존 정책 대화 상자가 뜬다.
 - 보이는 항목은 12개까지이고 넘으면 "외 N개 · 좁히세요" 줄이 선다. 거르기는 ASCII 대소문자를 무시하는 부분 문자열(저장소는 이름·경로, `/`와 `\`는 같다)이다.
 - popup은 검색 칸이 있어 창 활성이 바뀌어도 남는다(luil의 검색 popup 규약). 바깥 누름·Esc는 닫는다. 바깥 누름이 닫은 직후(400 ms) 같은 상자를 누르면 다시 열지 않는다(눌러서 닫기).
-- UIA: 상자는 `ComboBox`(ExpandCollapse)이고 목록은 `Menu`/`MenuItem`, 거르는 칸은 `Edit`이다. **알려진 한계**: popup이 열릴 때 거르는 칸에 초점이 가지 않는다(luil에 popup의 첫 초점 지정이 없다). 눌러서 글을 넣는다.
+- UIA: 상자는 `ComboBox`(ExpandCollapse)이고 목록은 `Menu`/`MenuItem`, 거르는 칸은 `Edit`이다.
+- 열면 거르는 칸이 첫 초점을 받아 바로 칠 수 있다. controller가 열 때(와 아래 글꼴 목록을 닫을 때)만 번호를 올린 요청(`ui_state::popup_focus`)을 세우고, tree가 그 popup을 지은 frame에
+  luil `focus_request`(표면 `selector`, 대상 `selector-filter`)로 싣는다. 열린 채 다시 그리는 frame은 같은 번호라 사용자가 옮긴 초점을 빼앗지 않고,
+  닫았다 다시 열면 새 번호다. popup tree 안의 가둠 진입(`focus_entry`)은 저절로 서지 않으므로(활성 표면의 가둠만 진입한다) 요청이 그 길이다.
+  초점이 칸에 있어도 ↑↓·Enter는 목록(`menu_element`)이 먼저 받고, 그 밖의 키(←→·Home·End·Delete·Ctrl+A/C/V/X/Z 같은 편집 키)와 글자는 칸으로 간다.
+  Esc는 둘 다 받지 않는다 — 플랫폼이 popup 닫힘(`escape_key`)으로 먼저 삼켜 `close_selector_intent`가 된다. 환경 설정의 글꼴 목록 popup(`font-list`)도
+  같은 요청으로 검색 칸(`settings-font-search`)에 첫 초점을 준다. 요청은 frame마다 하나라 나중에 연 popup의 것이 이긴다.
+- 대화 상자(입력 상자·환경 설정·팔레트·Clone·rebase 편집기)가 서면 선택 상자 목록을 닫고, 환경 설정 위에 다른 대화 상자(입력 상자·팔레트·Clone·rebase 편집기)가
+  서면 글꼴 목록도 닫는다(`shell_controller::make_view`) — 칸이 초점을 쥔 채 남으면 luil이 대화 상자의 첫 초점(가둠의 진입)을 세우지 않아, 친 글이
+  대화 상자 대신 popup 칸으로 가기 때문이다.
+- 닫을 때의 초점: 글꼴 목록을 고르거나 Enter·Esc로 닫으면 목록을 연 글꼴 칸(`settings-ui-font`·`settings-code-font`)으로 초점을 돌리는 요청을 새 번호로
+  낸다(`popup_focus_target::ui_font_field`). 돌리지 않으면 popup과 함께 초점이 사라지고 환경 설정의 가둠 진입이 다시 서서 페이지 목록으로 튄다.
+  바깥 누름으로 닫으면 누른 자리가 초점을 잡으므로 돌리지 않는다. **알려진 한계**:
+  - 선택 상자를 닫으면 초점이 빈다. popup에는 가둠의 되돌리기(`focus_return`)가 없고 앱은 열기 전 초점을 모른다. 그래서 Tab은 처음부터 돈다.
+  - 목록이 열린 채 창 활성이 바뀌면(Alt+Tab) luil이 popup의 칸 초점도 거두는데 popup은 남는다. luil은 다시 활성화된 것을 앱에 알리지 않아 요청을 다시
+    낼 계기가 없다. 돌아오면 칸을 다시 눌러야 친다(환경 설정에서는 가둠 진입이 페이지 목록에 초점을 세운다).
 - 없어진 최근 저장소(시작 페이지): 행을 누르거나 위치 찾기 단추를 누르면 폴더 대화 상자가 열리고(`ui_command{locate_folder, 옛 경로}`), 고른 폴더를 `inspect_path`로 확인해 저장소이면
   최근 항목의 경로를 바꾼다(`relocate_recent_repository`: 고정·시각·자리는 그대로, 새 경로를 이미 가진 다른 항목은 지운다).
 
@@ -231,19 +262,18 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 - 목록 행 안의 내용 element가 액션을 가지면 hit test가 그 element를 답해 목록 행의 고르기를 가로챈다. 그래서 내용은
   `hit_opaque(false)`이고, 두 번 누름이 필요한 사이드바 브랜치 행만 한 번 누름에도 같은 고르기 메시지를 다시 낸다.
 - 캡션 띠는 luil의 창 버튼 밖이 전부 끌기 영역(HTCAPTION)이라 앱 단추를 둘 수 없다. 환경 설정·테마 단추는 탭 줄 오른쪽에 둔다.
-- **웹 콘텐츠는 UI Automation에 보이지 않는다.** diff 자리의 `Group 'diff 뷰어'`는 자식이 없고 페이지 글(카탈로그의 `diff_viewer.*` 문구와 줄 내용)은 UIA 트리에 나오지 않는다.
-  웹뷰는 composition 호스팅이라 자식 HWND가 없고, luil의 `webview_host.cpp`는 `ICoreWebView2CompositionController::get_UIAProvider`를 부르지 않으며
-  `uia_root_provider::GetEmbeddedFragmentRoots`는 빈 배열을 돌려준다. 빠진 연결은 자리표의 UIA provider가 컨트롤러의 `UIAProvider`를 자식 fragment root로 내어
-  `Navigate(FirstChild)`와 `GetEmbeddedFragmentRoots`로 잇는 것이다. 그래서 UIA(스크린 리더 포함)로 웹뷰 안을 읽거나 누를 수 없고, diff의 핵심 정보(파일명·hunk 수)는 luil 머리 막대가 말한다.
+- **웹 콘텐츠는 UIA3 client에만 보인다.** luil이 웹뷰 페이지의 UIA tree를 자리표에 잇는다(luil `docs/webview-composition-design.md`의 접근성). WebView2가 앵커 창 아래에 두는
+  크기 0의 자식 창(`Chrome_WidgetWin_0`)의 HWND 가지를 자리표 요소와 합쳐, UIA3 client(Narrator 같은 스크린 리더)에게는 `Group 'diff 뷰어'` 아래에 페이지의 Document와
+  글·단추(카탈로그의 `diff_viewer.*` 문구와 줄 내용)가 화면 차례대로 선다. Chromium은 접근성을 늦게 켜므로 처음 묻는 순간에는 Document가 비어 있을 수 있다.
+  **UIA2 관리 client(`System.Windows.Automation`)는 그 자식 창을 훑지 않아** 자리표 group만 보이고 페이지 안은 보이지 않는다. 그 client로 하는 자동 검증은 웹뷰 안을
+  읽거나 누를 수 없으므로, diff의 핵심 정보(파일명·hunk 수)는 luil 머리 막대가 말하고 뷰어 안의 동작은 controller 수준 test가 확인한다.
 - **UIA로 닿지 않는 몸짓.** 우클릭 메뉴(submodule·worktree·LFS 메뉴, 태그 대화 상자를 여는 메뉴), 팔레트·단축키의 키 입력(Ctrl+Shift+P·↑↓),
   라벨 끌어 놓기, rebase 편집기의 p·r·s·f·d·Alt+↑↓는 UI Automation 자동 검증으로 열거나 누를 수 없다. 대신 controller 수준 테스트
   (`tests/extension_view_tests.cpp`·`rebase_shell_tests.cpp`·`palette_profile_shell_tests.cpp`·`signing_ui_tests.cpp`)가 같은 intent와 정책을 직접 불러 확인한다.
   이것은 자동 검증 방법의 한계이고 키보드 경로는 있다. 우클릭 메뉴는 고른 사이드바 항목이나 커밋에서 Shift+F10(팔레트의 `view.menu`)으로 열고,
   끌어 놓기가 고르는 merge·rebase·fast-forward는 브랜치의 우클릭 메뉴에도 있으며, rebase 편집기의 순서는 [위로]·[아래로] 단추로 바꾼다.
-- **luil의 빈 곳**:
-  - 웹 콘텐츠의 UIA 연결이 없다(위).
-  - 웹뷰 환경 생성 실패가 앱에 알려지지 않는다. `webview_host::fail()`이 이유를 버리고 `webview_event`도 나가지 않아, 앱이 `GetAvailableCoreWebView2BrowserVersionString`으로 직접 확인한다.
-  - `split_handle_config`에 "놓았다" 콜백이 없다(`pointer_drag_target::on_release`는 있다). 그래서 판 폭 저장을 500 ms 조용해질 때까지 미룬다.
+- **luil의 빈 곳**: 끄는 도중 손잡이가 tree에서 사라지면 `split_handle_config::finish`가 오지 않는다. 그래서 판 폭 저장에 늦은 예약을 남겨 둔다(위 "판 폭").
+  웹 콘텐츠의 접근성(위)과 웹뷰 생성 실패의 알림(`creation_failed`, "diff 웹뷰" 절)은 luil이 이미 한다.
 
 ## 대화 상자·메뉴·끌어 놓기
 

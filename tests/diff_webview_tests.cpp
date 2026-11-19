@@ -17,7 +17,11 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
+#include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 using namespace cyella;
 using namespace cyella::test::snapshot;
@@ -158,6 +162,129 @@ TEST_CASE("only the viewer we opened is trusted, ignoring case and slash style",
     CHECK_FALSE(ui::is_viewer_document(u8"file:///C:/evil/index.html", viewer));
     CHECK_FALSE(ui::is_viewer_document(u8"", viewer));
     CHECK_FALSE(ui::is_viewer_document(viewer + u8"#x", viewer));
+}
+
+namespace {
+    luil::webview_event webview_event_of(const luil::webview_event_kind kind, std::u8string error = {})
+    {
+        luil::webview_event event {};
+        event.id = std::u8string { ui::diff_webview_id };
+        event.kind = kind;
+        event.error = std::move(error);
+        return event;
+    }
+
+    luil::webview_event creation_failure_of(const luil::webview_creation_failure failure, const std::int32_t hresult, std::u8string error)
+    {
+        luil::webview_event event { webview_event_of(luil::webview_event_kind::creation_failed, std::move(error)) };
+        event.failure = failure;
+        event.hresult = hresult;
+        return event;
+    }
+} // namespace
+
+TEST_CASE("a working diff webview stays in use through its normal events", "[diff][webview][failure]")
+{
+    ui::diff_webview_health health {};
+    const auto start { std::chrono::steady_clock::now() };
+    CHECK(health.on_event(webview_event_of(luil::webview_event_kind::navigation_started), start) == ui::diff_webview_action::page_reloading);
+    CHECK(health.on_event(webview_event_of(luil::webview_event_kind::navigation_completed), start) == ui::diff_webview_action::none);
+    luil::webview_event ready { webview_event_of(luil::webview_event_kind::web_message_received) };
+    ready.message = u8"{\"type\":\"ready\",\"protocol\":1}";
+    CHECK(health.on_event(ready, start) == ui::diff_webview_action::web_message);
+    for (const luil::webview_event_kind kind :
+        { luil::webview_event_kind::navigation_blocked, luil::webview_event_kind::permission_denied, luil::webview_event_kind::download_blocked, luil::webview_event_kind::events_dropped })
+        CHECK(health.on_event(webview_event_of(kind), start) == ui::diff_webview_action::none);
+    CHECK_FALSE(health.failed());
+    CHECK(health.reason().empty());
+}
+
+TEST_CASE("every kind of creation failure falls back to the text diff and says why", "[diff][webview][failure]")
+{
+    struct failure_case
+    {
+        luil::webview_creation_failure failure {};
+        std::int32_t hresult { 0 };
+        std::u8string expected {};
+    };
+    // 0x80070005(E_ACCESSDENIED)·0x80004005(E_FAIL)를 int32로 담은 값이다.
+    const std::int32_t access_denied { static_cast<std::int32_t>(0x80070005u) };
+    const std::int32_t unspecified { static_cast<std::int32_t>(0x80004005u) };
+    const std::vector<failure_case> cases {
+        { luil::webview_creation_failure::runtime_missing, 0, u8"creation_failed (runtime_missing): detail" },
+        { luil::webview_creation_failure::runtime_too_old, 0, u8"creation_failed (runtime_too_old): detail" },
+        { luil::webview_creation_failure::environment_failed, access_denied, u8"creation_failed (environment_failed, HRESULT 0x80070005): detail" },
+        { luil::webview_creation_failure::controller_failed, unspecified, u8"creation_failed (controller_failed, HRESULT 0x80004005): detail" },
+        { luil::webview_creation_failure::not_built, 0, u8"creation_failed (not_built): detail" },
+    };
+    for (const failure_case& item : cases)
+    {
+        const std::string expected { item.expected.begin(), item.expected.end() };
+        INFO(expected);
+        ui::diff_webview_health health {};
+        const auto now { std::chrono::steady_clock::now() };
+        CHECK(health.on_event(creation_failure_of(item.failure, item.hresult, u8"detail"), now) == ui::diff_webview_action::fall_back);
+        CHECK(health.failed());
+        CHECK(health.reason() == item.expected);
+
+        // 물러선 뒤에 늦게 온 사건은 판단을 바꾸지도, 다시 알리게 하지도 않는다.
+        CHECK(health.on_event(creation_failure_of(item.failure, item.hresult, u8"again"), now) == ui::diff_webview_action::none);
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::navigation_started), now) == ui::diff_webview_action::none);
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::web_message_received), now) == ui::diff_webview_action::none);
+        CHECK(health.failed());
+        CHECK(health.reason() == item.expected);
+    }
+}
+
+TEST_CASE("a dead browser process or a failed viewer load falls back for the rest of the run", "[diff][webview][failure]")
+{
+    const auto now { std::chrono::steady_clock::now() };
+
+    ui::diff_webview_health browser {};
+    luil::webview_event ready { webview_event_of(luil::webview_event_kind::web_message_received) };
+    CHECK(browser.on_event(ready, now) == ui::diff_webview_action::web_message);
+    CHECK(browser.on_event(webview_event_of(luil::webview_event_kind::browser_process_failed, u8"browser process exited"), now) == ui::diff_webview_action::fall_back);
+    CHECK(browser.failed());
+    CHECK(browser.reason() == u8"browser_process_failed: browser process exited");
+
+    ui::diff_webview_health navigation {};
+    CHECK(navigation.on_event(webview_event_of(luil::webview_event_kind::navigation_failed, u8"web error status 3"), now) == ui::diff_webview_action::fall_back);
+    CHECK(navigation.reason() == u8"navigation_failed: web error status 3");
+}
+
+TEST_CASE("a renderer crash lets luil reload once and falls back when it crashes again soon", "[diff][webview][failure]")
+{
+    using namespace std::chrono_literals;
+    const auto start { std::chrono::steady_clock::now() };
+
+    SECTION("a single crash reloads and keeps the webview")
+    {
+        ui::diff_webview_health health {};
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::render_process_failed, u8"render process exited"), start) == ui::diff_webview_action::page_reloading);
+        // luil의 다시 읽기는 항해로 보이고, 다시 읽힌 페이지의 `ready`가 내용을 다시 받게 한다.
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::navigation_started), start + 1s) == ui::diff_webview_action::page_reloading);
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::web_message_received), start + 1s) == ui::diff_webview_action::web_message);
+        CHECK_FALSE(health.failed());
+    }
+
+    SECTION("crashes far apart each reload")
+    {
+        ui::diff_webview_health health {};
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::render_process_failed), start) == ui::diff_webview_action::page_reloading);
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::render_process_failed), start + ui::diff_webview_health::render_failure_window)
+            == ui::diff_webview_action::page_reloading
+        );
+        CHECK_FALSE(health.failed());
+    }
+
+    SECTION("a second crash inside the window falls back even if luil's wording changes")
+    {
+        ui::diff_webview_health health {};
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::render_process_failed, u8"render process exited"), start) == ui::diff_webview_action::page_reloading);
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::render_process_failed, u8"anything"), start + 15s) == ui::diff_webview_action::fall_back);
+        CHECK(health.failed());
+        CHECK(health.reason() == u8"render_process_failed: anything");
+    }
 }
 
 TEST_CASE("with a webview the snapshot skips the line copy and fallback keeps it", "[diff][webview][snapshot]")

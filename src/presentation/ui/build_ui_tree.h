@@ -3,6 +3,7 @@
 #include "presentation/frame_feedback.h"
 #include "presentation/view_snapshot.h"
 
+#include "luil/app/app_host.h"
 #include "luil/theme/ui_style.h"
 #include "luil/ui/ui_tree.h"
 
@@ -29,12 +30,20 @@ namespace cyella::ui {
         // 표면 모서리다 (luil `ui_popup::corner`). 비면 앱 스타일(OS 기본)이다.
         //  - 둥근 창은 OS가 잘라 내고 같은 모양의 테두리와 그림자를 얹는다. 둥글게 못 하는 환경에서는 직각 창과 1px 선이다.
         std::optional<luil::popup_corner> corner {};
+        // 열 때 첫 초점을 받는 칸이다. 어느 요청(`popup_focus_target`)이 이 popup의 것인지와 그 칸의 id다.
+        //  - popup tree 안의 가둠 진입(`focus_entry`)은 저절로 서지 않는다. 활성 표면의 가둠만 진입하는데 popup은 활성화를
+        //    받지 않는 표면이라서다. 그래서 frame의 초점 요청(`built_tree::focus`)으로 옮긴다.
+        std::optional<popup_focus_target> focus {};
+        luil::ui_element_id focus_target {};
     };
 
     struct built_tree
     {
         std::shared_ptr<const luil::ui_tree> tree {};
         std::vector<built_popup> popups {};
+        // 이 frame이 실을 초점 요청이다. snapshot의 요청이 가리키는 popup을 지었거나, 글꼴 목록을 닫은 뒤 돌아갈 글꼴 칸이
+        // 주 tree에 섰을 때만 값이 있다.
+        std::optional<luil::focus_request> focus {};
         // 배치한 뒤에 읽은 흘리는 창의 치수다. controller가 다음 스크롤을 다듬는 데 쓴다.
         frame_feedback feedback {};
     };

@@ -548,6 +548,8 @@ namespace cyella::ui {
             config.axis = luil::split_axis::horizontal;
             config.grows = sidebar || working ? luil::split_grows::toward_end : luil::split_grows::toward_start;
             config.resize = [sidebar](const float delta) { return message(resize_pane_intent { .sidebar = sidebar, .delta = delta }); };
+            // 놓는 순간 controller가 끝난 폭을 저장한다.
+            config.finish = [] { return message(finish_pane_resize_intent {}); };
             const std::u8string owner { working ? u8"working-splitter" : (sidebar ? u8"sidebar-splitter" : u8"detail-splitter") };
             auto handle { std::make_unique<luil::split_handle_element>(luil::ui_element_id { kind_splitter, owner }, std::move(config)) };
             // 판이 커져 손잡이가 누른 자리를 떠나도 같은 id를 버튼을 뗄 때까지 붙잡는다.
@@ -686,7 +688,27 @@ namespace cyella::ui {
         const luil::virtual_list_element* notification_list { nullptr };
         if (view.notification_center.has_value())
             built.popups.push_back(build_notification_center_popup(*view.notification_center, view, rects.status.y, scale, &notification_list));
+        // 요청은 그 popup이 선 frame에만 싣는다. 닫힌 popup의 요청을 실으면 luil이 서지 않을 표면을 기한까지 기다린다.
+        //  - 같은 번호를 frame마다 실어도 luil은 한 번만 이행한다. frame이 건너뛰어져도 요청을 잃지 않으려고 popup이 떠 있는 동안 계속 싣는다.
+        if (view.popup_focus.has_value())
+        {
+            for (const built_popup& popup : built.popups)
+            {
+                if (popup.focus != view.popup_focus->target)
+                    continue;
+                built.focus = luil::focus_request { .id = view.popup_focus->id, .surface = popup.id, .target = popup.focus_target };
+                break;
+            }
+        }
         built.tree = std::make_shared<const luil::ui_tree>(luil::make_arranged_tree(std::move(root), { 0.0f, 0.0f, view.width, view.height }, scale));
+        // 글꼴 목록을 닫은 뒤의 요청은 주 창의 글꼴 칸으로 초점을 돌린다. 그 칸이 이 tree에 섰을 때만 싣는다.
+        if (built.focus.has_value() == false && view.popup_focus.has_value())
+        {
+            const popup_focus_target target { view.popup_focus->target };
+            if (target == popup_focus_target::ui_font_field || target == popup_focus_target::code_font_field)
+                if (const luil::ui_element_id field { font_field_id(target == popup_focus_target::code_font_field) }; built.tree->find(field) != nullptr)
+                    built.focus = luil::focus_request { .id = view.popup_focus->id, .surface = {}, .target = field };
+        }
         if (sources.graph != nullptr)
         {
             built.feedback.graph_maximum = sources.graph->metrics().maximum_scroll;

@@ -70,7 +70,7 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 쓰되, `ui`·`
 | `appearance.tab_marker` | 탭의 상태 표지를 보이는 자리. `badge`(기본), `icon_corner`, `close_slot`. 그 밖의 값은 경고하고 `badge`. |
 | `appearance.ui_font`, `appearance.code_font` | 글꼴 이름. 빈 값은 플랫폼 기본 글꼴이다. 설치되지 않은 이름도 설정에는 남기고 표시만 기본으로 되돌린다. |
 | `window` | 좌표·크기(정수, 너비·높이 양수)와 `maximized`. 틀리면 경고하고 배치 없이 시작. 값이 없으면 키를 지운다. |
-| `ui.pane_widths` | 사이드바·상세 판의 폭과 커밋 상세의 메시지·메타 칸 높이(`commit_meta`)다(논리 픽셀, 양수, 소수 둘째 자리까지). 하나만 있어도 된다. `commit_meta`가 없으면 손잡이를 끌기 전처럼 내용만큼 서고, 있으면 그릴 때 판 높이로 범위를 다듬는다. 없거나 틀린 값은 기본 폭이고, 시작할 때 `shell_layout`의 최소·최대로 다듬는다. 판을 끄는 동안에는 쓰지 않고 500 ms 조용해지면(또는 앱을 닫을 때) 한 번 쓴다. 모두 없으면 `pane_widths`를 쓰지 않는다. |
+| `ui.pane_widths` | 사이드바·상세 판의 폭과 커밋 상세의 메시지·메타 칸 높이(`commit_meta`)다(논리 픽셀, 양수, 소수 둘째 자리까지). 하나만 있어도 된다. `commit_meta`가 없으면 손잡이를 끌기 전처럼 내용만큼 서고, 있으면 그릴 때 판 높이로 범위를 다듬는다. 없거나 틀린 값은 기본 폭이고, 시작할 때 `shell_layout`의 최소·최대로 다듬는다. 판을 끄는 동안에는 쓰지 않고 손잡이를 놓을 때(또는 앱을 닫을 때) 한 번 쓴다. 앞 놓기에서 500 ms 안에 다시 놓으면(키 되풀이, 잇단 끌기) 또는 놓았다는 알림이 오지 않으면 500 ms 조용해진 뒤 한 번 쓴다. 그래서 끌다 500 ms 넘게 쉬면 그 사이 폭도 한 번 쓴다([ui-architecture](ui-architecture.md)의 판 폭). 모두 없으면 `pane_widths`를 쓰지 않는다. |
 | `ui.commit_files_view`, `ui.working_files_view` | 커밋 상세와 작업 영역의 변경 파일 보기. `list`(기본), `tree`. 트리를 골랐거나 키가 이미 있는 파일에만 쓴다. 그 밖의 값은 경고하고 `list`. |
 | `ui.repository_layout` | 저장소 화면의 배치. `graph`(기본), `review`(변경 검토를 왼쪽 목록·오른쪽 diff로 나눈다). `review`를 골랐거나 키가 이미 있는 파일에만 쓴다. 그 밖의 값은 경고하고 `graph`. |
 | `profiles`, `profile_rules`, `profile_assignments`, `shortcuts`, `command_history` | 저장소별 사용자 프로필, 프로필 제안 규칙, 적용해 둔 선택, 바꾼 단축키, 팔레트 명령 기록이다. 값이 없으면 키를 쓰지 않는다. 규칙은 [UI 구조](ui-architecture.md)의 명령 팔레트·단축키·사용자 프로필 절에 있다. |

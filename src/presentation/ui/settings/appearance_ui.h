@@ -19,5 +19,7 @@ namespace cyella::ui {
     [[nodiscard]] std::unique_ptr<luil::ui_element> make_accent_picker(std::u8string_view accent);
     [[nodiscard]] float accent_picker_height(float width);
     [[nodiscard]] std::unique_ptr<luil::ui_element> make_font_combo(const settings_view& view, bool code);
+    // 글꼴 상자 안의 글 칸이다. 글꼴 목록을 닫은 뒤 초점이 돌아가는 자리다 (`popup_focus_target::ui_font_field`).
+    [[nodiscard]] luil::ui_element_id font_field_id(bool code);
     [[nodiscard]] built_popup build_font_popup(const settings_view& view, float scale);
 } // namespace cyella::ui

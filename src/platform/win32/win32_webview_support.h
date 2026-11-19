@@ -8,7 +8,8 @@ namespace cyella::win32 {
     // 두는가"만 답한다.
 
     // WebView2 Evergreen Runtime이 설치돼 있는가. 로더에 물어 설치된 판 번호를 얻는다 (프로세스를 띄우지 않는다).
-    // luil은 환경을 만들지 못해도 앱에 사건을 보내지 않으므로(placeholder만 남는다) 앱이 미리 알아야 대체 보기로 물러선다.
+    // 웹뷰를 세우지 못하면 luil이 `creation_failed`로 알리므로 이것 없이도 대체 보기로 물러서지만, Runtime이 없는 PC에서
+    // 처음 diff를 열 때 placeholder가 잠깐 비치지 않도록 시작할 때 먼저 거르는 빠른 길이다. 판이 오래되었는지는 보지 않는다(사건이 맡는다).
     [[nodiscard]] bool webview_runtime_installed() noexcept;
 
     // 실행 파일 옆 `diff-viewer\index.html`의 절대 경로다 (빌드 폴더와 설치 폴더가 같은 배치다). 파일이 없으면 값은 있어도

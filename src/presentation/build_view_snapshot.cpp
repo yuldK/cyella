@@ -1426,6 +1426,7 @@ namespace cyella {
             view.menu = build_menu_view(ui, tabs, session, index.get(), view.scale);
             view.selector = build_selector_view(ui, tabs, settings, inputs.exists, session, view.scale);
         }
+        view.popup_focus = ui.popup_focus;
 
         if (ui.clone.has_value())
         {

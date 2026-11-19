@@ -17,6 +17,8 @@
 #include "luil/ui/virtual_list_element.h"
 #include "luil/ui/webview_element.h"
 
+#include <cstdint>
+#include <string_view>
 #include <utility>
 
 namespace cyella::ui {
@@ -171,7 +173,8 @@ namespace cyella::ui {
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"diff-header-bar" }, bar_style { .divider_bottom = true }, std::move(column));
         }
 
-        // 웹뷰가 앉을 자리다. 웹뷰가 서면 이 자리가 구멍으로 비워져 페이지가 보이고, 서지 못하면 placeholder 글이 남는다.
+        // 웹뷰가 앉을 자리다. 웹뷰가 서면 이 자리가 구멍으로 비워져 페이지가 보이고, 서는 동안은 placeholder 글이 보인다.
+        // 서지 못하면 luil이 `creation_failed`를 알리고 driver가 다음 frame부터 이 자리를 텍스트 본문으로 바꾼다 (`diff_webview_health`).
         std::unique_ptr<luil::ui_element> build_webview_slot(const diff_panel_view& diff)
         {
             luil::webview_config config {};
@@ -216,6 +219,77 @@ namespace cyella::ui {
                 return u8'/';
             return value >= u8'A' && value <= u8'Z' ? static_cast<char8_t>(value - u8'A' + u8'a') : value;
         }
+
+        std::u8string_view event_name(const luil::webview_event_kind kind) noexcept
+        {
+            switch (kind)
+            {
+            case luil::webview_event_kind::navigation_failed:
+                return u8"navigation_failed";
+            case luil::webview_event_kind::render_process_failed:
+                return u8"render_process_failed";
+            case luil::webview_event_kind::browser_process_failed:
+                return u8"browser_process_failed";
+            case luil::webview_event_kind::creation_failed:
+                return u8"creation_failed";
+            case luil::webview_event_kind::navigation_started:
+            case luil::webview_event_kind::navigation_completed:
+            case luil::webview_event_kind::navigation_blocked:
+            case luil::webview_event_kind::permission_denied:
+            case luil::webview_event_kind::download_blocked:
+            case luil::webview_event_kind::web_message_received:
+            case luil::webview_event_kind::events_dropped:
+                break;
+            }
+            return u8"webview_event";
+        }
+
+        std::u8string_view failure_name(const luil::webview_creation_failure failure) noexcept
+        {
+            switch (failure)
+            {
+            case luil::webview_creation_failure::none:
+                return u8"none";
+            case luil::webview_creation_failure::runtime_missing:
+                return u8"runtime_missing";
+            case luil::webview_creation_failure::runtime_too_old:
+                return u8"runtime_too_old";
+            case luil::webview_creation_failure::environment_failed:
+                return u8"environment_failed";
+            case luil::webview_creation_failure::controller_failed:
+                return u8"controller_failed";
+            case luil::webview_creation_failure::not_built:
+                return u8"not_built";
+            }
+            return u8"unknown";
+        }
+
+        // 안내 글에 실을 까닭이다. 사용자가 고칠 길(Runtime 갱신, 환경 변수)을 찾거나 문의할 때 쓰는 기술 정보라 번역하지 않는다.
+        std::u8string describe_failure(const luil::webview_event& event)
+        {
+            std::u8string text { event_name(event.kind) };
+            if (event.kind == luil::webview_event_kind::creation_failed)
+            {
+                text += u8" (";
+                text += failure_name(event.failure);
+                if (event.hresult != 0)
+                {
+                    // HRESULT는 음수로 담겨 오지만 사람은 0x8007…로 읽는다.
+                    constexpr std::u8string_view digits { u8"0123456789ABCDEF" };
+                    const auto bits { static_cast<std::uint32_t>(event.hresult) };
+                    text += u8", HRESULT 0x";
+                    for (int shift { 28 }; shift >= 0; shift -= 4)
+                        text.push_back(digits[(bits >> shift) & 0xFu]);
+                }
+                text += u8")";
+            }
+            if (event.error.empty() == false)
+            {
+                text += u8": ";
+                text += event.error;
+            }
+            return text;
+        }
     } // namespace
 
     std::unique_ptr<luil::ui_element> build_diff_area(const repository_view& repository, const float width, feedback_sources& sources)
@@ -257,5 +331,48 @@ namespace cyella::ui {
             if (folded(document_url[index]) != folded(viewer_url[index]))
                 return false;
         return true;
+    }
+
+    diff_webview_action diff_webview_health::on_event(const luil::webview_event& event, const std::chrono::steady_clock::time_point now)
+    {
+        // 웹뷰를 frame에서 뺀 뒤에도 그 전에 inbox에 들어간 사건이 온다. 물러선 판단을 그것들이 흔들지 못하게 한다.
+        if (failed_)
+            return diff_webview_action::none;
+        switch (event.kind)
+        {
+        case luil::webview_event_kind::navigation_started:
+            return diff_webview_action::page_reloading;
+        case luil::webview_event_kind::render_process_failed: {
+            // 뷰어에는 iframe이 없으므로 iframe 렌더러의 죽음도 주 문서의 것과 같이 센다 (갈래는 `error` 글로만 갈린다).
+            const bool again { last_render_failure_.has_value() && now - *last_render_failure_ < render_failure_window };
+            last_render_failure_ = now;
+            if (again)
+                return fall_back(event);
+            // luil이 다시 읽는다. 다시 읽은 페이지가 `ready`를 보내면 내용 전체를 다시 보낸다.
+            return diff_webview_action::page_reloading;
+        }
+        case luil::webview_event_kind::navigation_failed:
+        case luil::webview_event_kind::browser_process_failed:
+        case luil::webview_event_kind::creation_failed:
+            // 뷰어를 열지 못했거나 웹뷰를 세우지 못했거나 웹뷰가 사라졌다. 브라우저 프로세스가 죽은 웹뷰는 id를 뺐다가 다시
+            // 실어야 새로 서는데, 같은 까닭으로 또 죽으면 그 순환을 끊을 근거가 없으므로 다시 세우지 않는다.
+            return fall_back(event);
+        case luil::webview_event_kind::web_message_received:
+            return diff_webview_action::web_message;
+        case luil::webview_event_kind::navigation_completed:
+        case luil::webview_event_kind::navigation_blocked:
+        case luil::webview_event_kind::permission_denied:
+        case luil::webview_event_kind::download_blocked:
+        case luil::webview_event_kind::events_dropped:
+            break;
+        }
+        return diff_webview_action::none;
+    }
+
+    diff_webview_action diff_webview_health::fall_back(const luil::webview_event& event)
+    {
+        failed_ = true;
+        reason_ = describe_failure(event);
+        return diff_webview_action::fall_back;
     }
 } // namespace cyella::ui

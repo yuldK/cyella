@@ -88,7 +88,13 @@ namespace cyella::ui {
         luil::text_input_config filter_config {};
         filter_config.placeholder = selector.placeholder;
         filter_config.leading_glyph = codicons::icon_search;
-        auto filter { std::make_unique<luil::text_input_element>(luil::ui_element_id { kind_selector_filter_input, u8"selector-filter" }, selector.filter, std::move(filter_config)) };
+        const luil::ui_element_id filter_id { kind_selector_filter_input, u8"selector-filter" };
+        // 열 때 이 칸이 첫 초점을 받는다. ↑↓·Enter는 초점과 무관하게 목록(`menu_element`)이 먼저 가져가고, 그 밖의 키(←→·Home·End·Delete·
+        // Ctrl+A/C/V/X/Z 같은 편집 키)와 글자는 칸으로 온다. Esc는 어느 쪽에도 오지 않는다 — 플랫폼이 popup 닫힘으로 먼저 삼켜
+        // `close_selector_intent`가 된다.
+        popup.focus = popup_focus_target::selector_filter;
+        popup.focus_target = filter_id;
+        auto filter { std::make_unique<luil::text_input_element>(filter_id, selector.filter, std::move(filter_config)) };
         filter->set_access_name(selector.placeholder);
         column->add(std::move(filter), selector_field_height);
         auto list { std::make_unique<luil::menu_element>(std::move(menu)) };

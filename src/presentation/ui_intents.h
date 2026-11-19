@@ -172,6 +172,12 @@ namespace cyella {
         float maximum { 0.0f };
     };
 
+    // 판 손잡이(사이드바·상세·메시지 칸) 하나의 길이 바꾸기가 끝났다 (luil `split_handle_config::finish`).
+    //  - 끌기는 놓을 때 한 번, 키는 되풀이마다 온다. 움직이지 않고 뗀 누름에도 온다.
+    struct finish_pane_resize_intent
+    {
+    };
+
     struct toggle_drawer_intent
     {
         bool open { false };

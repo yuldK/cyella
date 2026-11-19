@@ -117,7 +117,8 @@ namespace cyella {
         // diff 웹뷰의 지금 모습이다. 웹뷰를 쥔 driver가 frame마다 올려 머리 막대와 대체 보기가 읽는다.
         void set_diff_surface(const diff_surface_state& surface);
 
-        // 판 폭을 끌 때마다 설정 파일을 쓰지 않도록, 끌기가 멈춘 뒤 한 번만 쓴다 (손잡이에는 놓았다는 사건이 없다).
+        // 판 폭은 손잡이를 놓을 때(`finish_pane_resize_intent`) 쓴다. 끝 알림이 오지 않는 경우(끄는 도중 손잡이가
+        // tree에서 사라짐)와 앞 알림에서 500 ms 안에 온 끝 알림(키 되풀이, 잇단 끌기)은 바꾸기가 멈추고 조금 뒤의 예약이 한 번 쓴다.
         // driver가 `next_tick`·`tick`에 이어 주고, 앱을 닫을 때는 `flush`로 바로 쓴다.
         [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_tick() const noexcept;
         void tick(std::chrono::steady_clock::time_point now);
@@ -167,6 +168,8 @@ namespace cyella {
         void update_settings(const std::function<void(app_settings&)>& change);
         [[nodiscard]] settings_controller::dependencies settings_dependencies();
         void save_tabs();
+        // 예약된 판 폭이 있으면 지금 쓰고 예약을 지운다.
+        void save_pane_widths();
         void close_tab(repository_tab_id id);
         void select_tab_index(std::size_t index);
         // 선택된 저장소가 바뀌었다(`before`는 바뀌기 전의 id). 앞 저장소에 묶인 대화 상자와 메뉴를 닫는다 — 둘 다 확인할 때
@@ -228,6 +231,9 @@ namespace cyella {
         // `dismissed`가 참이면 바깥 누름 등으로 닫힌 것이다 (곧 이어지는 같은 상자의 뗌을 다시 열기로 읽지 않는다).
         void close_selector(bool dismissed);
         void select_from_selector(const std::u8string& key);
+        // 방금 연 popup의 칸으로 첫 초점을, 또는 닫은 글꼴 목록의 글꼴 칸으로 초점을 청한다. 새 번호를 매겨 앞의 요청을 덮는다
+        // (`ui_state::popup_focus`).
+        void request_popup_focus(popup_focus_target target);
         // 원격의 웹 페이지 주소다. 지금 설정의 링크 규칙으로 푼다. 저장소 탭이 아니거나 원격·규칙이 없으면 값이 없다.
         [[nodiscard]] std::optional<std::string> remote_web_link_url(const std::string& remote_name);
         // 원격의 웹 페이지를 브라우저로 연다 ("열기"의 링크, 사이드바 원격 행의 주소 링크). 링크 규칙이 없으면 아무것도 하지 않는다.
@@ -387,11 +393,15 @@ namespace cyella {
         std::map<operation_id, locate_request> pending_locates_ {};
         // 바깥 누름으로 마지막에 닫힌 선택 상자와 그 시각이다.
         std::optional<std::pair<selector_kind, std::chrono::steady_clock::time_point>> selector_dismissed_ {};
+        // popup 초점 요청(열 때의 첫 초점, 글꼴 목록을 닫은 뒤의 되돌림)의 마지막 번호다. 0은 낸 적이 없다는 뜻이고, luil이 이미 본 번호를 다시 쓰지 않게 줄지 않는다.
+        std::uint64_t popup_focus_revision_ { 0 };
         settings_controller settings_;
         rebase_editor_controller rebase_;
         hosting_controller hosting_;
-        // 판 폭을 설정에 쓸 시각이다. 폭을 끄는 동안 뒤로 밀리고, 값이 없으면 쓸 것이 없다.
+        // 판 폭을 설정에 쓸 늦은 예약 시각이다. 폭이 바뀔 때마다 뒤로 밀리고, 값이 없으면 쓸 것이 없다.
         std::optional<std::chrono::steady_clock::time_point> pane_widths_flush_at_ {};
+        // 쓸 것이 있을 때 받은 마지막 끝 알림의 시각이다. 잇달아 오는 끝 알림을 가려 쓰기를 모은다.
+        std::optional<std::chrono::steady_clock::time_point> pane_finish_at_ {};
         // 이미 알린 실패 operation이다. 같은 실패를 두 번 띄우지 않는다.
         std::set<operation_id> notified_failures_ {};
         // 알림 센터가 바깥 누름으로 닫힌 시각이다.

@@ -26,8 +26,15 @@ namespace cyella {
         constexpr std::size_t load_more_threshold_rows { 200 };
         // 첫 frame 전처럼 그래프 창 높이를 모를 때의 짐작이다 (논리 픽셀).
         constexpr float assumed_graph_viewport { 800.0f };
-        // 판 폭 끌기가 멈춘 뒤 설정에 쓰기까지의 간격이다.
+        // 판 폭을 바꾼 뒤 손잡이의 끝 알림 없이도 설정에 쓰기까지의 간격이다.
+        // 끄는 도중 손잡이가 tree에서 사라지면 luil이 끝을 알리지 않아, 이 예약이 마지막 폭을 쓴다.
         constexpr std::chrono::milliseconds pane_widths_save_delay { 500 };
+        // 끝 알림이 앞 알림에서 이 안에 오면 바로 쓰지 않고 위 예약에 맡긴다.
+        // 손잡이에서 화살표 키를 눌러 두면 되풀이마다 끝 알림이 와서, 그때마다 쓰면 설정 파일을 1초에 수십 번 쓴다.
+        //  - 키와 끌기를 가리지 않는다. 앞 놓기에서 이 안에 다시 끌어 놓아도 예약이 쓴다(늦어야 500 ms).
+        //  - OS의 첫 되풀이 지연(Windows 기본 약 500 ms, 최대 약 1 s)이 이 창을 넘기면 첫 되풀이도 바로 쓴다.
+        //    눌러 둔 키는 그래서 두 번이나 세 번 쓴다. 창을 1 s 넘게 늘리면 잇단 마우스 놓기가 더 자주 늦어져 그대로 둔다.
+        constexpr std::chrono::milliseconds pane_finish_burst_window { 500 };
         // 알림 센터 바깥을 눌러 닫은 뒤 이 안에 온 종 누름은 같은 누름이다.
         constexpr std::chrono::milliseconds notification_toggle_window { 400 };
 
@@ -967,11 +974,14 @@ namespace cyella {
         }
         if (const auto* const intent { message.get<resize_pane_intent>() }; intent != nullptr)
         {
-            if (intent->sidebar)
-                ui_.sidebar_width = clamp_sidebar_width(ui_.sidebar_width + intent->delta);
-            else
-                ui_.detail_width = clamp_detail_width(ui_.detail_width + intent->delta);
-            pane_widths_flush_at_ = std::chrono::steady_clock::now() + pane_widths_save_delay;
+            float& width { intent->sidebar ? ui_.sidebar_width : ui_.detail_width };
+            const float resized { intent->sidebar ? clamp_sidebar_width(width + intent->delta) : clamp_detail_width(width + intent->delta) };
+            // 끝까지 넓힌 판을 더 끌면 폭이 그대로다. 쓸 것이 없으니 예약하지 않는다.
+            if (resized != width)
+            {
+                width = resized;
+                pane_widths_flush_at_ = dependencies_.steady_clock() + pane_widths_save_delay;
+            }
             return true;
         }
         if (const auto* const intent { message.get<resize_commit_meta_intent>() }; intent != nullptr)
@@ -980,8 +990,25 @@ namespace cyella {
             // 범위 안으로 돌아올 때까지 끌어도 손잡이가 움직이지 않기 때문이다.
             const float maximum { std::max(intent->maximum, intent->minimum) };
             const float start { std::clamp(ui_.commit_meta_height.value_or(intent->current), intent->minimum, maximum) };
-            ui_.commit_meta_height = std::clamp(start + intent->delta, intent->minimum, maximum);
-            pane_widths_flush_at_ = std::chrono::steady_clock::now() + pane_widths_save_delay;
+            const float resized { std::clamp(start + intent->delta, intent->minimum, maximum) };
+            if (ui_.commit_meta_height != resized)
+            {
+                ui_.commit_meta_height = resized;
+                pane_widths_flush_at_ = dependencies_.steady_clock() + pane_widths_save_delay;
+            }
+            return true;
+        }
+        if (message.get<finish_pane_resize_intent>() != nullptr)
+        {
+            // 움직이지 않고 뗀 누름에도 온다. 바뀐 폭이 없으면 쓸 것도 없다.
+            if (pane_widths_flush_at_.has_value() == false)
+                return true;
+            // 놓은 순간 바로 쓴다. 다만 끝 알림이 앞 알림에서 500 ms 안에 오면(키 되풀이, 잇단 끌기) 예약에 모은다.
+            const std::chrono::steady_clock::time_point now { dependencies_.steady_clock() };
+            const bool burst { pane_finish_at_.has_value() && now - *pane_finish_at_ < pane_finish_burst_window };
+            pane_finish_at_ = now;
+            if (burst == false)
+                save_pane_widths();
             return true;
         }
         if (const auto* const intent { message.get<toggle_drawer_intent>() }; intent != nullptr)
@@ -1296,10 +1323,24 @@ namespace cyella {
         if (handle_command_message(message))
             return true;
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
+        // 이 메시지 전에 열려 있던 글꼴 목록이 어느 칸의 것인가다. 닫은 뒤 초점을 돌려보낼 칸이다.
+        std::optional<bool> font_list_code {};
+        if (settings_.state().has_value() && settings_.state()->font_list.has_value())
+            font_list_code = settings_.state()->font_list->code;
         if (settings_.handle(message))
         {
             if (message.get<open_settings_intent>() != nullptr)
                 ui_.selector.reset();
+            // 글꼴 목록의 검색 칸은 popup tree 안이라 가둠의 진입(`focus_entry`)이 닿지 않는다. 열린 것을 보고 요청으로 옮긴다.
+            if (const auto* const opened { message.get<open_font_list_intent>() }; opened != nullptr && settings_.state().has_value() && settings_.state()->font_list.has_value())
+                request_popup_focus(opened->list.code ? popup_focus_target::code_font_search : popup_focus_target::ui_font_search);
+            // 목록에서 고르거나 Enter·Esc로 닫으면 검색 칸이 쥔 초점이 popup과 함께 사라지고, 환경 설정의 가둠 진입이 다시 서서
+            // 초점이 페이지 목록으로 튄다. 목록을 연 글꼴 칸으로 돌려보낸다.
+            //  - 바깥 누름은 같은 닫기 intent이지만 `escape`가 거짓이다. 누른 자리가 잡은 초점을 도로 빼앗지 않는다.
+            const auto* const closed { message.get<close_font_list_intent>() };
+            const bool returns_focus { message.get<select_font_intent>() != nullptr || message.get<apply_font_settings_intent>() != nullptr || (closed != nullptr && closed->escape) };
+            if (returns_focus && font_list_code.has_value() && settings_.state().has_value() && settings_.state()->font_list.has_value() == false)
+                request_popup_focus(*font_list_code ? popup_focus_target::code_font_field : popup_focus_target::ui_font_field);
             return true;
         }
         // submodule·worktree·LFS와 인터랙티브 rebase 편집기의 메시지다.
@@ -1611,10 +1652,31 @@ namespace cyella {
         view.rebase_editor = rebase_.make_view(ui_.composition);
         last_mode_ = view.mode;
         view.palette = make_palette_view();
+        // 환경 설정 위에 다른 대화 상자가 서면 글꼴 목록도 접는다. 까닭은 아래의 선택 상자와 같다 — 검색 칸이 초점을 쥔 채 남으면
+        // 그 대화 상자의 진입이 서지 않아, 친 글(인증 질문의 비밀번호까지)이 글꼴 칸으로 가고 Enter가 그 글을 글꼴 이름으로 저장한다.
+        //  - 환경 설정 자신은 조건에 넣지 않는다. 목록은 그 화면의 것이다.
+        if (view.settings.has_value() && view.settings->font_list.has_value()
+            && (view.form.has_value() || view.palette.has_value() || view.clone.has_value() || view.rebase_editor.has_value()))
+        {
+            static_cast<void>(settings_.handle(luil::app_message { close_font_list_intent {} }));
+            view.settings->font_list.reset();
+        }
+        // 글꼴 칸으로 돌아가는 요청은 환경 설정 화면의 것이다. 이행되기 전에 화면이 닫혔으면 버려, 다음에 연 화면에서 뒤늦게
+        // 대화 상자의 첫 초점을 빼앗지 않게 한다.
+        if (view.settings.has_value() == false && ui_.popup_focus.has_value()
+            && (ui_.popup_focus->target == popup_focus_target::ui_font_field || ui_.popup_focus->target == popup_focus_target::code_font_field))
+        {
+            ui_.popup_focus.reset();
+            view.popup_focus.reset();
+        }
         if (view.form.has_value() || view.settings.has_value() || view.palette.has_value() || view.clone.has_value() || view.rebase_editor.has_value())
         {
             ui_.ref_list.reset();
             view.ref_list.reset();
+            // 선택 상자 목록도 접는다. 거르는 칸이 초점을 쥔 popup이 남으면 뒤늦게 뜬 대화 상자(인증 질문·체크아웃 정책)의
+            // 첫 초점(가둠의 진입)이 서지 않는다 — luil은 초점이 비었을 때만 진입한다. 그러면 친 글자가 대화 상자 대신 목록으로 간다.
+            ui_.selector.reset();
+            view.selector.reset();
         }
         view.shortcuts = resolve_shortcut_bindings(settings());
         // 선택된 저장소의 작성자 신원을 상태 줄에 보인다 (출처와 함께).
@@ -1726,20 +1788,24 @@ namespace cyella {
         std::erase_if(ui_.notifications, [](const notification& value) { return value.remove_after_leave && value.toast == false; });
     }
 
+    void shell_controller::save_pane_widths()
+    {
+        if (pane_widths_flush_at_.has_value() == false)
+            return;
+        pane_widths_flush_at_.reset();
+        const float sidebar { ui_.sidebar_width };
+        const float detail { ui_.detail_width };
+        const std::optional<float> commit_meta { ui_.commit_meta_height };
+        update_settings([sidebar, detail, commit_meta](app_settings& value) {
+            value.ui.pane_widths.sidebar = sidebar;
+            value.ui.pane_widths.detail = detail;
+            value.ui.pane_widths.commit_meta = commit_meta;
+        });
+    }
+
     void shell_controller::flush()
     {
-        if (pane_widths_flush_at_.has_value())
-        {
-            pane_widths_flush_at_.reset();
-            const float sidebar { ui_.sidebar_width };
-            const float detail { ui_.detail_width };
-            const std::optional<float> commit_meta { ui_.commit_meta_height };
-            update_settings([sidebar, detail, commit_meta](app_settings& value) {
-                value.ui.pane_widths.sidebar = sidebar;
-                value.ui.pane_widths.detail = detail;
-                value.ui.pane_widths.commit_meta = commit_meta;
-            });
-        }
+        save_pane_widths();
         // 앞선 저장이 실패해 밀린 변경은 다음 변경이 와야 다시 쓰인다. 앱을 닫기 전에 한 번 더 써서 그대로 잃지 않게 한다.
         if (dependencies_.settings != nullptr && dependencies_.settings->is_read_only() == false && dependencies_.settings->has_unsaved_changes())
             static_cast<void>(dependencies_.settings->save());

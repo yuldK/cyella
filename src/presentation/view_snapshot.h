@@ -548,6 +548,8 @@ namespace cyella {
         std::optional<ref_list_state> ref_list {};
         // 열린 저장소·브랜치 선택 상자 목록이다.
         std::optional<selector_view> selector {};
+        // 마지막으로 연 popup의 첫 초점 요청이다 (`ui_state::popup_focus`). tree는 그 popup을 지은 frame에만 싣는다.
+        std::optional<popup_focus_request> popup_focus {};
         float sidebar_width { default_sidebar_width };
         float detail_width { default_detail_width };
         bool drawer_open { false };

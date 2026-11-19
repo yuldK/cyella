@@ -78,7 +78,10 @@ namespace cyella {
     };
 
     struct close_font_list_intent
-    {};
+    {
+        // Esc로 닫았다. 그때만 초점을 글꼴 칸으로 돌려보낸다 — 바깥 누름도 이 intent인데, 그때는 누른 자리가 잡은 초점을 둔다.
+        bool escape { false };
+    };
 
     struct font_list_scroll_intent
     {

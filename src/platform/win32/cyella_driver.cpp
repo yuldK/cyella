@@ -217,8 +217,10 @@ namespace cyella::win32 {
 
     void cyella_driver::start_diff_view()
     {
-        // 웹뷰를 세울 수 있는 PC인가를 앱이 미리 안다. luil은 환경을 만들지 못해도 사건을 보내지 않고 placeholder만 남기므로,
-        // 여기서 거르지 않으면 diff가 영영 빈 자리로 남는다.
+        // 웹뷰를 세울 수 있는 PC인가를 시작할 때 먼저 거른다. 세우지 못하면 luil이 `creation_failed`로 알리지만(그때는
+        // `handle_webview_event`가 대체 보기로 물러선다), Runtime이 아예 없는 PC에서 처음 diff를 열 때 placeholder가 잠깐
+        // 비쳤다가 텍스트로 바뀌지 않게 하는 빠른 길이다(물러선 뒤로는 텍스트라 이것 없이도 비치는 것은 한 번이다).
+        // 오래된 Runtime·환경 생성 실패처럼 이 확인이 못 보는 것은 사건이 맡는다.
         const viewer_location viewer { locate_diff_viewer() };
         webview_data_folder_ = webview_user_data_directory();
         webview_capable_ = options_.force_text_diff == false && viewer.exists && webview_data_folder_.empty() == false && webview_runtime_installed();
@@ -622,28 +624,27 @@ namespace cyella::win32 {
     {
         if (diff_ == nullptr)
             return;
-        switch (event.kind)
+        switch (webview_health_.on_event(event, std::chrono::steady_clock::now()))
         {
-        case luil::webview_event_kind::navigation_started:
-        case luil::webview_event_kind::render_process_failed:
+        case ui::diff_webview_action::page_reloading:
             // 페이지가 다시 읽힌다. 새 `ready`가 올 때까지 보내지 않는다.
             diff_->page_reloading();
             break;
-        case luil::webview_event_kind::navigation_failed:
-        case luil::webview_event_kind::browser_process_failed:
-            // 뷰어를 열지 못했거나 웹뷰가 사라졌다. 이후 diff는 텍스트 대체 보기로 보인다.
-            webview_failed_ = true;
+        case ui::diff_webview_action::fall_back:
+            // `webview_usable`이 거짓이 되어 다음 frame부터 본문이 텍스트이고 웹뷰는 목록에서 빠진다. 다시 싣지 않으므로
+            // luil이 다시 세우려 하지 않는다. 컨트롤러는 다시 `ready`가 올 때까지 메시지를 짓지 않는다.
+            diff_->page_reloading();
+            if (controller_ != nullptr)
+                static_cast<void>(controller_->handle(
+                    luil::app_message { show_notice_intent { .text = tr(u8"diff.viewer_failed", { { u8"reason", webview_health_.reason() } }), .warning = true } }
+                ));
             break;
-        case luil::webview_event_kind::web_message_received:
+        case ui::diff_webview_action::web_message:
             // 웹뷰는 간 적이 있는 어느 문서든 메시지를 보낼 수 있다. 우리가 연 뷰어가 보낸 것만 믿는다.
             if (ui::is_viewer_document(event.url, viewer_url_))
                 static_cast<void>(diff_->handle_web_message(to_text(event.message)));
             break;
-        case luil::webview_event_kind::navigation_completed:
-        case luil::webview_event_kind::navigation_blocked:
-        case luil::webview_event_kind::permission_denied:
-        case luil::webview_event_kind::download_blocked:
-        case luil::webview_event_kind::events_dropped:
+        case ui::diff_webview_action::none:
             break;
         }
     }
@@ -787,7 +788,7 @@ namespace cyella::win32 {
                 shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
                     if (reason == luil::win32::popup_dismiss_reason::activation_changed || reason == luil::win32::popup_dismiss_reason::surface_moved)
                         return luil::input_action {};
-                    return luil::make_app_action(close_font_list_intent {});
+                    return luil::make_app_action(close_font_list_intent { .escape = reason == luil::win32::popup_dismiss_reason::escape_key });
                 };
             else if (popup.notifications)
                 shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {
@@ -806,13 +807,16 @@ namespace cyella::win32 {
                 shown.dismiss = [](const luil::win32::popup_dismiss_reason) { return luil::make_app_action(close_menu_intent {}); };
             frame->popups.push_back(std::move(shown));
         }
+        // 방금 연 popup의 칸으로 옮기는 첫 초점, 또는 글꼴 목록을 닫은 뒤 글꼴 칸으로 돌아가는 초점이다. 앱이 frame에 싣는
+        // 초점 요청은 이것 하나다 (`ui_state::popup_focus`).
+        frame->focus = std::move(built.focus);
         frame->appearance.theme = to_luil_theme(view.theme);
         frame->appearance.accent_id = ui::effective_accent_id(controller_->settings().appearance.accent);
         frame->fonts.ui_family = controller_->settings().appearance.ui_font;
         frame->fonts.code_family = controller_->settings().appearance.code_font;
 
         // 웹뷰는 한 번 필요해진 뒤로 계속 싣는다. 빼면 luil이 웹뷰를 닫아 페이지 상태가 날아간다. 자리표(webview_element)가
-        // tree에 없는 동안은 luil이 숨겨 둔다.
+        // tree에 없는 동안은 luil이 숨겨 둔다. 빼는 것은 웹뷰가 실패했을 때뿐이고(`webview_usable`), 그 뒤로는 다시 싣지 않는다.
         if (diff_ != nullptr && webview_usable())
         {
             if (view.repository.has_value() && view.repository->diff.has_value())

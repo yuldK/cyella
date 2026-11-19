@@ -407,8 +407,67 @@ TEST_CASE("splitter capture survives a rebuilt layout and movement outside the p
     interaction.set_tree(moved.tree);
     CHECK_FALSE(interaction.process(luil::pointer_moved_event { .x = x + 160.0f, .y = -40.0f }).empty());
     CHECK(interaction.snapshot().pressed == splitter->id());
-    static_cast<void>(interaction.process(luil::pointer_released_event { .x = x + 160.0f, .y = -40.0f }));
+    // 다시 지은 tree에서 판 밖에서 떼도 끝 알림이 한 번 나온다. controller가 그때 폭을 저장한다.
+    const std::vector<luil::input_action> released { interaction.process(luil::pointer_released_event { .x = x + 160.0f, .y = -40.0f }) };
+    const auto finished = [](const luil::input_action& action) {
+        const auto* const message { std::get_if<luil::app_message>(&action) };
+        return message != nullptr && message->get<cyella::finish_pane_resize_intent>() != nullptr;
+    };
+    CHECK(std::ranges::count_if(released, finished) == 1);
     CHECK(interaction.process(luil::pointer_moved_event { .x = x + 200.0f, .y = -40.0f }).empty());
+}
+
+TEST_CASE("pane splitters announce the end of a resize so the widths are saved on release", "[presentation][ui][resize]")
+{
+    // 판 폭은 손잡이를 놓는 순간 저장한다. 그 신호가 끄는 몸짓과 키 둘 다에서 나와야 한다.
+    const auto finishes = [](const std::vector<luil::input_action>& actions) {
+        return std::ranges::count_if(actions, [](const luil::input_action& action) {
+            const auto* const message { std::get_if<luil::app_message>(&action) };
+            return message != nullptr && message->get<cyella::finish_pane_resize_intent>() != nullptr;
+        });
+    };
+    const auto check_splitter = [&finishes](const cyella::ui::built_tree& built, const std::u8string& owner) {
+        const std::string name { owner.begin(), owner.end() };
+        INFO(name);
+        const luil::ui_element* const splitter { find_element(built, cyella::ui::kind_splitter, owner) };
+        REQUIRE(splitter != nullptr);
+        // 앱이 `follows_pointer`를 세우려고 끌기 역할을 복사해 다시 둔다. 그 뒤에도 끝 알림이 남아 있어야 한다.
+        REQUIRE(splitter->pointer_drag() != nullptr);
+        REQUIRE(splitter->pointer_drag()->on_release != nullptr);
+        CHECK(finishes(splitter->pointer_drag()->on_release({}, luil::drag_velocity {})) == 1);
+        // 키 한 걸음은 바꾸기 뒤에 바로 끝을 알린다.
+        REQUIRE(splitter->key_step() != nullptr);
+        REQUIRE(splitter->key_step()->on_step != nullptr);
+        const std::optional<std::vector<luil::input_action>> stepped { splitter->key_step()->on_step(luil::value_step::increase) };
+        REQUIRE(stepped.has_value());
+        REQUIRE(stepped->size() == 2);
+        CHECK(finishes(*stepped) == 1);
+        CHECK(std::get<luil::app_message>(stepped->back()).get<cyella::finish_pane_resize_intent>() != nullptr);
+
+        const luil::rect_f box { splitter->bounds() };
+        const float x { box.x + box.width / 2.0f };
+        const float y { box.y + box.height / 2.0f };
+        cyella::ui::cyella_policy policy {};
+        luil::interaction_controller interaction { &policy };
+        interaction.set_tree(built.tree);
+        static_cast<void>(interaction.process(luil::pointer_pressed_event { .x = x, .y = y }));
+        // 끄는 동안에는 끝을 알리지 않는다.
+        CHECK(finishes(interaction.process(luil::pointer_moved_event { .x = x + 4.0f, .y = y + 4.0f })) == 0);
+        CHECK(finishes(interaction.process(luil::pointer_released_event { .x = x + 4.0f, .y = y + 4.0f })) == 1);
+    };
+
+    tree_fixture fixture {};
+    const cyella::ui::built_tree built { fixture.build() };
+    check_splitter(built, u8"sidebar-splitter");
+    check_splitter(built, u8"detail-splitter");
+
+    view_snapshot view { fixture.harness.build() };
+    REQUIRE(view.repository.has_value());
+    // 작업 영역을 그래프 대신 펼친 배치에서는 같은 손잡이가 다른 이름으로 선다.
+    view.graph_layout = false;
+    view.repository->detail = detail_mode::working;
+    view.repository->working = working_area_view {};
+    check_splitter(cyella::ui::build_ui_tree(view), u8"working-splitter");
 }
 
 TEST_CASE("working files use a single selection control and preserve file actions in tree view", "[presentation][ui][working]")
@@ -812,6 +871,34 @@ TEST_CASE("an open selector becomes a popup with a filter field and menu items u
     const luil::ui_element* const opened_box { open.tree->find(luil::ui_element_id { cyella::ui::kind_selector, u8"branch-selector" }) };
     REQUIRE(opened_box != nullptr);
     CHECK(opened_box->accessibility().expanded == std::optional<bool> { true });
+}
+
+TEST_CASE("the selector focus request names the popup surface and a focusable filter field in its tree", "[presentation][ui][selector][focus]")
+{
+    tree_fixture fixture {};
+    // 요청만 있고 popup이 없으면 싣지 않는다. 없는 표면을 기다리다 버려지는 요청이 남는다.
+    fixture.harness.ui.popup_focus = popup_focus_request { .id = 7, .target = popup_focus_target::selector_filter };
+    CHECK_FALSE(fixture.build().focus.has_value());
+
+    fixture.harness.ui.selector = selector_state { .kind = selector_kind::branch, .x = 330.0f, .y = 90.0f, .width = 200.0f, .filter = {} };
+    const cyella::ui::built_tree open { fixture.build() };
+    REQUIRE(open.focus.has_value());
+    CHECK(open.focus->id == 7);
+    REQUIRE(open.popups.size() == 1);
+    const cyella::ui::built_popup& popup { open.popups.front() };
+    CHECK(open.focus->surface == popup.id);
+    REQUIRE(popup.tree != nullptr);
+    // luil은 대상이 그 표면 tree에 서고, 초점을 받을 수 있고, 보이는 크기를 가질 때 이행한다.
+    const luil::ui_element* const target { popup.tree->find(open.focus->target) };
+    REQUIRE(target != nullptr);
+    CHECK(target->id().kind == cyella::ui::kind_selector_filter_input);
+    CHECK(target->focusable());
+    CHECK(target->bounds().width > 0.0f);
+    CHECK(target->bounds().height > 0.0f);
+
+    // 다른 popup을 가리키는 요청은 선택 상자에 싣지 않는다.
+    fixture.harness.ui.popup_focus = popup_focus_request { .id = 8, .target = popup_focus_target::ui_font_search };
+    CHECK_FALSE(fixture.build().focus.has_value());
 }
 
 TEST_CASE("the repository selector list ends with the folder picker that runs a UI thread command", "[presentation][ui][selector]")

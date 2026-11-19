@@ -22,6 +22,7 @@
 #include <chrono>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -929,6 +930,220 @@ TEST_CASE("flush writes settings a failed save left behind", "[presentation][con
     CHECK(store.saves > saves_before);
     CHECK_FALSE(service.has_unsaved_changes());
     CHECK(store.saved.appearance.theme == theme_preference::light);
+}
+
+namespace {
+    // 저장 횟수를 세는 설정 저장소와 손으로 앞으로 보내는 시계를 단 controller다. 판 폭이 언제 몇 번 쓰이는지 본다.
+    struct saving_controller
+    {
+        saving_controller()
+            : service { store, u8"memory" }
+            , controller { prepare(service, now) }
+        {
+            controller.start({});
+        }
+
+        static cyella::shell_controller::dependencies prepare(cyella::app_settings_service& service, std::chrono::steady_clock::time_point& now)
+        {
+            static_cast<void>(service.load());
+            cyella::shell_controller::dependencies dependencies {};
+            dependencies.settings = &service;
+            dependencies.steady_clock = [&now] { return now; };
+            return dependencies;
+        }
+
+        template<typename intent_type>
+        void send(intent_type intent)
+        {
+            REQUIRE(controller.handle(luil::app_message { std::move(intent) }));
+        }
+
+        // 기다릴 시각이 왔으면 driver처럼 그 시각에 tick한다.
+        void tick_due()
+        {
+            const std::optional<std::chrono::steady_clock::time_point> due { controller.next_tick() };
+            if (due.has_value() == false)
+                return;
+            now = std::max(now, *due);
+            controller.tick(now);
+        }
+
+        memory_settings_store store {};
+        cyella::app_settings_service service;
+        std::chrono::steady_clock::time_point now { std::chrono::hours { 1 } };
+        cyella::shell_controller controller;
+    };
+} // namespace
+
+TEST_CASE("releasing a pane handle saves the final widths at once and only once", "[presentation][controller][resize]")
+{
+    using namespace cyella;
+    saving_controller test {};
+    const int start { test.store.saves };
+
+    test.send(resize_pane_intent { .sidebar = true, .delta = 12.0f });
+    test.now += std::chrono::milliseconds { 16 };
+    test.send(resize_pane_intent { .sidebar = true, .delta = 8.0f });
+    CHECK(test.store.saves == start);
+    test.now += std::chrono::milliseconds { 16 };
+    test.send(finish_pane_resize_intent {});
+    // 놓는 순간 기다리지 않고 쓴다. 남은 예약이 없어 뒤에 한 번 더 쓰지 않는다.
+    CHECK(test.store.saves == start + 1);
+    CHECK(test.store.saved.ui.pane_widths.sidebar == default_sidebar_width + 20.0f);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+    test.now += std::chrono::seconds { 1 };
+    test.controller.tick(test.now);
+    test.controller.flush();
+    CHECK(test.store.saves == start + 1);
+
+    // 끄다 쉬면 그 사이 예약이 중간 폭을 쓰지만, 놓을 때 끝난 폭을 바로 한 번 더 쓴다.
+    test.now += std::chrono::seconds { 2 };
+    test.send(resize_pane_intent { .sidebar = true, .delta = 10.0f });
+    test.now += std::chrono::milliseconds { 600 };
+    test.controller.tick(test.now);
+    CHECK(test.store.saves == start + 2);
+    test.send(resize_pane_intent { .sidebar = true, .delta = 5.0f });
+    test.now += std::chrono::milliseconds { 16 };
+    test.send(finish_pane_resize_intent {});
+    CHECK(test.store.saves == start + 3);
+    CHECK(test.store.saved.ui.pane_widths.sidebar == default_sidebar_width + 35.0f);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+
+    // 메시지 칸 높이의 손잡이도 같다.
+    test.now += std::chrono::seconds { 2 };
+    test.send(resize_commit_meta_intent { .delta = 20.0f, .current = 150.0f, .minimum = 64.0f, .maximum = 400.0f });
+    test.send(finish_pane_resize_intent {});
+    CHECK(test.store.saves == start + 4);
+    CHECK(test.store.saved.ui.pane_widths.commit_meta == 170.0f);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+}
+
+TEST_CASE("holding an arrow key on a pane handle does not write once per repeat", "[presentation][controller][resize]")
+{
+    using namespace cyella;
+    saving_controller test {};
+    const int start { test.store.saves };
+
+    // 키를 눌러 두면 되풀이마다 바꾸기와 끝 알림이 짝으로 온다 (luil `split_handle_config::finish`).
+    for (int repeat { 0 }; repeat < 30; ++repeat)
+    {
+        test.send(resize_pane_intent { .sidebar = false, .delta = 4.0f });
+        test.send(finish_pane_resize_intent {});
+        test.controller.tick(test.now);
+        // 처음 한 번은 바로 쓰고, 이어지는 되풀이는 모은다.
+        CHECK(test.store.saves == start + 1);
+        test.now += std::chrono::milliseconds { 33 };
+    }
+    // 키를 뗀 뒤 조용해지면 끝난 폭을 한 번 쓴다.
+    test.tick_due();
+    CHECK(test.store.saves == start + 2);
+    CHECK(test.store.saved.ui.pane_widths.detail == default_detail_width + 120.0f);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+}
+
+TEST_CASE("a held arrow key writes once more when the first repeat waits out the burst window", "[presentation][controller][resize]")
+{
+    using namespace cyella;
+    // OS는 첫 누름과 첫 되풀이 사이를 사용자 설정만큼(Windows 기본 약 500 ms, 최대 약 1 s) 띄운다.
+    // 그 틈이 500 ms를 넘기면 첫 되풀이도 앞 알림과 묶이지 않아 바로 쓴다. 쓰기 수는 틈에 따라 둘 또는 셋이다.
+    const auto writes_for = [](const std::chrono::milliseconds initial_delay) {
+        saving_controller test {};
+        const int start { test.store.saves };
+        test.send(resize_pane_intent { .sidebar = false, .delta = 4.0f });
+        test.send(finish_pane_resize_intent {});
+        test.now += initial_delay;
+        for (int repeat { 0 }; repeat < 20; ++repeat)
+        {
+            test.send(resize_pane_intent { .sidebar = false, .delta = 4.0f });
+            test.send(finish_pane_resize_intent {});
+            test.controller.tick(test.now);
+            test.now += std::chrono::milliseconds { 33 };
+        }
+        test.tick_due();
+        CHECK(test.store.saved.ui.pane_widths.detail == default_detail_width + 84.0f);
+        CHECK_FALSE(test.controller.next_tick().has_value());
+        return test.store.saves - start;
+    };
+    // 첫 누름, 뗀 뒤의 예약.
+    CHECK(writes_for(std::chrono::milliseconds { 250 }) == 2);
+    // 첫 누름, 첫 되풀이, 뗀 뒤의 예약.
+    CHECK(writes_for(std::chrono::milliseconds { 500 }) == 3);
+    CHECK(writes_for(std::chrono::milliseconds { 1000 }) == 3);
+}
+
+TEST_CASE("a second drag released soon after the first leaves the write to the schedule", "[presentation][controller][resize]")
+{
+    using namespace cyella;
+    saving_controller test {};
+    const int start { test.store.saves };
+
+    test.send(resize_pane_intent { .sidebar = true, .delta = 10.0f });
+    test.send(finish_pane_resize_intent {});
+    CHECK(test.store.saves == start + 1);
+
+    // 끝 알림은 키와 끌기를 가리지 않는다. 앞 알림에서 500 ms 안에 놓은 끌기도 바로 쓰지 않는다.
+    test.now += std::chrono::milliseconds { 300 };
+    test.send(resize_pane_intent { .sidebar = true, .delta = 6.0f });
+    test.now += std::chrono::milliseconds { 150 };
+    const std::chrono::steady_clock::time_point last_resize { test.now };
+    test.send(resize_pane_intent { .sidebar = true, .delta = 4.0f });
+    test.send(finish_pane_resize_intent {});
+    CHECK(test.store.saves == start + 1);
+
+    // 마지막 바꾸기에서 500 ms 뒤의 예약이 끝난 폭을 한 번 쓴다.
+    REQUIRE(test.controller.next_tick().has_value());
+    CHECK(*test.controller.next_tick() == last_resize + std::chrono::milliseconds { 500 });
+    test.tick_due();
+    CHECK(test.store.saves == start + 2);
+    CHECK(test.store.saved.ui.pane_widths.sidebar == default_sidebar_width + 20.0f);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+}
+
+TEST_CASE("pane widths are still saved when the release never arrives", "[presentation][controller][resize]")
+{
+    using namespace cyella;
+    saving_controller test {};
+    const int start { test.store.saves };
+
+    // 끄는 도중 손잡이가 tree에서 사라지면 luil은 끝을 알리지 않는다. 예약한 시각이 대신 쓴다.
+    test.send(resize_pane_intent { .sidebar = true, .delta = 30.0f });
+    REQUIRE(test.controller.next_tick().has_value());
+    test.controller.tick(*test.controller.next_tick() - std::chrono::milliseconds { 1 });
+    CHECK(test.store.saves == start);
+    test.tick_due();
+    CHECK(test.store.saves == start + 1);
+    CHECK(test.store.saved.ui.pane_widths.sidebar == default_sidebar_width + 30.0f);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+}
+
+TEST_CASE("a pane release that changed nothing writes nothing", "[presentation][controller][resize]")
+{
+    using namespace cyella;
+    saving_controller test {};
+    const int start { test.store.saves };
+
+    // 움직이지 않고 뗀 누름에도 끝 알림이 온다.
+    test.send(finish_pane_resize_intent {});
+    CHECK(test.store.saves == start);
+    CHECK_FALSE(test.controller.next_tick().has_value());
+
+    // 이미 끝까지 넓힌 판을 더 끌어도 폭이 그대로면 쓸 것이 없다.
+    test.send(resize_pane_intent { .sidebar = true, .delta = 10000.0f });
+    test.send(finish_pane_resize_intent {});
+    CHECK(test.store.saves == start + 1);
+    test.now += std::chrono::seconds { 2 };
+    test.send(resize_pane_intent { .sidebar = true, .delta = 10.0f });
+    CHECK_FALSE(test.controller.next_tick().has_value());
+    test.send(finish_pane_resize_intent {});
+    CHECK(test.store.saves == start + 1);
+
+    // 쉬는 사이 예약이 이미 쓴 폭은 움직임 없이 놓아도 다시 쓰지 않는다.
+    test.now += std::chrono::seconds { 2 };
+    test.send(resize_pane_intent { .sidebar = true, .delta = -20.0f });
+    test.tick_due();
+    CHECK(test.store.saves == start + 2);
+    test.send(finish_pane_resize_intent {});
+    CHECK(test.store.saves == start + 2);
 }
 
 TEST_CASE("the open diff of the selected tab is the webview's wanted target", "[presentation][controller][diff]")

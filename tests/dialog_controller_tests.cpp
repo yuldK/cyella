@@ -6,10 +6,17 @@
 #include "infrastructure/git_operation_runner.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/graph_geometry.h"
+#include "presentation/palette/palette_intents.h"
 #include "presentation/shell_controller.h"
+#include "presentation/ui/build_ui_tree.h"
+#include "presentation/ui/cyella_policy.h"
+#include "presentation/ui/element_kinds.h"
+#include "presentation/ui/settings/appearance_ui.h"
 
 #include "fake_git_runner.h"
 #include "view_snapshot_support.h"
+
+#include "luil/ui/ui_interaction.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -18,6 +25,7 @@
 #include <functional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -1702,6 +1710,357 @@ TEST_CASE("Esc, a context menu, a tab change and a chosen folder all close the s
     test.send(open_selector_intent { selector_kind::repository, 0.0f, 0.0f, 100.0f });
     test.send(folder_chosen_intent { folder_purpose::open, u8"C:\\work\\nowhere" });
     CHECK_FALSE(test.view().selector.has_value());
+}
+
+TEST_CASE("opening a selector asks once to focus its filter field and reopening asks again", "[presentation][selector][focus]")
+{
+    harness test {};
+    test.load();
+    CHECK_FALSE(ui::build_ui_tree(test.view()).focus.has_value());
+
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    const view_snapshot opened { test.view() };
+    REQUIRE(opened.popup_focus.has_value());
+    CHECK(opened.popup_focus->target == popup_focus_target::selector_filter);
+    const std::uint64_t first { opened.popup_focus->id };
+    CHECK(first != 0);
+    const ui::built_tree built { ui::build_ui_tree(opened) };
+    REQUIRE(built.focus.has_value());
+    CHECK(built.focus->id == first);
+    CHECK(built.focus->surface == u8"selector");
+    CHECK(built.focus->target == luil::ui_element_id { ui::kind_selector_filter_input, u8"selector-filter" });
+    // popup은 활성화를 받지 않는 표면이라 초점만 옮긴다.
+    CHECK_FALSE(built.focus->activate);
+
+    // 열린 채 다시 그리거나 글을 쳐도 같은 요청이다. 번호가 바뀌면 사용자가 옮긴 초점을 luil이 도로 빼앗는다.
+    type_into_selector(test, u8"graph");
+    const view_snapshot typed { test.view() };
+    REQUIRE(typed.popup_focus.has_value());
+    CHECK(typed.popup_focus->id == first);
+    const ui::built_tree redrawn { ui::build_ui_tree(typed) };
+    REQUIRE(redrawn.focus.has_value());
+    CHECK(redrawn.focus->id == first);
+
+    // 닫힌 popup의 요청은 싣지 않는다.
+    test.send(close_menu_intent {});
+    CHECK_FALSE(ui::build_ui_tree(test.view()).focus.has_value());
+
+    // 다시 열면 새 번호다. 다른 종류의 상자로 바꿔 열어도 새 번호다.
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    const view_snapshot reopened { test.view() };
+    REQUIRE(reopened.popup_focus.has_value());
+    const std::uint64_t second { reopened.popup_focus->id };
+    CHECK(second > first);
+    const ui::built_tree rebuilt { ui::build_ui_tree(reopened) };
+    REQUIRE(rebuilt.focus.has_value());
+    CHECK(rebuilt.focus->id == second);
+    test.send(open_selector_intent { selector_kind::repository, 20.0f, 60.0f, 150.0f });
+    REQUIRE(test.view().popup_focus.has_value());
+    CHECK(test.view().popup_focus->id > second);
+
+    // 상자를 다시 눌러 닫는 길은 요청을 내지 않는다.
+    REQUIRE(test.view().popup_focus.has_value());
+    const std::uint64_t before_toggle { test.view().popup_focus->id };
+    test.send(open_selector_intent { selector_kind::repository, 20.0f, 60.0f, 150.0f });
+    CHECK_FALSE(test.view().selector.has_value());
+    REQUIRE(test.view().popup_focus.has_value());
+    CHECK(test.view().popup_focus->id == before_toggle);
+}
+
+namespace {
+    template<typename intent_type>
+    std::size_t count_intents(const std::vector<luil::input_action>& actions)
+    {
+        return static_cast<std::size_t>(std::ranges::count_if(actions, [](const luil::input_action& action) {
+            const auto* const message { std::get_if<luil::app_message>(&action) };
+            return message != nullptr && message->get<intent_type>() != nullptr;
+        }));
+    }
+} // namespace
+
+TEST_CASE("once the selector filter has the first focus, editing keys reach it and the list keeps arrows and Enter", "[presentation][selector][focus]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    const ui::built_tree built { ui::build_ui_tree(test.view()) };
+    REQUIRE(built.focus.has_value());
+    const auto popup { std::find_if(built.popups.begin(), built.popups.end(), [](const ui::built_popup& shown) { return shown.id == u8"selector"; }) };
+    REQUIRE(popup != built.popups.end());
+
+    ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(built.tree);
+    interaction.set_surface_trees({ { popup->id, popup->tree } });
+    // luil이 요청을 이행하는 길과 같다 (frame의 `focus` → `access_focus_event`).
+    static_cast<void>(interaction.process(luil::access_focus_event { .target = built.focus->target, .surface = built.focus->surface }));
+    CHECK(interaction.snapshot().focused == built.focus->target);
+    CHECK(interaction.snapshot().focused_surface == u8"selector");
+
+    // 글자·Backspace와 편집 키는 칸의 편집이 된다. 앱은 popup이 아니라 주 창이 키를 나르는 것으로 받는다.
+    const auto edits = [&interaction](const luil::raw_input_event& event) { return count_intents<edit_text_intent>(interaction.process(event)); };
+    CHECK(edits(luil::character_typed_event { .character = U'g' }) == 1);
+    CHECK(edits(luil::character_typed_event { .character = U'\b' }) == 1);
+    CHECK(edits(luil::key_pressed_event { .key = luil::key_code::home }) == 1);
+    CHECK(edits(luil::key_pressed_event { .key = luil::key_code::end }) == 1);
+    CHECK(edits(luil::key_pressed_event { .key = luil::key_code::arrow_left }) == 1);
+    CHECK(edits(luil::key_pressed_event { .key = luil::key_code::delete_forward }) == 1);
+    CHECK(edits(luil::key_pressed_event { .key = luil::key_code::key_a, .control = true }) == 1);
+    CHECK(edits(luil::key_pressed_event { .key = luil::key_code::key_z, .control = true }) == 1);
+
+    // ↑↓는 목록의 강조를 옮기고 칸을 편집하지 않는다. Enter는 강조된 항목을 고른다.
+    const std::vector<luil::input_action> down { interaction.process(luil::key_pressed_event { .key = luil::key_code::arrow_down }) };
+    CHECK(count_intents<edit_text_intent>(down) == 0);
+    CHECK(interaction.snapshot().menu_highlight != luil::ui_element_id {});
+    const std::vector<luil::input_action> chosen { interaction.process(luil::key_pressed_event { .key = luil::key_code::enter }) };
+    CHECK(count_intents<edit_text_intent>(chosen) == 0);
+    CHECK(count_intents<selector_select_intent>(chosen) == 1);
+    // 초점은 고르기 전까지 칸에 남아 있다.
+    CHECK(interaction.snapshot().focused == built.focus->target);
+}
+
+TEST_CASE("a dialog that appears while the selector is open closes it so the dialog takes the first focus", "[presentation][selector][focus]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    test.send(selector_select_intent { u8"branch:feature/graph" });
+    const operation_id id { test.last_operation() };
+    REQUIRE(id != 0);
+    test.start(id);
+    // 체크아웃이 도는 동안 다시 연 목록이다. 칸이 초점을 쥐고 있다.
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    REQUIRE(ui::build_ui_tree(test.view()).focus.has_value());
+
+    // 작업이 늦게 대화 상자를 띄운다. popup 칸이 초점을 쥔 채 남으면 대화 상자의 진입이 서지 않아 글자가 목록으로 간다.
+    input_request blocked {};
+    blocked.kind = input_kind::dirty_worktree;
+    blocked.target = "feature/graph";
+    blocked.files = { "a.txt" };
+    test.finish(id, operation_state::needs_input, std::nullopt, blocked);
+    const view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    CHECK_FALSE(view.selector.has_value());
+    const ui::built_tree built { ui::build_ui_tree(view) };
+    CHECK(built.popups.empty());
+    CHECK_FALSE(built.focus.has_value());
+    REQUIRE(built.tree != nullptr);
+    CHECK(built.tree->focus_trap_entry().has_value());
+    // 닫은 것은 상태다. 대화 상자가 사라져도 목록이 되살아나지 않는다.
+    CHECK_FALSE(test.view().selector.has_value());
+}
+
+TEST_CASE("the font list popup asks to focus its search field and one request wins per frame", "[presentation][settings][focus]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    REQUIRE(test.view().popup_focus.has_value());
+    const std::uint64_t selector_request { test.view().popup_focus->id };
+
+    // 환경 설정을 열면 선택 상자가 닫히고, 대화 상자의 첫 초점(가둠의 진입)은 주 창 tree가 그대로 가진다.
+    test.send(open_settings_intent {});
+    const view_snapshot settings { test.view() };
+    REQUIRE(settings.settings.has_value());
+    const ui::built_tree dialog { ui::build_ui_tree(settings) };
+    CHECK_FALSE(dialog.focus.has_value());
+    REQUIRE(dialog.tree != nullptr);
+    CHECK(dialog.tree->focus_trap_entry().has_value());
+
+    test.send(open_font_list_intent { { true, 20.0f, 40.0f, 240.0f } });
+    const view_snapshot listed { test.view() };
+    REQUIRE(listed.popup_focus.has_value());
+    CHECK(listed.popup_focus->target == popup_focus_target::code_font_search);
+    CHECK(listed.popup_focus->id > selector_request);
+    const ui::built_tree built { ui::build_ui_tree(listed) };
+    REQUIRE(built.focus.has_value());
+    CHECK(built.focus->id == listed.popup_focus->id);
+    CHECK(built.focus->surface == u8"font-list");
+    const luil::ui_element_id search { ui::kind_code_font_input, u8"settings-font-search" };
+    CHECK(built.focus->target == search);
+    const auto popup { std::find_if(built.popups.begin(), built.popups.end(), [](const ui::built_popup& shown) { return shown.id == u8"font-list"; }) };
+    REQUIRE(popup != built.popups.end());
+    REQUIRE(popup->tree != nullptr);
+    const luil::ui_element* const field { popup->tree->find(search) };
+    REQUIRE(field != nullptr);
+    CHECK(field->focusable());
+    // luil은 보이는 크기가 있는 칸에만 요청을 이행한다 (`focus_target_ready`).
+    CHECK(field->bounds().width > 0.0f);
+    CHECK(field->bounds().height > 0.0f);
+
+    // 다른 글꼴 칸의 목록으로 바꿔 열면 그 칸의 검색이 새 번호로 이긴다.
+    test.send(open_font_list_intent { { false, 20.0f, 80.0f, 240.0f } });
+    const view_snapshot switched { test.view() };
+    REQUIRE(switched.popup_focus.has_value());
+    CHECK(switched.popup_focus->target == popup_focus_target::ui_font_search);
+    CHECK(switched.popup_focus->id > listed.popup_focus->id);
+    const ui::built_tree rebuilt { ui::build_ui_tree(switched) };
+    REQUIRE(rebuilt.focus.has_value());
+    CHECK(rebuilt.focus->target == luil::ui_element_id { ui::kind_ui_font_input, u8"settings-font-search" });
+
+    test.send(close_font_list_intent {});
+    CHECK_FALSE(ui::build_ui_tree(test.view()).focus.has_value());
+}
+
+namespace {
+    // 환경 설정 위에 뜬 대화 상자가 글꼴 목록을 접고 자기 첫 초점(가둠의 진입)을 받는지 본다.
+    //  - 검색 칸이 초점을 쥔 popup이 남으면 luil은 초점이 비지 않아 진입을 세우지 않는다. 친 글자와 Enter가 글꼴 칸으로 가
+    //    친 글이 글꼴 이름으로 저장된다.
+    void check_font_list_folded(const view_snapshot& view)
+    {
+        REQUIRE(view.settings.has_value());
+        CHECK_FALSE(view.settings->font_list.has_value());
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        CHECK(std::none_of(built.popups.begin(), built.popups.end(), [](const ui::built_popup& shown) { return shown.id == u8"font-list"; }));
+        CHECK_FALSE(built.focus.has_value());
+        REQUIRE(built.tree != nullptr);
+        CHECK(built.tree->focus_trap_entry().has_value());
+    }
+} // namespace
+
+TEST_CASE("the palette opened over the settings folds the font list", "[presentation][settings][focus]")
+{
+    harness test {};
+    test.load();
+    test.send(open_settings_intent {});
+    test.send(open_font_list_intent { { false, 20.0f, 40.0f, 240.0f } });
+    REQUIRE(ui::build_ui_tree(test.view()).focus.has_value());
+
+    // Ctrl+Shift+P는 글꼴 목록에 걸리지 않고 등록된 단축키로 팔레트를 연다.
+    test.send(open_palette_intent {});
+    const view_snapshot view { test.view() };
+    REQUIRE(view.palette.has_value());
+    check_font_list_folded(view);
+
+    // 접은 것은 상태다. 팔레트를 닫아도 목록이 되살아나지 않는다.
+    test.send(close_palette_intent {});
+    REQUIRE(test.view().settings.has_value());
+    CHECK_FALSE(test.view().settings->font_list.has_value());
+}
+
+TEST_CASE("a prompt that appears over the settings folds the font list", "[presentation][settings][focus]")
+{
+    harness test {};
+    test.load();
+    test.send(open_selector_intent { selector_kind::branch, 200.0f, 60.0f, 220.0f });
+    test.send(selector_select_intent { u8"branch:feature/graph" });
+    const operation_id id { test.last_operation() };
+    REQUIRE(id != 0);
+    test.start(id);
+    test.send(open_settings_intent {});
+    test.send(open_font_list_intent { { true, 20.0f, 40.0f, 240.0f } });
+    REQUIRE(ui::build_ui_tree(test.view()).focus.has_value());
+
+    // 사용자가 시작한 작업이 환경 설정 위에 질문을 띄운다.
+    input_request blocked {};
+    blocked.kind = input_kind::dirty_worktree;
+    blocked.target = "feature/graph";
+    blocked.files = { "a.txt" };
+    test.finish(id, operation_state::needs_input, std::nullopt, blocked);
+    const view_snapshot view { test.view() };
+    REQUIRE(view.form.has_value());
+    check_font_list_folded(view);
+}
+
+TEST_CASE("closing the font list by choosing, Enter or Esc returns the focus to its font field", "[presentation][settings][focus]")
+{
+    harness test {};
+    test.load();
+    test.send(open_settings_intent {});
+
+    // 돌아갈 칸의 요청을 확인한다. 표면은 주 창이고, 칸은 이 tree에 보이는 크기로 서 있어야 luil이 이행한다.
+    const auto check_returned = [&test](const bool code, const std::uint64_t after) {
+        const view_snapshot view { test.view() };
+        REQUIRE(view.settings.has_value());
+        CHECK_FALSE(view.settings->font_list.has_value());
+        REQUIRE(view.popup_focus.has_value());
+        CHECK(view.popup_focus->target == (code ? popup_focus_target::code_font_field : popup_focus_target::ui_font_field));
+        CHECK(view.popup_focus->id > after);
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        REQUIRE(built.focus.has_value());
+        CHECK(built.focus->id == view.popup_focus->id);
+        CHECK(built.focus->surface.empty());
+        const luil::ui_element_id field { code ? ui::kind_code_font_input : ui::kind_ui_font_input, code ? u8"settings-code-font" : u8"settings-ui-font" };
+        CHECK(built.focus->target == field);
+        REQUIRE(built.tree != nullptr);
+        const luil::ui_element* const element { built.tree->find(field) };
+        REQUIRE(element != nullptr);
+        CHECK(element->focusable());
+        CHECK(element->bounds().width > 0.0f);
+        CHECK(element->bounds().height > 0.0f);
+        return view.popup_focus->id;
+    };
+
+    test.send(open_font_list_intent { { false, 20.0f, 40.0f, 240.0f } });
+    std::uint64_t last { test.view().popup_focus->id };
+    test.send(select_font_intent { false, u8"Consolas" });
+    last = check_returned(false, last);
+
+    test.send(open_font_list_intent { { true, 20.0f, 40.0f, 240.0f } });
+    last = test.view().popup_focus->id;
+    test.send(apply_font_settings_intent {});
+    last = check_returned(true, last);
+
+    test.send(open_font_list_intent { { false, 20.0f, 40.0f, 240.0f } });
+    last = test.view().popup_focus->id;
+    test.send(close_font_list_intent { .escape = true });
+    last = check_returned(false, last);
+
+    // 바깥 누름으로 닫으면 누른 자리가 초점을 잡으므로 돌려보내지 않는다. 앞의 요청은 이미 이행된 같은 번호다.
+    test.send(open_font_list_intent { { false, 20.0f, 40.0f, 240.0f } });
+    const std::uint64_t opened { test.view().popup_focus->id };
+    test.send(close_font_list_intent {});
+    REQUIRE(test.view().popup_focus.has_value());
+    CHECK(test.view().popup_focus->id == opened);
+    CHECK_FALSE(ui::build_ui_tree(test.view()).focus.has_value());
+
+    // 목록이 닫혀 있을 때의 Enter(글꼴 칸에서 적용)는 초점을 옮기지 않는다.
+    test.send(apply_font_settings_intent {});
+    CHECK(test.view().popup_focus->id == opened);
+
+    // 환경 설정이 닫히면 글꼴 칸의 요청은 버린다. 다시 연 화면의 첫 초점을 빼앗지 않는다.
+    test.send(open_font_list_intent { { false, 20.0f, 40.0f, 240.0f } });
+    test.send(select_font_intent { false, {} });
+    REQUIRE(test.view().popup_focus.has_value());
+    test.send(close_settings_intent {});
+    CHECK_FALSE(test.view().popup_focus.has_value());
+    test.send(open_settings_intent {});
+    CHECK_FALSE(ui::build_ui_tree(test.view()).focus.has_value());
+}
+
+TEST_CASE("without the return request luil moves the focus from a closed font list to the settings page list", "[presentation][settings][focus]")
+{
+    harness test {};
+    test.load();
+    test.send(open_settings_intent {});
+    test.send(open_font_list_intent { { false, 20.0f, 40.0f, 240.0f } });
+    const ui::built_tree opened { ui::build_ui_tree(test.view()) };
+    REQUIRE(opened.focus.has_value());
+    const auto popup { std::find_if(opened.popups.begin(), opened.popups.end(), [](const ui::built_popup& shown) { return shown.id == u8"font-list"; }) };
+    REQUIRE(popup != opened.popups.end());
+
+    ui::cyella_policy policy {};
+    luil::interaction_controller interaction { &policy };
+    interaction.set_tree(opened.tree);
+    interaction.set_surface_trees({ { popup->id, popup->tree } });
+    static_cast<void>(interaction.process(luil::access_focus_event { .target = opened.focus->target, .surface = opened.focus->surface }));
+    REQUIRE(interaction.snapshot().focused == opened.focus->target);
+    REQUIRE(interaction.snapshot().focused_surface == u8"font-list");
+
+    // Esc로 닫으면 popup tree가 사라지며 칸의 초점도 거둬지고, 환경 설정의 가둠 진입이 페이지 목록에 초점을 세운다.
+    test.send(close_font_list_intent { .escape = true });
+    const ui::built_tree closed { ui::build_ui_tree(test.view()) };
+    interaction.set_surface_trees({});
+    interaction.set_tree(closed.tree);
+    REQUIRE(closed.tree->focus_trap_entry().has_value());
+    CHECK(interaction.snapshot().focused == *closed.tree->focus_trap_entry());
+
+    // 돌려보내는 요청이 이행되면 초점은 글꼴 칸이고, 친 글자는 그 칸의 편집이다.
+    REQUIRE(closed.focus.has_value());
+    static_cast<void>(interaction.process(luil::access_focus_event { .target = closed.focus->target, .surface = closed.focus->surface }));
+    CHECK(interaction.snapshot().focused == ui::font_field_id(false));
+    CHECK(interaction.snapshot().focused_surface.empty());
+    CHECK(count_intents<edit_text_intent>(interaction.process(luil::character_typed_event { .character = U'x' })) == 1);
 }
 
 TEST_CASE("the repository selector switches between open tabs and reopens recent repositories", "[presentation][selector]")

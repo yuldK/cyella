@@ -626,6 +626,8 @@ namespace cyella::ui {
             config.resize = [current, minimum, maximum](const float delta) {
                 return message(resize_commit_meta_intent { .delta = delta, .current = current, .minimum = minimum, .maximum = maximum });
             };
+            // 놓는 순간 controller가 끝난 높이를 저장한다.
+            config.finish = [] { return message(finish_pane_resize_intent {}); };
             // 두 칸 사이를 다른 선이 가르지 않는다 (파일 칸 머리의 위 선을 뺐다). 쉬는 동안에도 손잡이가 그 선을 긋는다.
             config.resting_divider = true;
             auto handle { std::make_unique<luil::split_handle_element>(luil::ui_element_id { kind_splitter, u8"commit-meta-splitter" }, std::move(config)) };

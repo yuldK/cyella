@@ -91,10 +91,14 @@ luil로 직접 그리면 텍스트 배치, 구문 강조, 선택·복사, 단어
 
 ## 2026-10-20 구현 결정: 주 창에 끼우기
 
-1. **웹뷰는 창에 하나, 자리표는 diff가 열렸을 때만.** 한 번 diff를 열면 `ui_webview`를 frame마다 싣고(`navigate_revision` 1), `webview_element`는 diff 영역이 열린 동안만 tree에 둔다.
+1. **웹뷰는 창에 하나, 자리표는 diff가 열렸을 때만.** 한 번 diff를 열면 웹뷰가 실패하기 전까지 `ui_webview`를 frame마다 싣고(`navigate_revision` 1, 실패하면 빼고 다시 싣지 않는다 — 3번), `webview_element`는 diff 영역이 열린 동안만 tree에 둔다.
    탭·파일을 바꿔도 같은 웹뷰에 `show_diff`만 보낸다. 무엇을 보일지는 (탭의 diff 요청, 세션의 `selected_diff`, `file_diff_loaded` 횟수)의 `sync`가 맞춘다.
 2. **효과 실행은 `diff_view_coordinator`다.** `apply_patch`는 git operation으로, 두 쪽 꺼내기와 외부 도구 열기는 `task_scheduler`의 `diff-view` lane(취소 token, 앱 종료와 이어짐)으로,
    복사는 클립보드 요청으로 보낸다. 취소는 `diff_git_gateway::extract_cancellable`과 `external_open_request::cancellation`으로 닿는다.
-3. **Runtime 부재는 앱이 미리 안다.** luil은 환경 생성 실패를 사건으로 알리지 않으므로(placeholder만 남는다) 시작할 때 WebView2 로더에 설치 여부를 묻고, 없으면 텍스트 hunk 목록으로 보인다.
+3. **Runtime 부재는 앱이 미리 알고, 나머지 실패는 사건으로 안다.** 시작할 때 WebView2 로더에 설치 여부를 물어 없으면 처음부터 텍스트 hunk 목록으로 보인다
+   (처음 diff를 열 때 placeholder가 비쳤다가 바뀌지 않게 하는 빠른 길이다). 로더가 못 보는 실패 — 오래된 Runtime, 환경·컨트롤러 생성 실패, 뷰어 문서 열기 실패,
+   브라우저 프로세스 종료, 렌더러의 잇단 종료 — 는 luil의 `creation_failed`·`navigation_failed`·`browser_process_failed`·`render_process_failed` 사건으로 받아
+   이번 실행 동안 텍스트 대체 보기로 물러선다 (`ui::diff_webview_health`, [UI 구조](../ui-architecture.md)의 diff 웹뷰 절). 2026-11-19에 고쳤다. 처음에는 luil이 생성 실패를 알리지 않는다고 적었는데 luil은 알린다.
 4. **hunk·줄 discard 확인은 웹뷰 안에 둔다.** luil로 그리는 확인 대화 상자는 파일 단위 discard에만 걸린다.
-5. **웹 콘텐츠의 접근성은 luil이 연결하지 않는다.** 빠진 연결은 [UI 구조](../ui-architecture.md)의 "알아 둘 것"에 적었다.
+5. **웹 콘텐츠의 접근성은 luil이 잇는다.** 페이지의 UIA tree는 자리표 아래에 서서 UIA3 client(스크린 리더)가 읽는다. UIA2 관리 client(`System.Windows.Automation`)에는
+   페이지 안이 보이지 않는다. 자세한 것은 [UI 구조](../ui-architecture.md)의 "알아 둘 것"에 적었다. 2026-11-19에 고쳤다. 처음에는 luil이 연결하지 않는다고 적었다.

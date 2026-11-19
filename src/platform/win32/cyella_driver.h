@@ -28,6 +28,7 @@
 #include "platform/win32/hosting_bridge.h"
 #include "platform/win32/operation_result_relay.h"
 #include "presentation/shell_controller.h"
+#include "presentation/ui/diff_webview.h"
 
 #include "luil/luil.h"
 
@@ -148,7 +149,7 @@ namespace cyella::win32 {
         // 웹뷰로 diff를 그릴 수 있다 (Runtime·뷰어 파일이 있고, 웹뷰가 실패하지 않았다).
         [[nodiscard]] bool webview_usable() const noexcept
         {
-            return webview_capable_ && webview_failed_ == false;
+            return webview_capable_ && webview_health_.failed() == false;
         }
 
     private:
@@ -245,10 +246,11 @@ namespace cyella::win32 {
         std::optional<diff_layout_preference> applied_diff_layout_ {};
         std::u8string viewer_url_ {};
         std::u8string webview_data_folder_ {};
-        // 웹뷰를 세울 수 있는 PC인가 (Runtime 설치, 뷰어 파일 있음, 프로필 폴더를 앎).
+        // 웹뷰를 세울 수 있는 PC인가 (Runtime 설치, 뷰어 파일 있음, 프로필 폴더를 앎). 시작할 때의 빠른 확인이다.
         bool webview_capable_ { false };
-        // 웹뷰가 실패했다 (항해 실패·브라우저 프로세스 종료). 이후 대체 보기를 쓴다.
-        bool webview_failed_ { false };
+        // 웹뷰 사건으로 본 실패다 (생성 실패·항해 실패·브라우저 프로세스 종료·렌더러의 잇단 종료). 한 번 실패하면 이번 실행
+        // 동안 대체 보기를 쓴다.
+        ui::diff_webview_health webview_health_ {};
         // 한 번 diff를 연 뒤로는 웹뷰를 frame에 계속 실어 둔다. 웹뷰를 다시 만들지 않고 재사용하려는 것이다.
         bool webview_requested_ { false };
         std::uint64_t posted_revision_ { 0 };
