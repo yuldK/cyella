@@ -100,6 +100,43 @@ TEST_CASE("the diff theme carries the luil palette into the viewer's css variabl
         CHECK(dark_theme.tokens.contains(name));
 }
 
+TEST_CASE("the diff theme palette follows the system appearance the way the luil surface does", "[diff][webview][theme]")
+{
+    const luil::accent_definition blue { luil::accent_for(u8"blue") };
+    luil::system_appearance system {};
+
+    // 시스템 선호는 OS의 밝은 모드를 따르고, 명시한 선호는 OS를 보지 않는다.
+    system.prefers_light = true;
+    CHECK(ui::surface_palette_for(luil::theme_preference::system, system, u8"blue") == luil::color_palette_for(luil::color_theme::light, blue));
+    CHECK(ui::surface_palette_for(luil::theme_preference::dark, system, u8"blue") == luil::color_palette_for(luil::color_theme::dark, blue));
+    system.prefers_light = false;
+    CHECK(ui::surface_palette_for(luil::theme_preference::system, system, u8"blue") == luil::color_palette_for(luil::color_theme::dark, blue));
+    CHECK(ui::surface_palette_for(luil::theme_preference::light, system, u8"blue") == luil::color_palette_for(luil::color_theme::light, blue));
+
+    // 고대비는 어느 선호보다 세고, 키 컬러가 아니라 사용자가 고른 대비 색으로 칠한다. 흰 바탕 고대비로 본다 — 기본 대비 색(검정 바탕)은
+    // 키 컬러 경로의 고대비 팔레트와 같아 둘을 가리지 못한다.
+    system.high_contrast = true;
+    system.contrast_colors = luil::high_contrast_colors {
+        .window_background = luil::make_ui_color(255, 255, 255),
+        .window_foreground = luil::make_ui_color(0, 0, 0),
+        .highlight_background = luil::make_ui_color(55, 0, 110),
+        .highlight_foreground = luil::make_ui_color(255, 255, 255),
+        .emphasis = luil::make_ui_color(0, 0, 159),
+        .button_background = luil::make_ui_color(255, 255, 255),
+        .button_foreground = luil::make_ui_color(0, 0, 0),
+        .disabled_foreground = luil::make_ui_color(96, 0, 0),
+    };
+    for (const luil::theme_preference preference : { luil::theme_preference::system, luil::theme_preference::light, luil::theme_preference::dark })
+    {
+        const luil::ui_color_palette palette { ui::surface_palette_for(preference, system, u8"blue") };
+        CHECK(palette == luil::high_contrast_palette_for(system.contrast_colors));
+        CHECK(palette != luil::color_palette_for(luil::color_theme::high_contrast, blue));
+        CHECK(palette.window_background == luil::make_ui_color(255, 255, 255));
+    }
+    // 뷰어도 흰 바탕을 밝은 테마로 받는다.
+    CHECK(ui::make_diff_theme(ui::surface_palette_for(luil::theme_preference::dark, system, u8"blue")).mode == diff_theme_mode::light);
+}
+
 TEST_CASE("diff font preferences quote family names and preserve fallback stacks", "[diff][webview][fonts]")
 {
     const diff_theme theme { ui::make_diff_theme(luil::color_palette_for(luil::color_theme::dark), u8"맑은 고딕", u8"Example\"Mono\\Font") };
@@ -142,6 +179,8 @@ TEST_CASE("the diff webview policy opens only file urls, takes 8 MiB messages an
     CHECK_FALSE(webview.policy.developer_tools_enabled);
     CHECK_FALSE(webview.policy.default_context_menus_enabled);
     CHECK_FALSE(webview.policy.open_new_windows_here);
+    // 표면이 합성 제시를 못 하는 것을 알려 받아야 그동안 텍스트 본문으로 바꾼다.
+    CHECK(webview.report_presentation);
     REQUIRE(webview.on_event != nullptr);
 
     // 웹뷰 사건은 logic thread에서 앱 메시지로 받는다.
@@ -181,6 +220,13 @@ namespace {
         event.hresult = hresult;
         return event;
     }
+
+    luil::webview_event presentation_of(const bool available)
+    {
+        luil::webview_event event { webview_event_of(luil::webview_event_kind::presentation_changed) };
+        event.presentation_available = available;
+        return event;
+    }
 } // namespace
 
 TEST_CASE("a working diff webview stays in use through its normal events", "[diff][webview][failure]")
@@ -195,8 +241,85 @@ TEST_CASE("a working diff webview stays in use through its normal events", "[dif
     for (const luil::webview_event_kind kind :
         { luil::webview_event_kind::navigation_blocked, luil::webview_event_kind::permission_denied, luil::webview_event_kind::download_blocked, luil::webview_event_kind::events_dropped })
         CHECK(health.on_event(webview_event_of(kind), start) == ui::diff_webview_action::none);
+    // 표시할 수 있다는 알림은 아무것도 시키지 않는다. 표시 여부는 값을 실어 따로 보므로(아래 test) 위 나열에 넣지 않는다 —
+    // `webview_event_of`의 기본값은 `presentation_available == false`다.
+    CHECK(health.on_event(presentation_of(true), start) == ui::diff_webview_action::none);
+    CHECK(health.presentable());
     CHECK_FALSE(health.failed());
     CHECK(health.reason().empty());
+}
+
+TEST_CASE("an unpresentable surface shows the text diff without failing and comes back when it can present again", "[diff][webview][webview-presentation]")
+{
+    const auto now { std::chrono::steady_clock::now() };
+
+    SECTION("before the first value the webview counts as presentable")
+    {
+        // luil은 컨트롤러가 준비될 때 첫 값을 알린다. 그 전에 텍스트로 두면 정상 PC의 시작이 텍스트로 깜빡인다.
+        const ui::diff_webview_health health {};
+        CHECK(health.presentable());
+        CHECK_FALSE(health.failed());
+    }
+
+    SECTION("a first true changes nothing")
+    {
+        ui::diff_webview_health health {};
+        CHECK(health.on_event(presentation_of(true), now) == ui::diff_webview_action::none);
+        CHECK(health.presentable());
+    }
+
+    SECTION("a first false shows text and tells the user once")
+    {
+        ui::diff_webview_health health {};
+        CHECK(health.on_event(presentation_of(false), now) == ui::diff_webview_action::presentation_lost);
+        CHECK_FALSE(health.presentable());
+        // 실패가 아니다. 웹뷰는 frame에 남고 까닭(실패 알림의 값)도 없다.
+        CHECK_FALSE(health.failed());
+        CHECK(health.reason().empty());
+        // 같은 값이 또 와도 다시 알리지 않는다.
+        CHECK(health.on_event(presentation_of(false), now) == ui::diff_webview_action::none);
+        CHECK_FALSE(health.presentable());
+        // 숨은 동안에도 페이지는 살아 있다. 메시지와 다시 읽기는 그대로 지난다.
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::web_message_received), now) == ui::diff_webview_action::web_message);
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::navigation_started), now) == ui::diff_webview_action::page_reloading);
+    }
+
+    SECTION("true then false then true returns to the viewer and tells only the first loss")
+    {
+        ui::diff_webview_health health {};
+        CHECK(health.on_event(presentation_of(true), now) == ui::diff_webview_action::none);
+        CHECK(health.on_event(presentation_of(false), now) == ui::diff_webview_action::presentation_lost);
+        CHECK_FALSE(health.presentable());
+        CHECK(health.on_event(presentation_of(true), now) == ui::diff_webview_action::none);
+        CHECK(health.presentable());
+        // 다시 잃어도 실행당 한 번만 알린다.
+        CHECK(health.on_event(presentation_of(false), now) == ui::diff_webview_action::none);
+        CHECK_FALSE(health.presentable());
+        CHECK(health.on_event(presentation_of(true), now) == ui::diff_webview_action::none);
+        CHECK(health.presentable());
+        CHECK_FALSE(health.failed());
+    }
+
+    SECTION("a failure while unpresentable still falls back for the run")
+    {
+        ui::diff_webview_health health {};
+        CHECK(health.on_event(presentation_of(false), now) == ui::diff_webview_action::presentation_lost);
+        CHECK(health.on_event(webview_event_of(luil::webview_event_kind::browser_process_failed, u8"gone"), now) == ui::diff_webview_action::fall_back);
+        CHECK(health.failed());
+        CHECK(health.reason() == u8"browser_process_failed: gone");
+        // 물러선 뒤에 늦게 온 표시 가능 알림은 버린다. 실패가 이긴다.
+        CHECK(health.on_event(presentation_of(true), now) == ui::diff_webview_action::none);
+        CHECK(health.failed());
+    }
+
+    SECTION("a late presentation event after a failure neither tells the user nor changes the state")
+    {
+        ui::diff_webview_health health {};
+        CHECK(health.on_event(creation_failure_of(luil::webview_creation_failure::controller_failed, 0, u8"x"), now) == ui::diff_webview_action::fall_back);
+        CHECK(health.on_event(presentation_of(false), now) == ui::diff_webview_action::none);
+        CHECK(health.presentable());
+        CHECK(health.failed());
+    }
 }
 
 TEST_CASE("every kind of creation failure falls back to the text diff and says why", "[diff][webview][failure]")
@@ -399,6 +522,36 @@ TEST_CASE("the diff area is a webview slot when the webview is usable and a line
         CHECK(built.feedback.diff_maximum.has_value());
         CHECK(built.tree->duplicate_ids().empty());
         CHECK(built.tree->unarranged().empty());
+    }
+}
+
+TEST_CASE("the text diff header names why the viewer is not shown", "[diff][webview][tree][webview-presentation]")
+{
+    opened_diff test {};
+    const luil::ui_element_id note_id { ui::kind_label, u8"diff-fallback-note" };
+    // 폭은 창 폭이다. diff 자리는 사이드바와 상세 패널을 뺀 나머지라 넓은 창에서만 긴 문구가 선다.
+    const auto note_at = [&test, &note_id](const float width) {
+        const ui::built_tree built { ui::build_ui_tree(test.harness.build(width)) };
+        REQUIRE(built.tree != nullptr);
+        const luil::ui_element* const note { built.tree->find(note_id) };
+        REQUIRE(note != nullptr);
+        return note->accessibility().name;
+    };
+
+    SECTION("no viewer")
+    {
+        // Runtime이 없거나 실패해 물러선 경우다. WebView2가 없다고 말한다.
+        CHECK(note_at(1920.0f) == tr(u8"diff.fallback_note"));
+        CHECK(note_at(480.0f) == tr(u8"diff.fallback_short"));
+    }
+
+    SECTION("the surface cannot present")
+    {
+        // 웹뷰는 섰고 Runtime도 있다. 머리 막대가 Runtime을 설치하라는 뜻으로 읽히지 않게 표면 때문이라고 말한다.
+        test.harness.ui.diff_surface.webview_unpresentable = true;
+        CHECK(note_at(1920.0f) == tr(u8"diff.fallback_note_unpresentable"));
+        CHECK_FALSE(note_at(1920.0f) == tr(u8"diff.fallback_note"));
+        CHECK(note_at(480.0f) == tr(u8"diff.fallback_short"));
     }
 }
 

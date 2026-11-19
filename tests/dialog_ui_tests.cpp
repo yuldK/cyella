@@ -426,11 +426,15 @@ TEST_CASE("pane splitters announce the end of a resize so the widths are saved o
             return message != nullptr && message->get<cyella::finish_pane_resize_intent>() != nullptr;
         });
     };
-    const auto check_splitter = [&finishes](const cyella::ui::built_tree& built, const std::u8string& owner) {
+    const auto check_splitter = [&finishes](const cyella::ui::built_tree& built, const std::u8string& owner, const std::u8string& access_name) {
         const std::string name { owner.begin(), owner.end() };
         INFO(name);
         const luil::ui_element* const splitter { find_element(built, cyella::ui::kind_splitter, owner) };
         REQUIRE(splitter != nullptr);
+        // 손잡이는 Tab 자리다. 보조 기술에 이름 없는 Thumb로 서지 않고, 이름은 화면에 뜨지 않는 접근 이름이다 (tooltip이 아니다).
+        CHECK_FALSE(access_name.empty());
+        CHECK(splitter->accessibility().name == access_name);
+        CHECK(splitter->tooltip().empty());
         // 앱이 `follows_pointer`를 세우려고 끌기 역할을 복사해 다시 둔다. 그 뒤에도 끝 알림이 남아 있어야 한다.
         REQUIRE(splitter->pointer_drag() != nullptr);
         REQUIRE(splitter->pointer_drag()->on_release != nullptr);
@@ -458,8 +462,8 @@ TEST_CASE("pane splitters announce the end of a resize so the widths are saved o
 
     tree_fixture fixture {};
     const cyella::ui::built_tree built { fixture.build() };
-    check_splitter(built, u8"sidebar-splitter");
-    check_splitter(built, u8"detail-splitter");
+    check_splitter(built, u8"sidebar-splitter", tr(u8"tree.splitter.sidebar"));
+    check_splitter(built, u8"detail-splitter", tr(u8"tree.splitter.detail"));
 
     view_snapshot view { fixture.harness.build() };
     REQUIRE(view.repository.has_value());
@@ -467,7 +471,7 @@ TEST_CASE("pane splitters announce the end of a resize so the widths are saved o
     view.graph_layout = false;
     view.repository->detail = detail_mode::working;
     view.repository->working = working_area_view {};
-    check_splitter(cyella::ui::build_ui_tree(view), u8"working-splitter");
+    check_splitter(cyella::ui::build_ui_tree(view), u8"working-splitter", tr(u8"tree.splitter.working"));
 }
 
 TEST_CASE("working files use a single selection control and preserve file actions in tree view", "[presentation][ui][working]")

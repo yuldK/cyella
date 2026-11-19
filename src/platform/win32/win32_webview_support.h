@@ -25,10 +25,4 @@ namespace cyella::win32 {
     [[nodiscard]] std::u8string webview_user_data_directory() noexcept;
     // `%LOCALAPPDATA%\cyella\<name>`이다 (지워도 되는 보관 자료: 웹뷰 프로필, 작성자 사진). 폴더는 쓰는 쪽이 만든다. 위치를 모르면 비어 있다.
     [[nodiscard]] std::u8string local_data_directory(std::wstring_view name) noexcept;
-
-    // OS의 "앱 모드"가 밝은가 (`AppsUseLightTheme`). 읽지 못하면 밝은 쪽으로 본다 (luil의 기본과 같다).
-    [[nodiscard]] bool system_prefers_light_theme() noexcept;
-
-    // 고대비 모드가 켜져 있는가.
-    [[nodiscard]] bool high_contrast_enabled() noexcept;
 } // namespace cyella::win32

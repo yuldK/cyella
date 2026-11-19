@@ -157,9 +157,13 @@ namespace cyella::ui {
             }
 
             if (diff.use_webview == false && diff.special.has_value() == false)
-                metadata->add(
-                    make_text(u8"diff-fallback-note", width < 640.0f ? tr(u8"diff.fallback_short") : tr(u8"diff.fallback_note"), text_style { .size = 11.0f, .color = dim_color, .align = 2 }),
-                    width < 640.0f ? 80.0f : fallback_note_width);
+            {
+                // 긴 문구는 까닭을 가린다. 표면 때문이면 WebView2를 말하지 않는다 — Runtime이 있는데 설치하라는 뜻으로 읽힌다.
+                std::u8string note { tr(u8"diff.fallback_short") };
+                if (width >= 640.0f)
+                    note = diff.surface.webview_unpresentable ? tr(u8"diff.fallback_note_unpresentable") : tr(u8"diff.fallback_note");
+                metadata->add(make_text(u8"diff-fallback-note", std::move(note), text_style { .size = 11.0f, .color = dim_color, .align = 2 }), width < 640.0f ? 80.0f : fallback_note_width);
+            }
             else
             {
                 if (compact == false && diff.surface.truncated)
@@ -175,6 +179,7 @@ namespace cyella::ui {
 
         // 웹뷰가 앉을 자리다. 웹뷰가 서면 이 자리가 구멍으로 비워져 페이지가 보이고, 서는 동안은 placeholder 글이 보인다.
         // 서지 못하면 luil이 `creation_failed`를 알리고 driver가 다음 frame부터 이 자리를 텍스트 본문으로 바꾼다 (`diff_webview_health`).
+        // 섰지만 표면에 표시할 수 없다고 알려 와도(`presentation_changed`) 그동안 이 자리 대신 텍스트 본문이 선다.
         std::unique_ptr<luil::ui_element> build_webview_slot(const diff_panel_view& diff)
         {
             luil::webview_config config {};
@@ -239,6 +244,7 @@ namespace cyella::ui {
             case luil::webview_event_kind::download_blocked:
             case luil::webview_event_kind::web_message_received:
             case luil::webview_event_kind::events_dropped:
+            case luil::webview_event_kind::presentation_changed:
                 break;
             }
             return u8"webview_event";
@@ -320,6 +326,8 @@ namespace cyella::ui {
         webview.post_revision = options.post_revision;
         webview.post_message = options.post_message;
         webview.on_event = [](luil::webview_event event) { return luil::app_message { diff_webview_event_intent { std::move(event) } }; };
+        // 표면이 합성 제시를 못 하면 luil은 웹뷰를 숨기고 placeholder만 그린다. 알려 받아야 그동안 빈 칸 대신 텍스트 본문을 보인다.
+        webview.report_presentation = true;
         return webview;
     }
 
@@ -359,6 +367,8 @@ namespace cyella::ui {
             return fall_back(event);
         case luil::webview_event_kind::web_message_received:
             return diff_webview_action::web_message;
+        case luil::webview_event_kind::presentation_changed:
+            return presentation_changed(event.presentation_available);
         case luil::webview_event_kind::navigation_completed:
         case luil::webview_event_kind::navigation_blocked:
         case luil::webview_event_kind::permission_denied:
@@ -374,5 +384,16 @@ namespace cyella::ui {
         failed_ = true;
         reason_ = describe_failure(event);
         return diff_webview_action::fall_back;
+    }
+
+    diff_webview_action diff_webview_health::presentation_changed(const bool available)
+    {
+        presentable_ = available;
+        // 알림은 실행당 한 번이다. 표면이 오가도 같은 안내를 되풀이하지 않는다. 지금 luil은 한 번 CPU로 물러난 표면에서 GPU를
+        // 다시 시도하지 않아(`renderer_host::switch_to_cpu`) 참으로 돌아오는 일은 드물지만, 계약은 변경마다 알린다고 하므로 그대로 받는다.
+        if (available || presentation_lost_reported_)
+            return diff_webview_action::none;
+        presentation_lost_reported_ = true;
+        return diff_webview_action::presentation_lost;
     }
 } // namespace cyella::ui

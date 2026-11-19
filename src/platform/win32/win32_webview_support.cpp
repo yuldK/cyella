@@ -69,22 +69,4 @@ namespace cyella::win32 {
     {
         return local_data_directory(L"webview");
     }
-
-    bool system_prefers_light_theme() noexcept
-    {
-        DWORD value { 1 };
-        DWORD size { sizeof(value) };
-        if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
-            return true;
-        return value != 0;
-    }
-
-    bool high_contrast_enabled() noexcept
-    {
-        HIGHCONTRASTW contrast {};
-        contrast.cbSize = sizeof(contrast);
-        if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) == FALSE)
-            return false;
-        return (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
-    }
 } // namespace cyella::win32

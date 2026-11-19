@@ -556,6 +556,14 @@ namespace cyella::ui {
             luil::pointer_drag_target drag { *handle->pointer_drag() };
             drag.follows_pointer = true;
             handle->set_pointer_drag_target(std::move(drag));
+            // 손잡이는 Tab 자리라 보조 기술이 이름 없는 Thumb로 읽지 않게 이름을 준다. 화면에 글을 띄우지 않으려고 tooltip이 아니라
+            // 접근 이름이다. 키를 글자 그대로 적는 것은 문구 검사가 코드에서 쓰는 키를 찾게 하려는 것이다.
+            if (working)
+                handle->set_access_name(tr(u8"tree.splitter.working"));
+            else if (sidebar)
+                handle->set_access_name(tr(u8"tree.splitter.sidebar"));
+            else
+                handle->set_access_name(tr(u8"tree.splitter.detail"));
             return handle;
         }
 

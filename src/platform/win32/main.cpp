@@ -133,6 +133,9 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int)
     }
     config.resize_border_thickness = 4;
     config.resize_corner_thickness = 10;
+    // Windows 설정 > 접근성 > 텍스트 크기를 아직 따르지 않는다. luil은 글자만 키우는데, cyella의 행 높이와 폭 짐작
+    // (`estimate_text_width`)은 고정 값이라 125% 이상에서 글이 잘리고 말줄임된다. 높이와 폭을 배율에 맞춘 뒤에 켠다.
+    config.follow_text_scale = false;
 
     // driver·policy·delegate는 창이 도는 동안 살아 있어야 한다. delegate는 driver의 relay를 host에
     // 묶고, policy는 텍스트 입력·휠·단축키를 앱 메시지로 옮긴다.

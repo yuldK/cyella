@@ -635,7 +635,8 @@ namespace cyella::ui {
             luil::pointer_drag_target drag { *handle->pointer_drag() };
             drag.follows_pointer = true;
             handle->set_pointer_drag_target(std::move(drag));
-            // 보조 기술의 이름도 이 글이다 (`split_handle_element::accessibility`).
+            // 보조 기술에는 짧은 이름을 따로 준다. tooltip만 두면 긴 안내 문장이 이름이자 도움말(tooltip이 채운다)로 두 번 읽힌다.
+            handle->set_access_name(tr(u8"repo.detail.commit_meta_splitter"));
             set_text_tooltip(*handle, tr(u8"repo.detail.resize_commit_meta"));
             return handle;
         }

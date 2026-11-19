@@ -21,6 +21,12 @@ namespace cyella {
         float scale { 1.0f };
     };
 
+    // OS의 표시 설정(밝은 모드·고대비와 그 색·강조색)이 처음 정해졌거나 바뀌었다.
+    //  - 값을 싣지 않는 깨우기다. luil inbox가 차면 이 메시지가 버려질 수 있어 값의 정본은 `luil::current_system_appearance()`이고,
+    //    driver는 이것을 받으면 그것을 다시 읽는다. 이 헤더가 luil을 include하지 않는 것도 그 덕이다.
+    struct system_appearance_intent
+    {};
+
     // 주 창의 배치가 정해졌거나 바뀌었다 (시작, 이동·크기 조절 끝, 최대화 전환, 종료 직전). driver가 다음 실행을 위해 적어 둔다.
     struct window_placement_intent
     {

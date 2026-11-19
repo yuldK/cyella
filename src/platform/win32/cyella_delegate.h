@@ -29,6 +29,8 @@ namespace cyella::win32 {
         void execute_app_ui_command(luil::app_host& host, const luil::app_ui_command& command) override;
         [[nodiscard]] luil::app_message make_window_metrics_message(float width, float height, float scale) override;
         [[nodiscard]] luil::app_message make_window_placement_message(const luil::window_placement& placement) override;
+        // OS 표시 설정이 바뀌면 logic thread를 깨워 diff 웹뷰의 색을 다시 짓게 한다 (`system_appearance_intent`).
+        [[nodiscard]] luil::app_message make_system_appearance_message(const luil::system_appearance& appearance) override;
 
     private:
         operation_result_relay* relay_ { nullptr };

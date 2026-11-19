@@ -35,6 +35,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -63,6 +64,16 @@ namespace cyella::win32 {
         std::u8string open_url_log {};
         // 시작할 때 `window-placement.json`에서 읽은 주 창 배치다. 창을 만들 때 쓰고, 같은 값이 다시 알려지면 파일을 쓰지 않는다.
         std::optional<saved_window_placement> window_placement {};
+        // OS 표시 설정(밝은 모드·고대비·강조색)을 읽는 길이다. 비우면 luil이 마지막으로 관찰한 값(`luil::current_system_appearance`)이다.
+        //  - 시작할 때 한 번, 그 뒤로는 `system_appearance_intent`를 받을 때만 부른다. frame마다 부르지 않는다.
+        //  - 창이 있으면 luil이 logic thread를 띄우기 전에 첫 값을 관찰해 둔다. 창 없이 조립한 driver(test)는 관찰 전의 luil 기본값,
+        //    곧 어두운 모드·고대비 꺼짐을 본다. 옛 물러섬(레지스트리를 읽지 못하면 밝음)이 아니라 luil 표면이 같은 처지에 고르는 쪽이다.
+        //    test는 이것을 꽂아 값을 정한다.
+        std::function<luil::system_appearance()> read_system_appearance {};
+        // 시작할 때의 빠른 확인(Runtime 설치·뷰어 파일·프로필 폴더) 결과를 정한다. 비우면 실제로 확인한다.
+        //  - test가 쓴다. test 실행 파일 옆에는 뷰어 파일이 없어 확인이 늘 거짓이므로, 웹뷰를 frame에 싣는 길을 test할 수 없다.
+        //    창이 없으니 실어도 웹뷰가 실제로 서지는 않는다. `force_text_diff`가 이것보다 세다.
+        std::optional<bool> assume_webview_capable {};
     };
 
     // luil logic thread에 꽂는 cyella 구동기다. 백엔드(workspace·scheduler·relay)와 설정을 조립하고, 화면은
@@ -146,10 +157,15 @@ namespace cyella::win32 {
         {
             return diff_.get();
         }
-        // 웹뷰로 diff를 그릴 수 있다 (Runtime·뷰어 파일이 있고, 웹뷰가 실패하지 않았다).
-        [[nodiscard]] bool webview_usable() const noexcept
+        // 웹뷰를 frame에 싣는다 (Runtime·뷰어 파일이 있고, 웹뷰가 실패하지 않았다). 표시할 수 없는 동안에도 싣는다.
+        [[nodiscard]] bool webview_mounted() const noexcept
         {
             return webview_capable_ && webview_health_.failed() == false;
+        }
+        // 웹뷰로 diff를 그린다. 실어 두었고, 앉은 표면이 표시할 수 없다고 알려 오지 않았다. 거짓이면 본문은 텍스트다.
+        [[nodiscard]] bool webview_usable() const noexcept
+        {
+            return webview_mounted() && webview_health_.presentable();
         }
 
     private:
@@ -190,6 +206,8 @@ namespace cyella::win32 {
         void request_avatar(const std::string& email);
         // 웹뷰가 보여야 할 diff를 맞추고, 쌓인 안내를 화면에 올린다.
         void sync_diff_view();
+        // OS 표시 설정을 다시 읽는다. 다음 frame이 그 값으로 웹뷰의 테마를 짓는다.
+        void refresh_system_appearance();
 
         // 멤버 순서가 파괴 순서의 반대다. worker(scheduler)가 가장 먼저 멈추고, 그다음 workspace·설정을
         // 빌린 controller가 사라져야 실행기·relay를 붙잡은 것이 남지 않는다.
@@ -236,8 +254,10 @@ namespace cyella::win32 {
         std::atomic<luil::app_host*> host_ { nullptr };
         ssh_programs ssh_programs_ {};
         std::filesystem::path ssh_directory_ {};
-        // 웹뷰에 보낸 테마와 그 원천(테마와 키 컬러로 합성한 luil 팔레트)이다. 운영체제 키 컬러가 바뀌어도 같은 id라
-        // id가 아니라 팔레트를 견준다.
+        // 마지막으로 읽은 OS 표시 설정이다 (`cyella_driver_options::read_system_appearance`). 시작 전이면 기본값이다.
+        luil::system_appearance system_appearance_ {};
+        // 웹뷰에 보낸 테마와 그 원천(luil 표면과 같은 팔레트 — 테마와 키 컬러로 합성했거나 고대비면 OS 대비 색으로 합성한 것)이다.
+        // 운영체제 키 컬러·대비 색이 바뀌어도 같은 id·테마라 id가 아니라 팔레트를 견준다.
         std::optional<luil::ui_color_palette> diff_theme_source_ {};
         diff_theme diff_theme_ {};
         std::u8string diff_ui_font_ {};
@@ -249,7 +269,7 @@ namespace cyella::win32 {
         // 웹뷰를 세울 수 있는 PC인가 (Runtime 설치, 뷰어 파일 있음, 프로필 폴더를 앎). 시작할 때의 빠른 확인이다.
         bool webview_capable_ { false };
         // 웹뷰 사건으로 본 실패다 (생성 실패·항해 실패·브라우저 프로세스 종료·렌더러의 잇단 종료). 한 번 실패하면 이번 실행
-        // 동안 대체 보기를 쓴다.
+        // 동안 대체 보기를 쓴다. 표면에 표시할 수 있는지도 여기 있다 — 표시할 수 없는 동안만 대체 보기다.
         ui::diff_webview_health webview_health_ {};
         // 한 번 diff를 연 뒤로는 웹뷰를 frame에 계속 실어 둔다. 웹뷰를 다시 만들지 않고 재사용하려는 것이다.
         bool webview_requested_ { false };

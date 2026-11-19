@@ -337,4 +337,12 @@ namespace cyella::win32 {
         const saved_window_placement saved { .x = placement.x, .y = placement.y, .width = placement.width, .height = placement.height, .maximized = placement.maximized };
         return luil::app_message { window_placement_intent { saved } };
     }
+
+    luil::app_message cyella_delegate::make_system_appearance_message(const luil::system_appearance& appearance)
+    {
+        // 값은 싣지 않는다. 이 메시지가 버려지거나 늦게 닿아도 driver가 읽는 `current_system_appearance()`는 luil이 이미 최신으로
+        // 바꿔 두었다 (훅을 부르기 전에 게시한다). UI thread라 driver를 직접 만지지 않는다.
+        static_cast<void>(appearance);
+        return luil::app_message { system_appearance_intent {} };
+    }
 } // namespace cyella::win32

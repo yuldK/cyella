@@ -1,4 +1,5 @@
 // 커밋 상세 판의 규칙이다: 변경 파일 트리, 제목·본문 줄 나누기, 작성자 사진 받기, snapshot과 luil tree.
+#include "domain/text_catalog.h"
 #include "infrastructure/avatar_fetcher.h"
 #include "presentation/file_tree.h"
 #include "presentation/text_wrap.h"
@@ -10,6 +11,7 @@
 #include "git_test_support.h"
 #include "view_snapshot_support.h"
 
+#include "luil/ui/accessibility.h"
 #include "luil/ui/ui_interaction.h"
 #include "luil/ui/ui_tree.h"
 
@@ -311,7 +313,14 @@ TEST_CASE("a handle divides the commit message and changed files and holds the d
         const luil::rect_f handle { bounds_of(built, ui::kind_splitter, u8"commit-meta-splitter") };
         CHECK(handle.height == 6.0f);
         CHECK(bottom(handle) == bounds_of(built, ui::kind_panel, u8"detail-files-header-bar").y);
-        CHECK(built.tree->find(luil::ui_element_id { ui::kind_splitter, u8"commit-meta-splitter" })->accessibility().name.empty() == false);
+        // 보조 기술에는 짧은 이름이 서고, 긴 안내 문장은 도움말로만 한 번 읽힌다 (이름이 tooltip으로 물러서면 두 번 읽힌다).
+        const luil::ui_element* const splitter { built.tree->find(luil::ui_element_id { ui::kind_splitter, u8"commit-meta-splitter" }) };
+        REQUIRE(splitter != nullptr);
+        const luil::access_info access { luil::access_info_of(*splitter) };
+        CHECK_FALSE(access.name.empty());
+        CHECK(access.name == tr(u8"repo.detail.commit_meta_splitter"));
+        CHECK(access.help == tr(u8"repo.detail.resize_commit_meta"));
+        CHECK(access.name != access.help);
     }
 
     // 끈 높이가 있으면 짧은 메시지라도 그 높이에 고정한다.

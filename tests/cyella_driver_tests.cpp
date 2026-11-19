@@ -1,8 +1,15 @@
+#include "application/app_messages.h"
 #include "application/watch_messages.h"
+#include "domain/text_catalog.h"
 #include "platform/win32/askpass_helper_path.h"
+#include "platform/win32/cyella_delegate.h"
 #include "platform/win32/cyella_driver.h"
 #include "platform/win32/operation_result_relay.h"
+#include "presentation/diff_view_intents.h"
 #include "presentation/ui/diff_webview.h"
+#include "presentation/ui/diff_webview_theme.h"
+#include "presentation/ui/element_kinds.h"
+#include "presentation/ui/settings/appearance_ui.h"
 #include "presentation/ui_intents.h"
 
 #include "git_test_support.h"
@@ -13,6 +20,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -499,6 +507,206 @@ TEST_CASE("cyella_driver falls back to the text diff once when the diff webview 
     // 같은 실패가 또 와도(luil이 늦게 보낸 것) 다시 알리지 않는다.
     driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { event } });
     CHECK(driver.controller()->state().notifications.size() == before + 1);
+
+    driver.stop_workers();
+}
+
+TEST_CASE("the delegate turns a system appearance change into a wake-up for the logic thread", "[driver][theme]")
+{
+    // 값은 싣지 않는다. driver가 받으면 luil의 최신 값을 다시 읽는다.
+    cyella::win32::cyella_delegate delegate {};
+    luil::system_appearance appearance {};
+    appearance.prefers_light = true;
+    const luil::app_message message { delegate.make_system_appearance_message(appearance) };
+    CHECK_FALSE(message.empty());
+    CHECK(message.get<cyella::system_appearance_intent>() != nullptr);
+}
+
+TEST_CASE("cyella_driver reads the system appearance once and repaints the diff webview only after the change message", "[driver][webview][theme]")
+{
+    if (cyella::test::git_is_available() == false)
+        SKIP("git is not installed");
+
+    // 표시 설정을 정하는 것은 test다. 호출 수로 frame마다 다시 읽지 않는지 본다.
+    luil::system_appearance system {};
+    system.prefers_light = false;
+    int reads { 0 };
+    cyella::win32::cyella_driver_options options {};
+    options.disable_file_watching = true;
+    options.read_system_appearance = [&system, &reads] {
+        ++reads;
+        return system;
+    };
+    cyella::win32::cyella_driver driver { std::move(options) };
+    driver.start();
+    REQUIRE(driver.diff_view() != nullptr);
+    REQUIRE(driver.controller() != nullptr);
+    CHECK(reads == 1);
+
+    // 설정 파일이 없으니 테마 선호는 기본(`system`)이다. 그래서 OS의 밝은 모드가 바뀌면 웹뷰의 색이 바뀌어야 한다.
+    const cyella::appearance_settings& appearance { driver.controller()->settings().appearance };
+    REQUIRE(appearance.theme == cyella::theme_preference::system);
+    const auto expected = [&appearance](const luil::system_appearance& value) {
+        const luil::ui_color_palette palette { cyella::ui::surface_palette_for(luil::theme_preference::system, value, cyella::ui::effective_accent_id(appearance.accent)) };
+        return cyella::ui::make_diff_theme(palette, appearance.ui_font, appearance.code_font);
+    };
+    const auto shown = [&driver] { return driver.diff_view()->controller().state().theme; };
+
+    REQUIRE(driver.make_frame() != nullptr);
+    const cyella::diff_theme dark { expected(system) };
+    CHECK(shown() == dark);
+    CHECK(dark.mode == cyella::diff_theme_mode::dark);
+
+    // OS가 바뀌어도 알림이 오기 전에는 frame을 몇 번 지어도 다시 읽지 않는다 — frame마다 레지스트리를 묻지 않는다.
+    system.prefers_light = true;
+    for (int frame { 0 }; frame < 4; ++frame)
+        REQUIRE(driver.make_frame() != nullptr);
+    CHECK(reads == 1);
+    CHECK(shown() == dark);
+
+    // 알림을 받으면 한 번 다시 읽고 다음 frame이 웹뷰에 밝은 테마를 보낸다.
+    driver.handle(luil::app_message { cyella::system_appearance_intent {} });
+    CHECK(reads == 2);
+    REQUIRE(driver.make_frame() != nullptr);
+    const cyella::diff_theme light { expected(system) };
+    CHECK(light.mode == cyella::diff_theme_mode::light);
+    CHECK(shown() == light);
+    CHECK_FALSE(shown() == dark);
+
+    // 고대비가 켜지면 창이 쓰는 대비 색 팔레트로 칠한다.
+    system.high_contrast = true;
+    system.contrast_colors.window_background = luil::make_ui_color(255, 255, 255);
+    system.contrast_colors.window_foreground = luil::make_ui_color(0, 0, 0);
+    driver.handle(luil::app_message { cyella::system_appearance_intent {} });
+    REQUIRE(driver.make_frame() != nullptr);
+    CHECK(shown() == cyella::ui::make_diff_theme(luil::high_contrast_palette_for(system.contrast_colors), appearance.ui_font, appearance.code_font));
+    CHECK(reads == 3);
+
+    driver.stop_workers();
+}
+
+TEST_CASE("cyella_driver shows the text diff while the webview surface cannot present and keeps the webview in the frame", "[driver][webview][webview-presentation]")
+{
+    if (cyella::test::git_is_available() == false)
+        SKIP("git is not installed");
+
+    const cyella::test::temp_directory directory {};
+    const std::filesystem::path repo { make_committed_repository(directory.path()) };
+    cyella::test::write_file(repo / "a.txt", "one\ntwo\n");
+    cyella::win32::cyella_driver_options options {};
+    options.initial_repository = repo.generic_u8string();
+    options.disable_file_watching = true;
+    // test 실행 파일 옆에는 뷰어 파일이 없어 시작할 때의 확인이 늘 거짓이다. 웹뷰를 싣는 길을 보려면 확인을 통과시킨다.
+    options.assume_webview_capable = true;
+    cyella::win32::cyella_driver driver { std::move(options) };
+    driver.start();
+    REQUIRE(driver.workspace() != nullptr);
+    REQUIRE(driver.controller() != nullptr);
+    REQUIRE(pump_until(driver, [&] { return only_session(driver) != nullptr && only_session(driver)->loaded() && only_session(driver)->snapshot().unstaged.size() == 1; }));
+    REQUIRE(driver.webview_usable());
+
+    driver.handle(luil::app_message { cyella::select_file_intent { .request = cyella::diff_file_request { .path = "a.txt", .view = cyella::diff_view::unstaged } } });
+    REQUIRE(pump_until(driver, [&] { return only_session(driver)->selected_diff().has_value(); }));
+
+    const luil::ui_element_id slot_id { luil::ui_element_kind::webview, std::u8string { cyella::ui::diff_webview_id } };
+    const luil::ui_element_id lines_id { luil::ui_element_kind::virtual_list, u8"diff-lines" };
+    const auto next_frame = [&driver] {
+        std::shared_ptr<const luil::win32::ui_frame> frame { driver.make_frame() };
+        REQUIRE(frame != nullptr);
+        REQUIRE(frame->tree != nullptr);
+        return frame;
+    };
+
+    // 표시할 수 있는 동안(첫 값이 오기 전도 같다)은 본문이 웹뷰 자리표다.
+    const std::shared_ptr<const luil::win32::ui_frame> viewer { next_frame() };
+    REQUIRE(viewer->webviews.size() == 1);
+    CHECK(viewer->webviews.front().report_presentation);
+    CHECK(viewer->tree->find(slot_id) != nullptr);
+    CHECK(viewer->tree->find(lines_id) == nullptr);
+    const std::size_t before { driver.controller()->state().notifications.size() };
+    // 떠 있는 같은 알림은 새 알림이 앞의 것을 갈아 끼워 수가 늘지 않는다. 다시 알렸는지는 알림 번호로 본다.
+    const auto serial = [&driver] { return driver.controller()->state().notification_serial; };
+    const std::uint64_t serial_before { serial() };
+
+    // 페이지를 준비된 상태로 만든다. 준비되지 않은 페이지에는 처음부터 게시하지 않으므로, 아래에서 "표시할 수 없는 동안에도
+    // 게시가 이어진다"를 보려면 먼저 `ready`가 지나가야 한다.
+    luil::webview_event ready {};
+    ready.id = std::u8string { cyella::ui::diff_webview_id };
+    ready.kind = luil::webview_event_kind::web_message_received;
+    ready.url = viewer->webviews.front().navigate_url;
+    ready.message = u8R"({"type":"ready","protocol":1})";
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { ready } });
+    const std::shared_ptr<const luil::win32::ui_frame> readied { next_frame() };
+    REQUIRE(readied->webviews.size() == 1);
+    REQUIRE(readied->webviews.front().post_revision > viewer->webviews.front().post_revision);
+
+    luil::webview_event unpresentable {};
+    unpresentable.id = std::u8string { cyella::ui::diff_webview_id };
+    unpresentable.kind = luil::webview_event_kind::presentation_changed;
+    unpresentable.presentation_available = false;
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { unpresentable } });
+
+    // 다음 frame의 본문은 텍스트이고 웹뷰는 frame에 남는다 — 빼면 luil이 다시 표시할 수 있게 된 것을 알릴 웹뷰가 없다.
+    CHECK_FALSE(driver.webview_usable());
+    CHECK(driver.webview_mounted());
+    const std::shared_ptr<const luil::win32::ui_frame> text { next_frame() };
+    REQUIRE(text->webviews.size() == 1);
+    CHECK(text->tree->find(slot_id) == nullptr);
+    CHECK(text->tree->find(lines_id) != nullptr);
+    // 머리 막대는 뷰어가 없어서가 아니라 표면 때문에 텍스트라고 말한다. Runtime을 설치하라는 뜻으로 읽히는 문구가 아니다.
+    const luil::ui_element* const note { text->tree->find(luil::ui_element_id { cyella::ui::kind_label, u8"diff-fallback-note" }) };
+    REQUIRE(note != nullptr);
+    CHECK(note->accessibility().name == cyella::tr(u8"diff.fallback_note_unpresentable"));
+    CHECK_FALSE(note->accessibility().name == cyella::tr(u8"diff.fallback_note"));
+
+    // 표시할 수 없는 동안에도 페이지는 준비된 채라 게시가 이어진다 — 돌아갈 때 내용이 최신인 까닭이다. 여기서
+    // `page_reloading`을 부르면 페이지는 다시 읽힌 적이 없어 `ready`를 다시 보내지 않으므로 게시가 멈춘다.
+    const std::uint64_t hidden_revision { text->webviews.front().post_revision };
+    const cyella::diff_layout shown_layout { driver.diff_view()->controller().state().layout };
+    const cyella::diff_layout other_layout { shown_layout == cyella::diff_layout::split ? cyella::diff_layout::inline_view : cyella::diff_layout::split };
+    driver.handle(luil::app_message { cyella::set_diff_layout_intent { other_layout } });
+    const std::shared_ptr<const luil::win32::ui_frame> hidden { next_frame() };
+    REQUIRE(hidden->webviews.size() == 1);
+    CHECK(hidden->webviews.front().post_revision > hidden_revision);
+    CHECK(hidden->webviews.front().post_message.empty() == false);
+    // 실패 알림이 아니라 표시할 수 없다는 알림 하나다.
+    REQUIRE(driver.controller()->state().notifications.size() == before + 1);
+    CHECK(serial() == serial_before + 1);
+    const cyella::notification* const notice { driver.controller()->state().latest_notification() };
+    REQUIRE(notice != nullptr);
+    CHECK(notice->severity == cyella::notification_severity::warning);
+    CHECK(notice->text == cyella::tr(u8"diff.viewer_unpresentable"));
+
+    // 같은 값이 또 와도 다시 알리지 않는다.
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { unpresentable } });
+    CHECK(serial() == serial_before + 1);
+
+    // 다시 표시할 수 있게 되면 다음 frame부터 뷰어로 돌아간다. 알림은 더 없다.
+    luil::webview_event presentable { unpresentable };
+    presentable.presentation_available = true;
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { presentable } });
+    CHECK(driver.webview_usable());
+    const std::shared_ptr<const luil::win32::ui_frame> back { next_frame() };
+    CHECK(back->webviews.size() == 1);
+    CHECK(back->tree->find(slot_id) != nullptr);
+    CHECK(back->tree->find(lines_id) == nullptr);
+    CHECK(serial() == serial_before + 1);
+
+    // 다시 잃어도 알림은 실행당 한 번이라 더 없다. 표시할 수 없는 동안 실패하면 실패가 이긴다 — 웹뷰를 빼고 실패 알림을 한 번 낸다.
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { unpresentable } });
+    CHECK(serial() == serial_before + 1);
+    CHECK_FALSE(driver.webview_usable());
+    luil::webview_event failure { unpresentable };
+    failure.kind = luil::webview_event_kind::browser_process_failed;
+    failure.error = u8"browser process exited";
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { failure } });
+    CHECK_FALSE(driver.webview_mounted());
+    const std::shared_ptr<const luil::win32::ui_frame> failed { next_frame() };
+    CHECK(failed->webviews.empty());
+    CHECK(failed->tree->find(lines_id) != nullptr);
+    CHECK(serial() == serial_before + 2);
+    REQUIRE(driver.controller()->state().latest_notification() != nullptr);
+    CHECK(driver.controller()->state().latest_notification()->text.find(u8"browser_process_failed") != std::u8string::npos);
 
     driver.stop_workers();
 }

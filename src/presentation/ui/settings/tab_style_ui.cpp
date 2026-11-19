@@ -42,18 +42,9 @@ namespace cyella::ui {
             std::uint32_t changed_files { 0 };
         };
 
-        // 견본의 표시는 멈춘 그림이다. 도는 표시는 frame마다 다음 frame을 청해 설정을 열어 둔 내내 창 전체가 다시 그려진다.
-        //  - 배지는 글리프가 돌지 않게 하고, 도는 호는 멈춘 고리로 바꾼다. 호를 멈춰 그리는 길은 luil에 움직임 줄이기뿐이다.
-        void still_marker(luil::tab_item& item)
-        {
-            if (item.badge.has_value())
-                item.badge->spinning = false;
-            if (item.indicator.has_value()
-                && item.indicator->kind == luil::tab_indicator_kind::busy)
-                item.indicator->kind = luil::tab_indicator_kind::ring;
-        }
-
         // 견본 막대다. 첫 탭이 고른 탭이고 둘째 탭에 포인터가 올라간 것처럼 그린다.
+        //  - 견본의 도는 표시는 luil이 멈춘 그림으로 그리고 다음 frame을 청하지 않는다 (`tab_bar_preview::animated`의 기본).
+        //    돌게 두면 설정을 열어 둔 내내 창 전체가 다시 그려진다.
         std::unique_ptr<luil::ui_element> make_preview_bar(
             const std::u8string& owner, const std::u8string& name, const tab_shape shape, const tab_marker_place place, const std::vector<preview_tab>& tabs)
         {
@@ -66,7 +57,6 @@ namespace cyella::ui {
             {
                 luil::tab_item item { .key = owner + u8"-" + number_text(index), .label = tabs[index].label, .icon = codicons::icon_repo, .closable = true };
                 apply_tab_marker(item, tabs[index].marker, tabs[index].changed_files, place);
-                still_marker(item);
                 config.items.push_back(std::move(item));
             }
             config.selected = owner + u8"-0";

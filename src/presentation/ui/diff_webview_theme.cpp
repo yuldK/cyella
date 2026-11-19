@@ -80,4 +80,13 @@ namespace cyella::ui {
         tokens["--code-font"] = font_stack(code_family, "\"Cascadia Mono\", Consolas, \"Malgun Gothic\", monospace");
         return theme;
     }
+
+    luil::ui_color_palette surface_palette_for(const luil::theme_preference preference, const luil::system_appearance& system, const std::u8string_view accent_id)
+    {
+        const luil::color_theme theme { luil::resolve_color_theme(preference, system.high_contrast, system.prefers_light) };
+        // `color_palette_for(high_contrast, …)`는 검정 바탕 기본 색으로 합성한다. 흰 바탕 고대비를 고른 사용자에게는 창과 정반대가 된다.
+        if (theme == luil::color_theme::high_contrast)
+            return luil::high_contrast_palette_for(system.contrast_colors);
+        return luil::color_palette_for(theme, luil::accent_for(accent_id));
+    }
 } // namespace cyella::ui

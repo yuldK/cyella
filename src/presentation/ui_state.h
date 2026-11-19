@@ -273,8 +273,12 @@ namespace cyella {
         // 웹뷰로 그릴 수 있는가. 거짓이면 텍스트 대체 보기를 쓴다. 시작할 때의 확인이 걸렀거나(WebView2 Runtime이 없거나
         // 뷰어를 못 찾은 경우) 실행 중 웹뷰 사건(`ui::diff_webview_health`: 생성·항해 실패, 브라우저 프로세스 종료, 렌더러의 잇단 종료)이
         // 물러서게 한 경우다. 실행 중 참에서 거짓이 될 수 있고, 한 번 물러서면 이번 실행 동안 거짓이다.
+        // 웹뷰가 앉은 표면이 표시할 수 없다고 알려 온 동안(`presentation_changed`)에도 거짓이고, 다시 표시할 수 있게 되면 참으로 돌아간다.
         // 기본이 거짓인 것은 웹뷰를 쥔 쪽이 확인해 올리기 전에는 대체 보기가 안전하기 때문이다.
         bool webview_available { false };
+        // `webview_available`이 거짓인 까닭이 표면이다 — 웹뷰는 섰고 실패하지 않았지만 앉은 표면이 표시할 수 없다(`presentation_changed`).
+        // 머리 막대가 Runtime이 없다는 뜻으로 읽히는 문구 대신 이 까닭을 말한다. `webview_available`이 참이면 늘 거짓이다.
+        bool webview_unpresentable { false };
         // 줄 수 상한으로 잘린 diff다. 머리 막대가 알려 준다.
         bool truncated { false };
         // 보는 파일에 textconv가 걸려 있다. 머리 막대가 "textconv" 배지를 보인다. 비면 걸려 있지 않다.

@@ -51,6 +51,9 @@ cyella_driver::make_frame
     창을 1 s 넘게 늘리면 이 한 번은 없앨 수 있지만 잇단 마우스 놓기가 더 자주 늦어져 그렇게 하지 않는다.
   - 끄는 도중 손잡이가 tree에서 사라지면 끝 알림이 오지 않는다. 그때도 같은 예약이 마지막 폭을 쓴다. 끌다 500 ms 넘게 쉬면 이 예약이 중간 폭을 한 번 더 쓴다.
   - 앱을 닫을 때는 `flush`가 바로 쓴다. 시작할 때 저장된 폭을 범위로 다듬어 되살린다.
+  - 손잡이 넷(`sidebar-splitter`·`detail-splitter`·`working-splitter`·`commit-meta-splitter`)은 Tab 자리라 UI Automation에 이름 있는 Thumb로 선다.
+    이름은 화면에 뜨지 않는 접근 이름(`set_access_name`, `tree.splitter.*`·`repo.detail.commit_meta_splitter`)이다. 메시지 칸 손잡이의 긴 안내는
+    tooltip으로 남아 도움말(HelpText)로만 읽힌다.
 - 텍스트 칸은 luil 규약 그대로다. `cyella_policy::text_target_of`가 kind → `text_target`을 답하고, 편집은
   `edit_text_intent`로 와서 `ui_state`의 `text_edit_state`에 `luil::apply_text_edit`로 적용된다. 한 줄 칸이라 붙여넣은 줄바꿈은 공백이 된다.
 
@@ -157,7 +160,7 @@ cyella_driver
 ```
 
 - **웹뷰는 창에 하나다.** 한 번 diff를 열면 그 뒤로 웹뷰가 실패하기 전까지 frame마다 같은 `ui_webview`(id `diff`)를 싣는다(`navigate_revision`은
-  늘 1이라 다시 읽지 않는다. 실패하면 빼고 다시 싣지 않는다 — 아래 "웹뷰를 쓸 수 없을 때"). 자리표(`webview_element`)가 tree에 없는 동안은 luil이 웹뷰를 숨기고 페이지 상태는 남는다. 탭·파일을 바꾸면 컨트롤러가 `show_diff`만
+  늘 1이라 다시 읽지 않는다. 실패하면 빼고 다시 싣지 않는다 — 아래 "웹뷰를 쓸 수 없을 때". 표면에 표시할 수 없는 동안에는 빼지 않는다). 자리표(`webview_element`)가 tree에 없는 동안은 luil이 웹뷰를 숨기고 페이지 상태는 남는다. 탭·파일을 바꾸면 컨트롤러가 `show_diff`만
   새로 보낸다.
 - **무엇을 보일지는 `sync`가 맞춘다.** driver가 frame마다 (선택된 탭의 열린 diff 요청, 그 저장소 세션의 `selected_diff`, 그 저장소에서 `file_diff_loaded`가
   온 횟수)를 넘기면, 요청이 같은 diff가 읽혀 있고 횟수가 바뀌었을 때만 `show`한다. 읽는 중이면 낡은 내용을 지워 stage 단추가 엉뚱한 파일에 걸리지
@@ -165,7 +168,8 @@ cyella_driver
 - **정책**: `allowed_schemes={file}`, 메시지 8 MiB, **개발자 도구 끔**, 기본 컨텍스트 메뉴 끔. 웹뷰가 보낸 메시지는 문서 주소가 우리가 연 뷰어와 같을 때만
   믿는다(`is_viewer_document`). 뷰어 파일은 실행 파일 옆 `diff-viewer\index.html`이다.
 - **웹뷰를 쓸 수 없을 때**: 쓸 수 없으면 `diff_surface_state::webview_available`이 거짓이고 본문은 텍스트 hunk 목록(`diff_row_element`)이다.
-  `--no-webview`로 강제할 수 있다. 판단은 두 겹이다.
+  `--no-webview`로 강제할 수 있다. 판단은 두 겹이고, 실패와 따로 "표시할 수 없음"이 있다. driver의 `webview_mounted`(frame에 싣는가)와
+  `webview_usable`(본문이 뷰어인가)이 이 둘을 가른다.
   - **시작할 때의 빠른 확인**: `GetAvailableCoreWebView2BrowserVersionString`으로 Runtime 설치를 묻고(`webview_runtime_installed`), 뷰어 파일이 없거나
     프로필 폴더를 모를 때도 같이 거른다. Runtime이 없는 PC에서 처음 diff를 열 때 placeholder가 잠깐 비쳤다가 텍스트로 바뀌지 않게 하려는 것이다
     (이 확인이 없어도 물러선 뒤로는 텍스트라 비치는 것은 실행당 한 번이다).
@@ -173,12 +177,38 @@ cyella_driver
     `runtime_too_old`·`environment_failed`·`controller_failed`·`not_built`), 뷰어 문서 열기 실패(`navigation_failed`), `browser_process_failed`,
     그리고 `render_process_failed`가 30초 안에 두 번 오면 물러선다. 렌더러가 한 번 죽으면 luil이 주 문서를 다시 읽고 다시 읽힌 뷰어의 `ready`가
     내용 전체를 다시 받으므로 앱은 `page_reloading`만 한다(luil은 10초 안에 다시 죽으면 다시 읽지 않는데 그 갈래는 `error` 글로만 구분되어, 앱이 더 넓은
-    창으로 따로 센다).
+    창으로 따로 센다). `presentation_changed`는 실패로 세지 않는다(아래 "표시할 수 없음"). 그 밖의 사건(항해 완료·차단, 권한 거절, 내려받기 차단,
+    버려진 사건)은 diff 보기와 상관없다.
   - **물러서면 이번 실행 동안 그대로다.** 웹뷰를 frame의 목록에서 빼고 다시 싣지 않는다. luil은 다시 실린 id를 다시 세우므로, 실으면 브라우저 프로세스가
     죽은 웹뷰도 새로 서지만 같은 까닭으로 또 실패하면 만들고 실패하기가 되풀이되고 화면이 placeholder와 텍스트 사이를 오간다. 열려 있던 diff는 다음
     frame부터 텍스트로 보이고, 까닭(사건의 갈래·HRESULT·luil의 설명)은 경고 알림(`diff.viewer_failed`) 한 번으로 남는다. 물러선 뒤 늦게 온 사건은 버린다.
-- **테마**: driver가 `luil::resolve_color_theme` + `color_palette_for`로 팔레트를 얻어 `make_diff_theme`이 뷰어의 CSS 변수(`--window-background` …)로 옮긴다.
-  테마가 바뀌면 `set_theme` 메시지 하나가 간다. 시스템 모드는 `AppsUseLightTheme`를 읽는다(고대비 PC는 luil의 고대비 팔레트를 쓰지 않으므로 뷰어는 어두운 기본 색에 가깝다).
+  - **표시할 수 없음은 실패가 아니다.** 환경·컨트롤러가 정상이어도 웹뷰가 앉은 표면이 합성 제시를 못 하면 luil은 웹뷰를 숨기고 자리표의 placeholder만
+    그린다. luil의 계약(`webview-composition-design.md`)이 드는 경우는 CPU·레이어드 표시와 GPU에서 CPU로 물러난 표면이다. cyella의 주 창은 표준 표시에
+    자동 렌더러라, 실제로 닿는 것은 시작할 때 GPU 렌더러를 세우지 못한 PC와 실행 중 장치 손실 따위로 렌더러가 CPU로 물러난 경우다. 원격 세션 여부는
+    luil이 배경 효과·popup 모서리에만 쓰고 이 판정에는 쓰지 않는다. 그래서 `make_diff_webview`가 `report_presentation`을 켜고,
+    `presentation_changed`의 `presentation_available`을 `diff_webview_health::presentable`이 기억한다. 거짓인 동안 본문은 텍스트이고 웹뷰는 frame에
+    **그대로 싣는다** — 빼면 luil이 다시 가능해진 것을 알릴 웹뷰가 없고 페이지 상태도 날아간다. 참이 오면 다음 frame부터 뷰어로 돌아간다.
+    - 숨은 동안에도 luil은 `post_message`를 페이지로 보내고(`flush_commands`는 보임과 무관하다) 페이지는 준비된 채라, 컨트롤러는 `page_reloading` 없이
+      계속 게시한다. 돌아갈 때 내용이 최신이다. 작은 `set_*` 메시지를 건너뛴 페이지는 seq로 알아채고 `ready`를 다시 보낸다(`diff_view_controller`).
+    - luil은 컨트롤러가 준비되는 순간 표면의 실제 값을 처음 알린다. GPU 표면은 렌더러를 만들 때부터 underlay가 있어 첫 값이 참이므로, 정상 PC의 시작에
+      거짓이 먼저 오지 않는다. 첫 값이 오기 전에는 표시할 수 있다고 본다(그래서 CPU 표면에서는 컨트롤러가 설 때까지 "여는 중" placeholder가 한 번 보인다).
+    - luil의 렌더러는 한 번 CPU로 물러선 표면에서 GPU를 다시 시도하지 않는다(`renderer_host`). 그래서 주 창에서 참으로 돌아오는 일은 지금 luil에서는 드물고,
+      돌아가는 길은 luil의 계약(첫 값과 변경을 알린다)을 따른 것이다.
+    - 처음 거짓이 되면 경고 알림(`diff.viewer_unpresentable`) 한 번이다. 실행당 한 번이고 다시 오가도 더 알리지 않는다. 바이너리·이미지 diff의 안내
+      (`diff.binary_needs_webview`, "지금은 뷰어를 쓸 수 없습니다")는 이 상태에서도 맞다. 머리 막대는 `diff_surface_state::webview_unpresentable`을 보고
+      `diff.fallback_note`("WebView2 없이…") 대신 `diff.fallback_note_unpresentable`("그래픽 가속 없이…")을 보인다. Runtime이 있는데 설치하라는 뜻으로
+      읽히지 않게 하려는 것이다. 좁은 폭의 `diff.fallback_short`("텍스트 보기")는 까닭을 말하지 않아 둘이 같다.
+    - `presentation_changed`는 luil의 초당 상한을 지나지 않지만 app inbox는 지난다. inbox가 차서 거짓이 버려지면 luil은 바뀔 때만 알리므로 다음 변화까지
+      빈 자리표가 남는다(아래 "테마"의 `system_appearance_intent`와 같은 처지다).
+    - 표시할 수 없는 동안 실패 사건이 오면 실패가 이긴다(웹뷰를 빼고 `diff.viewer_failed`). 물러선 뒤 온 표시 알림은 버린다.
+- **테마**: driver가 `ui::surface_palette_for`로 luil 표면과 같은 팔레트를 얻어 `make_diff_theme`이 뷰어의 CSS 변수(`--window-background` …)로 옮긴다.
+  테마가 바뀌면 `set_theme` 메시지 하나가 간다. 팔레트는 luil이 푸는 순서 그대로다: `resolve_color_theme(선호, 고대비, 밝은 모드)`, 고대비이면
+  `high_contrast_palette_for(OS의 대비 색)`, 아니면 `color_palette_for(테마, 키 컬러)`다. 그래서 흰 바탕 고대비에서도 뷰어가 창과 같은 색이다.
+  - OS 표시 설정은 레지스트리를 직접 읽지 않고 luil이 관찰한 값(`luil::current_system_appearance()`)을 쓴다. 시작할 때 한 번 읽고, 그 뒤로는
+    `cyella_delegate::make_system_appearance_message`가 내는 `system_appearance_intent`(값이 없는 깨우기)를 받을 때만 다시 읽는다. frame마다 읽지 않는다.
+    밝은 모드·고대비·강조색이 바뀌면 이 메시지가 logic thread를 깨워 다음 frame이 새 색을 보낸다.
+  - luil inbox가 차서 이 메시지가 버려지면 다음 알림까지 뷰어가 옛 색으로 남는다(창은 luil이 직접 칠하므로 바로 바뀐다).
+  - 창 없이 조립한 driver(test)는 luil의 관찰 전 기본값(어두운 모드·고대비 꺼짐)을 본다. test는 `cyella_driver_options::read_system_appearance`로 값을 꽂는다.
 - **복사**는 `host->post_clipboard_request(clipboard_copy_request{text})`다.
 - **외부 도구**: 결과가 `no_tool`·`launch_failed`·`extraction_failed`·`invalid_template`이면 경고 알림(`show_notice_intent`)으로 알린다. 도구를 띄웠으면 짧은 확인이다.
 - **discard 확인**: hunk·줄 discard는 웹뷰 안의 확인("정말 버릴까요?")을 쓴다. luil 확인 대화 상자는 **파일 단위** discard에만 걸린다
@@ -265,6 +295,8 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
 - **웹 콘텐츠는 UIA3 client에만 보인다.** luil이 웹뷰 페이지의 UIA tree를 자리표에 잇는다(luil `docs/webview-composition-design.md`의 접근성). WebView2가 앵커 창 아래에 두는
   크기 0의 자식 창(`Chrome_WidgetWin_0`)의 HWND 가지를 자리표 요소와 합쳐, UIA3 client(Narrator 같은 스크린 리더)에게는 `Group 'diff 뷰어'` 아래에 페이지의 Document와
   글·단추(카탈로그의 `diff_viewer.*` 문구와 줄 내용)가 화면 차례대로 선다. Chromium은 접근성을 늦게 켜므로 처음 묻는 순간에는 Document가 비어 있을 수 있다.
+  페이지 가지는 웹뷰가 실제로 그려질 때만 자리표에 붙고, 붙거나 떨어지면 luil이 자리표에서 구조 변경(`ChildrenInvalidated`)을 한 번 알린다. 그려지지 않는 동안
+  보조 기술이 읽는 것은 placeholder다(표면에 표시할 수 없는 동안은 자리표 대신 텍스트 본문이 선다).
   **UIA2 관리 client(`System.Windows.Automation`)는 그 자식 창을 훑지 않아** 자리표 group만 보이고 페이지 안은 보이지 않는다. 그 client로 하는 자동 검증은 웹뷰 안을
   읽거나 누를 수 없으므로, diff의 핵심 정보(파일명·hunk 수)는 luil 머리 막대가 말하고 뷰어 안의 동작은 controller 수준 test가 확인한다.
 - **UIA로 닿지 않는 몸짓.** 우클릭 메뉴(submodule·worktree·LFS 메뉴, 태그 대화 상자를 여는 메뉴), 팔레트·단축키의 키 입력(Ctrl+Shift+P·↑↓),
@@ -273,7 +305,8 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
   이것은 자동 검증 방법의 한계이고 키보드 경로는 있다. 우클릭 메뉴는 고른 사이드바 항목이나 커밋에서 Shift+F10(팔레트의 `view.menu`)으로 열고,
   끌어 놓기가 고르는 merge·rebase·fast-forward는 브랜치의 우클릭 메뉴에도 있으며, rebase 편집기의 순서는 [위로]·[아래로] 단추로 바꾼다.
 - **luil의 빈 곳**: 끄는 도중 손잡이가 tree에서 사라지면 `split_handle_config::finish`가 오지 않는다. 그래서 판 폭 저장에 늦은 예약을 남겨 둔다(위 "판 폭").
-  웹 콘텐츠의 접근성(위)과 웹뷰 생성 실패의 알림(`creation_failed`, "diff 웹뷰" 절)은 luil이 이미 한다.
+  웹 콘텐츠의 접근성(위), 웹뷰 생성 실패의 알림(`creation_failed`)과 표면에 표시할 수 있는지의 알림(`report_presentation`·`presentation_changed`,
+  둘 다 "diff 웹뷰" 절)은 luil이 이미 한다.
 
 ## 대화 상자·메뉴·끌어 놓기
 

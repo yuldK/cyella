@@ -88,6 +88,8 @@ namespace cyella::win32 {
 
     void cyella_driver::start()
     {
+        // 창이 있으면 luil이 이미 첫 값을 관찰해 두었다. 첫 메시지(`system_appearance_intent`)가 오기 전 frame도 이 값으로 칠한다.
+        refresh_system_appearance();
         process_runner_ = make_process_runner();
         files_ = make_workspace_files();
         probe_ = make_file_probe();
@@ -223,7 +225,13 @@ namespace cyella::win32 {
         // 오래된 Runtime·환경 생성 실패처럼 이 확인이 못 보는 것은 사건이 맡는다.
         const viewer_location viewer { locate_diff_viewer() };
         webview_data_folder_ = webview_user_data_directory();
-        webview_capable_ = options_.force_text_diff == false && viewer.exists && webview_data_folder_.empty() == false && webview_runtime_installed();
+        // test는 확인 결과를 정해 둔다 (`assume_webview_capable`). 그때는 Runtime을 묻지 않는다.
+        bool environment_ready { false };
+        if (options_.assume_webview_capable.has_value())
+            environment_ready = *options_.assume_webview_capable;
+        else
+            environment_ready = viewer.exists && webview_data_folder_.empty() == false && webview_runtime_installed();
+        webview_capable_ = options_.force_text_diff == false && environment_ready;
         viewer_url_ = to_u8(make_file_url(viewer.index_path));
 
         diff_temp_ = std::make_unique<diff_temp_directory>();
@@ -631,13 +639,20 @@ namespace cyella::win32 {
             diff_->page_reloading();
             break;
         case ui::diff_webview_action::fall_back:
-            // `webview_usable`이 거짓이 되어 다음 frame부터 본문이 텍스트이고 웹뷰는 목록에서 빠진다. 다시 싣지 않으므로
+            // `webview_mounted`가 거짓이 되어 다음 frame부터 본문이 텍스트이고 웹뷰는 목록에서 빠진다. 다시 싣지 않으므로
             // luil이 다시 세우려 하지 않는다. 컨트롤러는 다시 `ready`가 올 때까지 메시지를 짓지 않는다.
             diff_->page_reloading();
             if (controller_ != nullptr)
                 static_cast<void>(controller_->handle(
                     luil::app_message { show_notice_intent { .text = tr(u8"diff.viewer_failed", { { u8"reason", webview_health_.reason() } }), .warning = true } }
                 ));
+            break;
+        case ui::diff_webview_action::presentation_lost:
+            // `webview_usable`이 거짓이 되어 다음 frame부터 본문이 텍스트다. 웹뷰는 frame에 남기고 `page_reloading`도 하지 않는다 —
+            // 페이지는 살아 있고 준비되어 있으며, luil은 숨긴 웹뷰에도 메시지를 보내므로 내용이 계속 최신이다. 그래서 다시 표시할
+            // 수 있게 되면 곧바로 뷰어로 돌아간다. 알림은 실행당 한 번이다(판정이 두 번째부터 `none`을 준다).
+            if (controller_ != nullptr)
+                static_cast<void>(controller_->handle(luil::app_message { show_notice_intent { .text = tr(u8"diff.viewer_unpresentable"), .warning = true } }));
             break;
         case ui::diff_webview_action::web_message:
             // 웹뷰는 간 적이 있는 어느 문서든 메시지를 보낼 수 있다. 우리가 연 뷰어가 보낸 것만 믿는다.
@@ -647,6 +662,11 @@ namespace cyella::win32 {
         case ui::diff_webview_action::none:
             break;
         }
+    }
+
+    void cyella_driver::refresh_system_appearance()
+    {
+        system_appearance_ = options_.read_system_appearance ? options_.read_system_appearance() : luil::current_system_appearance();
     }
 
     void cyella_driver::sync_diff_view()
@@ -681,6 +701,12 @@ namespace cyella::win32 {
         if (const auto* const metrics { message.get<window_metrics_intent>() }; metrics != nullptr)
         {
             metrics_ = *metrics;
+            return true;
+        }
+        if (message.get<system_appearance_intent>() != nullptr)
+        {
+            // 메시지는 깨우기일 뿐이다. 값은 지금 다시 읽으므로 앞선 메시지가 버려졌어도 최신 값이 이긴다.
+            refresh_system_appearance();
             return true;
         }
         if (const auto* const placement { message.get<window_placement_intent>() }; placement != nullptr)
@@ -741,9 +767,9 @@ namespace cyella::win32 {
         {
             // 앱 테마를 웹뷰의 CSS 변수로 옮긴다. 테마가 바뀌면 `set_theme` 한 통만 간다.
             // 팔레트를 만들고 CSS 변수로 옮기는 일은 선택된 테마가 바뀔 때만 한다 (frame마다 문자열 수십 개를 짓지 않는다).
-            const luil::color_theme theme { luil::resolve_color_theme(to_luil_theme(controller_->settings().appearance.theme), high_contrast_enabled(), system_prefers_light_theme()) };
+            // OS 표시 설정은 읽어 둔 값이다 (`system_appearance_intent`가 갱신한다). frame마다 레지스트리·시스템 설정을 묻지 않는다.
             const appearance_settings& appearance { controller_->settings().appearance };
-            const luil::ui_color_palette palette { luil::color_palette_for(theme, luil::accent_for(ui::effective_accent_id(appearance.accent))) };
+            const luil::ui_color_palette palette { ui::surface_palette_for(to_luil_theme(appearance.theme), system_appearance_, ui::effective_accent_id(appearance.accent)) };
             if (diff_theme_source_.has_value() == false || *diff_theme_source_ != palette || diff_ui_font_ != appearance.ui_font || diff_code_font_ != appearance.code_font)
             {
                 diff_theme_source_ = palette;
@@ -766,6 +792,7 @@ namespace cyella::win32 {
             surface.truncated = diff_->controller().truncated();
             surface.textconv_driver = diff_->controller().textconv_driver();
             surface.webview_available = webview_usable();
+            surface.webview_unpresentable = webview_mounted() && webview_usable() == false;
             controller_->set_diff_surface(surface);
         }
 
@@ -816,8 +843,9 @@ namespace cyella::win32 {
         frame->fonts.code_family = controller_->settings().appearance.code_font;
 
         // 웹뷰는 한 번 필요해진 뒤로 계속 싣는다. 빼면 luil이 웹뷰를 닫아 페이지 상태가 날아간다. 자리표(webview_element)가
-        // tree에 없는 동안은 luil이 숨겨 둔다. 빼는 것은 웹뷰가 실패했을 때뿐이고(`webview_usable`), 그 뒤로는 다시 싣지 않는다.
-        if (diff_ != nullptr && webview_usable())
+        // tree에 없는 동안은 luil이 숨겨 둔다. 빼는 것은 웹뷰가 실패했을 때뿐이고(`webview_mounted`), 그 뒤로는 다시 싣지 않는다.
+        // 표면에 표시할 수 없는 동안(본문이 텍스트인 동안)에도 싣는다. 빼면 luil이 다시 표시할 수 있게 된 것을 알릴 웹뷰가 없다.
+        if (diff_ != nullptr && webview_mounted())
         {
             if (view.repository.has_value() && view.repository->diff.has_value())
                 webview_requested_ = true;

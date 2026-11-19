@@ -92,6 +92,7 @@ luil로 직접 그리면 텍스트 배치, 구문 강조, 선택·복사, 단어
 ## 2026-10-20 구현 결정: 주 창에 끼우기
 
 1. **웹뷰는 창에 하나, 자리표는 diff가 열렸을 때만.** 한 번 diff를 열면 웹뷰가 실패하기 전까지 `ui_webview`를 frame마다 싣고(`navigate_revision` 1, 실패하면 빼고 다시 싣지 않는다 — 3번), `webview_element`는 diff 영역이 열린 동안만 tree에 둔다.
+   표면에 표시할 수 없는 동안에도 웹뷰는 싣고 자리표만 텍스트 본문으로 바꾼다(3번).
    탭·파일을 바꿔도 같은 웹뷰에 `show_diff`만 보낸다. 무엇을 보일지는 (탭의 diff 요청, 세션의 `selected_diff`, `file_diff_loaded` 횟수)의 `sync`가 맞춘다.
 2. **효과 실행은 `diff_view_coordinator`다.** `apply_patch`는 git operation으로, 두 쪽 꺼내기와 외부 도구 열기는 `task_scheduler`의 `diff-view` lane(취소 token, 앱 종료와 이어짐)으로,
    복사는 클립보드 요청으로 보낸다. 취소는 `diff_git_gateway::extract_cancellable`과 `external_open_request::cancellation`으로 닿는다.
@@ -99,6 +100,9 @@ luil로 직접 그리면 텍스트 배치, 구문 강조, 선택·복사, 단어
    (처음 diff를 열 때 placeholder가 비쳤다가 바뀌지 않게 하는 빠른 길이다). 로더가 못 보는 실패 — 오래된 Runtime, 환경·컨트롤러 생성 실패, 뷰어 문서 열기 실패,
    브라우저 프로세스 종료, 렌더러의 잇단 종료 — 는 luil의 `creation_failed`·`navigation_failed`·`browser_process_failed`·`render_process_failed` 사건으로 받아
    이번 실행 동안 텍스트 대체 보기로 물러선다 (`ui::diff_webview_health`, [UI 구조](../ui-architecture.md)의 diff 웹뷰 절). 2026-11-19에 고쳤다. 처음에는 luil이 생성 실패를 알리지 않는다고 적었는데 luil은 알린다.
+   웹뷰는 섰는데 앉은 표면이 합성 제시를 못 하는 경우(luil의 계약대로 CPU·레이어드 표시와 GPU에서 CPU로 물러난 표면. cyella의 주 창에서는 GPU 렌더러를 세우지 못한 PC와 실행 중 렌더러가 CPU로 물러난 경우다)는 실패로 치지 않는다. luil의 `presentation_changed`(`report_presentation`)가 거짓인 동안만
+   텍스트로 보이고 웹뷰는 frame에 남겨, 참이 오면 뷰어로 돌아간다. 숨은 웹뷰에도 메시지가 가므로 돌아갈 때 내용이 최신이다. 알림(`diff.viewer_unpresentable`)은 실행당 한 번이다. 2026-11-19에 더했다.
 4. **hunk·줄 discard 확인은 웹뷰 안에 둔다.** luil로 그리는 확인 대화 상자는 파일 단위 discard에만 걸린다.
 5. **웹 콘텐츠의 접근성은 luil이 잇는다.** 페이지의 UIA tree는 자리표 아래에 서서 UIA3 client(스크린 리더)가 읽는다. UIA2 관리 client(`System.Windows.Automation`)에는
    페이지 안이 보이지 않는다. 자세한 것은 [UI 구조](../ui-architecture.md)의 "알아 둘 것"에 적었다. 2026-11-19에 고쳤다. 처음에는 luil이 연결하지 않는다고 적었다.
+   페이지 가지는 웹뷰가 실제로 그려질 때만 자리표에 붙고, 붙거나 떨어질 때 luil이 자리표의 구조 변경을 알린다.
