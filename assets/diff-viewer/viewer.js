@@ -794,7 +794,9 @@
         state.path = '';
         state.rows = null;
         showNotice();
-        renderEmpty(t('diff_viewer.nothing_to_show'));
+        // 비운 페이지가 보이는 것은 앱이 다음 diff를 읽는 동안뿐이다 (닫은 diff를 다시 열 때, 다른 파일로 넘어갈 때, 이미지·바이너리의
+        // 두 쪽을 꺼내는 동안). 읽은 diff에 변경이 없으면 `show_diff`가 와서 "변경 사항이 없습니다"를 보인다. 그래서 자리표와 같은 말을 적는다.
+        renderEmpty(t('diff_viewer.loading'));
         renderToolbar();
     }
 
