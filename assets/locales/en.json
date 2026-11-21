@@ -1340,7 +1340,7 @@
     "settings.tabs.preview_first": "cyella",
     "settings.tabs.preview_name": "{name} preview",
     "settings.tabs.preview_second": "luil",
-    "settings.tabs.preview_third": "bibliond",
+    "settings.tabs.preview_third": "nlohmann",
     "settings.tabs.shape": "Tab shape",
     "settings.tabs.shape_connected": "Connected tabs",
     "settings.tabs.shape_connected_help": "The selected tab joins the toolbar below it.",
