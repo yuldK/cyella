@@ -177,7 +177,7 @@ namespace cyella::ui {
             return std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"diff-header-bar" }, bar_style { .divider_bottom = true }, std::move(column));
         }
 
-        // 웹뷰가 앉을 자리다. 웹뷰가 서면 이 자리가 구멍으로 비워져 페이지가 보이고, 서는 동안은 placeholder 글이 보인다.
+        // 웹뷰가 앉을 자리다. 서는 동안은 placeholder 글이 보이고, 웹뷰가 첫 페이지를 내면 그 위를 덮는다 (`make_diff_webview`의 위층).
         // 서지 못하면 luil이 `creation_failed`를 알리고 driver가 다음 frame부터 이 자리를 텍스트 본문으로 바꾼다 (`diff_webview_health`).
         // 섰지만 표면에 표시할 수 없다고 알려 와도(`presentation_changed`) 그동안 이 자리 대신 텍스트 본문이 선다.
         std::unique_ptr<luil::ui_element> build_webview_slot(const diff_panel_view& diff)
@@ -328,6 +328,9 @@ namespace cyella::ui {
         webview.on_event = [](luil::webview_event event) { return luil::app_message { diff_webview_event_intent { std::move(event) } }; };
         // 표면이 합성 제시를 못 하면 luil은 웹뷰를 숨기고 placeholder만 그린다. 알려 받아야 그동안 빈 칸 대신 텍스트 본문을 보인다.
         webview.report_presentation = true;
+        // 페이지를 자리표 위에 얹는다. 아래층은 자리를 투명하게 비우는데, 그 시점이 웹뷰의 첫 그림보다 일러 diff를 처음 열 때
+        // 창 뒤가 잠깐 비친다 (luil `webview-composition-design.md`). 위층은 자리표를 비우지 않아 그 틈에도 placeholder가 보인다.
+        webview.layer = luil::webview_layer::overlay;
         return webview;
     }
 

@@ -181,6 +181,8 @@ TEST_CASE("the diff webview policy opens only file urls, takes 8 MiB messages an
     CHECK_FALSE(webview.policy.open_new_windows_here);
     // 표면이 합성 제시를 못 하는 것을 알려 받아야 그동안 텍스트 본문으로 바꾼다.
     CHECK(webview.report_presentation);
+    // 자리표를 비우지 않는 위층이라야 첫 그림 전에 창 뒤가 비치지 않는다.
+    CHECK(webview.layer == luil::webview_layer::overlay);
     REQUIRE(webview.on_event != nullptr);
 
     // 웹뷰 사건은 logic thread에서 앱 메시지로 받는다.

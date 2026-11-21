@@ -132,8 +132,9 @@ cyella_driver::make_frame
 - **놓이는 곳**: 토스트는 주 tree의 카드라 본문 배치를 밀어내지 않는다. 투명 popup(`ui_popup::transparent`)이면 둥근 모서리·흐려지기도 그릴 수 있지만,
   토스트는 창 안 모서리에만 서므로 창 밖으로 나갈 일이 없고, popup은 owner 관계로 앵커 창 위에 서므로(luil popup-overlay-design.md "Frame 선언 모델") 주 tree의
   대화 상자보다 늘 위라 "대화 상자는 토스트 위"를 지킬 수 없다.
-  diff 웹뷰는 Skia 표면 아래의 composition visual이라 토스트가 그 위에 그대로 그려진다(luil `webview-composition-design.md`). 토스트가 diff 칸의 가운데를 덮으면
-  luil이 그동안 웹뷰 구멍을 내지 않으므로, 토스트는 가장자리에서 떨어져 뜬다. 대화 상자는 토스트 위에 선다.
+  diff 웹뷰는 Skia 표면 위의 composition visual이라 토스트 가운데 diff 칸과 겹치는 부분은 페이지 뒤로 가 보이지 않는다(luil `webview-composition-design.md`.
+  아래층이던 때에도 구멍이 그 부분을 지워 보이지 않았다). 토스트가 diff 칸의 가림 표본(가운데와 네 모서리)에 닿으면 luil이 그동안 웹뷰를 통째로
+  숨기므로, 토스트는 가장자리에서 떨어져 뜬다. 대화 상자는 토스트 위에 선다.
 - **알림 센터 popup**: 센터는 `built_popup::notifications`이고 바깥 누름·Esc에 닫힌다. 바깥 누름이 종이었으면 `close_notification_center_intent::dismissed`로 다시 열지 않는다.
 
 ## 구성 요소가 붙는 자리
@@ -164,6 +165,10 @@ cyella_driver
 - **웹뷰는 창에 하나다.** 한 번 diff를 열면 그 뒤로 웹뷰가 실패하기 전까지 frame마다 같은 `ui_webview`(id `diff`)를 싣는다(`navigate_revision`은
   늘 1이라 다시 읽지 않는다. 실패하면 빼고 다시 싣지 않는다 — 아래 "웹뷰를 쓸 수 없을 때". 표면에 표시할 수 없는 동안에는 빼지 않는다). 자리표(`webview_element`)가 tree에 없는 동안은 luil이 웹뷰를 숨기고 페이지 상태는 남는다. 탭·파일을 바꾸면 컨트롤러가 `show_diff`만
   새로 보낸다.
+- **페이지는 자리표 위에 얹는다.** `make_diff_webview`가 `ui_webview::layer`를 `webview_layer::overlay`로 싣는다(luil `webview-composition-design.md`).
+  자리표는 늘 바탕과 "읽는 중" 글을 그리고, 웹뷰가 첫 문서를 다 읽으면 페이지가 그 위를 덮는다. luil의 기본인 아래층은 자리를 투명하게
+  비워 페이지를 보이는데, 비우는 시점이 웹뷰의 첫 그림보다 일러 앱을 켜고 diff를 처음 열 때 창 뒤가 잠깐 비쳤다. 위층은 비우지 않으므로 그 틈에도
+  자리표가 보인다. 자리 위의 다른 요소(대화 상자)가 가림 표본에 닿으면 위층은 웹뷰를 숨기고 아래층은 구멍을 막는다. 어느 쪽이든 그동안 보이는 것은 자리표다.
 - **무엇을 보일지는 `sync`가 맞춘다.** driver가 frame마다 (선택된 탭의 열린 diff 요청, 그 저장소 세션의 `selected_diff`, 그 저장소에서 `file_diff_loaded`가
   온 횟수)를 넘기면, 요청이 같은 diff가 읽혀 있고 횟수가 바뀌었을 때만 `show`한다. 읽는 중이면 낡은 내용을 지워 stage 단추가 엉뚱한 파일에 걸리지
   않게 한다. 동작은 **보이고 있는 diff의 저장소**로 나가므로 탭을 옮긴 사이에 끝나도 맞는 저장소를 고친다.
@@ -192,7 +197,7 @@ cyella_driver
     **그대로 싣는다** — 빼면 luil이 다시 가능해진 것을 알릴 웹뷰가 없고 페이지 상태도 날아간다. 참이 오면 다음 frame부터 뷰어로 돌아간다.
     - 숨은 동안에도 luil은 `post_message`를 페이지로 보내고(`flush_commands`는 보임과 무관하다) 페이지는 준비된 채라, 컨트롤러는 `page_reloading` 없이
       계속 게시한다. 돌아갈 때 내용이 최신이다. 작은 `set_*` 메시지를 건너뛴 페이지는 seq로 알아채고 `ready`를 다시 보낸다(`diff_view_controller`).
-    - luil은 컨트롤러가 준비되는 순간 표면의 실제 값을 처음 알린다. GPU 표면은 렌더러를 만들 때부터 underlay가 있어 첫 값이 참이므로, 정상 PC의 시작에
+    - luil은 컨트롤러가 준비되는 순간 표면의 실제 값을 처음 알린다. GPU 표면은 렌더러를 만들 때부터 합성 층이 있어 첫 값이 참이므로, 정상 PC의 시작에
       거짓이 먼저 오지 않는다. 첫 값이 오기 전에는 표시할 수 있다고 본다(그래서 CPU 표면에서는 컨트롤러가 설 때까지 "여는 중" placeholder가 한 번 보인다).
     - luil의 렌더러는 한 번 CPU로 물러선 표면에서 GPU를 다시 시도하지 않는다(`renderer_host`). 그래서 주 창에서 참으로 돌아오는 일은 지금 luil에서는 드물고,
       돌아가는 길은 luil의 계약(첫 값과 변경을 알린다)을 따른 것이다.
