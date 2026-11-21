@@ -64,6 +64,8 @@ cyella_validate_windows_platform(
 )
 cyella_validate_msvc(MINIMUM_VERSION "${CYELLA_MINIMUM_MSVC_VERSION}")
 cyella_configure_msvc_link_directories()
+# 의존성(luil·Catch2)을 넣기 전에 건다. 그래야 그쪽 컴파일에도 걸린다.
+cyella_trim_build_paths()
 
 add_library(cyella_project_options INTERFACE)
 target_compile_features(cyella_project_options INTERFACE cxx_std_${CYELLA_CXX_STANDARD})

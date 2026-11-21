@@ -60,6 +60,23 @@ function(cyella_validate_msvc)
     endif()
 endfunction()
 
+# 빌드한 PC의 경로가 실행 파일에 남지 않게 `__FILE__`에서 저장소·빌드 폴더 앞부분을 잘라 낸다.
+#  - third_party까지 걸리도록 디렉터리 범위에 건다 (`add_subdirectory`보다 먼저 부른다). Skia 헤더의 `SK_ABORT`가
+#    `__FILE__`을 문구에 싣는데, 그 헤더를 luil이 절대 경로의 include 폴더로 읽어 Release 실행 파일에 빌드 경로가 그대로 들어갔다.
+#  - `/d1trimfile`은 문서에 없는 cl 옵션이고 앞부분을 글자 그대로 견준다. CMake가 넘기는 `/` 꼴과 프로젝트 파일의 `\` 꼴을 둘 다 준다.
+function(cyella_trim_build_paths)
+    if(NOT MSVC)
+        return()
+    endif()
+
+    foreach(_cyella_root "${PROJECT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}")
+        file(TO_NATIVE_PATH "${_cyella_root}" _cyella_native_root)
+        add_compile_options(
+            "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/d1trimfile:${_cyella_root}>"
+            "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/d1trimfile:${_cyella_native_root}>")
+    endforeach()
+endfunction()
+
 function(cyella_apply_msvc_options target)
     cmake_parse_arguments(PARSE_ARGV 1 arguments "" "ENABLE_ANALYZE" "")
 
