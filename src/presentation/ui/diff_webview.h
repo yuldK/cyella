@@ -27,6 +27,10 @@ namespace cyella::ui {
     // 본문이 텍스트 hunk 목록(`diff_row_element`)이다.
     [[nodiscard]] std::unique_ptr<luil::ui_element> build_diff_area(const repository_view& repository, float width, feedback_sources& sources);
 
+    // diff 자리의 본문이 웹뷰 자리표인가다 (diff가 열려 있고, 카드로 보이는 특수 diff가 아니고, 웹뷰를 쓸 수 있다).
+    // 웹뷰 자리 안에서는 주 tree의 그림이 보이지 않으므로, 그 위에 떠야 하는 것(토스트)은 이 값을 보고 popup 표면으로 간다.
+    [[nodiscard]] bool diff_webview_stands(const repository_view& repository) noexcept;
+
     struct diff_webview_options
     {
         // 뷰어 페이지의 `file://` 주소다.

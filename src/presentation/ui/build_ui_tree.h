@@ -31,6 +31,8 @@ namespace cyella::ui {
         // 참조 목록 카드다. 바깥 누름은 닫자고 청하고(포인터가 "+N" 칸 안이면 controller가 버린다), Esc·앵커가 사라짐에 닫히고,
         // 휠·창 이동·크기·활성 전환에는 남는다 (driver의 닫힘 계기 대응).
         bool ref_list { false };
+        // diff 웹뷰 위에 띄우는 토스트다. 어느 닫힘 계기에도 남는다 (물러나는 것은 알림의 시한과 닫기 단추가 정한다).
+        bool toasts { false };
         // tree의 픽셀 알파로 창 모양과 입력 자리를 정한다 (luil `ui_popup::transparent`). 꼬리와 그림자를 tree가 그린다.
         bool transparent { false };
         // popup 둘레의 경계다 (luil `ui_popup::border`). 둥근 카드가 제 테두리를 긋는 popup만 끈다.

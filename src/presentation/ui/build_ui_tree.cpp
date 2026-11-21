@@ -9,6 +9,7 @@
 #include "presentation/ui/app_symbol.h"
 #include "presentation/ui/command_elements.h"
 #include "presentation/ui/cyella_caption.h"
+#include "presentation/ui/diff_webview.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/list_rows.h"
 #include "presentation/ui/notification_ui.h"
@@ -654,8 +655,25 @@ namespace cyella::ui {
                 root->place(make_app_title(u8"caption-title", u8"cyella"), caption_title_rect(caption_config, app_title_aspect()));
         }
         // 토스트는 본문 위에 떠서 자리를 밀어내지 않는다. 대화 상자는 그 위에 선다.
-        for (placed_toast& toast : build_toasts(view, rects.body.y + rects.body.height))
-            root->place(std::move(toast.element), toast.rect);
+        //  - diff 웹뷰가 서 있으면 popup 표면에 싣는다 (아래에서 `built.popups`에 넣는다). 웹뷰 자리 안의 주 tree 그림은 페이지에
+        //    덮여 보이지 않는다. 변경 중심 배치에서는 토스트가 거의 통째로 그 자리 안이다.
+        //  - 대화 상자가 열려 있으면 주 tree에 둔다. 대화 상자는 창 전체를 덮어 luil이 그동안 웹뷰를 숨기고, popup은 주 tree보다
+        //    늘 위라 주 tree에 두어야 대화 상자가 토스트 위에 선다. 아래에서 놓는 대화 상자와 같은 목록이다.
+        const bool dialog_open
+        {
+            view.clone.has_value()
+            || view.settings.has_value()
+            || view.rebase_editor.has_value()
+            || view.palette.has_value()
+            || view.form.has_value()
+        };
+        const bool toasts_on_popup { dialog_open == false && view.repository.has_value() && diff_webview_stands(*view.repository) };
+        const float toast_bottom { rects.body.y + rects.body.height };
+        if (toasts_on_popup == false)
+        {
+            for (placed_toast& toast : build_toasts(view, toast_bottom))
+                root->place(std::move(toast.element), toast.rect);
+        }
         // 끄는 동안의 문구는 대화 상자 아래, 나머지 화면 위에 그린다.
         if (view.repository.has_value() && view.repository->drop_hints != nullptr)
             root->place(build_drag_hint_overlay(view.repository->drop_hints), { 0.0f, 0.0f, view.logical_width, view.logical_height });
@@ -676,6 +694,12 @@ namespace cyella::ui {
         root->place(std::make_unique<shortcut_table_element>(view.shortcuts), { 0.0f, 0.0f, 1.0f, 1.0f });
 
         built_tree built {};
+        // 토스트 popup을 맨 앞에 싣는다. 뒤에 실은 popup이 위라, 메뉴·선택 목록이 토스트 위에 선다.
+        if (toasts_on_popup)
+        {
+            if (built_popup toasts { build_toast_popup(view, toast_bottom, scale) }; toasts.tree != nullptr)
+                built.popups.push_back(std::move(toasts));
+        }
         if (view.menu.has_value())
             built.popups.push_back(build_menu_popup(*view.menu, scale));
         if (view.selector.has_value())

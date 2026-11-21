@@ -16,7 +16,7 @@ libgit2로 SSH를 하려면 libssh2를 함께 빌드하고 인증 콜백을 직�
 일부 설정(`includeIf`, `core.sshCommand`), LFS 필터, credential helper가 CLI와 똑같이 동작하지 않는다.
 rebase·merge의 충돌 처리도 CLI보다 기능이 적다.
 
-같은 luil 기반 프로젝트인 gitman에 git CLI를 비대화형 외부 프로세스로 실행하는 구조(process runner,
+앞서 만든 luil 기반 도구에 git CLI를 비대화형 외부 프로세스로 실행하는 구조(process runner,
 작업 스케줄러, 취소 등록, 스레드 메시지)가 이미 있어 가져다 쓸 수 있다.
 
 ## 결정

@@ -105,7 +105,10 @@ namespace cyella::win32 {
         shown.border = popup.border;
         shown.placed = std::move(popup.placed);
         // 바깥을 누르거나 Esc·휠·창 이동이면 닫는다. 닫는 것은 상태(`ui_state::menu`)이고 popup은 다음 frame에 빠진다.
-        if (popup.ref_list)
+        //  - 토스트 popup은 닫힘 계기를 듣지 않는다. `dismiss`가 비면 luil이 계기를 감지해도 아무것도 내지 않는다.
+        if (popup.toasts)
+            shown.dismiss = {};
+        else if (popup.ref_list)
             shown.dismiss = ref_list_dismiss;
         else if (popup.font)
             shown.dismiss = [](const luil::win32::popup_dismiss_reason reason) {

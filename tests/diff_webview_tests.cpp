@@ -613,3 +613,92 @@ TEST_CASE("the header offers inline or split for text and a compare mode for ima
     CHECK_FALSE(has_group(u8"diff-image-mode"));
     CHECK_FALSE(has_group(u8"diff-layout"));
 }
+
+TEST_CASE("toasts ride a popup surface while the diff webview stands and return to the tree under a dialog", "[diff][webview][tree][notifications]")
+{
+    opened_diff test {};
+    const luil::ui_element_id toast_id { ui::kind_panel, u8"toast-7" };
+    const auto with_toast = [&test](const float presence) {
+        view_snapshot view { test.harness.build() };
+        notification_view toast {};
+        toast.id = 7;
+        toast.severity = notification_severity::warning;
+        toast.text = u8"안내입니다.";
+        toast.presence = presence;
+        view.toasts.push_back(std::move(toast));
+        return view;
+    };
+    const auto toast_popup = [](const ui::built_tree& built) -> const ui::built_popup* {
+        for (const ui::built_popup& popup : built.popups)
+            if (popup.toasts)
+                return &popup;
+        return nullptr;
+    };
+
+    // 텍스트 본문은 주 tree가 그리므로 토스트도 그 위에 그대로 그린다.
+    const ui::built_tree in_tree { ui::build_ui_tree(with_toast(1.0f)) };
+    const luil::ui_element* const tree_card { in_tree.tree->find(toast_id) };
+    REQUIRE(tree_card != nullptr);
+    CHECK(toast_popup(in_tree) == nullptr);
+
+    test.harness.ui.diff_surface.webview_available = true;
+    test.harness.ui.diff_surface.content = diff_content::text;
+
+    SECTION("the webview hides main tree pixels in its slot, so the toast goes to a popup at the same place")
+    {
+        const view_snapshot view { with_toast(1.0f) };
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        CHECK(built.tree->find(toast_id) == nullptr);
+        const ui::built_popup* const popup { toast_popup(built) };
+        REQUIRE(popup != nullptr);
+        // 메뉴·선택 목록이 토스트 위에 서도록 맨 앞에 싣는다. 닫힘 계기를 듣지 않는 것은 driver가 `toasts`를 보고 정한다.
+        CHECK(popup == &built.popups.front());
+        CHECK(popup->id == u8"toasts");
+        CHECK(popup->transparent);
+        CHECK_FALSE(popup->border);
+        REQUIRE(popup->tree != nullptr);
+        const luil::ui_element* const card { popup->tree->find(toast_id) };
+        REQUIRE(card != nullptr);
+        CHECK(card->bounds().x + popup->x * view.scale == tree_card->bounds().x);
+        CHECK(card->bounds().y + popup->y * view.scale == tree_card->bounds().y);
+        CHECK(card->bounds().width == tree_card->bounds().width);
+        CHECK(card->bounds().height == tree_card->bounds().height);
+        // 표면은 그림자까지 담되 주 창 밖으로 나가지 않는다.
+        CHECK(popup->x >= 0.0f);
+        CHECK(popup->y >= 0.0f);
+        CHECK(popup->x + popup->width <= view.logical_width);
+        CHECK(card->bounds().x > 0.0f);
+        CHECK(popup->tree->find({ ui::kind_button, u8"toast-7-close" }) != nullptr);
+        CHECK(popup->tree->duplicate_ids().empty());
+        CHECK(popup->tree->unarranged().empty());
+    }
+
+    SECTION("the surface keeps its place while the toast rises")
+    {
+        const ui::built_tree rising { ui::build_ui_tree(with_toast(0.3f)) };
+        const ui::built_tree shown { ui::build_ui_tree(with_toast(1.0f)) };
+        const ui::built_popup* const before { toast_popup(rising) };
+        const ui::built_popup* const after { toast_popup(shown) };
+        REQUIRE(before != nullptr);
+        REQUIRE(after != nullptr);
+        CHECK(before->x == after->x);
+        CHECK(before->y == after->y);
+        CHECK(before->width == after->width);
+        CHECK(before->height == after->height);
+    }
+
+    SECTION("a dialog covers the webview and must stay above the toast, so the toast returns to the tree")
+    {
+        view_snapshot view { with_toast(1.0f) };
+        view.clone = clone_dialog_view {};
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        CHECK(built.tree->find(toast_id) != nullptr);
+        CHECK(toast_popup(built) == nullptr);
+    }
+
+    SECTION("without toasts there is no popup")
+    {
+        const ui::built_tree built { ui::build_ui_tree(test.harness.build()) };
+        CHECK(toast_popup(built) == nullptr);
+    }
+}

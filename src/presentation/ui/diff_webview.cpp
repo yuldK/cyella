@@ -307,8 +307,13 @@ namespace cyella::ui {
         if (diff.special.has_value())
             column->add_flexible(build_diff_special_card(*diff.special, repository.repository_id));
         else
-            column->add_flexible(diff.use_webview ? build_webview_slot(diff) : build_text_body(diff, sources));
+            column->add_flexible(diff_webview_stands(repository) ? build_webview_slot(diff) : build_text_body(diff, sources));
         return panel_surface(u8"diff-panel", std::move(column));
+    }
+
+    bool diff_webview_stands(const repository_view& repository) noexcept
+    {
+        return repository.diff.has_value() && repository.diff->special.has_value() == false && repository.diff->use_webview;
     }
 
     luil::ui_webview make_diff_webview(const diff_webview_options& options)
