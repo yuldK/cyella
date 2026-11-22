@@ -11,6 +11,7 @@
 #include "presentation/ui/settings/settings_page_parts.h"
 #include "presentation/ui/settings/settings_pages_ui.h"
 #include "presentation/ui/settings/signing_ui.h"
+#include "presentation/ui/settings/suggestion_ui.h"
 #include "presentation/ui/settings/tab_style_ui.h"
 #include "presentation/ui/ui_helpers.h"
 #include "presentation/ui_intents.h"
@@ -668,13 +669,14 @@ namespace cyella::ui {
             entry(u8"settings-page-hosting", tr(u8"settings.pages.hosting"), settings_page::hosting, codicons::icon_cloud);
             entry(u8"settings-page-profiles", tr(u8"settings.pages.profiles"), settings_page::profiles, codicons::icon_person);
             entry(u8"settings-page-shortcuts", tr(u8"settings.pages.shortcuts"), settings_page::shortcuts, codicons::icon_keyboard);
+            entry(u8"settings-page-suggestion", tr(u8"settings.pages.suggestion"), settings_page::suggestion, codicons::icon_sparkle);
             navigation.select = [pages = std::move(pages)](const std::u8string& key) {
                 const auto found { std::ranges::find(pages, key, &std::pair<std::u8string, settings_page>::first) };
                 return message(select_settings_page_intent { found != pages.end() ? found->second : settings_page::general });
             };
             auto list { std::make_unique<luil::list_element>(std::move(navigation)) };
             list->set_search_label(tr(u8"settings.pages.list_name"));
-            column->add(std::move(list), 34.0f * 7.0f);
+            column->add(std::move(list), 34.0f * 8.0f);
             // 목록 맨 아래는 앱 심볼과 이름·버전이다. 따로 정보 화면을 두지 않고 이 자리가 그 몫을 한다.
             column->add_flexible_gap();
             auto about { make_row(u8"settings-about", 10.0f) };
@@ -765,6 +767,9 @@ namespace cyella::ui {
             break;
         case settings_page::hosting:
             build_hosting(page, view, content_width);
+            break;
+        case settings_page::suggestion:
+            build_suggestion_page(page, view.suggestion, content_width);
             break;
         case settings_page::profiles:
             if (view.profiles.has_value())

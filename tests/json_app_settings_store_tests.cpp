@@ -868,3 +868,49 @@ TEST_CASE("the tab shape and tab status spot round trip and fall back on unknown
     CHECK(wrong.settings.appearance.tab_marker == tab_marker_place::badge);
     CHECK(wrong.diagnostics.size() == 2);
 }
+
+TEST_CASE("commit suggestion is off and unwritten by default", "[json_app_settings][commit_suggestion]")
+{
+    // staged 변경 내용을 외부 명령으로 넘기는 기능이라 기본이 꺼짐이고, 쓰지 않는 사용자의 파일에는 키도 없다.
+    CHECK(app_settings {}.commit_suggestion.enabled == false);
+    const json document { json::parse(text_of(serialize_app_settings_json(app_settings {}, u8""))) };
+    CHECK_FALSE(document.contains("commit_suggestion"));
+}
+
+TEST_CASE("commit suggestion settings round trip", "[json_app_settings][commit_suggestion]")
+{
+    app_settings settings {};
+    settings.commit_suggestion.enabled = true;
+    settings.commit_suggestion.executable = u8"C:\\Tools\\ai cli\\claude.exe";
+    settings.commit_suggestion.arguments = u8"-p --tools \"\" --model haiku";
+    settings.commit_suggestion.instruction = u8"제목은 한국어로 쓴다";
+    const app_settings_load_result loaded { parse_app_settings_json(serialize_app_settings_json(settings, u8"")) };
+    CHECK(loaded.diagnostics.empty());
+    CHECK(loaded.settings.commit_suggestion == settings.commit_suggestion);
+    CHECK(loaded.settings == settings);
+}
+
+TEST_CASE("wrong commit suggestion fields fall back one by one", "[json_app_settings][commit_suggestion]")
+{
+    const app_settings_load_result wrong { parse_app_settings_json(u8R"({"commit_suggestion":{"enabled":"yes","executable":"codex","arguments":7,"instruction":[]}})") };
+    CHECK_FALSE(wrong.settings.commit_suggestion.enabled);
+    CHECK(wrong.settings.commit_suggestion.executable == u8"codex");
+    CHECK(wrong.settings.commit_suggestion.arguments.empty());
+    // 켬 여부 하나, 글 칸은 몇 개가 틀려도 하나다.
+    CHECK(wrong.diagnostics.size() == 2);
+
+    const app_settings_load_result not_object { parse_app_settings_json(u8R"({"commit_suggestion":true})") };
+    CHECK(not_object.settings.commit_suggestion == commit_suggestion_settings {});
+    CHECK(not_object.diagnostics.size() == 1);
+}
+
+TEST_CASE("turning commit suggestion off keeps the command and unknown keys", "[json_app_settings][commit_suggestion]")
+{
+    const std::u8string source { u8R"({ "commit_suggestion": { "enabled": true, "executable": "claude", "arguments": "-p", "future_option": 3 } })" };
+    app_settings settings { parse_app_settings_json(source).settings };
+    settings.commit_suggestion.enabled = false;
+    const json document { json::parse(text_of(serialize_app_settings_json(settings, source))) };
+    CHECK(document.at("commit_suggestion").at("enabled") == false);
+    CHECK(document.at("commit_suggestion").at("executable") == "claude");
+    CHECK(document.at("commit_suggestion").at("future_option") == 3);
+}

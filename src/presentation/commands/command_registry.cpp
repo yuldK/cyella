@@ -32,6 +32,7 @@ namespace cyella {
             list.push_back(make("app.settings.hosting", tr(u8"command.app.settings.hosting"), u8"settings hosting github gitlab server host token sign out logout", group::app));
             list.push_back(make("app.settings.shortcuts", tr(u8"command.app.settings.shortcuts"), u8"settings shortcut keybinding keys hotkey", group::app));
             list.push_back(make("app.settings.signing", tr(u8"command.app.settings.signing"), u8"settings signing gpg ssh sign commit", group::app));
+            list.push_back(make("app.settings.suggestion", tr(u8"command.app.settings.suggestion"), u8"settings ai suggest commit message command claude codex", group::app));
             list.push_back(make("app.theme", tr(u8"command.app.theme"), u8"theme dark light color mode", group::app));
             list.push_back(make("app.log", tr(u8"command.app.log"), u8"log operations output command history", group::app));
             // ---- 탭
@@ -59,6 +60,7 @@ namespace cyella {
             list.push_back(make("git.stash.pop", tr(u8"command.git.stash.pop"), u8"stash pop apply restore", group::git));
             list.push_back(make("git.commit", tr(u8"command.git.commit"), u8"commit save record", group::git, { u8"Ctrl+Enter" }, command_scope::commit_input));
             list.push_back(make("git.amend", tr(u8"command.git.amend"), u8"amend commit fix last", group::git));
+            list.push_back(make("git.suggest_commit_message", tr(u8"command.git.suggest_commit_message"), u8"suggest commit message ai generate write", group::git));
             // ---- 화면
             list.push_back(make("view.drawer", tr(u8"command.view.drawer"), u8"detail panel drawer sidebar", group::view));
             list.push_back(make("view.menu", tr(u8"command.view.menu"), u8"context menu right click actions", group::view, { u8"Shift+F10" }));
@@ -175,6 +177,8 @@ namespace cyella {
             return availability.pop;
         if (id == "git.commit")
             return availability.commit;
+        if (id == "git.suggest_commit_message")
+            return availability.suggest_commit_message;
         if (id == "git.amend" || id == "repo.refresh" || id == "repo.reveal" || id == "repo.open_vscode")
             return availability.repository;
         if (id == "view.drawer")

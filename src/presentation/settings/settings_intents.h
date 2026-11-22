@@ -154,6 +154,8 @@ namespace cyella {
     {
         git_executable,
         tool_executable,
+        // "AI" 쪽의 제안 명령 실행 파일이다.
+        suggestion_executable,
     };
 
     // 취소했으면 오지 않는다.

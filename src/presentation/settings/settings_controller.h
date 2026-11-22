@@ -107,6 +107,9 @@ namespace cyella {
         void handle_shortcut_message(const luil::app_message& message);
         [[nodiscard]] static bool is_profile_message(const luil::app_message& message);
         void handle_profile_message(const luil::app_message& message);
+        // ---- "AI" 쪽 (settings_controller_suggestion.cpp)
+        [[nodiscard]] static bool is_suggestion_message(const luil::app_message& message);
+        void handle_suggestion_message(const luil::app_message& message);
 
         dependencies dependencies_ {};
         signing_page_controller signing_;

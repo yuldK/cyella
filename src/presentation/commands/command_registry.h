@@ -70,6 +70,8 @@ namespace cyella {
         bool stash { false };
         bool pop { false };
         bool commit { false };
+        // 커밋 메시지 제안을 켰고 지금 누를 수 있다 (`find_suggestion_blocker`).
+        bool suggest_commit_message { false };
         // 상세 서랍 단추가 있는 폭이다 (medium·narrow).
         bool drawer { false };
         // 고른 항목의 우클릭 메뉴가 있다.

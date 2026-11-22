@@ -90,6 +90,15 @@ namespace cyella {
     // 이름 변경과 맞춘다.
     [[nodiscard]] git_arguments make_git_diff_numstat_args(diff_source source);
 
+    // index 전체의 패치다 (`diff --cached -M`). 경로 하나를 받는 `make_git_diff_args`와 달리 staged 변경을 통째로 낸다 (커밋 메시지 제안).
+    // `excluded_paths`의 파일은 `:(top,exclude,literal)<path>`로 git이 뺀다 — 그 내용은 출력에 나오지 않는다. 이 pathspec 표기를 쓰려고
+    // `--literal-pathspecs`를 붙이지 않고, 대신 경로마다 `literal`을 달아 glob 글자가 든 이름도 글자 그대로 맞춘다.
+    [[nodiscard]] git_arguments make_git_staged_patch_args(std::span<const std::string> excluded_paths = {});
+
+    // HEAD에서 거슬러 올라간 최근 커밋의 제목이다 (`log --max-count=<n> --format=%s HEAD --`). 한 줄에 하나이고 가장 새 것이 앞이다.
+    // 커밋이 없는 저장소에서는 git이 실패한다.
+    [[nodiscard]] git_arguments make_git_recent_subjects_args(std::uint32_t count);
+
     // `stash list -z --format=...`. parse_git_stash_list의 필드 순서다.
     [[nodiscard]] git_arguments make_git_stash_list_args();
 

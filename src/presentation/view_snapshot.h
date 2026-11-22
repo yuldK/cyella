@@ -393,6 +393,12 @@ namespace cyella {
         // 커밋 단추가 꺼진 이유다. 단추 아래에 글로 보인다.
         std::u8string blocked_reason {};
         bool committing { false };
+        // 커밋 메시지 제안 단추다 (ADR-009). 환경 설정에서 켰을 때만 보이고, 누를 수 없으면 `suggest_tooltip`이 그 까닭이다.
+        // 제안 명령이 도는 동안(`suggesting`)은 단추가 취소로 바뀐다.
+        bool suggest_visible { false };
+        bool can_suggest { false };
+        bool suggesting { false };
+        std::u8string suggest_tooltip {};
         // amend를 켰고 HEAD 커밋이 이미 upstream에 있다. 고쳐 쓰면 강제 push가 필요하다.
         bool amend_warning { false };
         // 커밋 상자의 "서명" 토글이다. 켜져 있으면 `commit -S`다. 기본값은 설정 `commit.gpgsign`이다.

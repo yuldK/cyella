@@ -26,4 +26,13 @@ namespace cyella::win32 {
     // 이름뿐이면 `directories`에서 차례로 찾아 처음 있는 파일의 절대 경로를, 없으면 `std::nullopt`를 돌려준다.
     // 확장자가 없으면 CreateProcessW처럼 `.exe`를 붙인다. PATHEXT는 보지 않는다(CreateProcessW도 보지 않는다).
     [[nodiscard]] std::optional<std::u8string> resolve_tool_executable(std::u8string_view executable, const std::vector<std::u8string>& directories, const file_probe& probe);
+
+    // 커밋 메시지 제안 명령의 실행 파일을 찾는다 (ADR-009). 먼저 `resolve_tool_executable`의 규칙으로 찾고, 못 찾은 이름이 `claude`면
+    // 알려진 설치 자리를 더 본다: 네이티브 설치의 `<user_profile>\.local\bin\claude.exe`, 그리고 npm 설치가 PATH에 놓는 `claude.cmd`
+    // 옆의 `node_modules\@anthropic-ai\claude-code\bin\claude.exe`다. npm으로 깔면 PATH에는 `.cmd` shim뿐이고, shim은 cmd.exe의
+    // 인용 규칙을 거치므로 띄우지 않고 그것이 가리키는 실행 파일을 직접 쓴다.
+    [[nodiscard]] std::optional<std::u8string> resolve_suggestion_executable(
+        std::u8string_view executable, const std::vector<std::u8string>& directories, std::u8string_view user_profile, const file_probe& probe);
+    // 지금 프로세스의 폴더·PATH·`USERPROFILE`로 찾는다. 파일을 조회하므로 worker에서 부른다.
+    [[nodiscard]] std::optional<std::u8string> resolve_suggestion_executable(std::u8string_view executable);
 } // namespace cyella::win32

@@ -152,6 +152,8 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/git_commands"
 cyella_add_source_filter(cyella_lib_files "domain/settings"
     domain/app_settings.cpp
     domain/app_settings.h
+    domain/commit_suggestion.cpp
+    domain/commit_suggestion.h
     domain/external_diff_tool.cpp
     domain/external_diff_tool.h
     domain/repository_path.cpp
@@ -634,6 +636,14 @@ cyella_add_source_filter(cyella_lib_files "infrastructure/profiles"
     infrastructure/json_command_settings.cpp
     infrastructure/json_command_settings.h)
 
+# 커밋 메시지 제안이다 (ADR-009). 값과 규칙은 domain/settings의 commit_suggestion에 있다.
+cyella_add_source_filter(cyella_lib_files "application/commit_suggestion"
+    application/commit_suggestion_messages.h)
+
+cyella_add_source_filter(cyella_lib_files "infrastructure/commit_suggestion"
+    infrastructure/commit_message_suggester.cpp
+    infrastructure/commit_message_suggester.h)
+
 cyella_add_source_filter(cyella_lib_files "presentation/commands"
     presentation/commands/command_intents.h
     presentation/commands/command_registry.cpp
@@ -660,6 +670,14 @@ cyella_add_source_filter(cyella_lib_files "presentation/settings/profiles"
     presentation/settings/shortcuts_intents.h
     presentation/settings/shortcuts_page.cpp
     presentation/settings/shortcuts_page.h)
+
+cyella_add_source_filter(cyella_lib_files "presentation/settings/suggestion"
+    presentation/settings/settings_controller_suggestion.cpp
+    presentation/settings/suggestion_intents.h
+    presentation/settings/suggestion_page.cpp
+    presentation/settings/suggestion_page.h
+    presentation/ui/settings/suggestion_ui.cpp
+    presentation/ui/settings/suggestion_ui.h)
 
 cyella_add_source_filter(cyella_lib_files "platform/identity"
     platform/win32/win32_git_environment.cpp

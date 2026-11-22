@@ -7,6 +7,7 @@
 #include "presentation/settings/settings_intents.h"
 #include "presentation/settings/shortcuts_intents.h"
 #include "presentation/settings/signing_intents.h"
+#include "presentation/settings/suggestion_intents.h"
 #include "presentation/ui/command_elements.h"
 #include "presentation/ui/element_kinds.h"
 #include "presentation/ui/press_row.h"
@@ -108,6 +109,12 @@ namespace cyella::ui {
             return to_luil_target(text_target::settings_profile_https_username);
         if (kind == kind_profile_ssh_key_input)
             return to_luil_target(text_target::settings_profile_ssh_key);
+        if (kind == kind_settings_suggestion_executable_input)
+            return to_luil_target(text_target::settings_suggestion_executable);
+        if (kind == kind_settings_suggestion_arguments_input)
+            return to_luil_target(text_target::settings_suggestion_arguments);
+        if (kind == kind_settings_suggestion_instruction_input)
+            return to_luil_target(text_target::settings_suggestion_instruction);
         return std::nullopt;
     }
 
@@ -254,6 +261,8 @@ namespace cyella::ui {
                 return { message(submit_clone_intent {}) };
             if (focused == kind_settings_git_path_input)
                 return { message(apply_git_path_intent {}) };
+            if (focused == kind_settings_suggestion_executable_input || focused == kind_settings_suggestion_arguments_input || focused == kind_settings_suggestion_instruction_input)
+                return { message(save_commit_suggestion_intent {}) };
             if (focused == kind_settings_test_host_input)
                 return { message(test_ssh_connection_intent {}) };
             if (focused == kind_settings_signing_gpg_input)

@@ -15,6 +15,7 @@ cyella_add_source_filter(cyella_test_files "domain/graph"
 
 cyella_add_source_filter(cyella_test_files "domain/settings"
     app_settings_tests.cpp
+    commit_suggestion_tests.cpp
     external_diff_tool_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "platform/host"
@@ -82,6 +83,7 @@ cyella_add_source_filter(cyella_test_files "presentation"
     diff_webview_tests.cpp
     extension_view_tests.cpp
     commit_detail_tests.cpp
+    commit_suggestion_shell_tests.cpp
     graph_columns_tests.cpp
     graph_geometry_tests.cpp
     settings_tests.cpp
@@ -194,6 +196,7 @@ cyella_add_source_filter(cyella_test_files "rebase"
 
 # 실제 git으로 임시 저장소를 만들어 조립기와 해석기를 이어서 검증한다.
 cyella_add_source_filter(cyella_test_files "infrastructure/git_integration"
+    commit_message_suggester_tests.cpp
     git_integration_tests.cpp
     patch_builder_git_tests.cpp
     git_test_support.cpp

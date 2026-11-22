@@ -79,6 +79,24 @@ namespace cyella {
     // 단추는 조합 중인 글자까지 보인 제목을, controller는 확정된 제목을 보기 때문이다.
     [[nodiscard]] commit_blocker find_commit_blocker(const repository_snapshot& snapshot, bool amend, bool has_subject, bool committing) noexcept;
 
+    // 커밋 메시지 제안을 막는 까닭이다 (ADR-009). 단추와 팔레트 명령, controller가 한 판정을 쓴다.
+    enum class suggestion_blocker
+    {
+        none,
+        // 환경 설정에서 켜지 않았다. 단추가 아예 없다.
+        disabled,
+        // 켰지만 실행 파일을 정하지 않았다.
+        no_command,
+        suggesting,
+        conflicts,
+        // amend는 비교 기준이 HEAD의 부모라 staged 변경만으로는 메시지를 쓸 수 없다.
+        amend,
+        nothing_staged,
+    };
+
+    // 앞의 까닭부터 본다 (단추의 설명이 하나만 서므로).
+    [[nodiscard]] suggestion_blocker find_suggestion_blocker(const repository_snapshot& snapshot, const commit_suggestion_settings& settings, bool amend, bool suggesting) noexcept;
+
     // 사이드바 행이다. 거르기는 이름의 부분 문자열이고, 접힌 구역은 머리 줄만 남는다.
     struct sidebar_rows
     {

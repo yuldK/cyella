@@ -119,6 +119,14 @@ namespace cyella::win32 {
             return;
         }
 
+        if (command_id == ui_command_id::choose_suggestion_executable)
+        {
+            const std::wstring title { wide_text(tr(u8"app.dialog.choose_suggestion_executable")) };
+            if (std::optional<std::u8string> path { choose_executable(title.c_str()) }; path.has_value())
+                host.post_app_message(luil::app_message { settings_file_chosen_intent { file_purpose::suggestion_executable, std::move(*path) } });
+            return;
+        }
+
         folder_purpose purpose { folder_purpose::open };
         std::u8string title {};
         switch (static_cast<ui_command_id>(command.command))

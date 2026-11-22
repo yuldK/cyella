@@ -30,6 +30,8 @@ namespace cyella {
         choose_tool_executable,
         // 없어진 최근 저장소의 새 위치를 고른다. 명령 인자가 옛 경로이고, 결과는 `folder_chosen_intent{locate}`다.
         locate_folder,
+        // 환경 설정 "AI" 쪽의 제안 명령 실행 파일을 고른다. 결과는 `settings_file_chosen_intent`다.
+        choose_suggestion_executable,
     };
 
     enum class folder_purpose
@@ -359,6 +361,14 @@ namespace cyella {
     {};
 
     struct commit_intent
+    {};
+
+    // 커밋 상자의 "메시지 제안" 단추다 (ADR-009). 고른 탭의 staged 변경으로 제안 명령을 돌리고, 답이 오면 제목·본문을 채운다.
+    struct suggest_commit_message_intent
+    {};
+
+    // 고른 탭에서 도는 제안을 멈춘다.
+    struct cancel_commit_suggestion_intent
     {};
 
     // ------------------------------------------------------------------ 텍스트 입력

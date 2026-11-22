@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/app_settings_service.h"
+#include "application/commit_suggestion_messages.h"
 #include "application/diff_view_coordinator.h"
 #include "application/file_probe.h"
 #include "application/git_workspace.h"
@@ -87,6 +88,10 @@ namespace cyella {
             // 작성자 사진(Gravatar)을 worker에서 받는다. 인자는 다듬은 메일이고 결과는 `avatar_loaded_intent`로 돌아온다.
             // 환경 설정 `appearance.gravatar`가 켜졌을 때만 부른다. 비어 있으면(test) 늘 이름 첫 글자다.
             std::function<void(const std::string& email)> request_avatar {};
+            // 커밋 메시지 제안 명령을 worker에서 돌리고, 도는 것을 멈춘다 (ADR-009). 결과는 `commit_suggestion_result_intent`로 돌아온다.
+            // 환경 설정 `commit_suggestion.enabled`가 켜져 있고 사용자가 단추를 눌렀을 때만 부른다. 비어 있으면(git 없음·test) 제안하지 않는다.
+            std::function<void(commit_suggestion_job job)> request_commit_suggestion {};
+            std::function<void(std::uint64_t serial)> cancel_commit_suggestion {};
             // 저장소 폴더를 탐색기·VS Code 같은 앱으로 연다. driver가 diff의 외부 앱 열기와 같은 worker 길을 꽂는다.
             // 비어 있으면(test) 아무 일도 하지 않는다.
             std::function<void(const external_file_app& app, const std::u8string& folder)> open_folder_app {};
@@ -347,6 +352,10 @@ namespace cyella {
         // 안내 알림의 프로필 조치다. 처리했으면 true다.
         bool handle_profile_notification_action(const std::u8string& key);
         void commit_now();
+        // 커밋 메시지 제안이다 (ADR-009). 고른 탭의 staged 변경으로 제안 명령을 worker에 맡기고, 도는 것을 멈추고, 돌아온 답을 그 탭의 입력란에 채운다.
+        void suggest_commit_message();
+        void cancel_commit_suggestion(tab_ui_state& tab);
+        void apply_commit_suggestion(const commit_suggestion_result_intent& result);
         // 프로필 모드 팔레트와 상태 줄이 쓰는 값이다. 선택된 저장소의 신원을 읽었는가와 그 신원이다.
         [[nodiscard]] const git_identity* selected_identity() const;
         [[nodiscard]] std::u8string suggested_profile_name() const;
@@ -521,6 +530,8 @@ namespace cyella {
             std::optional<std::chrono::steady_clock::time_point> retry_at {};
         };
         std::map<std::string, avatar_entry> avatars_ {};
+        // 마지막으로 낸 커밋 메시지 제안의 serial이다. 탭마다 낸 serial과 맞춰 늦은 답을 가린다.
+        std::uint64_t suggestion_serial_ { 0 };
         // 상세 패널의 작성자 사진을 채운다. 설정이 켜졌고 아직 묻지 않은 메일이면 worker에 청한다.
         void attach_avatar(commit_detail_view& commit);
         // 프로필을 이미 제안한 저장소, 커밋 전 경고를 이미 보인 저장소다 (앱을 켜 두는 동안만).

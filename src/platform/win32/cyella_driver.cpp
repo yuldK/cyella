@@ -47,6 +47,27 @@ namespace cyella::win32 {
         constexpr float default_window_width { 1280.0f };
         constexpr float default_window_height { 720.0f };
 
+        // 커밋 메시지 제안 명령을 띄울 빈 폴더다 (`%LOCALAPPDATA%\cyella\suggest`). 만들지 못하면 시스템 임시 폴더로 물러난다.
+        std::u8string suggestion_working_directory()
+        {
+            try
+            {
+                if (const std::u8string local { local_data_directory(L"suggest") }; local.empty() == false)
+                {
+                    std::error_code error {};
+                    std::filesystem::create_directories(std::filesystem::path { local }, error);
+                    if (!error)
+                        return local;
+                }
+                return std::filesystem::temp_directory_path().u8string();
+            }
+            catch (...)
+            {
+                // 빈 값이면 요청 검사에서 걸려 "실행하지 못했습니다"로 알린다.
+                return {};
+            }
+        }
+
         std::u8string to_u8(const std::string& text)
         {
             return std::u8string { text.begin(), text.end() };
@@ -261,6 +282,13 @@ namespace cyella::win32 {
             identity_ = std::make_unique<git_identity_gateway>(*process_runner_, git_tool_.executable, std::move(identity_options));
             dependencies.request_identity = [this](const std::string& repository_id, const std::u8string& path) { request_identity(repository_id, path); };
             dependencies.apply_identity = [this](const std::string& repository_id, const std::u8string& path, const local_identity_change& change) { apply_identity(repository_id, path, change); };
+            // 커밋 메시지 제안 명령은 저장소가 아닌 빈 폴더에서 띄운다. 저장소에서 띄우면 그 저장소의 에이전트 설정 파일이 명령에 끼어든다 (ADR-009).
+            commit_message_suggester_options suggester_options {};
+            suggester_options.resolve_executable = [](const std::u8string_view executable) { return resolve_suggestion_executable(executable); };
+            suggester_options.working_directory = suggestion_working_directory();
+            suggester_ = std::make_unique<commit_message_suggester>(*process_runner_, git_tool_.executable, std::move(suggester_options));
+            dependencies.request_commit_suggestion = [this](commit_suggestion_job job) { request_commit_suggestion(std::move(job)); };
+            dependencies.cancel_commit_suggestion = [this](const std::uint64_t serial) { cancel_commit_suggestion(serial); };
         }
         else
             dependencies.git_message = std::u8string { git_tool_unavailable_message(git_tool_.availability) };
@@ -409,6 +437,31 @@ namespace cyella::win32 {
             relay->post(luil::app_message { identity_loaded_intent { .repository_id = repository_id, .identity = read.identity, .ok = read.ok, .error = read.error } });
         };
         static_cast<void>(scheduler_->submit(std::move(request)));
+    }
+
+    void cyella_driver::request_commit_suggestion(commit_suggestion_job job)
+    {
+        if (scheduler_ == nullptr || suggester_ == nullptr)
+            return;
+        auto source { std::make_shared<process_cancellation_source>() };
+        registry_.add(*source);
+        suggestion_sources_[job.serial] = source;
+        operation_request request {};
+        // 저장소 id만 쓰면 그 저장소의 쓰기 줄이다. 5~30초 동안 커밋·stage가 그 뒤에 서지 않게 줄을 따로 둔다.
+        request.repository_key = "commit-suggest:" + job.repository_id;
+        request.job = [suggester = suggester_.get(), source, relay = &relay_, job = std::move(job)](const operation_context& context) {
+            const process_cancellation_registration link {
+                context.shutdown.cancellable() ? context.shutdown.register_callback([canceller = source->weak_canceller()]() { static_cast<void>(canceller()); }) : process_cancellation_registration {}
+            };
+            relay->post(luil::app_message { suggester->suggest(job, source->token()) });
+        };
+        static_cast<void>(scheduler_->submit(std::move(request)));
+    }
+
+    void cyella_driver::cancel_commit_suggestion(const std::uint64_t serial)
+    {
+        if (const auto found { suggestion_sources_.find(serial) }; found != suggestion_sources_.end())
+            found->second->request_cancellation();
     }
 
     void cyella_driver::request_avatar(const std::string& email)
@@ -652,6 +705,13 @@ namespace cyella::win32 {
                 static_cast<void>(controller_->handle(drained));
             else if ((drained.get<hosting_result_intent>() != nullptr || drained.get<avatar_loaded_intent>() != nullptr) && controller_ != nullptr)
                 static_cast<void>(controller_->handle(drained));
+            else if (const auto* const suggestion { drained.get<commit_suggestion_result_intent>() }; suggestion != nullptr)
+            {
+                // 끝난 제안의 취소 손잡이를 놓는다. 화면이 없어도(종료 중) 지운다.
+                suggestion_sources_.erase(suggestion->serial);
+                if (controller_ != nullptr)
+                    static_cast<void>(controller_->handle(drained));
+            }
         });
         // 끝난 operation 뒤에 보류해 둔 새로 고침을 낸다. 한 묶음을 다 반영한 뒤라야 쓰기가 아직 줄 서 있는지 정확히 안다.
         flush_pending_refreshes();

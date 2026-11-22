@@ -8,6 +8,7 @@
 #include "domain/ssh_connection.h"
 #include "presentation/hosting_view.h"
 #include "presentation/settings/profiles_page.h"
+#include "presentation/settings/suggestion_page.h"
 #include "presentation/settings/settings_state.h"
 #include "presentation/settings/shortcuts_page.h"
 #include "presentation/settings/signing_page_view.h"
@@ -213,6 +214,8 @@ namespace cyella {
         // 단축키·사용자 프로필 쪽은 그 쪽이 열려 있을 때만 값이 있다.
         std::optional<shortcuts_page_view> shortcuts {};
         std::optional<profiles_page_view> profiles {};
+        // "AI" 쪽이다.
+        suggestion_page_view suggestion {};
     };
 
     // ------------------------------------------------------------------ 보조 함수 (test가 직접 부른다)

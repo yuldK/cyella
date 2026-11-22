@@ -178,4 +178,40 @@ namespace cyella::win32 {
         }
         return std::nullopt;
     }
+
+    std::optional<std::u8string> resolve_suggestion_executable(
+        const std::u8string_view executable, const std::vector<std::u8string>& directories, const std::u8string_view user_profile, const file_probe& probe)
+    {
+        if (std::optional<std::u8string> found { resolve_tool_executable(executable, directories, probe) }; found.has_value())
+            return found;
+
+        std::u8string name { executable };
+        for (char8_t& value : name)
+            if (value >= u8'A' && value <= u8'Z')
+                value = static_cast<char8_t>(value - u8'A' + u8'a');
+        if (name != u8"claude" && name != u8"claude.exe")
+            return std::nullopt;
+
+        if (is_absolute_windows_path(user_profile))
+        {
+            std::u8string candidate { join_directory(user_profile, u8".local\\bin\\claude.exe") };
+            if (probe.probe(candidate) == path_kind::file)
+                return candidate;
+        }
+        for (const std::u8string& directory : directories)
+        {
+            if (is_absolute_windows_path(directory) == false || probe.probe(join_directory(directory, u8"claude.cmd")) != path_kind::file)
+                continue;
+            std::u8string candidate { join_directory(directory, u8"node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe") };
+            if (probe.probe(candidate) == path_kind::file)
+                return candidate;
+        }
+        return std::nullopt;
+    }
+
+    std::optional<std::u8string> resolve_suggestion_executable(const std::u8string_view executable)
+    {
+        const std::unique_ptr<file_probe> probe { make_file_probe() };
+        return resolve_suggestion_executable(executable, current_tool_search_directories(), read_environment_variable(u8"USERPROFILE"), *probe);
+    }
 } // namespace cyella::win32

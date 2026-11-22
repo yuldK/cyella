@@ -528,6 +528,35 @@ TEST_CASE("a tool name with a separator or a drive is passed through unchanged",
         CHECK(win32::resolve_tool_executable(executable, directories, probe) == std::optional<std::u8string> { std::u8string { executable } });
 }
 
+TEST_CASE("the suggestion command resolves like a tool and claude falls back to its install places", "[process][commit_suggestion][search]")
+{
+    const std::vector<std::u8string> directories { win32::tool_search_directories(u8"C:\\apps\\cyella", u8"C:\\Windows\\System32", u8"C:\\Windows", u8"C:\\Users\\tester\\AppData\\Roaming\\npm;C:\\Tools") };
+    const std::u8string_view profile { u8"C:\\Users\\tester" };
+
+    // PATH에 실행 파일이 있으면 그것이다.
+    const listed_file_probe on_path { { u8"C:\\Tools\\codex.exe", u8"C:\\Tools\\claude.exe", u8"C:\\Users\\tester\\.local\\bin\\claude.exe" } };
+    CHECK(win32::resolve_suggestion_executable(u8"codex", directories, profile, on_path) == std::optional<std::u8string> { u8"C:\\Tools\\codex.exe" });
+    CHECK(win32::resolve_suggestion_executable(u8"claude", directories, profile, on_path) == std::optional<std::u8string> { u8"C:\\Tools\\claude.exe" });
+
+    // 네이티브 설치는 PATH에 없어도 사용자 폴더에서 찾는다.
+    const listed_file_probe native { { u8"C:\\Users\\tester\\.local\\bin\\claude.exe" } };
+    CHECK(win32::resolve_suggestion_executable(u8"Claude", directories, profile, native) == std::optional<std::u8string> { u8"C:\\Users\\tester\\.local\\bin\\claude.exe" });
+
+    // npm 설치는 PATH에 shim만 놓는다. shim을 띄우지 않고 그것이 가리키는 실행 파일을 쓴다.
+    const listed_file_probe npm {
+        { u8"C:\\Users\\tester\\AppData\\Roaming\\npm\\claude.cmd", u8"C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe" },
+    };
+    CHECK(win32::resolve_suggestion_executable(u8"claude", directories, profile, npm)
+        == std::optional<std::u8string> { u8"C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe" });
+
+    // shim만 있고 실행 파일이 없으면 못 찾은 것이다. 다른 이름에는 이 예외가 없다.
+    const listed_file_probe shim_only { { u8"C:\\Users\\tester\\AppData\\Roaming\\npm\\claude.cmd", u8"C:\\Users\\tester\\AppData\\Roaming\\npm\\codex.cmd" } };
+    CHECK_FALSE(win32::resolve_suggestion_executable(u8"claude", directories, profile, shim_only).has_value());
+    CHECK_FALSE(win32::resolve_suggestion_executable(u8"codex", directories, profile, shim_only).has_value());
+    // 경로를 적었으면 그대로다.
+    CHECK(win32::resolve_suggestion_executable(u8"D:\\ai\\claude.exe", directories, profile, shim_only) == std::optional<std::u8string> { u8"D:\\ai\\claude.exe" });
+}
+
 TEST_CASE("the tool search skips relative PATH entries and empty folders", "[process][diff_tool][search]")
 {
     const std::vector<std::u8string> directories {

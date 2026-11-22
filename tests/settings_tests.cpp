@@ -8,6 +8,7 @@
 #include "presentation/settings/settings_controller.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/settings/settings_view.h"
+#include "presentation/settings/suggestion_intents.h"
 
 #include "fake_git_runner.h"
 #include "temporary_directory_support.h"
@@ -901,4 +902,94 @@ TEST_CASE("choosing the tab shape and tab status spot is saved through the setti
     CHECK(test.view().tab_marker_choice == tab_marker_place::icon_corner);
     CHECK(test.store.saved.appearance.tabs == tab_shape::flat);
     CHECK(test.store.saved.appearance.tab_marker == tab_marker_place::icon_corner);
+}
+
+// ---------------------------------------------------------------------------------------------- AI (커밋 메시지 제안)
+
+TEST_CASE("the suggestion switch saves at once and leaves the command drafts alone", "[settings][controller][commit_suggestion]")
+{
+    controller_harness test {};
+    test.send(open_settings_intent { settings_page::suggestion });
+    CHECK_FALSE(test.view().suggestion.enabled);
+    test.type(text_target::settings_suggestion_executable, u8"codex");
+
+    test.send(set_commit_suggestion_enabled_intent { true });
+    CHECK(test.view().suggestion.enabled);
+    CHECK(test.store.saved.commit_suggestion.enabled);
+    // 켬 여부만 저장한다. 치던 명령은 [저장]을 눌러야 들어간다.
+    CHECK(test.store.saved.commit_suggestion.executable.empty());
+    CHECK(test.view().suggestion.executable.text == u8"codex");
+    CHECK(test.view().suggestion.dirty);
+}
+
+TEST_CASE("a preset fills the command and saving stores the trimmed drafts", "[settings][controller][commit_suggestion]")
+{
+    controller_harness test {};
+    test.send(open_settings_intent { settings_page::suggestion });
+    REQUIRE(test.view().suggestion.presets.size() >= 2);
+    CHECK_FALSE(test.view().suggestion.can_save);
+
+    test.send(fill_commit_suggestion_preset_intent { u8"claude" });
+    const suggestion_page_view filled { test.view().suggestion };
+    CHECK(filled.executable.text == u8"claude");
+    CHECK(filled.arguments.text.find(u8"--tools \"\"") != std::u8string::npos);
+    CHECK(filled.error.empty());
+    CHECK(filled.can_save);
+    // 본보기는 칸을 채우기만 한다.
+    CHECK(test.service.settings().commit_suggestion.executable.empty());
+
+    test.type(text_target::settings_suggestion_executable, u8"  claude  ");
+    test.type(text_target::settings_suggestion_instruction, u8" 제목은 한국어로 ");
+    test.send(save_commit_suggestion_intent {});
+    CHECK(test.store.saved.commit_suggestion.executable == u8"claude");
+    CHECK(test.store.saved.commit_suggestion.arguments == filled.arguments.text);
+    CHECK(test.store.saved.commit_suggestion.instruction == u8"제목은 한국어로");
+    // 저장은 켬 여부를 바꾸지 않는다.
+    CHECK_FALSE(test.store.saved.commit_suggestion.enabled);
+    CHECK(test.view().suggestion.executable.text == u8"claude");
+    CHECK_FALSE(test.view().suggestion.dirty);
+    CHECK_FALSE(test.view().message.empty());
+
+    // 모르는 본보기는 아무것도 바꾸지 않는다.
+    test.send(fill_commit_suggestion_preset_intent { u8"unknown" });
+    CHECK(test.view().suggestion.executable.text == u8"claude");
+}
+
+TEST_CASE("a command that cannot run is not saved", "[settings][controller][commit_suggestion]")
+{
+    controller_harness test {};
+    test.probe.files = { u8"C:\\Tools\\claude.exe" };
+    test.send(open_settings_intent { settings_page::suggestion });
+    const auto saved_executable = [&test] { return test.service.settings().commit_suggestion.executable; };
+
+    // 닫히지 않은 따옴표
+    test.type(text_target::settings_suggestion_executable, u8"claude");
+    test.type(text_target::settings_suggestion_arguments, u8"-p \"open");
+    CHECK_FALSE(test.view().suggestion.error.empty());
+    CHECK_FALSE(test.view().suggestion.can_save);
+    test.send(save_commit_suggestion_intent {});
+    CHECK(saved_executable().empty());
+
+    // cmd.exe를 거쳐야 하는 shim과, 어느 폴더 기준인지 모를 상대 경로
+    test.type(text_target::settings_suggestion_arguments, u8"-p");
+    for (const std::u8string_view executable : { u8"C:\\npm\\claude.CMD", u8"run.bat", u8"tools\\claude.exe", u8"C:claude.exe" })
+    {
+        test.type(text_target::settings_suggestion_executable, std::u8string { executable });
+        CHECK_FALSE(test.view().suggestion.error.empty());
+        test.send(save_commit_suggestion_intent {});
+        CHECK(saved_executable().empty());
+    }
+
+    // 없는 절대 경로는 주의만 주고 저장한다 (다른 PC에서 쓰던 설정일 수 있다).
+    test.type(text_target::settings_suggestion_executable, u8"D:\\missing\\claude.exe");
+    CHECK(test.view().suggestion.error.empty());
+    CHECK_FALSE(test.view().suggestion.warning.empty());
+    CHECK(test.view().suggestion.can_save);
+
+    // 찾아보기로 고른 파일이 실행 파일 칸에 들어간다.
+    test.send(settings_file_chosen_intent { file_purpose::suggestion_executable, u8"C:\\Tools\\claude.exe" });
+    CHECK(test.view().suggestion.executable.text == u8"C:\\Tools\\claude.exe");
+    CHECK(test.view().suggestion.warning.empty());
+    test.send(save_commit_suggestion_intent {});
+    CHECK(saved_executable() == u8"C:\\Tools\\claude.exe");
 }

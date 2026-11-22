@@ -392,6 +392,9 @@ namespace cyella {
             repository = found->second;
         if (tabs_.close(*index) == false)
             return;
+        // 닫는 탭에서 돌던 제안 명령은 멈춘다. 답이 와도 받을 입력란이 없다.
+        if (const auto closing { ui_.tabs.find(id) }; closing != ui_.tabs.end())
+            cancel_commit_suggestion(closing->second);
         tab_repositories_.erase(id);
         ui_.tabs.erase(id);
         ui_.ref_list.reset();
@@ -488,6 +491,9 @@ namespace cyella {
         case text_target::settings_profile_https_username:
         case text_target::settings_profile_ssh_key:
         case text_target::settings_rule_prefix:
+        case text_target::settings_suggestion_executable:
+        case text_target::settings_suggestion_arguments:
+        case text_target::settings_suggestion_instruction:
             return settings_.draft(target);
         case text_target::palette_filter:
             return ui_.palette.has_value() ? &ui_.palette->filter : nullptr;
@@ -774,6 +780,70 @@ namespace cyella {
         const repository_session* const session { selected_session() };
         const std::optional<bool> sign { session != nullptr ? commit_sign_request(*tab, session->snapshot()) : std::nullopt };
         tab->pending_commit = submit(commit_request { .message = to_text(message), .amend = tab->amend, .stage_all = false, .sign = sign });
+    }
+
+    void shell_controller::suggest_commit_message()
+    {
+        tab_ui_state* const tab { selected_tab_state() };
+        const repository_session* const session { selected_session() };
+        if (tab == nullptr || session == nullptr || dependencies_.request_commit_suggestion == nullptr)
+            return;
+        // 팔레트 명령도 이리 오므로 단추와 같은 판정으로 막는다. 꺼져 있으면 아무것도 밖으로 나가지 않는다.
+        const commit_suggestion_settings& suggestion { settings().commit_suggestion };
+        if (find_suggestion_blocker(session->snapshot(), suggestion, tab->amend, tab->pending_suggestion != 0) != suggestion_blocker::none)
+            return;
+
+        commit_suggestion_job job {};
+        job.serial = ++suggestion_serial_;
+        job.repository_id = selected_repository_id();
+        job.repository_path = session->path();
+        job.executable = trimmed(suggestion.executable);
+        job.arguments = suggestion.arguments;
+        job.instruction = suggestion.instruction;
+        job.language = active_ui_language();
+        tab->pending_suggestion = job.serial;
+        tab->suggestion_subject_before = tab->commit_subject.text;
+        tab->suggestion_body_before = tab->commit_body.text;
+        dependencies_.request_commit_suggestion(std::move(job));
+    }
+
+    void shell_controller::cancel_commit_suggestion(tab_ui_state& tab)
+    {
+        // serial은 답이 올 때까지 둔다. 취소된 답(`cancelled`)이 와야 단추가 돌아오고, 그 사이 다시 누르는 것을 막는다.
+        if (tab.pending_suggestion != 0 && dependencies_.cancel_commit_suggestion != nullptr)
+            dependencies_.cancel_commit_suggestion(tab.pending_suggestion);
+    }
+
+    void shell_controller::apply_commit_suggestion(const commit_suggestion_result_intent& result)
+    {
+        // 답은 고른 탭이 아니라 낸 탭으로 간다. 도는 동안 탭을 옮겼을 수 있다. 닫힌 탭과 옛 serial의 답은 맞는 탭이 없어 버려진다.
+        for (auto& [id, tab] : ui_.tabs)
+        {
+            static_cast<void>(id);
+            if (result.serial == 0 || tab.pending_suggestion != result.serial)
+                continue;
+            tab.pending_suggestion = 0;
+            const std::u8string subject_before { std::move(tab.suggestion_subject_before) };
+            const std::u8string body_before { std::move(tab.suggestion_body_before) };
+            tab.suggestion_subject_before.clear();
+            tab.suggestion_body_before.clear();
+            if (result.state == commit_suggestion_state::cancelled)
+                return;
+            if (result.state == commit_suggestion_state::failed)
+            {
+                notify(notification { .severity = notification_severity::warning, .text = result.error, .repository_id = result.repository_id });
+                return;
+            }
+            // 기다리는 동안 사용자가 쓴 글은 덮어쓰지 않는다. 조합 중인 글자(IME)가 있어도 쓰는 중으로 본다.
+            if (tab.commit_subject.text != subject_before || tab.commit_body.text != body_before || tab.amend || ui_.composition.has_value())
+            {
+                notify(notification { .severity = notification_severity::info, .text = tr(u8"repo.working.suggest_draft_changed"), .repository_id = result.repository_id });
+                return;
+            }
+            set_text(tab.commit_subject, result.message.subject);
+            set_text(tab.commit_body, result.message.body);
+            return;
+        }
     }
 
     void shell_controller::handle_folder(const folder_chosen_intent& intent)
@@ -1308,6 +1378,22 @@ namespace cyella {
         if (message.get<commit_intent>() != nullptr)
         {
             handle_commit();
+            return true;
+        }
+        if (message.get<suggest_commit_message_intent>() != nullptr)
+        {
+            suggest_commit_message();
+            return true;
+        }
+        if (message.get<cancel_commit_suggestion_intent>() != nullptr)
+        {
+            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+                cancel_commit_suggestion(*tab);
+            return true;
+        }
+        if (const auto* const intent { message.get<commit_suggestion_result_intent>() }; intent != nullptr)
+        {
+            apply_commit_suggestion(*intent);
             return true;
         }
         if (const auto* const intent { message.get<edit_text_intent>() }; intent != nullptr)

@@ -79,7 +79,7 @@ TEST_CASE("every settings page builds a tree with unique ids and no unarranged e
     static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
 
     for (const settings_page page :
-        { settings_page::general, settings_page::diff_tools, settings_page::ssh, settings_page::signing, settings_page::hosting, settings_page::profiles, settings_page::shortcuts })
+        { settings_page::general, settings_page::diff_tools, settings_page::ssh, settings_page::signing, settings_page::hosting, settings_page::profiles, settings_page::shortcuts, settings_page::suggestion })
         for (const float width : { 1440.0f, 900.0f, 480.0f })
         {
             INFO("page " << static_cast<int>(page) << " width " << width);

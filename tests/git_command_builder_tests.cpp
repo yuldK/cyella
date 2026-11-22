@@ -77,6 +77,26 @@ TEST_CASE("diff builders pin the output format and treat paths literally", "[git
     CHECK(to_text(make_git_ls_remote_tags_args("origin")) == text_list { "ls-remote", "--tags", "--", "origin" });
 }
 
+TEST_CASE("the staged patch builder covers the whole index and excludes paths literally", "[git][builder]")
+{
+    CHECK(to_text(make_git_staged_patch_args())
+        == text_list { "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U3", "--cached", "-M", "--", ":(top)" });
+    // glob 글자와 `:`로 시작하는 이름도 `literal`이라 글자 그대로 빠진다.
+    const std::vector<std::string> excluded { ".env", "web/*.lock", ":odd" };
+    CHECK(to_text(make_git_staged_patch_args(excluded))
+        == text_list {
+            "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U3", "--cached", "-M", "--", ":(top)",
+            ":(top,exclude,literal).env", ":(top,exclude,literal)web/*.lock", ":(top,exclude,literal):odd",
+        });
+    const std::vector<std::string> empty_path { "" };
+    CHECK_THROWS_AS(make_git_staged_patch_args(empty_path), std::invalid_argument);
+}
+
+TEST_CASE("the recent subjects builder reads from HEAD only", "[git][builder]")
+{
+    CHECK(to_text(make_git_recent_subjects_args(10)) == text_list { "log", "--max-count=10", "--format=%s", "HEAD", "--" });
+}
+
 TEST_CASE("branch builders put the names after double dash", "[git][builder]")
 {
     CHECK(to_text(make_git_switch_args("main")) == text_list { "switch", "--", "main" });

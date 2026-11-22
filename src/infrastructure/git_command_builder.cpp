@@ -240,6 +240,26 @@ namespace cyella {
         return arguments;
     }
 
+    git_arguments make_git_staged_patch_args(const std::span<const std::string> excluded_paths)
+    {
+        git_arguments arguments {};
+        push_text(arguments, "diff");
+        push_diff_basics(arguments, 3);
+        push_all(arguments, { "--cached", "-M", "--" });
+        // 빼는 pathspec만 주면 git이 "전부에서 뺀다"로 읽지만, 그 기본 동작에 기대지 않고 저장소 전체를 먼저 적는다.
+        push_text(arguments, ":(top)");
+        for (const std::string& path : excluded_paths)
+            push_text(arguments, std::string { ":(top,exclude,literal)" }.append(require_path(path)));
+        return arguments;
+    }
+
+    git_arguments make_git_recent_subjects_args(const std::uint32_t count)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "log", std::string { "--max-count=" }.append(std::to_string(count)), "--format=%s", "HEAD", "--" });
+        return arguments;
+    }
+
     git_arguments make_git_stash_list_args()
     {
         git_arguments arguments {};

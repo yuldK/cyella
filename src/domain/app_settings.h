@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/commit_suggestion.h"
 #include "domain/external_diff_tool.h"
 #include "domain/hosting_remote.h"
 #include "domain/remote_web_link.h"
@@ -182,6 +183,8 @@ namespace cyella {
         std::vector<external_file_app> external_file_apps { default_external_file_apps() };
         // 화면 문구의 언어다 (`system`·`ko`·`en`). 바꾸면 다시 시작할 때 적용한다 (ADR-008).
         language_preference language { language_preference::system };
+        // 커밋 메시지를 제안받는 외부 명령이다. 기본은 꺼짐이다 (ADR-009).
+        commit_suggestion_settings commit_suggestion {};
 
         [[nodiscard]] bool operator==(const app_settings&) const noexcept = default;
     };

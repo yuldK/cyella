@@ -330,7 +330,31 @@ namespace cyella {
                 row.selected = row.path == diff->path;
         }
 
-        working_area_view build_working_area(const repository_snapshot& snapshot, const tab_ui_state& tab, const std::optional<luil::text_composition_event>& composition, const bool committing)
+        // 제안 단추의 설명이다. 누를 수 없으면 그 까닭을 적는다.
+        std::u8string suggestion_tooltip(const suggestion_blocker blocker)
+        {
+            switch (blocker)
+            {
+            case suggestion_blocker::no_command:
+                return tr(u8"repo.working.suggest_no_command");
+            case suggestion_blocker::conflicts:
+                return tr(u8"repo.working.suggest_conflicts");
+            case suggestion_blocker::amend:
+                return tr(u8"repo.working.suggest_amend");
+            case suggestion_blocker::nothing_staged:
+                return tr(u8"repo.working.suggest_nothing_staged");
+            case suggestion_blocker::suggesting:
+                return tr(u8"repo.working.suggest_cancel");
+            case suggestion_blocker::none:
+            case suggestion_blocker::disabled:
+                break;
+            }
+            return tr(u8"repo.working.suggest");
+        }
+
+        working_area_view build_working_area(
+            const repository_snapshot& snapshot, const tab_ui_state& tab, const std::optional<luil::text_composition_event>& composition, const bool committing
+            , const commit_suggestion_settings& suggestion)
         {
             working_area_view view {};
             view.scroll = tab.working_scroll;
@@ -358,6 +382,11 @@ namespace cyella {
             view.sign = tab.sign.value_or(snapshot.signing.commit_signing());
             view.sign_hint = signing_setup_hint(snapshot.signing, view.sign);
             view.committing = committing;
+            const suggestion_blocker suggestion_block { find_suggestion_blocker(snapshot, suggestion, tab.amend, tab.pending_suggestion != 0) };
+            view.suggest_visible = suggestion_block != suggestion_blocker::disabled;
+            view.can_suggest = suggestion_block == suggestion_blocker::none;
+            view.suggesting = suggestion_block == suggestion_blocker::suggesting;
+            view.suggest_tooltip = suggestion_tooltip(suggestion_block);
             view.commit_label = tab.amend ? tr(u8"snapshot.commit.amend_label", { { u8"count", view.staged.size() } })
                                           : tr(u8"snapshot.commit.label", { { u8"branch", view.branch }, { u8"count", view.staged.size() } });
 
@@ -723,7 +752,7 @@ namespace cyella {
                         if (status->id == tab_state.pending_commit && status->finished() == false)
                             committing = true;
                 view.detail = detail_mode::working;
-                view.working = build_working_area(snapshot, tab_state, ui.composition, committing);
+                view.working = build_working_area(snapshot, tab_state, ui.composition, committing, inputs.settings->commit_suggestion);
                 view.working->files_tree = inputs.settings->ui.working_files_tree;
                 view.working->collapsed_folders = tab_state.collapsed_folders;
             }
@@ -952,6 +981,25 @@ namespace cyella {
         if (snapshot.staged.empty() && amend == false)
             return commit_blocker::nothing_staged;
         return commit_blocker::none;
+    }
+
+    suggestion_blocker find_suggestion_blocker(const repository_snapshot& snapshot, const commit_suggestion_settings& settings, const bool amend, const bool suggesting) noexcept
+    {
+        // 도는 중이 먼저다. 도는 동안 설정을 꺼도 멈춤 단추는 남아 있어야 한다.
+        if (suggesting)
+            return suggestion_blocker::suggesting;
+        if (settings.enabled == false)
+            return suggestion_blocker::disabled;
+        const bool has_command { std::ranges::any_of(settings.executable, [](const char8_t value) { return value != u8' ' && value != u8'\t'; }) };
+        if (has_command == false)
+            return suggestion_blocker::no_command;
+        if (snapshot.conflicts.empty() == false)
+            return suggestion_blocker::conflicts;
+        if (amend)
+            return suggestion_blocker::amend;
+        if (snapshot.staged.empty())
+            return suggestion_blocker::nothing_staged;
+        return suggestion_blocker::none;
     }
 
     sidebar_rows build_sidebar_rows(const repository_snapshot& snapshot, const std::u8string_view filter, const std::uint8_t collapsed_sections, const hosting_settings* const hosting)

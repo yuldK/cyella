@@ -917,6 +917,14 @@ namespace cyella::ui {
                 return length > 50 ? palette.warning_accent : palette.secondary_foreground;
             };
             subject_row->add(make_text(u8"commit-subject-count", number_text(length) + u8"/72", std::move(count_style)), 44.0f);
+            // 메시지 제안 단추는 환경 설정에서 켰을 때만 있다 (ADR-009). 도는 동안은 도는 아이콘과 멈춤 단추로 바뀐다.
+            if (working.suggesting)
+            {
+                subject_row->add(std::make_unique<spinner_element>(luil::ui_element_id { kind_spinner, u8"commit-suggest-spinner" }, codicons::icon_sync, color_selector {}), 18.0f);
+                subject_row->add(make_icon_button(u8"commit-suggest-cancel", codicons::icon_debug_stop, working.suggest_tooltip, message(cancel_commit_suggestion_intent {})), 28.0f);
+            }
+            else if (working.suggest_visible)
+                subject_row->add(make_icon_button(u8"commit-suggest", codicons::icon_sparkle, working.suggest_tooltip, message(suggest_commit_message_intent {}), working.can_suggest), 28.0f);
             box->add(std::move(subject_row), 28.0f);
             box->add_flexible(std::make_unique<multiline_text_element>(
                 luil::ui_element_id { kind_commit_body_input, u8"commit-body" }, working.body, tr(u8"repo.working.body_placeholder"), tr(u8"repo.working.body_access_name")));

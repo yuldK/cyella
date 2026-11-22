@@ -52,6 +52,8 @@ namespace cyella {
                 return settings_page::hosting;
             if (id == "app.settings.signing")
                 return settings_page::signing;
+            if (id == "app.settings.suggestion")
+                return settings_page::suggestion;
             return std::nullopt;
         }
     } // namespace
@@ -136,6 +138,8 @@ namespace cyella {
             // 커밋 단추가 켜지는 조건과 같다 (`find_commit_blocker`). 팔레트에 서는 커밋이 실행해도 막히지 않게 한다.
             const bool has_subject { std::ranges::any_of(tab->commit_subject.text, [](const char8_t value) { return value != u8' ' && value != u8'\t' && value != u8'\r' && value != u8'\n'; }) };
             availability.commit = ready && find_commit_blocker(session->snapshot(), tab->amend, has_subject, tab->pending_commit != 0) == commit_blocker::none;
+            availability.suggest_commit_message = ready && dependencies_.request_commit_suggestion != nullptr
+                && find_suggestion_blocker(session->snapshot(), settings().commit_suggestion, tab->amend, tab->pending_suggestion != 0) == suggestion_blocker::none;
         }
         return availability;
     }
@@ -212,6 +216,8 @@ namespace cyella {
             handle_toolbar(toolbar_action::pop);
         else if (id == "git.commit")
             handle_commit();
+        else if (id == "git.suggest_commit_message")
+            suggest_commit_message();
         else if (id == "hosting.sign_in")
             send(luil::app_message { hosting_sign_in_intent {} });
         else if (id == "hosting.refresh")

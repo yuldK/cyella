@@ -27,6 +27,8 @@ namespace cyella {
         shortcuts,
         // 커밋 서명 설정이다. 상태는 `signing_page_controller`가 따로 소유한다.
         signing,
+        // 커밋 메시지 제안이다 (ADR-009).
+        suggestion,
     };
 
     // 단축키 하나를 고치는 중이다. 입력 칸의 글은 ` / `로 이은 정규 표기(`Ctrl+Shift+P / Ctrl+P`)다. 실제 키를 누르면 그 키로 바뀌고,
@@ -89,6 +91,11 @@ namespace cyella {
         std::optional<font_list_state> font_list {};
         float font_scroll { 0.0f };
         std::optional<tool_edit_state> tool_edit {};
+
+        // AI: 제안 명령의 입력 초안이다. 설정값으로 채워 열고, [저장]을 눌러야 저장한다.
+        luil::text::text_edit_state suggestion_executable {};
+        luil::text::text_edit_state suggestion_arguments {};
+        luil::text::text_edit_state suggestion_instruction {};
 
         // SSH: 키 만들기와 연결 시험의 입력이다.
         luil::text::text_edit_state key_name {};

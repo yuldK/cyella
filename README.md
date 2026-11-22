@@ -24,6 +24,8 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 - **커밋 그래프**: 레인을 증분으로 배치하고 가상 스크롤로 큰 이력도 바로 연다. 브랜치·태그·HEAD 라벨과 서명 표지가 붙고, CI 상태는 커밋 상세와 PR 목록에서 본다.
 - **변경 검토와 커밋**: 파일·hunk·줄 단위로 stage·unstage·discard한다. diff는 WebView2 뷰어로 inline·분할 보기,
   단어 강조, 구문 강조, 이미지 비교를 지원하고, 확장자별 외부 diff 도구로도 연다.
+- **커밋 메시지 제안**: 환경 설정에서 켜면 커밋 상자의 단추로 staged 변경에 맞는 메시지를 제안받는다. 설치해 로그인해 둔 AI 명령
+  (Claude Code, Codex 등)을 실행하며, cyella는 그 명령의 로그인이나 키를 다루지 않는다. 기본은 꺼짐이다.
 - **브랜치와 이력 조작**: 라벨을 끌어 놓아 merge·rebase·fast-forward·reset을 고른다. 작업 브랜치에 있는 채로 그 아래의
   main을 우클릭해 체크아웃 없이 작업 브랜치까지 fast-forward한다. 체크아웃, 태그 만들기와 push,
   cherry-pick, revert, stash, 충돌 해결 화면이 있다.
@@ -66,13 +68,16 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 - 비밀번호·passphrase·호스팅 토큰은 파일에 쓰지 않는다. 토큰은 `git credential`(Git Credential Manager 등)에서 받아
   실행 중에만 메모리에 둔다.
 - 작성자 사진(Gravatar)은 기본으로 꺼져 있다. 켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 간다.
+- 커밋 메시지 제안은 기본으로 꺼져 있다. 켜고 단추를 누르면 staged 변경의 파일 이름과 내용, 최근 커밋 제목이 설정한 AI 명령으로 넘어가고,
+  그 명령이 자기 서비스로 보낸다. lock 파일과 `.env`·개인 키처럼 비밀로 보이는 이름의 파일은 이름과 줄 수만 넘긴다
+  ([ADR-009](docs/decisions/ADR-009-commit-message-suggestion.md)).
 
 ## 실행 환경
 
 - Windows 10·11 x64
 - [Git for Windows](https://gitforwindows.org/) 2.43 이상 (시험은 2.52에서 했다. 2.43~2.51의 오류 문구가 같은지는 확인하지 못했다)
 - [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (diff 뷰어. 없으면 텍스트 목록으로 보인다)
-- 선택: Git LFS, OpenSSH, GnuPG, Git Credential Manager
+- 선택: Git LFS, OpenSSH, GnuPG, Git Credential Manager, 커밋 메시지 제안에 쓸 AI 명령(Claude Code, Codex 등)
 
 ## 빌드
 

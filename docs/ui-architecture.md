@@ -264,6 +264,12 @@ cyella_driver ── request_ssh_info ──▶ task_scheduler("ssh-info") ─�
   - 질문을 답 없이 닫으면 `ssh-keygen`은 빈 passphrase로 키를 **만들어 버린다**(종료 코드 0). 그래서 닫은 것을 성공보다 먼저 가려 `auth_cancelled`로 끝내고 만들어진 파일을 지운다.
   - 연결 시험은 `ssh -T [계정@]호스트[:포트]`의 결과를 `classify_ssh_connection_test`로 분류해 `ssh_connection_tested` 사건으로 올린다. 시험이 돌았으면 operation은 성공이다
     (인증이 되었는지는 분류가 말한다). 입력은 `parse_ssh_target`이 옵션 주입(`-o…`, 공백, 따옴표)을 거른다.
+- **AI**: 커밋 메시지 제안이다([ADR-009](decisions/ADR-009-commit-message-suggestion.md)). 위 카드는 켜고 끄는 토글(`settings-suggestion-enabled`, 바로 저장)과 무엇이 밖으로 나가는지의 설명이고,
+  아래 카드는 제안 명령이다: 본보기 단추(Claude Code·Codex, 칸을 채우기만 한다), 실행 파일(+[찾아보기…]), 인자, 추가 지시의 한 줄 입력 셋과 [저장].
+  닫히지 않은 따옴표, `.cmd`·`.bat`, 절대 경로가 아닌 경로는 저장을 막고, 없는 절대 경로는 주의만 준다(`check_suggestion_draft`).
+  켜면 커밋 상자의 제목 줄에 단추(`commit-suggest`)가 생긴다. 누르면 `suggest_commit_message_intent` → controller가 `commit_suggestion_job`을 내고 →
+  driver가 scheduler의 `commit-suggest:<저장소 id>` 줄에서 `commit_message_suggester`를 돌리고 → 결과가 relay로 `commit_suggestion_result_intent`가 되어
+  낸 탭의 제목·본문을 채운다. 도는 동안은 단추가 도는 아이콘과 멈춤(`commit-suggest-cancel`)으로 바뀐다. git operation이 아니라서 상태 줄과 작업 로그에는 나오지 않는다.
 - **읽기 전용**: 설정 파일을 읽지 못했으면(`app_settings_service::is_read_only`) 화면 위에 "이번 실행 동안은 저장하지 않습니다" 배너가 선다. 값은 메모리에서 바뀐다.
   마지막 저장이 실패했을 때(`has_unsaved_changes`)도 배너가 있다.
 - 입력 칸의 초안은 `settings_state`가 가지고(대화 상자를 닫으면 버린다), 저장은 [적용]·[저장]처럼 한 번에 한다. 텍스트 대상은 `text_target::settings_*`,

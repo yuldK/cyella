@@ -63,6 +63,7 @@ CRLF, 4칸 들여쓰기다. 알려진 키는 저장할 때마다 쓰되, `ui`·`
 | `external_diff_tools` | 확장자(점·`*.` 생략 가능, 대소문자 무시, `.tar.gz` 같은 여러 점 가능), 실행 파일, 인자 템플릿. 확장자나 실행 파일이 없는 줄은 경고하고 버린다. |
 | `external_file_apps` | 다른 앱으로 여는 앱 목록이다(diff의 파일, 툴바 "열기"의 저장소 폴더). 한 줄은 `name`, `executable`, `arguments`이고 인자의 `{file}`·`{repository}`·`{path}`가 여는 파일이나 폴더로 바뀐다. 기본은 Windows 탐색기와 Visual Studio Code이고, 키가 있으면 기본 대신 그 목록을 쓴다. 이름이나 실행 파일이 빈 줄은 경고하고 버린다. |
 | `language` | 화면 문구의 언어. `system`, `ko`, `en`. 그 밖의 값은 경고하고 `system`. 바꾸면 다시 시작할 때 적용한다([ADR-008](decisions/ADR-008-i18n.md)). |
+| `commit_suggestion` | 커밋 메시지 제안이다([ADR-009](decisions/ADR-009-commit-message-suggestion.md)). `enabled`(불리언, 기본 `false`), `executable`(PATH의 이름이나 절대 경로), `arguments`(공백으로 나누는 인자, `""`는 빈 인자), `instruction`(추가 지시 한 줄). 기본값과 같으면 키를 쓰지 않는다. 틀린 필드는 경고하고 그 필드만 기본값. |
 | `appearance.theme` | `system`, `light`, `dark`. 그 밖의 값은 경고하고 `system`. |
 | `appearance.gravatar` | 커밋 작성자 사진을 Gravatar에서 받는지(불리언, 기본 `false`). 켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 간다. 불리언이 아니면 경고하고 기본값. |
 | `appearance.accent` | 키 컬러 id(luil 목록의 `blue`·`mint`…, 운영체제 색은 `system`). 비면 luil의 기본 키 컬러다. 목록에 없는 id도 설정에는 남기고 표시만 기본으로 되돌린다. |

@@ -76,6 +76,10 @@ namespace cyella {
         settings_signing_allowed_signers,
         settings_ui_font = 600,
         settings_code_font,
+        // 환경 설정 "AI" 쪽의 제안 명령 칸이다 (실행 파일·인자·추가 지시). 다른 칸과 겹치지 않게 700부터 쓴다.
+        settings_suggestion_executable = 700,
+        settings_suggestion_arguments,
+        settings_suggestion_instruction,
     };
 
     // 사이드바 구역이다. 순서가 곧 화면 순서다.
@@ -177,6 +181,11 @@ namespace cyella {
         // 제목을 고치지 않고 본문도 비운 채 커밋하면 빈 메시지를 내서 git이 기존 메시지를 그대로 쓰게 한다. 제목만 보내면 본문이 사라진다.
         std::optional<std::u8string> amend_prefill {};
         bool amend_body_unknown { false };
+        // 낸 커밋 메시지 제안의 serial이다 (ADR-009). 0이면 도는 것이 없다. 요청할 때의 제목·본문을 함께 둔다 — 답이 올 때까지 사용자가
+        // 입력을 고쳤으면 덮어쓰지 않기 위해서다.
+        std::uint64_t pending_suggestion { 0 };
+        std::u8string suggestion_subject_before {};
+        std::u8string suggestion_body_before {};
 
         [[nodiscard]] bool section_collapsed(const sidebar_section section) const noexcept
         {
@@ -435,6 +444,9 @@ namespace cyella {
         const bool hosting { value >= static_cast<std::uint32_t>(text_target::settings_hosting_host) && value <= static_cast<std::uint32_t>(text_target::settings_web_link_icon) };
         const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_profile_ssh_key) };
         const bool fonts { value >= static_cast<std::uint32_t>(text_target::settings_ui_font) && value <= static_cast<std::uint32_t>(text_target::settings_code_font) };
-        return basic || form || rebase || selector || hosting || commands || signing || fonts ? static_cast<text_target>(value) : text_target::none;
+        const bool suggestion {
+            value >= static_cast<std::uint32_t>(text_target::settings_suggestion_executable) && value <= static_cast<std::uint32_t>(text_target::settings_suggestion_instruction)
+        };
+        return basic || form || rebase || selector || hosting || commands || signing || fonts || suggestion ? static_cast<text_target>(value) : text_target::none;
     }
 } // namespace cyella

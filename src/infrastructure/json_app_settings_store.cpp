@@ -484,6 +484,45 @@ namespace cyella {
             }
         }
 
+        // `commit_suggestion` 객체다 (ADR-009). 켬 여부(`enabled`)와 명령(`executable`·`arguments`), 추가 지시(`instruction`)다. 틀린 필드만 기본값으로 둔다.
+        void parse_commit_suggestion(const json& root, app_settings_load_result& result)
+        {
+            const auto source { root.find("commit_suggestion") };
+            if (source == root.end() || source->is_null())
+                return;
+            if (source->is_object() == false)
+            {
+                warn(result, tr(u8"app_settings.commit_suggestion_not_object"));
+                return;
+            }
+
+            commit_suggestion_settings& suggestion { result.settings.commit_suggestion };
+            if (const auto enabled { source->find("enabled") }; enabled != source->end() && enabled->is_null() == false)
+            {
+                if (enabled->is_boolean())
+                    suggestion.enabled = enabled->get<bool>();
+                else
+                    warn(result, tr(u8"app_settings.commit_suggestion_enabled_not_bool"));
+            }
+
+            // 글 세 칸은 틀려도 경고를 한 번만 낸다.
+            bool bad_text { false };
+            const auto read_text = [&source, &bad_text](const char* const key, std::u8string& target) {
+                const auto value { source->find(key) };
+                if (value == source->end() || value->is_null())
+                    return;
+                if (value->is_string())
+                    target = as_u8string(value->get_ref<const std::string&>());
+                else
+                    bad_text = true;
+            };
+            read_text("executable", suggestion.executable);
+            read_text("arguments", suggestion.arguments);
+            read_text("instruction", suggestion.instruction);
+            if (bad_text)
+                warn(result, tr(u8"app_settings.commit_suggestion_text_not_string"));
+        }
+
         // `hosting.web_links[]`: 원격의 웹 페이지 주소 규칙이다. 틀린 줄과 겹치는 호스트만 건너뛴다.
         void parse_web_links(const json& hosting, app_settings_load_result& result)
         {
@@ -776,6 +815,17 @@ namespace cyella {
         // 프로필·단축키·명령 기록이다. 새 키는 이 한 줄 뒤에 덧붙인다.
         serialize_command_settings(settings, root);
 
+        // commit_suggestion 객체는 기본값과 다르거나 파일에 이미 있을 때만 쓴다. 쓰지 않는 사용자의 파일을 짧게 두고, 알 수 없는 키는 보존한다.
+        if (settings.commit_suggestion != commit_suggestion_settings {} || root.contains("commit_suggestion"))
+        {
+            json suggestion { existing_object(root, "commit_suggestion") };
+            suggestion["enabled"] = settings.commit_suggestion.enabled;
+            suggestion["executable"] = as_string(settings.commit_suggestion.executable);
+            suggestion["arguments"] = as_string(settings.commit_suggestion.arguments);
+            suggestion["instruction"] = as_string(settings.commit_suggestion.instruction);
+            root["commit_suggestion"] = std::move(suggestion);
+        }
+
         // 잘못된 UTF-8이 들어와도 던지지 않고 대체 문자로 쓴다. 저장이 예외로 죽는 것보다 낫다.
         return format_json_bytes(root.dump(4, ' ', false, json::error_handler_t::replace));
     }
@@ -809,6 +859,7 @@ namespace cyella {
         parse_hosting(root, result);
         parse_command_settings(root, result);
         parse_language(root, result);
+        parse_commit_suggestion(root, result);
         return result;
     }
 

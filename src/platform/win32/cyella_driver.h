@@ -3,6 +3,7 @@
 #include "application/app_messages.h"
 #include "application/app_settings_service.h"
 #include "application/cancellation_registry.h"
+#include "application/commit_suggestion_messages.h"
 #include "application/diff_tool_launcher.h"
 #include "application/diff_view_coordinator.h"
 #include "application/external_diff_opener.h"
@@ -17,6 +18,7 @@
 #include "application/workspace_files.h"
 #include "domain/git_tool.h"
 #include "infrastructure/avatar_fetcher.h"
+#include "infrastructure/commit_message_suggester.h"
 #include "infrastructure/diff_temp_directory.h"
 #include "infrastructure/git_diff_gateway.h"
 #include "infrastructure/git_identity_gateway.h"
@@ -213,6 +215,11 @@ namespace cyella::win32 {
         void apply_identity(const std::string& repository_id, const std::u8string& path, const local_identity_change& change);
         // 작성자 사진을 worker가 받아(디스크 보관 포함) 풀게 한다. 결과는 `avatar_loaded_intent`로 relay에 돌아온다.
         void request_avatar(const std::string& email);
+        // 커밋 메시지 제안 명령을 worker가 돌리게 한다 (ADR-009). 결과는 `commit_suggestion_result_intent`로 relay에 돌아온다.
+        // 저장소의 읽기·쓰기 줄과 다른 줄이라 도는 동안에도 status와 커밋이 밀리지 않는다.
+        void request_commit_suggestion(commit_suggestion_job job);
+        // 도는 제안을 멈춘다. 결과는 `cancelled`로 돌아온다. 모르는 serial은 아무 일도 하지 않는다.
+        void cancel_commit_suggestion(std::uint64_t serial);
         // 웹뷰가 보여야 할 diff를 맞추고, 쌓인 안내를 화면에 올린다.
         void sync_diff_view();
         // OS 표시 설정을 다시 읽는다. 다음 frame이 그 값으로 웹뷰의 테마를 짓는다.
@@ -257,6 +264,10 @@ namespace cyella::win32 {
         std::unique_ptr<external_diff_opener> diff_opener_ {};
         // 작성자 신원 읽기·쓰기다. scheduler worker가 쓰므로 scheduler 뒤에 둔다.
         std::unique_ptr<git_identity_gateway> identity_ {};
+        // 커밋 메시지 제안이다. scheduler worker가 쓰므로 scheduler 뒤에 둔다.
+        std::unique_ptr<commit_message_suggester> suggester_ {};
+        // 도는 제안의 취소 손잡이다 (serial → source). logic thread만 만지고, 결과를 relay에서 꺼낼 때 지운다.
+        std::map<std::uint64_t, std::shared_ptr<process_cancellation_source>> suggestion_sources_ {};
         std::unique_ptr<diff_view_coordinator> diff_ {};
         // 저장소마다 `file_diff_loaded`가 온 횟수다. 같은 요청을 다시 읽어 왔는지(stage 뒤) 알아내는 데 쓴다.
         std::map<std::string, std::uint64_t> diff_serials_ {};

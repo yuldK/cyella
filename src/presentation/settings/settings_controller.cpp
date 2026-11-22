@@ -123,6 +123,12 @@ namespace cyella {
         {
         case text_target::settings_git_path:
             return &state.git_path;
+        case text_target::settings_suggestion_executable:
+            return &state.suggestion_executable;
+        case text_target::settings_suggestion_arguments:
+            return &state.suggestion_arguments;
+        case text_target::settings_suggestion_instruction:
+            return &state.suggestion_instruction;
         case text_target::settings_ui_font:
             return &state.ui_font;
         case text_target::settings_code_font:
@@ -194,6 +200,9 @@ namespace cyella {
         set_text(state.git_path, dependencies_.settings().git_executable);
         set_text(state.ui_font, dependencies_.settings().appearance.ui_font);
         set_text(state.code_font, dependencies_.settings().appearance.code_font);
+        set_text(state.suggestion_executable, dependencies_.settings().commit_suggestion.executable);
+        set_text(state.suggestion_arguments, dependencies_.settings().commit_suggestion.arguments);
+        set_text(state.suggestion_instruction, dependencies_.settings().commit_suggestion.instruction);
         state.suggested_key_name = std::u8string { default_key_name };
         set_text(state.key_name, state.suggested_key_name);
         set_text(state.key_comment, dependencies_.default_key_comment);
@@ -419,6 +428,12 @@ namespace cyella {
                 handle_profile_message(message);
             return true;
         }
+        if (is_suggestion_message(message))
+        {
+            if (state_.has_value())
+                handle_suggestion_message(message);
+            return true;
+        }
         // 나머지는 화면이 열려 있을 때만 뜻이 있다. 닫힌 뒤에 늦게 온 메시지는 삼킨다.
         const auto settings_message = [&message]() {
             if (message.get<apply_font_settings_intent>() != nullptr || message.get<select_font_intent>() != nullptr || message.get<open_font_list_intent>() != nullptr
@@ -559,6 +574,8 @@ namespace cyella {
         {
             if (file_intent->purpose == file_purpose::git_executable)
                 set_text(state.git_path, file_intent->path);
+            else if (file_intent->purpose == file_purpose::suggestion_executable)
+                set_text(state.suggestion_executable, file_intent->path);
             else if (state.tool_edit.has_value())
                 set_text(state.tool_edit->executable, file_intent->path);
         }
@@ -638,6 +655,7 @@ namespace cyella {
             inputs.hosting_hosts = dependencies_.hosting_rows(dependencies_.settings().hosting.hosts);
         settings_view view { build_settings_view(inputs) };
         view.signing = signing_.make_view(state_->ssh.has_value() ? &*state_->ssh : nullptr, dependencies_.probe, composition);
+        view.suggestion = build_suggestion_page_view(dependencies_.settings().commit_suggestion, *state_, composition, dependencies_.probe);
         // 단축키와 사용자 프로필 쪽은 열려 있을 때만 짓는다.
         if (state_->page == settings_page::shortcuts)
             view.shortcuts = build_shortcuts_page_view(dependencies_.settings(), state_->shortcut_edit, composition);
