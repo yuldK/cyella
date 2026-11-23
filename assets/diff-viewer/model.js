@@ -24,12 +24,12 @@
         return bytes;
     }
 
-    // 메시지의 줄 하나 `[종류, 옛 번호, 새 번호, 내용(, 1)]`을 푼다. 다섯째 값이 1이면 내용은 base64 바이트이며
-    // (올바른 UTF-8이 아니다) 올바르지 않은 바이트는 U+FFFD로 보인다. 줄 끝 CR은 떼고 cr로 따로 둔다.
-    function decodeLine(entry) {
-        let text = entry[3];
+    // 줄 내용을 푼다. encoded가 참이면 내용은 base64 바이트이며(올바른 UTF-8이 아니다) 올바르지 않은 바이트는
+    // U+FFFD로 보인다. 줄 끝 CR은 떼고 cr로 따로 둔다. diff와 blame의 줄이 같은 규칙을 쓴다.
+    function decodeContent(content, encoded) {
+        let text = content;
         let invalid = false;
-        if (entry.length > 4 && entry[4] === 1) {
+        if (encoded) {
             text = decoder.decode(decodeBase64(text));
             invalid = true;
         }
@@ -38,7 +38,13 @@
             cr = true;
             text = text.slice(0, -1);
         }
-        return { kind: entry[0], old: entry[1], new: entry[2], text, cr, invalid };
+        return { text, cr, invalid };
+    }
+
+    // 메시지의 줄 하나 `[종류, 옛 번호, 새 번호, 내용(, 1)]`을 푼다. 다섯째 값이 1이면 내용이 base64다.
+    function decodeLine(entry) {
+        const content = decodeContent(entry[3], entry.length > 4 && entry[4] === 1);
+        return { kind: entry[0], old: entry[1], new: entry[2], text: content.text, cr: content.cr, invalid: content.invalid };
     }
 
     // 삭제 줄 덩어리와 바로 뒤 추가 줄 덩어리를 차례대로 짝짓는다. partner[i]는 짝 줄의 위치이고 없으면 -1이다.
@@ -245,7 +251,7 @@
 
     const api = {
         LINE_HEIGHT, HUNK_HEIGHT, ROW_HUNK, ROW_LINE, ROW_PAIR, ROW_NOTE,
-        decodeLine, pairChangedLines, buildModel, buildRows, rowAtOffset, isChange,
+        decodeContent, decodeLine, pairChangedLines, buildModel, buildRows, rowAtOffset, isChange,
         changedBetween, toRanges, selectionText, changeStartRows, formatBytes, needsResync,
     };
     if (typeof module !== 'undefined' && module.exports)

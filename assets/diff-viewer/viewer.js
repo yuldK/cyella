@@ -1,5 +1,5 @@
 // diff 뷰어 본체다. C++이 `chrome.webview`로 보내는 메시지(docs/decisions/ADR-002-diff-viewer.md)를 받아
-// inline·분할 diff, 이미지 비교, 바이너리 카드를 그리고, 사용자의 동작을 같은 통로로 C++에 돌려보낸다.
+// inline·분할 diff, blame, 이미지 비교, 바이너리 카드를 그리고, 사용자의 동작을 같은 통로로 C++에 돌려보낸다.
 //
 // 큰 파일은 보이는 행만 DOM에 둔다(가상 스크롤). 행 높이가 고정이라 행 위치를 미리 더해 둔 표로 보이는 구간을
 // 이진 탐색한다. 구문 강조와 단어 단위 강조는 그 행이 처음 그려질 때 계산한다.
@@ -16,6 +16,8 @@
     const HIGHLIGHT_CHUNK = 400;
     const GUTTER_INLINE = 46 + 46 + 20;
     const GUTTER_SPLIT = 44 + 20;
+    // blame의 여백 칸, 줄 번호 칸, 코드 칸 왼쪽 여백이다(CSS의 `.bl`·`.bl .dl-code`와 같다).
+    const GUTTER_BLAME = 236 + 54 + 10;
     // 코드 칸 오른쪽 여백이다(CSS의 `.dl-code` padding-right와 같다).
     const CODE_PADDING = 16;
     const DISCARD_ARM_MILLISECONDS = 4000;
@@ -47,12 +49,15 @@
         armed: null,
         image: null,
         binary: null,
+        // blame을 보이는 동안의 상태다: { model, revision, focus, selected }. selected는 고른 origin 위치이고 없으면 -1이다.
+        blame: null,
     };
 
     const elements = {
         toolbar: document.getElementById('toolbar'),
         notice: document.getElementById('notice'),
         content: document.getElementById('content'),
+        blame: document.getElementById('blame-bar'),
         selection: document.getElementById('selection-bar'),
     };
 
@@ -67,6 +72,7 @@
     let armTimer = 0;
     let highlightCache = new Map();
     let wordCache = new Map();
+    let blameOriginCache = new Map();
     let dragging = null;
     let changeStarts = [];
     let currentChange = -1;
@@ -154,6 +160,11 @@
             html += '<span class="toolbar-path">' + escapeHtml(state.path) + '</span>';
         if (file)
             html += '<span class="chip">' + statusLabel(file.status) + '</span>';
+        if (state.mode === 'blame') {
+            html += '<span class="chip">' + escapeHtml(t('diff_viewer.blame_label')) + '</span>';
+            if (state.blame.revision !== '')
+                html += '<span class="chip is-code" title="' + escapeHtml(state.blame.revision) + '">' + escapeHtml(diff.shortSha(state.blame.revision)) + '</span>';
+        }
         html += '</div>';
 
         if (state.mode === 'diff' && file) {
@@ -182,11 +193,14 @@
     }
 
     function showNotice() {
-        if (state.mode === 'diff' && state.truncated) {
+        if ((state.mode === 'diff' || state.mode === 'blame') && state.truncated) {
             elements.notice.hidden = false;
             // 천 단위 구분은 시스템 지역이 아니라 앱이 고른 언어(문서 lang)를 따른다.
             const locale = document.documentElement.lang || undefined;
-            elements.notice.innerHTML = '<span>' + escapeHtml(t('diff_viewer.truncated_notice', { total: state.totalLines.toLocaleString(locale), shown: state.shownLines.toLocaleString(locale) })) + '</span>'
+            const counts = { total: state.totalLines.toLocaleString(locale), shown: state.shownLines.toLocaleString(locale) };
+            // diff의 안내는 줄 단위 stage를 말하므로 blame은 제 문구를 쓴다.
+            const text = state.mode === 'blame' ? t('diff_viewer.blame_truncated_notice', counts) : t('diff_viewer.truncated_notice', counts);
+            elements.notice.innerHTML = '<span>' + escapeHtml(text) + '</span>'
                 + button(escapeHtml(t('diff_viewer.show_full')), 'show_full', 'is-primary');
         } else {
             elements.notice.hidden = true;
@@ -309,7 +323,59 @@
             + numberCell(number, hunkIndex, lineIndex, change) + '<span class="dl-mark">' + mark + '</span><span class="dl-code">' + codeHtml(hunkIndex, lineIndex) + '</span></div>';
     }
 
+    // ------------------------------------------------------------------ blame 행
+
+    // origin마다 한 번 만들어 두는 여백 칸 조각이다: 묶음 첫 줄에 적는 글(gutter)과 툴팁(title). 둘 다 이스케이프된 HTML이다.
+    function blameOriginParts(originIndex) {
+        let parts = blameOriginCache.get(originIndex);
+        if (parts !== undefined)
+            return parts;
+        const origin = state.blame.model.origins[originIndex];
+        if (origin.uncommitted) {
+            const label = escapeHtml(t('diff_viewer.blame_uncommitted'));
+            parts = { gutter: '<span class="bl-uncommitted">' + label + '</span>', title: label };
+        } else {
+            parts = {
+                gutter: '<span class="bl-sha">' + escapeHtml(diff.shortSha(origin.sha)) + '</span>'
+                    + '<span class="bl-author">' + escapeHtml(origin.author) + '</span>'
+                    + '<span class="bl-date">' + diff.formatBlameDate(origin.time) + '</span>',
+                title: escapeHtml(diff.blameTooltipLines(origin, state.path).join('\n')),
+            };
+        }
+        blameOriginCache.set(originIndex, parts);
+        return parts;
+    }
+
+    // 구문 강조는 줄을 덩어리로 묶어 그 덩어리가 처음 보일 때 한다.
+    function blameCodeHtml(lineIndex) {
+        const model = state.blame.model;
+        const chunk = Math.floor(lineIndex / HIGHLIGHT_CHUNK);
+        let html = highlightCache.get(chunk);
+        if (html === undefined) {
+            const from = chunk * HIGHLIGHT_CHUNK;
+            html = diff.highlightLines(model.texts.slice(from, from + HIGHLIGHT_CHUNK), state.language);
+            highlightCache.set(chunk, html);
+        }
+        return model.cr[lineIndex] === 1 ? html[lineIndex - chunk * HIGHLIGHT_CHUNK] + '<span class="eol-cr" title="CRLF">␍</span>' : html[lineIndex - chunk * HIGHLIGHT_CHUNK];
+    }
+
+    // 여백 칸의 글은 묶음의 첫 줄에만 적는다. 나머지 줄의 칸은 비어 있지만 누르기와 툴팁은 같다.
+    function blameRowHtml(lineIndex) {
+        const model = state.blame.model;
+        const originIndex = model.lineOrigins[lineIndex];
+        const start = model.starts[lineIndex] === 1;
+        let gutter = '<span class="bl-gutter"></span>';
+        if (originIndex >= 0) {
+            const parts = blameOriginParts(originIndex);
+            gutter = '<span class="bl-gutter" data-origin="' + originIndex + '" title="' + parts.title + '">' + (start ? parts.gutter : '') + '</span>';
+        }
+        return '<div class="bl' + (start && lineIndex > 0 ? ' is-start' : '') + (originIndex >= 0 && originIndex === state.blame.selected ? ' is-selected' : '') + '" data-row="' + lineIndex + '">'
+            + gutter + '<span class="dl-no">' + model.numbers[lineIndex] + '</span><span class="dl-code">' + blameCodeHtml(lineIndex) + '</span></div>';
+    }
+
     function rowHtml(row) {
+        if (state.mode === 'blame')
+            return blameRowHtml(row);
         const rows = state.rows;
         const hunkIndex = rows.hunks[row];
         switch (rows.types[row]) {
@@ -360,9 +426,13 @@
     // 긴 줄은 그 줄이 그려질 때 범위가 늘어난다.
     function layoutWidths() {
         const viewport = scroller.clientWidth;
-        const needed = state.layout === 'split'
-            ? 2 * (GUTTER_SPLIT + measuredCode + CODE_PADDING)
-            : GUTTER_INLINE + measuredCode + CODE_PADDING;
+        let needed;
+        if (state.mode === 'blame')
+            needed = GUTTER_BLAME + measuredCode + CODE_PADDING;
+        else if (state.layout === 'split')
+            needed = 2 * (GUTTER_SPLIT + measuredCode + CODE_PADDING);
+        else
+            needed = GUTTER_INLINE + measuredCode + CODE_PADDING;
         // 뷰포트에 들어가면 너비를 정하지 않는다. 올림한 값이 뷰포트를 1px 넘어 막대가 생기는 일을 막는다.
         sizer.style.width = needed > viewport ? Math.ceil(needed) + 'px' : '';
         elements.content.style.setProperty('--view-w', viewport + 'px');
@@ -385,20 +455,17 @@
         }
     }
 
-    function buildDiffView(preserveScroll) {
+    // `state.rows`를 그릴 스크롤 틀을 새로 세운다. diff와 blame이 같은 틀과 같은 창 그리기를 쓴다.
+    function mountRows(preserveScroll) {
         const previousTop = preserveScroll && scroller !== null ? scroller.scrollTop : 0;
         const previousLeft = preserveScroll && scroller !== null ? scroller.scrollLeft : 0;
-        state.rows = diff.buildRows(state.model, state.layout);
-        changeStarts = diff.changeStartRows(state.model, state.rows);
-        currentChange = -1;
-
         elements.content.className = 'content';
         elements.content.innerHTML = '<div class="diff-scroll" tabindex="0"><div class="diff-sizer"><div class="diff-window"></div></div></div>';
         scroller = elements.content.firstElementChild;
         sizer = scroller.firstElementChild;
         windowElement = sizer.firstElementChild;
         sizer.style.height = Math.ceil(state.rows.height) + 'px';
-        sizer.classList.toggle('is-split', state.layout === 'split');
+        sizer.classList.toggle('is-split', state.mode === 'diff' && state.layout === 'split');
         measuredCode = 0;
         layoutWidths();
         renderedStart = -1;
@@ -406,6 +473,80 @@
         scroller.scrollTop = previousTop;
         scroller.scrollLeft = previousLeft;
         renderWindow(true);
+    }
+
+    function buildDiffView(preserveScroll) {
+        state.rows = diff.buildRows(state.model, state.layout);
+        changeStarts = diff.changeStartRows(state.model, state.rows);
+        currentChange = -1;
+        mountRows(preserveScroll);
+    }
+
+    function buildBlameView(preserveScroll) {
+        state.rows = diff.buildBlameRows(state.blame.model.count);
+        mountRows(preserveScroll);
+    }
+
+    // ------------------------------------------------------------------ blame의 origin 고르기
+
+    // 고른 origin의 정보 띠다. 본문 아래에 붙어 본문 높이만 줄이므로 보이던 줄이 밀리지 않는다.
+    function renderBlameBar() {
+        const blame = state.blame;
+        if (state.mode !== 'blame' || blame === null || blame.selected < 0) {
+            elements.blame.hidden = true;
+            elements.blame.textContent = '';
+            return;
+        }
+        const origin = blame.model.origins[blame.selected];
+        let html;
+        if (origin.uncommitted) {
+            html = '<span class="blame-bar-summary">' + escapeHtml(t('diff_viewer.blame_uncommitted_detail')) + '</span>';
+        } else {
+            html = '<span class="chip is-code" title="' + escapeHtml(origin.sha) + '">' + escapeHtml(diff.shortSha(origin.sha)) + '</span>'
+                + '<span class="blame-bar-author" title="' + escapeHtml(diff.blameAuthorLine(origin)) + '">' + escapeHtml(origin.author) + '</span>'
+                + '<span class="blame-bar-date">' + diff.formatBlameDateTime(origin.time) + '</span>'
+                + '<span class="blame-bar-summary" title="' + escapeHtml(origin.summary) + '">' + escapeHtml(origin.summary) + '</span>'
+                + button(escapeHtml(t('diff_viewer.blame_open_commit')), 'blame_open_commit', 'is-primary');
+            if (origin.previous)
+                html += button(escapeHtml(t('diff_viewer.blame_previous')), 'blame_previous', 'is-quiet');
+        }
+        elements.blame.innerHTML = html;
+        elements.blame.hidden = false;
+    }
+
+    function selectBlameOrigin(originIndex) {
+        if (state.mode !== 'blame' || state.blame.selected === originIndex)
+            return;
+        state.blame.selected = originIndex;
+        renderWindow(true);
+        renderBlameBar();
+    }
+
+    // 줄이 화면 위에서 삼분의 일쯤에 오도록 스크롤한다.
+    function scrollToBlameLine(lineIndex) {
+        if (scroller === null || lineIndex < 0)
+            return;
+        scroller.scrollTop = Math.max(0, state.rows.offsets[lineIndex] - scroller.clientHeight / 3);
+        renderWindow(false);
+    }
+
+    // 정보 띠가 생기며 본문이 줄어 방금 누른 줄이 가려졌으면 그만큼 올린다.
+    function keepBlameLineVisible(lineIndex) {
+        if (scroller === null)
+            return;
+        const hidden = state.rows.offsets[lineIndex + 1] - (scroller.scrollTop + scroller.clientHeight);
+        if (hidden > 0)
+            scroller.scrollTop += hidden;
+    }
+
+    function sendBlameAction(type) {
+        const blame = state.blame;
+        if (state.mode !== 'blame' || blame === null || blame.selected < 0)
+            return;
+        const origin = blame.model.origins[blame.selected];
+        if (origin.uncommitted || (type === 'blame_previous' && origin.previous === false))
+            return;
+        postAction(type, { origin: blame.selected });
     }
 
     // ------------------------------------------------------------------ 선택
@@ -556,6 +697,10 @@
             break;
         case 'show_full':
             postAction('show_full', {});
+            break;
+        case 'blame_open_commit':
+        case 'blame_previous':
+            sendBlameAction(action);
             break;
         default:
             break;
@@ -732,6 +877,9 @@
         disarm();
         highlightCache = new Map();
         wordCache = new Map();
+        blameOriginCache = new Map();
+        state.blame = null;
+        renderBlameBar();
         renderSelectionBar();
     }
 
@@ -758,6 +906,45 @@
             buildDiffView(keepScroll);
         }
         renderToolbar();
+    }
+
+    function showBlame(message) {
+        const path = typeof message.path === 'string' ? message.path : '';
+        const revision = typeof message.revision === 'string' ? message.revision : '';
+        const focus = typeof message.focus === 'string' ? message.focus : '';
+        // 같은 파일의 같은 판이 다시 온 것이면(작업 트리를 다시 읽었을 때, 전체 보기, 재동기화) 스크롤과 고른 origin을 지킨다.
+        const previous = state.mode === 'blame' && state.blame !== null && state.path === path && state.blame.revision === revision ? state.blame : null;
+        const model = diff.buildBlameModel(message);
+        const applyFocus = diff.shouldApplyBlameFocus(focus, previous === null ? null : previous.focus);
+        let selected = -1;
+        if (applyFocus)
+            selected = diff.findBlameOrigin(model.origins, focus);
+        else if (previous !== null && previous.selected >= 0)
+            selected = diff.matchBlameOrigin(model.origins, previous.model.origins[previous.selected]);
+
+        resetTransient();
+        state.mode = 'blame';
+        state.file = null;
+        state.model = null;
+        state.path = path;
+        state.language = diff.languageFor(path);
+        state.truncated = message.truncated === true;
+        state.totalLines = typeof message.total_lines === 'number' ? message.total_lines : model.count;
+        state.shownLines = model.count;
+        state.blame = { model, revision, focus, selected };
+        changeStarts = [];
+        currentChange = -1;
+        showNotice();
+        // 머리 줄과 정보 띠가 본문 높이를 줄이므로 스크롤 위치를 잡기 전에 그린다.
+        renderToolbar();
+        renderBlameBar();
+        if (model.count === 0) {
+            renderEmpty(t('diff_viewer.blame_empty'));
+        } else {
+            buildBlameView(previous !== null);
+            if (applyFocus && selected >= 0)
+                scrollToBlameLine(model.first[selected]);
+        }
     }
 
     function showImage(message) {
@@ -812,6 +999,11 @@
             applyState(message);
             state.contentSeq = message.seq;
             showDiff(message);
+            break;
+        case 'show_blame':
+            applyState(message);
+            state.contentSeq = message.seq;
+            showBlame(message);
             break;
         case 'show_image':
             applyState(message);
@@ -940,6 +1132,13 @@
             handleAction(actionElement.dataset.act, actionElement);
             return;
         }
+        const gutter = event.target.closest('.bl-gutter[data-origin]');
+        if (gutter !== null && state.mode === 'blame') {
+            const lineIndex = Number(gutter.parentElement.dataset.row);
+            selectBlameOrigin(diff.toggleBlameOrigin(state.blame.selected, Number(gutter.dataset.origin)));
+            keepBlameLineVisible(lineIndex);
+            return;
+        }
         const layoutElement = event.target.closest('[data-layout]');
         if (layoutElement !== null) {
             setLayout(layoutElement.dataset.layout);
@@ -955,23 +1154,32 @@
     elements.toolbar.addEventListener('click', onClick);
     elements.notice.addEventListener('click', onClick);
     elements.content.addEventListener('click', onClick);
+    elements.blame.addEventListener('click', onClick);
     elements.selection.addEventListener('click', onClick);
 
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
             clearSelection();
             disarm();
+            selectBlameOrigin(-1);
         } else if (event.key === 'F7') {
             navigateChange(event.shiftKey ? -1 : 1);
             event.preventDefault();
         } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' && state.selection !== null) {
             copySelection();
             event.preventDefault();
+        } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' && state.mode === 'blame') {
+            // blame에서 끌어 고른 코드 글도 diff의 줄 복사와 같은 `copy`로 보낸다. 여백 칸과 줄 번호는 선택에서 빠져 있다.
+            const text = window.getSelection().toString();
+            if (text !== '') {
+                postAction('copy', { text });
+                event.preventDefault();
+            }
         }
     });
 
     new ResizeObserver(() => {
-        if (state.mode === 'diff' && scroller !== null && state.model !== null) {
+        if ((state.mode === 'diff' || state.mode === 'blame') && scroller !== null && state.rows !== null) {
             layoutWidths();
             renderWindow(true);
         }

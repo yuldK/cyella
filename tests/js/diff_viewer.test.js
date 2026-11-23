@@ -12,6 +12,7 @@ const viewerDirectory = path.join(__dirname, '..', '..', 'assets', 'diff-viewer'
 const wordDiff = require(path.join(viewerDirectory, 'word-diff.js'));
 const syntax = require(path.join(viewerDirectory, 'syntax.js'));
 const model = require(path.join(viewerDirectory, 'model.js'));
+const blame = require(path.join(viewerDirectory, 'blame.js'));
 
 // 번들한 highlight.js는 전역 window에 hljs를 단다.
 globalThis.window = globalThis;
@@ -218,4 +219,150 @@ test('formatBytes picks a unit', () => {
     assert.equal(model.formatBytes(2048), '2.0 KB');
     assert.equal(model.formatBytes(3 * 1024 * 1024), '3.00 MB');
     assert.equal(model.formatBytes(null), '-');
+});
+
+// ------------------------------------------------------------------ blame
+
+const FIRST_SHA = '50e889a1c2d3e4f5061728394a5b6c7d8e9f0a1b';
+const SECOND_SHA = '9b1c7e4402d3e4f5061728394a5b6c7d8e9f0a1b';
+const ZERO_SHA = '0'.repeat(40);
+
+function blameMessage(lines, extra) {
+    return Object.assign({
+        type: 'show_blame', seq: 12, path: 'notes.txt', revision: '',
+        origins: [
+            { sha: FIRST_SHA, author: 'Morgan', mail: 'morgan@example.com', time: 1767574800, summary: 'docs: first note', path: 'notes.txt', previous: false, uncommitted: false },
+            { sha: SECOND_SHA, author: 'Riley', mail: 'riley@example.com', time: 1767661200, summary: 'docs: second line', path: 'old-notes.txt', previous: true, uncommitted: false },
+            { sha: ZERO_SHA, author: 'Not Committed Yet', mail: 'not.committed.yet', time: 1767747600, summary: '', path: 'notes.txt', previous: true, uncommitted: true },
+        ],
+        lines, truncated: false, total_lines: lines.length, focus: '',
+    }, extra);
+}
+
+test('buildBlameModel decodes lines and marks where each run of one origin starts', () => {
+    const built = blame.buildBlameModel(blameMessage([
+        [0, 1, 'alpha'], [0, 2, 'alpha two'], [1, 3, 'beta'], [0, 4, 'alpha again'], [2, 5, 'draft'], [2, 6, 'draft two'],
+    ]));
+    assert.equal(built.count, 6);
+    assert.deepEqual(Array.from(built.lineOrigins), [0, 0, 1, 0, 2, 2]);
+    assert.deepEqual(Array.from(built.numbers), [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(built.texts, ['alpha', 'alpha two', 'beta', 'alpha again', 'draft', 'draft two']);
+    // 같은 origin이 떨어져 다시 나오면 새 묶음이다.
+    assert.deepEqual(Array.from(built.starts), [1, 0, 1, 1, 1, 0]);
+    assert.deepEqual(Array.from(built.first), [0, 2, 4]);
+    assert.equal(built.origins[1].previous, true);
+    assert.equal(built.origins[2].uncommitted, true);
+});
+
+test('buildBlameModel restores base64 lines and splits the carriage return', () => {
+    const built = blame.buildBlameModel(blameMessage([
+        [0, 1, 'crlf line\r'],
+        [0, 2, Buffer.from([0x61, 0xff, 0x62]).toString('base64'), 1],
+        [0, 3, Buffer.from([0xfe, 0x0d]).toString('base64'), 1],
+        [0, 4, 'YWJj'],
+    ]));
+    assert.deepEqual(built.texts, ['crlf line', 'a�b', '�', 'YWJj']);
+    assert.deepEqual(Array.from(built.cr), [1, 0, 1, 0]);
+});
+
+test('buildBlameModel survives origins that are missing or out of range', () => {
+    const built = blame.buildBlameModel({ lines: [[0, 1, 'a'], [5, 2, 'b'], [-1, 3, 'c'], [0, 4, 'd']], origins: [{ sha: FIRST_SHA }] });
+    assert.deepEqual(Array.from(built.lineOrigins), [0, -1, -1, 0]);
+    assert.deepEqual(Array.from(built.starts), [1, 1, 0, 1]);
+    assert.deepEqual(built.origins[0], { sha: FIRST_SHA, author: '', mail: '', time: null, summary: '', path: '', previous: false, uncommitted: false });
+    const empty = blame.buildBlameModel({});
+    assert.equal(empty.count, 0);
+    assert.equal(empty.origins.length, 0);
+});
+
+test('blame rows are equal lines that the window lookup can search', () => {
+    const rows = blame.buildBlameRows(5);
+    assert.equal(rows.count, 5);
+    assert.equal(rows.height, 5 * model.LINE_HEIGHT);
+    assert.equal(model.rowAtOffset(rows, 0), 0);
+    assert.equal(model.rowAtOffset(rows, model.LINE_HEIGHT * 3 + 1), 3);
+    assert.equal(model.rowAtOffset(rows, 100000), 4);
+    assert.equal(blame.buildBlameRows(0).height, 0);
+});
+
+test('blame dates are written in the local time zone', () => {
+    // 시간대가 어디든 같은 결과가 나오도록 이 컴퓨터의 시각으로 초를 만든다.
+    const seconds = (...parts) => new Date(...parts).getTime() / 1000;
+    assert.equal(blame.formatBlameDate(seconds(2026, 0, 5, 9, 7)), '2026-01-05');
+    assert.equal(blame.formatBlameDateTime(seconds(2026, 0, 5, 9, 7)), '2026-01-05 09:07');
+    assert.equal(blame.formatBlameDate(seconds(2025, 11, 31, 23, 59, 59)), '2025-12-31');
+    assert.equal(blame.formatBlameDateTime(seconds(2026, 9, 15, 0, 0)), '2026-10-15 00:00');
+    assert.equal(blame.formatBlameDate(null), '');
+    assert.equal(blame.formatBlameDate(Number.NaN), '');
+    assert.equal(blame.formatBlameDateTime(undefined), '');
+});
+
+test('shortSha keeps seven letters', () => {
+    assert.equal(blame.shortSha(FIRST_SHA), '50e889a');
+    assert.equal(blame.shortSha('abc'), 'abc');
+    assert.equal(blame.shortSha('f'.repeat(64)), 'fffffff');
+});
+
+test('the blame tooltip lists the sha, author, time and summary', () => {
+    const origins = blame.buildBlameModel(blameMessage([])).origins;
+    assert.deepEqual(blame.blameTooltipLines(origins[0], 'notes.txt'),
+        [FIRST_SHA, 'Morgan <morgan@example.com>', blame.formatBlameDateTime(1767574800), 'docs: first note']);
+    // 그 커밋에서 파일 이름이 달랐으면 그 경로도 적는다.
+    assert.equal(blame.blameTooltipLines(origins[1], 'notes.txt').at(-1), 'old-notes.txt');
+    // 꺾쇠가 붙어 온 메일은 한 번만 두르고, 빈 값의 줄은 뺀다.
+    const bare = blame.normalizeOrigin({ sha: SECOND_SHA, author: 'Riley', mail: '<riley@example.com>' });
+    assert.deepEqual(blame.blameTooltipLines(bare, 'notes.txt'), [SECOND_SHA, 'Riley <riley@example.com>']);
+    assert.equal(blame.blameAuthorLine(blame.normalizeOrigin({ author: 'Riley' })), 'Riley');
+});
+
+test('findBlameOrigin matches a full sha first and then an abbreviated one', () => {
+    const origins = blame.buildBlameModel(blameMessage([])).origins;
+    assert.equal(blame.findBlameOrigin(origins, SECOND_SHA), 1);
+    assert.equal(blame.findBlameOrigin(origins, '9b1c7e4'), 1);
+    assert.equal(blame.findBlameOrigin(origins, '9b1c'), -1);
+    assert.equal(blame.findBlameOrigin(origins, ''), -1);
+    assert.equal(blame.findBlameOrigin(origins, 'f'.repeat(40)), -1);
+    assert.equal(blame.findBlameOrigin(origins, undefined), -1);
+});
+
+test('the picked blame origin toggles and follows its sha into a new message', () => {
+    assert.equal(blame.toggleBlameOrigin(-1, 2), 2);
+    assert.equal(blame.toggleBlameOrigin(2, 2), -1);
+    assert.equal(blame.toggleBlameOrigin(2, 0), 0);
+
+    const before = blame.buildBlameModel(blameMessage([])).origins;
+    // 다시 온 메시지에서는 origin의 순서가 달라졌다.
+    const after = [before[2], before[1], before[0]];
+    assert.equal(blame.matchBlameOrigin(after, before[0]), 2);
+    assert.equal(blame.matchBlameOrigin(after, before[1]), 1);
+    // 커밋하지 않은 origin은 SHA가 아니라 표지로 잇는다.
+    assert.equal(blame.matchBlameOrigin(after, before[2]), 0);
+    assert.equal(blame.matchBlameOrigin([before[0]], before[1]), -1);
+    assert.equal(blame.matchBlameOrigin([before[0]], before[2]), -1);
+    assert.equal(blame.matchBlameOrigin(after, undefined), -1);
+});
+
+test('focus applies to new content and to a changed focus, not to a repeated message', () => {
+    // 새 내용이다(앞에 같은 파일이 없었다).
+    assert.equal(blame.shouldApplyBlameFocus(FIRST_SHA, null), true);
+    assert.equal(blame.shouldApplyBlameFocus('', null), false);
+    // 같은 파일이 같은 focus로 다시 왔다(재동기화). 스크롤을 끌고 가지 않는다.
+    assert.equal(blame.shouldApplyBlameFocus(FIRST_SHA, FIRST_SHA), false);
+    // 같은 파일인데 focus가 바뀌었다.
+    assert.equal(blame.shouldApplyBlameFocus(SECOND_SHA, FIRST_SHA), true);
+    assert.equal(blame.shouldApplyBlameFocus(SECOND_SHA, ''), true);
+    assert.equal(blame.shouldApplyBlameFocus('', FIRST_SHA), false);
+});
+
+test('a blame of a hundred thousand lines builds quickly', () => {
+    const lines = [];
+    for (let index = 0; index < 100000; ++index)
+        lines.push([Math.floor(index / 37) % 3, index + 1, '    const auto value_' + index + ' { compute(' + index + ') };']);
+    const started = Date.now();
+    const built = blame.buildBlameModel(blameMessage(lines));
+    const rows = blame.buildBlameRows(built.count);
+    const elapsed = Date.now() - started;
+    assert.equal(rows.count, 100000);
+    assert.equal(built.starts.reduce((sum, value) => sum + value, 0), Math.ceil(100000 / 37));
+    assert.ok(elapsed < 3000, 'took ' + elapsed + ' ms');
 });
