@@ -35,7 +35,7 @@ cyella_driver::make_frame
 
 | 범위 | 값 |
 | --- | --- |
-| 탭마다 (`tab_ui_state`, 탭 id가 key) | 고른 커밋 SHA(WIP는 `"WIP"`), 사이드바 고른 항목, 그래프·사이드바·상세·커밋 메타·diff 스크롤, 접힌 구역, 변경 파일 트리에서 접은 폴더, 사이드바 거르기 초안, 커밋 제목·본문 초안, amend, 연 diff 요청, 낸 커밋 operation, 다룬 입력 요청 |
+| 탭마다 (`tab_ui_state`, 탭 id가 key) | 고른 커밋 SHA(WIP는 `"WIP"`), 사이드바 고른 항목, 그래프·사이드바·상세·커밋 메타·diff 스크롤, 접힌 구역, 변경 파일 트리에서 접은 폴더, 사이드바 거르기 초안, 커밋 제목·본문 초안, amend, 연 diff 요청, 판의 blame·이력 보기, 그래프에서 찾는 커밋, 낸 커밋 operation, 다룬 입력 요청 |
 | 셸 전체 | 사이드바·상세 폭, 작업 로그 열림, 시작 페이지 검색 초안·스크롤, 서랍 열림, 아이콘 막대에서 연 구역, Clone 대화 상자 초안, 알림 목록과 알림 센터 열림, IME 조합 |
 
 - 탭 목록의 정본은 `repository_tabs`, git 상태의 정본은 workspace·세션, 설정의 정본은 `app_settings_service`다.
@@ -229,6 +229,39 @@ cyella_driver
   (웹뷰 안의 단추를 luil이 가로채지 못한다).
 - **접근성**: 아래 "알아 둘 것"의 웹 콘텐츠와 UI Automation 항목을 본다.
 
+## 파일 판의 blame·이력 (`presentation/shell_controller_file_view.cpp`)
+
+diff 판 머리 둘째 줄의 전환(`diff-file-view`, UIA Selection)이 판을 변경 내용·Blame·이력으로 바꾼다([ADR-010](decisions/ADR-010-blame-and-file-history.md)).
+
+```text
+set_file_view_mode_intent ─▶ shell_controller::set_file_view_mode ─▶ tab_ui_state::file_view (mode, blame·history 요청과 operation)
+        │ 처음 들어갈 때                                      └ submit(blame_file_request | file_history_request)  (읽기 lane)
+cyella_driver::sync_diff_view
+   ├ current_blame_target() 있음 ─▶ diff_view_coordinator::sync_blame(세션의 selected_blame, file_blame_loaded 횟수) ─▶ show_blame
+   └ 없음 ─▶ sync(current_diff_target()) — 이력 보기면 대상이 고른 커밋의 `history_diff`다
+뷰어의 단추 ─▶ open_commit_effect · blame_revision_effect ─▶ ports ─▶ reveal_commit_intent · open_blame_revision_intent
+```
+
+- **상태**: `tab_ui_state::file_view`는 판의 diff(`tab_ui_state::diff`)가 있는 동안만 선다. diff를 비우는 자리가 여럿이라 `handle`과 `after_events` 끝의
+  `settle_file_views`가 따라 거두고 끝나지 않은 읽기를 취소한다. 판이 blame·이력인 채 다른 파일을 고르면(`open_file_diff`) 그 파일을 같은 보기로 연다.
+- **snapshot**: `build_file_panel`이 `diff_panel_view`에 `mode`·`history`·`body_note`·`blame_back`·`reveal_sha`를 채운다. `request`는 어느 보기에서나 판을 연
+  파일의 요청이라 머리의 파일 위치·앞뒤 파일 단추가 그대로 돈다.
+  - 본문 자리의 글(`body_note`, `diff-body-note`)은 읽지 못한 까닭(operation의 실패 문구와 git 원문 첫 줄), 바이너리 파일, 이력에서 고른 커밋이 없음이다.
+    글이 서면 웹뷰 자리표가 없다(`diff_webview_stands`).
+  - 웹뷰를 쓸 수 없으면 blame도 `lines`의 텍스트 대체 보기다 (`a1b2c3d 작성자  │ 내용`).
+- **머리**: 첫 줄에 돌아가기(`diff-blame-back`, "이 변경 직전 보기"로 떠나온 blame이 있을 때)와 그래프에서 보기(`diff-reveal-commit`, 이력에서 고른 커밋이나
+  blame 중인 커밋)가 선다. "앱으로 열기"는 변경 내용의 두 쪽으로 파일을 고르므로 blame에서는 꺼진다.
+- **이력 목록** (`presentation/ui/file_history_ui.*`, `file-history`): `virtual_list_element`이고 행(`history-<키>`)은 그리기만 한다. 화살표·누름이 곧 고르기
+  (`select_file_history_intent`)이고, 고르면 오른쪽 웹뷰가 그 커밋에서의 변경 내용으로 바뀐다. 행에 툴팁을 달지 않는다 — 달면 hit를 행이 받아
+  누름이 목록에 닿지 않는다. 판 폭이 760 이상이면 목록(320)이 왼쪽에, 아니면 위(190)에 선다.
+- **그래프에서 보기** (`reveal_commit_intent`): 읽은 커밋이면 판을 닫고 고른 뒤 그 행이 창 위쪽 3분의 1에 오게 흘린다. 아직 읽지 않았으면
+  `tab_ui_state::pending_reveal`에 두고 `load_more_log`를 한 쪽씩 내며 `after_events`마다 다시 찾는다. 이력 끝까지 없으면 경고 알림이다.
+  낸 읽기(`reveal_operation`)가 실패하거나 취소되면 찾기를 거두고 한 번 알린다 — 메시지마다 같은 읽기를 다시 내지 않는다. 사용자가 그래프나 사이드바에서
+  다른 커밋을 고르면 찾기를 거둔다.
+  웹뷰가 보낸 요청은 저장소 id를 싣고 오며, 그 사이 다른 저장소의 탭으로 옮겼으면 버린다.
+- **UIA**: 전환·돌아가기·그래프에서 보기·이력 목록은 UI Automation으로 닿는다. blame 본문(여백 칸의 누름, 정보 띠의 단추)은 웹뷰 안이라 UIA2 client에
+  보이지 않고, 뷰어의 Node 테스트(`tests/js`)와 controller 테스트가 확인한다.
+
 ## 환경 설정 화면
 
 탭 줄 오른쪽의 톱니바퀴가 `open_settings_intent`를 낸다. 대화 상자(`modal_host_element`, 최대 900×700)이고 왼쪽 목록에서 일반·diff 도구·SSH를 고른다.
@@ -372,7 +405,8 @@ Shift+F10은 고른 사이드바 항목이나 커밋의 메뉴를 연다. SHA·�
 
 대상: 커밋(체크아웃(detached 경고)·브랜치/태그 만들기·cherry-pick·revert·reset soft/mixed/hard(hard는 확인)·SHA 복사), 로컬 브랜치(체크아웃·merge/rebase·
 push·upstream 설정·이름 바꾸기·삭제(확인, 강제는 체크)), 원격 브랜치, 태그(원격마다 push, 로컬 삭제, 원격에도 삭제), stash(apply·pop·삭제 확인),
-TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 확인·ignore·외부 diff·경로 복사), 커밋 상세의 변경 파일(`commit_file`: 변경 내용 보기·경로·파일 이름·`커밋:경로` 복사).
+TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 확인·ignore·Blame·파일 이력·외부 diff·경로 복사), 커밋 상세의 변경 파일(`commit_file`: 변경 내용 보기·Blame·파일 이력·경로·파일 이름·`커밋:경로` 복사).
+Blame과 파일 이력은 추적하지 않는 파일과 여러 파일을 고른 메뉴에서 꺼진다.
 
 목록 행 안의 내용 element가 툴팁·우클릭을 가지면 포인터의 hit를 그 element가 받는다(`ui_element::interactive`). 그래서 파일 행·그래프 행·사이드바 행은 한 번 누름의
 고르기 메시지를 스스로 다시 낸다. 내지 않으면 마우스 누름이 목록까지 가지 못해 키보드로만 고를 수 있다.

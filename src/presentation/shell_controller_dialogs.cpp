@@ -1382,6 +1382,12 @@ namespace cyella {
                 else
                     dependencies_.open_external_diff(selected_repository_id(), request);
             }
+            else if (key == u8"blame" || key == u8"file_history")
+            {
+                // 우클릭한 행의 쪽(스테이징 전·후)으로 판을 열고 그 보기로 넘긴다.
+                const diff_file_request request { .path = target.name, .view = target.side == change_side::staged ? diff_view::staged : diff_view::unstaged, .sha = {}, .untracked = target.untracked };
+                static_cast<void>(handle(luil::app_message { open_file_view_intent { key == u8"blame" ? file_view_mode::blame : file_view_mode::history, request } }));
+            }
             else if (key == u8"lfs_track")
                 open_lfs_track_dialog(lfs_pattern_for_path(target.name));
             else if (key == u8"lfs_pull")
@@ -1399,6 +1405,12 @@ namespace cyella {
                 // 여러 커밋 비교의 파일이면 그 비교의 diff다.
                 const diff_view view { target.base.empty() ? diff_view::commit : diff_view::range };
                 static_cast<void>(handle(luil::app_message { select_file_intent { diff_file_request { .path = target.name, .view = view, .sha = target.sha, .base = target.base } } }));
+            }
+            else if (key == u8"blame" || key == u8"file_history")
+            {
+                const diff_view view { target.base.empty() ? diff_view::commit : diff_view::range };
+                const diff_file_request request { .path = target.name, .view = view, .sha = target.sha, .base = target.base };
+                static_cast<void>(handle(luil::app_message { open_file_view_intent { key == u8"blame" ? file_view_mode::blame : file_view_mode::history, request } }));
             }
             else if (key == u8"copy_path")
                 copy_text(to_u8(target.name));

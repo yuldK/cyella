@@ -33,6 +33,8 @@ luil로 직접 그리면 텍스트 배치, 구문 강조, 선택·복사, 단어
    - JS → C++: `stage_hunk`, `unstage_hunk`, `discard_hunk`, `stage_lines`, `unstage_lines`,
      `discard_lines`(hunk 번호와 줄 범위), `open_external`, `copy`
    - 줄 단위 stage는 C++가 선택한 줄로 부분 patch를 만들어 `git apply --cached`(또는 `-R`)로 적용한다.
+   - 2026-11-23에 blame을 더했다([ADR-010](ADR-010-blame-and-file-history.md)). C++ → JS에 `show_blame`, JS → C++에 `blame_open_commit`·`blame_previous`
+     (보고 있는 blame의 커밋 위치)가 있다. 프로토콜 판은 그대로 1이다.
 6. 뷰어는 `diff_view` 인터페이스 뒤에 둔다. 나중에 luil 가상 목록으로 직접 그리는 구현으로 바꿀 수 있게
    하기 위해서다.
    **구현에서는 `diff_view`라는 이름의 인터페이스를 만들지 않았다**(추측성 추상화). 교체 경계는 입출력이 없는 `diff_view_controller`와 JSON 프로토콜

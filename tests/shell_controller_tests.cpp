@@ -1391,3 +1391,287 @@ TEST_CASE("a dialog field keeps Enter and the palette closes with its own shortc
     REQUIRE(test.controller.state().palette.has_value());
     CHECK(command_of(ctrl(luil::key_code::key_p, true), snapshot) == "palette.open");
 }
+
+namespace {
+    // 저장소를 열고 이력을 채운 뒤 커밋 3의 파일 하나를 판에 연다.
+    repository_session& open_commit_file(controller_harness& test, const std::string& path = "a.txt")
+    {
+        test.controller.open_repository(u8"C:\\work\\repo");
+        repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+        REQUIRE(session != nullptr);
+        load_history(*session, branching_history());
+        static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+        REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(3)) }));
+        REQUIRE(test.send(select_file_intent { diff_file_request { .path = path, .view = diff_view::commit, .sha = sha_of(3) } }));
+        return *session;
+    }
+
+    const tab_ui_state& tab_of(const controller_harness& test)
+    {
+        return test.controller.state().tabs.at(test.controller.tabs().selected().id);
+    }
+} // namespace
+
+TEST_CASE("the blame view reads once, follows the selected file and closes with the panel", "[presentation][controller][file_view]")
+{
+    controller_harness test {};
+    static_cast<void>(open_commit_file(test));
+    CHECK_FALSE(test.controller.current_blame_target().has_value());
+
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::blame }));
+    REQUIRE(tab_of(test).file_view.has_value());
+    CHECK(tab_of(test).file_view->mode == file_view_mode::blame);
+    // 커밋의 파일은 그 커밋의 판을 blame한다.
+    CHECK(tab_of(test).file_view->blame == blame_file_request { .path = "a.txt", .revision = sha_of(3) });
+    CHECK(count_operations(test.workspace, operation_kind::blame_file) == 1);
+    REQUIRE(test.controller.current_blame_target().has_value());
+    CHECK(test.controller.current_blame_target()->request.path == "a.txt");
+    // 웹뷰는 blame을 보이므로 diff 대상은 없다.
+    CHECK_FALSE(test.controller.current_diff_target().has_value());
+
+    // 같은 보기를 다시 눌러도 다시 읽지 않는다.
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::blame }));
+    CHECK(count_operations(test.workspace, operation_kind::blame_file) == 1);
+
+    // 다른 파일을 고르면 같은 보기로 그 파일을 연다.
+    REQUIRE(test.send(select_file_intent { diff_file_request { .path = "b.txt", .view = diff_view::commit, .sha = sha_of(3) } }));
+    REQUIRE(tab_of(test).file_view.has_value());
+    CHECK(tab_of(test).file_view->mode == file_view_mode::blame);
+    CHECK(tab_of(test).file_view->blame.path == "b.txt");
+    CHECK(count_operations(test.workspace, operation_kind::blame_file) == 2);
+
+    // 변경 내용으로 돌아가면 보기를 거두고 diff 대상이 돌아온다.
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::changes }));
+    CHECK_FALSE(tab_of(test).file_view.has_value());
+    REQUIRE(test.controller.current_diff_target().has_value());
+    CHECK(test.controller.current_diff_target()->request.path == "b.txt");
+
+    // 판을 닫으면 보기도 함께 닫히고 끝나지 않은 blame 읽기는 취소된다.
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::blame }));
+    const operation_id pending { tab_of(test).file_view->blame_operation };
+    REQUIRE(test.send(close_diff_intent {}));
+    CHECK_FALSE(tab_of(test).file_view.has_value());
+    CHECK_FALSE(test.controller.current_blame_target().has_value());
+    REQUIRE(test.workspace.find_operation(pending) != nullptr);
+    CHECK((test.workspace.find_operation(pending)->finished() || test.workspace.find_operation(pending)->cancel_requested));
+}
+
+TEST_CASE("the blame of a file deleted by the commit reads the revision before it", "[presentation][controller][file_view]")
+{
+    controller_harness test {};
+    repository_session& session { open_commit_file(test, "gone.txt") };
+    // 커밋 상세가 그 파일을 지웠다고 말한다.
+    commit_detail detail {};
+    detail.commit = commit_info { .sha = sha_of(3), .parents = { sha_of(2) }, .subject = "three" };
+    detail.files.push_back(file_change { .path = "gone.txt", .status = 'D' });
+    bool applied { false };
+    for (const operation_id id : test.workspace.operation_order())
+        if (test.workspace.find_operation(id)->kind == operation_kind::show_commit && session.apply(id, commit_detail_loaded { detail }))
+            applied = true;
+    REQUIRE(applied);
+
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::blame }));
+    REQUIRE(tab_of(test).file_view.has_value());
+    CHECK(tab_of(test).file_view->blame.revision == sha_of(3) + "^");
+    // `<sha>^`는 그래프의 한 커밋이 아니라 "그래프에서 보기" 단추가 없다.
+    const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+    REQUIRE(view.repository.has_value());
+    REQUIRE(view.repository->diff.has_value());
+    CHECK(view.repository->diff->mode == file_view_mode::blame);
+    CHECK(view.repository->diff->reveal_sha.empty());
+    CHECK(view.repository->diff->loading);
+}
+
+TEST_CASE("the file history picks its newest commit and shows each commit's change at the path it had then", "[presentation][controller][file_view]")
+{
+    controller_harness test {};
+    repository_session& session { open_commit_file(test) };
+
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::history }));
+    REQUIRE(tab_of(test).file_view.has_value());
+    const operation_id operation { tab_of(test).file_view->history_operation };
+    REQUIRE(operation != 0);
+    CHECK(tab_of(test).file_view->history == file_history_request { .path = "a.txt", .revision = sha_of(3) });
+    // 이력이 오기 전에는 고른 커밋이 없어 웹뷰가 보일 것이 없다.
+    CHECK_FALSE(test.controller.current_diff_target().has_value());
+
+    file_history history {};
+    history.request = tab_of(test).file_view->history;
+    history.entries.push_back(file_history_entry { .commit = { .sha = sha_of(3), .parents = { sha_of(2) }, .author_name = "Morgan", .subject = "three" }, .path = "a.txt", .previous_path = {}, .status = 'M' });
+    history.entries.push_back(file_history_entry { .commit = { .sha = sha_of(2), .parents = { sha_of(1) }, .author_name = "Robin", .subject = "two" }, .path = "a.txt", .previous_path = "old.txt", .status = 'R' });
+    history.entries.push_back(file_history_entry { .commit = { .sha = sha_of(1), .author_name = "Morgan", .subject = "one" }, .path = "old.txt", .previous_path = {}, .status = 'A' });
+    REQUIRE(session.apply(operation, file_history_loaded { history }));
+    test.controller.after_events();
+
+    // 가장 새 커밋을 골라 둔다.
+    CHECK(tab_of(test).file_view->history_selected == sha_of(3));
+    REQUIRE(test.controller.current_diff_target().has_value());
+    CHECK(test.controller.current_diff_target()->request.sha == sha_of(3));
+    CHECK(test.controller.current_diff_target()->request.path == "a.txt");
+
+    // 이름이 바뀌기 전의 커밋은 그때의 경로로 읽는다.
+    REQUIRE(test.send(select_file_history_intent { graph_item_key(sha_of(1)) }));
+    REQUIRE(test.controller.current_diff_target().has_value());
+    CHECK(test.controller.current_diff_target()->request.path == "old.txt");
+    CHECK(test.controller.current_diff_target()->request.view == diff_view::commit);
+
+    const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+    REQUIRE(view.repository.has_value());
+    REQUIRE(view.repository->diff.has_value());
+    const diff_panel_view& panel { *view.repository->diff };
+    CHECK(panel.mode == file_view_mode::history);
+    REQUIRE(panel.history.has_value());
+    REQUIRE(panel.history->rows.size() == 3);
+    CHECK(panel.history->selected == sha_of(1));
+    CHECK(panel.history->rows[1].status == 'R');
+    CHECK(panel.history->rows[1].rename_note == u8"old.txt → a.txt");
+    CHECK(panel.history->rows[0].rename_note.empty());
+    CHECK(panel.reveal_sha == sha_of(1));
+    // 머리의 파일 위치는 판을 연 파일을 따른다.
+    CHECK(panel.request.path == "a.txt");
+    CHECK(panel.request.sha == sha_of(3));
+
+    // 이력에서 Blame으로 넘어가면 고른 커밋의 줄을 강조해 연다.
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::blame }));
+    REQUIRE(test.controller.current_blame_target().has_value());
+    CHECK(test.controller.current_blame_target()->focus == sha_of(1));
+
+    // 변경 내용으로 돌아오면 판의 diff를 다시 읽는다 (세션의 마지막 diff는 이력에서 고른 커밋의 것이다).
+    const std::size_t diffs { count_operations(test.workspace, operation_kind::diff_file) };
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::changes }));
+    CHECK(count_operations(test.workspace, operation_kind::diff_file) == diffs + 1);
+    REQUIRE(test.controller.current_diff_target().has_value());
+    CHECK(test.controller.current_diff_target()->request.sha == sha_of(3));
+}
+
+TEST_CASE("a failed blame says why in the panel and an untracked file has no blame", "[presentation][controller][file_view]")
+{
+    controller_harness test {};
+    static_cast<void>(open_commit_file(test));
+
+    // 추적하지 않는 파일은 보기를 열지 않고 까닭을 알린다.
+    REQUIRE(test.send(select_file_intent { diff_file_request { .path = "new.txt", .view = diff_view::unstaged, .untracked = true } }));
+    const std::size_t notices { test.controller.state().notifications.size() };
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::blame }));
+    CHECK_FALSE(tab_of(test).file_view.has_value());
+    CHECK(test.controller.state().notifications.size() == notices + 1);
+    CHECK(count_operations(test.workspace, operation_kind::blame_file) == 0);
+}
+
+TEST_CASE("show in graph selects a loaded commit and keeps reading history for one that is not loaded yet", "[presentation][controller][file_view]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    // 첫 쪽에는 커밋 5와 4만 있다. 이력은 더 있다.
+    const std::uint64_t generation { session->begin_refresh() };
+    repository_snapshot snapshot {};
+    snapshot.summary.head_sha = sha_of(5);
+    REQUIRE(session->apply(snapshot_loaded { generation, snapshot }));
+    std::vector<commit_info> commits { branching_history() };
+    std::vector<commit_info> first_page { commits.begin(), commits.begin() + 2 };
+    std::vector<commit_info> second_page { commits.begin() + 2, commits.end() };
+    REQUIRE(session->apply(commits_loaded { .generation = generation, .commits = first_page, .page_complete = true, .history_complete = false }));
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+
+    REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(5)) }));
+    REQUIRE(test.send(select_file_intent { diff_file_request { .path = "a.txt", .view = diff_view::commit, .sha = sha_of(5) } }));
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::blame }));
+
+    // 읽은 커밋이면 곧바로 고르고 판을 닫는다.
+    REQUIRE(test.send(reveal_commit_intent { .repository_id = {}, .sha = sha_of(4) }));
+    CHECK(tab_of(test).selected_sha == sha_of(4));
+    CHECK_FALSE(tab_of(test).diff.has_value());
+    CHECK_FALSE(tab_of(test).file_view.has_value());
+    CHECK(tab_of(test).pending_reveal.empty());
+
+    // 아직 읽지 않은 커밋이면 다음 쪽을 청하고 기다린다.
+    REQUIRE(test.send(reveal_commit_intent { .repository_id = {}, .sha = sha_of(1) }));
+    CHECK(tab_of(test).pending_reveal == sha_of(1));
+    CHECK(tab_of(test).selected_sha == sha_of(4));
+    CHECK(session->log_page_loading());
+
+    // 쪽이 오면 그 커밋을 고른다.
+    REQUIRE(session->apply(commits_loaded { .generation = session->displayed_generation(), .first_index = 2, .commits = second_page, .page_complete = true, .history_complete = true }));
+    test.controller.after_events();
+    CHECK(tab_of(test).selected_sha == sha_of(1));
+    CHECK(tab_of(test).pending_reveal.empty());
+
+    // 이력 끝까지 없는 커밋은 찾기를 그만두고 알린다.
+    const std::size_t notices { test.controller.state().notifications.size() };
+    REQUIRE(test.send(reveal_commit_intent { .repository_id = {}, .sha = sha_of(9) }));
+    CHECK(tab_of(test).pending_reveal.empty());
+    CHECK(tab_of(test).selected_sha == sha_of(1));
+    CHECK(test.controller.state().notifications.size() == notices + 1);
+
+    // 다른 저장소의 판이 보낸 요청은 이 탭의 그래프를 건드리지 않는다.
+    REQUIRE(test.send(reveal_commit_intent { .repository_id = "another-repository", .sha = sha_of(5) }));
+    CHECK(tab_of(test).selected_sha == sha_of(1));
+}
+
+TEST_CASE("the file menus open the blame and the history of that file", "[presentation][controller][file_view]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, branching_history(), true);
+
+    // 작업 영역 파일은 작업 트리를 blame한다 (커밋하지 않은 줄이 보인다).
+    const menu_target working { .kind = menu_target_kind::file, .name = "src/a.cpp", .side = change_side::unstaged };
+    REQUIRE(test.send(open_context_menu_intent { working, 0.0f, 0.0f }));
+    REQUIRE(test.send(menu_select_intent { u8"blame" }));
+    REQUIRE(tab_of(test).diff.has_value());
+    CHECK(tab_of(test).diff->path == "src/a.cpp");
+    CHECK(tab_of(test).diff->view == diff_view::unstaged);
+    REQUIRE(tab_of(test).file_view.has_value());
+    CHECK(tab_of(test).file_view->mode == file_view_mode::blame);
+    CHECK(tab_of(test).file_view->blame == blame_file_request { .path = "src/a.cpp", .revision = {} });
+
+    // 커밋 상세의 파일은 그 커밋부터의 이력이다.
+    const menu_target committed { .kind = menu_target_kind::commit_file, .name = "src/b.cpp", .sha = sha_of(2) };
+    REQUIRE(test.send(open_context_menu_intent { committed, 0.0f, 0.0f }));
+    REQUIRE(test.send(menu_select_intent { u8"file_history" }));
+    REQUIRE(tab_of(test).file_view.has_value());
+    CHECK(tab_of(test).file_view->mode == file_view_mode::history);
+    CHECK(tab_of(test).file_view->history == file_history_request { .path = "src/b.cpp", .revision = sha_of(2) });
+}
+
+TEST_CASE("show in graph gives up once when reading more history fails", "[presentation][controller][file_view]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    const std::uint64_t generation { session->begin_refresh() };
+    repository_snapshot snapshot {};
+    snapshot.summary.head_sha = sha_of(5);
+    REQUIRE(session->apply(snapshot_loaded { generation, snapshot }));
+    std::vector<commit_info> commits { branching_history() };
+    REQUIRE(session->apply(commits_loaded { .generation = generation, .commits = { commits.begin(), commits.begin() + 2 }, .page_complete = true, .history_complete = false }));
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+
+    REQUIRE(test.send(reveal_commit_intent { .repository_id = {}, .sha = sha_of(1) }));
+    REQUIRE(tab_of(test).pending_reveal == sha_of(1));
+    const operation_id page { tab_of(test).reveal_operation };
+    REQUIRE(page != 0);
+
+    // 그 읽기가 끝나지 못하면 찾기를 거두고 한 번 알린다. 메시지마다 같은 읽기를 다시 내지 않는다.
+    REQUIRE(test.workspace.cancel(page));
+    const std::size_t notices { test.controller.state().notifications.size() };
+    test.controller.after_events();
+    CHECK(tab_of(test).pending_reveal.empty());
+    CHECK(tab_of(test).reveal_operation == 0);
+    CHECK(test.controller.state().notifications.size() == notices + 1);
+    // 찾기를 거뒀으므로 뒤의 메시지는 이 일로 더 알리지 않는다 (그래프 끝의 자동 이어 읽기는 따로 돈다).
+    REQUIRE(test.send(set_file_view_mode_intent { file_view_mode::changes }));
+    CHECK(tab_of(test).pending_reveal.empty());
+    CHECK(test.controller.state().notifications.size() == notices + 1);
+
+    // 사이드바에서 다른 커밋을 고르면 찾던 커밋이 늦게 와서 선택을 빼앗지 않는다.
+    REQUIRE(test.send(reveal_commit_intent { .repository_id = {}, .sha = sha_of(2) }));
+    REQUIRE(tab_of(test).pending_reveal == sha_of(2));
+    REQUIRE(test.send(select_sidebar_item_intent { .key = u8"l:main", .target_sha = sha_of(5) }));
+    CHECK(tab_of(test).pending_reveal.empty());
+}

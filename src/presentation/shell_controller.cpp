@@ -632,6 +632,10 @@ namespace cyella {
             value = tab != nullptr ? &tab->diff_scroll : nullptr;
             maximum = feedback_.diff_maximum;
             break;
+        case scroll_target::file_history:
+            value = tab != nullptr && tab->file_view.has_value() ? &tab->file_view->history_scroll : nullptr;
+            maximum = feedback_.file_history_maximum;
+            break;
         case scroll_target::start_page:
             value = &ui_.start_scroll;
             maximum = feedback_.start_maximum;
@@ -893,6 +897,8 @@ namespace cyella {
     bool shell_controller::handle(const luil::app_message& message)
     {
         const bool handled { handle_message(message) };
+        // 판을 닫는 길이 여럿이라(커밋 고르기·Esc·보기 전환…) blame·이력 보기는 메시지마다 판의 diff를 따라 거둔다.
+        settle_file_views();
         // 카드를 닫는 자리가 여럿이라(고르기·스크롤·메뉴·탭 바꾸기…) 닫힘은 메시지마다 전후를 견주어 센다.
         settle_ref_hover(dependencies_.steady_clock());
         return handled;
@@ -1216,6 +1222,8 @@ namespace cyella {
                 tab->selected_sidebar_key = intent->key;
                 if (intent->target_sha.empty() == false)
                 {
+                    // 직접 고른 커밋이 이긴다 (그래프에서 고를 때와 같다).
+                    tab->pending_reveal.clear();
                     handle_select_commit(select_commit_intent { graph_item_key(intent->target_sha) });
                     // 브랜치·태그가 가리키는 커밋을 아직 읽지 않았으면 그래프와 상세가 그대로라 아무 반응이 없어 보인다. 그렇다고 알린다.
                     //  - 참조 행만이다. 서브모듈·PR 행의 커밋은 이 저장소의 이력에 없을 수 있다.
@@ -1278,7 +1286,11 @@ namespace cyella {
             // 그래프에서 고른 커밋이 키보드 메뉴(Shift+F10)의 대상이다. 사이드바에서 앞서 고른 항목의 키는 지운다.
             //  - 사이드바 항목 고르기는 키를 먼저 넣고 `handle_select_commit`을 바로 부르므로 여기를 지나지 않는다.
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
+            {
                 tab->selected_sidebar_key.clear();
+                // 직접 고른 커밋이 이긴다. 찾던 커밋이 늦게 와서 선택을 빼앗지 않게 한다.
+                tab->pending_reveal.clear();
+            }
             handle_select_commit(*intent);
             return true;
         }
@@ -1419,6 +1431,9 @@ namespace cyella {
             return true;
         // 명령 팔레트와 레지스트리 명령이다.
         if (handle_command_message(message))
+            return true;
+        // diff 판의 blame·파일 이력이다.
+        if (handle_file_view_message(message))
             return true;
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         // 이 메시지 전에 열려 있던 글꼴 목록이 어느 칸의 것인가다. 닫은 뒤 초점을 돌려보낼 칸이다.
@@ -1583,6 +1598,7 @@ namespace cyella {
             tab.pending_commit = 0;
         }
         refit_working_diffs();
+        settle_file_views();
         sync_compares();
         notify_failures();
         settings_.after_events();
@@ -1842,6 +1858,13 @@ namespace cyella {
         const repository_session* const session { std::as_const(*dependencies_.workspace).find_session(repository->second) };
         if (session == nullptr)
             return std::nullopt;
+        // blame이면 웹뷰는 blame을 보이고(`current_blame_target`), 이력이면 고른 커밋에서의 변경 내용을 보인다.
+        if (const std::optional<file_view_state>& view { state->second.file_view }; view.has_value() && view->mode != file_view_mode::changes)
+        {
+            if (view->mode == file_view_mode::blame || view->history_diff.has_value() == false)
+                return std::nullopt;
+            return diff_target { repository->second, session->path(), *view->history_diff };
+        }
         return diff_target { repository->second, session->path(), *state->second.diff };
     }
 

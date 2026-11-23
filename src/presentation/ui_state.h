@@ -134,6 +134,34 @@ namespace cyella {
         operation_id ancestry_query { 0 };
     };
 
+    // diff 판이 보이는 것이다. 머리의 [변경 내용 | Blame | 이력] 전환이 바꾼다.
+    enum class file_view_mode : std::uint8_t
+    {
+        changes,
+        blame,
+        history,
+    };
+
+    // diff 판의 blame·파일 이력 보기다. 판을 연 diff(`tab_ui_state::diff`)가 있는 동안만 선다. 그 diff가 "변경 내용"으로 돌아갈 자리다.
+    struct file_view_state
+    {
+        file_view_mode mode { file_view_mode::changes };
+        // 낸 blame 요청과 그 operation이다. operation이 0이면 아직 내지 않았다 (그 모드에 처음 들어갈 때 낸다).
+        // 실패하면 판이 operation의 실패 문구를 보이고, 판을 닫으면 취소한다.
+        blame_file_request blame {};
+        operation_id blame_operation { 0 };
+        // 뷰어가 고른 채로 열 커밋이다 (이력에서 고른 커밋에서 Blame으로 넘어왔을 때).
+        std::string blame_focus {};
+        // "이 변경 직전 보기"로 떠나온 blame들이다. 머리의 돌아가기가 마지막 것부터 되연다.
+        std::vector<blame_file_request> blame_back {};
+        file_history_request history {};
+        operation_id history_operation { 0 };
+        // 이력에서 고른 커밋과, 그 커밋에서 이 파일의 변경 내용 요청이다 (판 오른쪽의 웹뷰가 보인다).
+        std::string history_selected {};
+        std::optional<diff_file_request> history_diff {};
+        float history_scroll { 0.0f };
+    };
+
     struct tab_ui_state
     {
         // 고른 커밋의 SHA다. WIP 행이면 `graph_wip_sha`다.
@@ -162,6 +190,13 @@ namespace cyella {
         std::optional<bool> sign {};
         // 상세 패널에서 고른 파일의 diff 요청이다. 있으면 그래프 자리를 diff가 덮는다.
         std::optional<diff_file_request> diff {};
+        // 판의 blame·파일 이력 보기다. 없으면 판은 변경 내용이다. `diff`가 비면 함께 비운다 (`shell_controller::settle_file_views`).
+        std::optional<file_view_state> file_view {};
+        // 그래프에서 보이려는 커밋이다 (blame·이력의 "그래프에서 보기"). 아직 읽지 않은 커밋이면 찾을 때까지 이력을 이어 읽고,
+        // 찾으면 고른 뒤 비운다. 이력 끝까지 없으면 안내하고 비운다.
+        std::string pending_reveal {};
+        // 그 커밋을 찾으려고 낸 이력 이어 읽기다. 끝나지 못하면(실패·취소) 찾기를 거둔다 — 다시 내면 메시지마다 같은 실패를 되풀이한다.
+        operation_id reveal_operation { 0 };
         // 낸 커밋 operation이다. 성공하면 커밋 상자를 비운다.
         operation_id pending_commit { 0 };
         // 사용자가 다룬 입력 필요 operation이다 (체크아웃 정책을 골랐다). 그보다 새 것만 탭에 🔔를 단다.

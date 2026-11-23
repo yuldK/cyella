@@ -15,6 +15,7 @@ namespace cyella {
         std::optional<float> commit_meta_maximum {};
         std::optional<float> working_maximum {};
         std::optional<float> diff_maximum {};
+        std::optional<float> file_history_maximum {};
         std::optional<float> start_maximum {};
         std::optional<float> log_maximum {};
         std::optional<float> notifications_maximum {};

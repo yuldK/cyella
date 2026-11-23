@@ -565,6 +565,22 @@ TEST_CASE("context menu entries depend on the target", "[presentation][menu]")
         // 커밋 안의 파일은 고칠 것이 없다.
         CHECK_FALSE(has_entry(model, u8"stage"));
         CHECK_FALSE(has_entry(model, u8"discard"));
+        // 그 파일의 blame과 이력은 볼 수 있다.
+        CHECK(entry_enabled(model, u8"blame"));
+        CHECK(entry_enabled(model, u8"file_history"));
+    }
+
+    SECTION("working files offer blame and history unless untracked or several are selected")
+    {
+        const menu_model tracked { build_context_menu({ .kind = menu_target_kind::file, .name = "src/a.cpp" }, context) };
+        CHECK(entry_enabled(tracked, u8"blame"));
+        CHECK(entry_enabled(tracked, u8"file_history"));
+        const menu_model untracked { build_context_menu({ .kind = menu_target_kind::file, .name = "src/new.cpp", .untracked = true }, context) };
+        CHECK(has_entry(untracked, u8"blame"));
+        CHECK_FALSE(entry_enabled(untracked, u8"blame"));
+        CHECK_FALSE(entry_enabled(untracked, u8"file_history"));
+        const menu_model several { build_context_menu({ .kind = menu_target_kind::file, .name = "src/a.cpp", .paths = { "src/a.cpp", "src/b.cpp" } }, context) };
+        CHECK_FALSE(entry_enabled(several, u8"blame"));
     }
 }
 

@@ -616,6 +616,150 @@ namespace cyella {
             return view;
         }
 
+        // blame·이력을 읽는 operation이 실패했으면 판에 보일 한 줄이다. 두 읽기의 실패는 토스트로 뜨지 않아 판이 직접 말한다.
+        // git의 원문(없는 경로, 커밋 없는 저장소)이 까닭을 말하므로 첫 줄을 덧붙인다.
+        std::u8string read_failure_note(std::span<const operation_status* const> operations, const operation_id id)
+        {
+            if (id == 0)
+                return {};
+            for (auto it { operations.rbegin() }; it != operations.rend(); ++it)
+            {
+                if ((*it)->id != id)
+                    continue;
+                if ((*it)->state != operation_state::failed || (*it)->failure.has_value() == false)
+                    return {};
+                std::u8string note { (*it)->failure->summary };
+                const std::u8string& detail { (*it)->failure->detail };
+                const std::u8string first_line { detail.substr(0, std::min(detail.find_first_of(u8"\r\n"), std::size_t { 200 })) };
+                if (first_line.empty() == false)
+                    note += (note.empty() ? u8"" : u8" — ") + first_line;
+                return note.empty() ? tr(u8"snapshot.file_view.read_failed") : note;
+            }
+            return {};
+        }
+
+        file_history_view build_file_history(const repository_session& session, const file_view_state& state, std::span<const operation_status* const> operations, const std::int64_t now)
+        {
+            file_history_view view {};
+            view.selected = state.history_selected;
+            view.scroll = state.history_scroll;
+            const std::optional<file_history>& history { session.selected_history() };
+            if (history.has_value() == false || history->request != state.history)
+            {
+                view.note = read_failure_note(operations, state.history_operation);
+                if (view.note.empty())
+                    view.note = tr(u8"snapshot.file_view.history_loading");
+                return view;
+            }
+            if (history->entries.empty())
+            {
+                view.note = tr(u8"snapshot.file_view.history_empty");
+                return view;
+            }
+            view.truncated = history->truncated;
+            view.rows.reserve(history->entries.size());
+            for (const file_history_entry& entry : history->entries)
+            {
+                file_history_row_view row {};
+                row.sha = entry.commit.sha;
+                row.subject = to_u8(entry.commit.subject);
+                row.author = to_u8(entry.commit.author_name);
+                row.date = relative_time_text(now, entry.commit.author_time);
+                row.date_absolute = absolute_time_text(entry.commit.author_time);
+                row.status = entry.status;
+                if (entry.previous_path.empty() == false && entry.previous_path != entry.path)
+                    row.rename_note = tr(u8"snapshot.file_view.renamed", { { u8"from", entry.previous_path }, { u8"to", entry.path } });
+                view.rows.push_back(std::move(row));
+            }
+            return view;
+        }
+
+        // 그래프 자리를 덮는 파일 판이다. 변경 내용이면 기존 diff 그대로이고, blame·이력이면 그 보기의 머리와 본문 값을 채운다.
+        diff_panel_view build_file_panel(const repository_session& session, const tab_ui_state& tab, const diff_surface_state& surface, std::span<const operation_status* const> operations,
+            const std::int64_t now)
+        {
+            const diff_file_request& origin { *tab.diff };
+            const std::optional<file_view_state>& state { tab.file_view };
+            if (state.has_value() == false || state->mode == file_view_mode::changes)
+                return build_diff(session, origin, tab.diff_scroll, surface);
+
+            if (state->mode == file_view_mode::history)
+            {
+                // 오른쪽 본문은 고른 커밋에서의 변경 내용이다. 머리의 파일 위치·앞뒤 파일은 판을 연 파일을 따른다.
+                diff_panel_view view {};
+                if (state->history_diff.has_value())
+                    view = build_diff(session, *state->history_diff, tab.diff_scroll, surface);
+                else
+                {
+                    view.surface = surface;
+                    view.use_webview = surface.webview_available;
+                }
+                view.request = origin;
+                view.mode = file_view_mode::history;
+                view.title = name_of(origin.path);
+                view.history = build_file_history(session, *state, operations, now);
+                view.subtitle = tr(u8"snapshot.file_view.history_subtitle", { { u8"path", origin.path } });
+                if (state->history_diff.has_value() == false && view.history->note.empty())
+                    view.body_note = tr(u8"snapshot.file_view.history_pick");
+                view.reveal_sha = state->history_selected;
+                return view;
+            }
+
+            diff_panel_view view {};
+            view.request = origin;
+            view.mode = file_view_mode::blame;
+            view.scroll = tab.diff_scroll;
+            view.surface = surface;
+            view.use_webview = surface.webview_available;
+            view.title = name_of(state->blame.path);
+            view.blame_back = state->blame_back.empty() == false;
+            const std::string& revision { state->blame.revision };
+            if (revision.empty())
+                view.subtitle = tr(u8"snapshot.file_view.blame_subtitle_working", { { u8"path", state->blame.path } });
+            else
+            {
+                view.subtitle = tr(u8"snapshot.file_view.blame_subtitle_commit", { { u8"path", state->blame.path }, { u8"sha", short_sha(revision) + (revision.ends_with('^') ? u8"^" : u8"") } });
+                // `<sha>^`(그 커밋이 지운 파일)는 그래프의 한 커밋이 아니라 단추를 두지 않는다.
+                if (revision.ends_with('^') == false)
+                    view.reveal_sha = revision;
+            }
+
+            const std::optional<file_blame>& blame { session.selected_blame() };
+            if (blame.has_value() == false || blame->request != state->blame)
+            {
+                view.body_note = read_failure_note(operations, state->blame_operation);
+                view.loading = view.body_note.empty();
+                return view;
+            }
+            if (blame->binary)
+            {
+                view.body_note = tr(u8"snapshot.file_view.blame_binary");
+                return view;
+            }
+            // 웹뷰가 본문을 그린다. 줄 목록은 대체 보기에만 필요하다.
+            if (view.use_webview)
+                return view;
+            if (blame->lines.empty())
+            {
+                view.body_note = tr(u8"snapshot.file_view.blame_empty");
+                return view;
+            }
+            for (const blame_line& line : blame->lines)
+            {
+                if (view.lines.size() >= diff_line_limit)
+                {
+                    mark_text_truncated(view);
+                    break;
+                }
+                // 대체 보기는 줄마다 커밋과 작성자를 글머리로 붙인다. 색·묶음·누르기는 뷰어의 것이라 여기에는 없다.
+                std::u8string head { tr(u8"snapshot.file_view.blame_uncommitted") };
+                if (line.origin < blame->origins.size() && blame->origins[line.origin].uncommitted == false)
+                    head = short_sha(blame->origins[line.origin].sha) + u8" " + to_u8(blame->origins[line.origin].author_name);
+                view.lines.push_back({ .kind = diff_line_kind::context, .new_line = static_cast<std::int32_t>(line.final_line), .text = head + u8"  │ " + to_u8(line.text) });
+            }
+            return view;
+        }
+
         std::size_t find_head_row(const std::vector<commit_info>& commits, const std::string& head_sha)
         {
             const std::size_t limit { std::min(commits.size(), head_search_limit) };
@@ -787,7 +931,7 @@ namespace cyella {
             view.commit_meta_height = ui.commit_meta_height;
             if (tab_state.diff.has_value())
             {
-                view.diff = build_diff(session, *tab_state.diff, tab_state.diff_scroll, ui.diff_surface);
+                view.diff = build_file_panel(session, tab_state, ui.diff_surface, operations, now);
                 fill_diff_navigation(view);
             }
             graph.labels = std::move(labels);

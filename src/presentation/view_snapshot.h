@@ -444,9 +444,49 @@ namespace cyella {
         std::string open_path {};
     };
 
+    // 파일 이력 목록의 한 줄이다. 이 파일을 바꾼 커밋 하나다.
+    struct file_history_row_view
+    {
+        std::string sha {};
+        std::u8string subject {};
+        std::u8string author {};
+        // 상대 시각("3일 전")과 툴팁에 쓸 절대 시각이다.
+        std::u8string date {};
+        std::u8string date_absolute {};
+        // 이 커밋이 파일에 한 일이다 (A 추가, M 수정, D 삭제, R 이름 변경, C 복사).
+        char status { 'M' };
+        // 이름 변경·복사면 "옛 경로 → 새 경로"다. 아니면 비어 있다.
+        std::u8string rename_note {};
+    };
+
+    // 판의 이력 보기에서 왼쪽에 서는 목록이다.
+    struct file_history_view
+    {
+        std::vector<file_history_row_view> rows {};
+        // 고른 커밋의 SHA다. 판 오른쪽이 그 커밋에서의 변경 내용을 보인다.
+        std::string selected {};
+        float scroll { 0.0f };
+        // 목록 자리에 대신 보일 글이다 (읽는 중, 읽지 못함, 커밋이 없음). 비어 있으면 목록이 선다.
+        std::u8string note {};
+        // 읽은 것보다 이력이 더 있다. 목록 끝에 안내 한 줄이 선다.
+        bool truncated { false };
+    };
+
     // diff 자리의 머리 막대 값과, 웹뷰를 쓸 수 없을 때의 텍스트 대체 본문이다(`docs/ui-architecture.md`).
     struct diff_panel_view
     {
+        // 판이 보이는 것이다. 머리의 [변경 내용 | Blame | 이력] 전환이 바꾼다.
+        file_view_mode mode { file_view_mode::changes };
+
+        // 이력 보기의 목록이다. 그 보기일 때만 있다.
+        std::optional<file_history_view> history {};
+        // 본문 자리에 대신 보일 글이다 (blame을 읽지 못했다, 바이너리 파일이다, 이력에서 고른 커밋이 없다). 비어 있으면 본문이 선다.
+        std::u8string body_note {};
+        // "이 변경 직전 보기"로 떠나온 blame이 있다. 머리에 돌아가기 단추가 선다.
+        bool blame_back { false };
+        // 머리의 "그래프에서 보기" 단추가 가리킬 커밋이다 (이력에서 고른 커밋, 특정 커밋을 blame하는 중이면 그 커밋). 비면 단추가 없다.
+        std::string reveal_sha {};
+        // 머리의 파일 위치·앞뒤 파일 단추가 가리키는, 판을 연 파일의 요청이다. 이력 보기에서는 `request`가 고른 커밋의 것이라 따로 둔다.
         diff_file_request request {};
         std::u8string title {};
         std::u8string subtitle {};

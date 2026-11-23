@@ -237,6 +237,8 @@ namespace cyella {
         working_area,
         // 상태 줄의 종이 연 알림 센터의 목록이다.
         notifications,
+        // diff 판의 파일 이력 목록이다.
+        file_history,
     };
 
     // 흘리는 창의 스크롤이다. `absolute`면 `value`가 자리, 아니면 변화량이다 (논리 픽셀).
@@ -307,6 +309,44 @@ namespace cyella {
     };
 
     struct close_diff_intent
+    {};
+
+    // diff 판의 보기를 바꾼다 (변경 내용·Blame·이력). 판이 열려 있어야 한다.
+    struct set_file_view_mode_intent
+    {
+        file_view_mode mode { file_view_mode::changes };
+    };
+
+    // 파일의 blame이나 이력을 연다 (파일 우클릭 메뉴). `diff`는 그 파일 행의 변경 내용 요청이다. 판이 그 diff로 서고 곧바로 `mode`로 넘어간다.
+    struct open_file_view_intent
+    {
+        file_view_mode mode { file_view_mode::blame };
+        diff_file_request diff {};
+    };
+
+    // 파일 이력 목록에서 커밋을 고른다. 키는 그래프 항목 키와 같은 꼴이다 (SHA 앞 15자).
+    struct select_file_history_intent
+    {
+        std::u8string key {};
+    };
+
+    // 커밋을 그래프에서 고르고 그 행을 보인다 (blame·파일 이력의 "그래프에서 보기"). 아직 읽지 않은 커밋이면 찾을 때까지 이력을 이어 읽는다.
+    // `repository_id`가 비면 선택된 탭의 저장소다.
+    struct reveal_commit_intent
+    {
+        std::string repository_id {};
+        std::string sha {};
+    };
+
+    // 보이는 blame을 다른 리비전으로 다시 연다 (뷰어의 "이 변경 직전 보기").
+    struct open_blame_revision_intent
+    {
+        std::string repository_id {};
+        blame_file_request request {};
+    };
+
+    // "이 변경 직전 보기"로 떠나온 blame으로 돌아간다.
+    struct blame_back_intent
     {};
 
     struct set_repository_layout_intent

@@ -6,6 +6,7 @@
 #include "presentation/selector_intents.h"
 #include "presentation/ui/diff_special_card.h"
 #include "presentation/ui/element_kinds.h"
+#include "presentation/ui/file_history_ui.h"
 #include "presentation/ui/list_rows.h"
 #include "presentation/ui/segmented_control.h"
 #include "presentation/ui/ui_helpers.h"
@@ -30,6 +31,11 @@ namespace cyella::ui {
         constexpr float truncated_note_width { 150.0f };
         constexpr float fallback_note_width { 250.0f };
         constexpr float textconv_badge_width { 70.0f };
+        constexpr float mode_toggle_width { 216.0f };
+        // 이력 보기에서 왼쪽 목록의 폭이다. 판이 좁으면 목록을 위에, 변경 내용을 아래에 쌓는다.
+        constexpr float history_list_width { 320.0f };
+        constexpr float history_side_by_side_width { 760.0f };
+        constexpr float history_stacked_height { 190.0f };
 
         const color_selector dim_color { [](const luil::ui_color_palette& palette) { return palette.secondary_foreground; } };
 
@@ -90,6 +96,37 @@ namespace cyella::ui {
             return make_segmented_control(std::move(config));
         }
 
+        // 판이 보이는 것을 바꾼다. 추적하지 않는 파일처럼 blame·이력이 없는 파일에서 누르면 controller가 까닭을 알린다.
+        std::unique_ptr<luil::ui_element> mode_toggle(const diff_panel_view& diff)
+        {
+            luil::choice_group_config config {};
+            config.owner = u8"diff-file-view";
+            config.style = luil::choice_style::toggle;
+            config.name = tr(u8"diff.file_view_name");
+            config.items = { { u8"changes", tr(u8"diff.file_view_changes") }, { u8"blame", u8"Blame" }, { u8"history", tr(u8"diff.file_view_history") } };
+            switch (diff.mode)
+            {
+            case file_view_mode::changes:
+                config.selected = u8"changes";
+                break;
+            case file_view_mode::blame:
+                config.selected = u8"blame";
+                break;
+            case file_view_mode::history:
+                config.selected = u8"history";
+                break;
+            }
+            config.select = [](const std::u8string& value) {
+                file_view_mode mode { file_view_mode::changes };
+                if (value == u8"blame")
+                    mode = file_view_mode::blame;
+                else if (value == u8"history")
+                    mode = file_view_mode::history;
+                return message(set_file_view_mode_intent { mode });
+            };
+            return make_segmented_control(std::move(config));
+        }
+
         std::unique_ptr<luil::ui_element> build_header(const diff_panel_view& diff, const bool working, const float width)
         {
             const bool compact { width < compact_header_width };
@@ -97,7 +134,12 @@ namespace cyella::ui {
             row_config.cross_alignment = luil::stack_alignment::center;
             auto header { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-header" }, row_config) };
             header->add(make_icon_button(u8"diff-close", codicons::icon_arrow_left, working ? tr(u8"diff.back_to_changes") : tr(u8"diff.back_to_history"), message(close_diff_intent {})), 30.0f);
+            // "이 변경 직전 보기"로 들어온 blame에서 떠나온 판으로 돌아간다.
+            if (diff.blame_back)
+                header->add(make_icon_button(u8"diff-blame-back", codicons::icon_reply, tr(u8"diff.blame_back"), message(blame_back_intent {})), 28.0f);
             header->add_flexible(make_text(u8"diff-title", diff.title, text_style { .size = 13.0f, .bold = true }));
+            if (diff.reveal_sha.empty() == false)
+                header->add(make_icon_button(u8"diff-reveal-commit", codicons::icon_git_commit, tr(u8"diff.reveal_commit"), message(reveal_commit_intent { .repository_id = {}, .sha = diff.reveal_sha })), 28.0f);
             const auto file_button = [&](const std::u8string& owner, const char32_t glyph, const std::u8string& tooltip, const std::optional<diff_file_request>& request) {
                 header->add(make_icon_button(owner, glyph, tooltip, request.has_value() ? message(select_file_intent { *request }) : luil::input_action {}, request.has_value()), 28.0f);
             };
@@ -105,11 +147,13 @@ namespace cyella::ui {
                 diff.previous_file.has_value() ? tr(u8"diff.previous_file", { { u8"path", diff.previous_file->path } }) : tr(u8"diff.no_previous_file"), diff.previous_file);
             file_button(u8"diff-next-file", codicons::icon_chevron_down, diff.next_file.has_value() ? tr(u8"diff.next_file", { { u8"path", diff.next_file->path } }) : tr(u8"diff.no_next_file"),
                 diff.next_file);
+            // 앱으로 열기는 보이는 변경 내용의 두 쪽으로 파일을 고른다. blame에는 그 두 쪽이 없어 꺼 둔다.
+            const bool can_open { diff.loading == false && diff.mode != file_view_mode::blame && diff.body_note.empty() };
             std::unique_ptr<luil::ui_element> open {};
             if (compact)
-                open = make_icon_button(u8"diff-open-app", codicons::icon_link_external, tr(u8"diff.open_in_app"), {}, diff.loading == false);
+                open = make_icon_button(u8"diff-open-app", codicons::icon_link_external, tr(u8"diff.open_in_app"), {}, can_open);
             else
-                open = make_text_button(u8"diff-open-app", tr(u8"diff.open_in_app"), luil::text_button_visual::normal, {}, diff.loading == false, codicons::icon_link_external);
+                open = make_text_button(u8"diff-open-app", tr(u8"diff.open_in_app"), luil::text_button_visual::normal, {}, can_open, codicons::icon_link_external);
             const auto open_menu = [anchor = open.get()](const luil::ui_action_context&) -> std::vector<luil::input_action> {
                 const luil::rect_f box { anchor->bounds() };
                 return { message(open_selector_intent { selector_kind::file_app, box.x, box.y + box.height, box.width }) };
@@ -123,6 +167,7 @@ namespace cyella::ui {
                 .direction = luil::stack_direction::row, .spacing = 6.0f, .padding = luil::edge_insets { 12.0f, 0.0f, 10.0f, 4.0f }, .cross_alignment = luil::stack_alignment::center
             };
             auto metadata { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-header-metadata" }, metadata_config) };
+            metadata->add(mode_toggle(diff), { .length = mode_toggle_width, .cross_length = luil::choice_toggle_height });
             auto subtitle { make_text(u8"diff-subtitle", diff.subtitle, text_style { .size = 11.0f, .color = dim_color }) };
             set_text_tooltip(*subtitle, diff.subtitle);
             if (compact)
@@ -137,7 +182,7 @@ namespace cyella::ui {
                 if (diff.surface.truncated)
                 {
                     auto note { make_text(u8"diff-truncated-note", tr(u8"diff.truncated_short"), text_style { .size = 11.0f, .color = dim_color }) };
-                    set_text_tooltip(*note, tr(u8"diff.truncated_tooltip"));
+                    set_text_tooltip(*note, diff.mode == file_view_mode::blame ? tr(u8"diff.truncated_tooltip_blame") : tr(u8"diff.truncated_tooltip"));
                     path->add(std::move(note), 28.0f);
                 }
                 column->add(std::move(path), 32.0f);
@@ -156,7 +201,7 @@ namespace cyella::ui {
                     { .length = textconv_badge_width, .cross_length = luil::badge_element::height_for(badge) });
             }
 
-            if (diff.use_webview == false && diff.special.has_value() == false)
+            if (diff.use_webview == false && diff.special.has_value() == false && diff.body_note.empty())
             {
                 // 긴 문구는 까닭을 가린다. 표면 때문이면 WebView2를 말하지 않는다 — Runtime이 있는데 설치하라는 뜻으로 읽힌다.
                 std::u8string note { tr(u8"diff.fallback_short") };
@@ -166,8 +211,11 @@ namespace cyella::ui {
             }
             else
             {
+                // blame은 diff가 아니라 파일 전체다. 잘린 것도 "큰 diff"가 아니라 "큰 파일"이라고 말한다.
                 if (compact == false && diff.surface.truncated)
-                    metadata->add(make_text(u8"diff-truncated-note", tr(u8"diff.truncated_note"), text_style { .size = 11.0f, .color = dim_color, .align = 2 }), truncated_note_width);
+                    metadata->add(make_text(u8"diff-truncated-note", diff.mode == file_view_mode::blame ? tr(u8"diff.truncated_note_blame") : tr(u8"diff.truncated_note"),
+                                      text_style { .size = 11.0f, .color = dim_color, .align = 2 }),
+                        truncated_note_width);
                 if (diff.surface.content == diff_content::text)
                     metadata->add(layout_toggle(diff.surface), { .length = layout_toggle_width, .cross_length = luil::choice_toggle_height });
                 else if (diff.surface.content == diff_content::image)
@@ -303,17 +351,37 @@ namespace cyella::ui {
         const diff_panel_view& diff { *repository.diff };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-area" }, luil::stack_config {}) };
         column->add(build_header(diff, repository.detail == detail_mode::working, width), diff_header_height + (width < compact_header_width ? 32.0f : 0.0f));
+        std::unique_ptr<luil::ui_element> body {};
         // LFS 포인터·submodule 포인터는 텍스트 diff가 아니라 카드다 (웹뷰 여부와 무관하다).
         if (diff.special.has_value())
-            column->add_flexible(build_diff_special_card(*diff.special, repository.repository_id));
+            body = build_diff_special_card(*diff.special, repository.repository_id);
+        else if (diff.body_note.empty() == false)
+            body = centered_note(u8"diff-body-note", diff.body_note);
         else
-            column->add_flexible(diff_webview_stands(repository) ? build_webview_slot(diff) : build_text_body(diff, sources));
+            body = diff_webview_stands(repository) ? build_webview_slot(diff) : build_text_body(diff, sources);
+
+        if (diff.history.has_value())
+        {
+            // 이력 보기다. 목록에서 고른 커밋에서의 변경 내용이 옆(좁으면 아래)에 선다.
+            const bool side_by_side { width >= history_side_by_side_width };
+            luil::stack_config split_config {};
+            split_config.direction = side_by_side ? luil::stack_direction::row : luil::stack_direction::column;
+            auto split { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"diff-history-split" }, split_config) };
+            const bar_style list_style { .background = [](const luil::ui_color_palette& palette) { return palette.window_background; }, .divider_bottom = side_by_side == false };
+            auto list_panel { std::make_unique<bar_element>(luil::ui_element_id { kind_panel, u8"file-history-panel" }, list_style, build_file_history_list(*diff.history, sources)) };
+            split->add(std::move(list_panel), side_by_side ? history_list_width : history_stacked_height);
+            split->add_flexible(std::move(body));
+            column->add_flexible(std::move(split));
+        }
+        else
+            column->add_flexible(std::move(body));
         return panel_surface(u8"diff-panel", std::move(column));
     }
 
     bool diff_webview_stands(const repository_view& repository) noexcept
     {
-        return repository.diff.has_value() && repository.diff->special.has_value() == false && repository.diff->use_webview;
+        // 본문 자리에 글(읽지 못함, 바이너리)이 서면 웹뷰 자리표가 없다. luil이 그동안 웹뷰를 숨긴다.
+        return repository.diff.has_value() && repository.diff->special.has_value() == false && repository.diff->use_webview && repository.diff->body_note.empty();
     }
 
     luil::ui_webview make_diff_webview(const diff_webview_options& options)

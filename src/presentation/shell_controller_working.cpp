@@ -143,9 +143,14 @@ namespace cyella {
     {
         // 문맥 줄 수는 환경 설정이 정한다. 행이 만든 요청에는 기본값이 들어 있다.
         request.context_lines = settings().diff.context_lines;
+        // 판이 blame이나 이력을 보이던 중이면 새 파일도 같은 보기로 연다. 파일을 바꿔 가며 blame을 볼 때 매번 전환을 누르지 않게 한다.
+        const file_view_mode mode { tab.file_view.has_value() ? tab.file_view->mode : file_view_mode::changes };
+        close_file_view(tab);
         tab.diff = request;
         tab.diff_scroll = 0.0f;
         static_cast<void>(submit(std::move(request)));
+        if (mode != file_view_mode::changes && tab.diff->untracked == false)
+            set_file_view_mode(tab, mode);
         // medium·narrow에서는 상세가 그래프 자리 위에 뜬 서랍이라, 그대로 두면 방금 연 diff를 서랍이 덮는다.
         // diff를 가리지 않게 서랍을 닫는다. 파일 목록은 툴바의 "상세 패널" 단추로 다시 연다.
         if (last_mode_ != layout_mode::wide)

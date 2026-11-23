@@ -129,12 +129,14 @@ namespace cyella {
         availability.pop = ready && session->snapshot().stashes.empty() == false;
         availability.drawer = last_mode_ != layout_mode::wide;
         availability.selection_menu = selection_menu_target().has_value();
+
         const hosting_repository_view hosting { hosting_.view_of(session->id()) };
         availability.hosting_supported = hosting.support == hosting_support::supported;
         availability.hosting_signed_in = hosting.signed_in;
         availability.hosting_can_create = hosting.can_create;
         if (const tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
         {
+            availability.file_view = tab->diff.has_value() && tab->diff->untracked == false;
             // 커밋 단추가 켜지는 조건과 같다 (`find_commit_blocker`). 팔레트에 서는 커밋이 실행해도 막히지 않게 한다.
             const bool has_subject { std::ranges::any_of(tab->commit_subject.text, [](const char8_t value) { return value != u8' ' && value != u8'\t' && value != u8'\r' && value != u8'\n'; }) };
             availability.commit = ready && find_commit_blocker(session->snapshot(), tab->amend, has_subject, tab->pending_commit != 0) == commit_blocker::none;
@@ -230,6 +232,10 @@ namespace cyella {
             send(luil::app_message { toggle_drawer_intent { ui_.drawer_open == false } });
         else if (id == "view.menu")
             open_menu_for_selection();
+        else if (id == "file.blame")
+            send(luil::app_message { set_file_view_mode_intent { file_view_mode::blame } });
+        else if (id == "file.history")
+            send(luil::app_message { set_file_view_mode_intent { file_view_mode::history } });
         else if (id == "view.close")
             send(luil::app_message { close_overlays_intent {} });
         else if (id == "profile.apply")

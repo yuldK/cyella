@@ -122,6 +122,8 @@ namespace {
             ports.sides_ready = [this](diff_sides_ready_intent message) { sides.push_back(std::move(message)); };
             ports.external_done = [this](external_open_done_intent message) { externals.push_back(std::move(message)); };
             ports.tools = [this] { return tools; };
+            ports.open_commit = [this](const std::string& repository, std::string sha) { opened_commits.emplace_back(repository, std::move(sha)); };
+            ports.open_blame = [this](const std::string& repository, blame_file_request request) { opened_blames.emplace_back(repository, std::move(request)); };
             ports.gateway = &gateway;
             ports.opener = &opener;
             ports.git_executable = u8"C:\\Git\\cmd\\git.exe";
@@ -169,6 +171,8 @@ namespace {
         std::vector<diff_sides_ready_intent> sides {};
         std::vector<external_open_done_intent> externals {};
         std::vector<external_diff_tool> tools {};
+        std::vector<std::pair<std::string, std::string>> opened_commits {};
+        std::vector<std::pair<std::string, blame_file_request>> opened_blames {};
         operation_id next_operation { 100 };
         std::uint64_t serial { 0 };
         bool accept_jobs { true };
@@ -560,4 +564,55 @@ TEST_CASE("sync follows the wanted diff and clears stale content", "[diff][coord
         REQUIRE(test.coordinator.handle_web_message(test.action({ { "type", "unstage_hunk" }, { "hunk", 0 } })).accepted);
         CHECK(test.submitted.at(0).first == "repo-2");
     }
+}
+
+TEST_CASE("the blame view replaces the diff and its buttons reach the ports with the shown repository", "[diff][coordinator][blame]")
+{
+    harness test {};
+    const file_diff diff { text_file_diff() };
+    test.show(diff);
+    REQUIRE(test.coordinator.shown().has_value());
+
+    file_blame blame {};
+    blame.request = blame_file_request { .path = "f.txt", .revision = {} };
+    blame.origins.push_back(blame_origin { .sha = std::string(40, 'b'), .path = "f.txt", .author_name = "Morgan", .summary = "second", .previous_sha = std::string(40, 'a'), .previous_path = "old.txt" });
+    blame.lines.push_back(blame_line { .origin = 0, .original_line = 1, .final_line = 1, .text = "a" });
+    const blame_target target { "repo-1", blame.request, {} };
+
+    // 아직 읽는 중이다. 보이던 diff를 지워 그 stage 단추가 blame 판에 남지 않게 한다.
+    test.coordinator.sync_blame(target, nullptr, 0);
+    CHECK_FALSE(test.coordinator.shown().has_value());
+    REQUIRE(test.coordinator.controller().poll());
+    CHECK(test.coordinator.controller().content() == diff_content::empty);
+
+    test.coordinator.sync_blame(target, &blame, 1);
+    REQUIRE(test.coordinator.controller().poll());
+    CHECK(test.coordinator.controller().content() == diff_content::blame);
+    // 같은 결과면 다시 보내지 않는다. 다시 읽어 왔으면(serial) 다시 보낸다.
+    test.coordinator.sync_blame(target, &blame, 1);
+    CHECK_FALSE(test.coordinator.controller().poll());
+    test.coordinator.sync_blame(target, &blame, 2);
+    CHECK(test.coordinator.controller().poll());
+
+    REQUIRE(test.coordinator.handle_web_message(test.action({ { "type", "blame_open_commit" }, { "origin", 0 } })).accepted);
+    REQUIRE(test.opened_commits.size() == 1);
+    CHECK(test.opened_commits.front() == std::pair<std::string, std::string> { "repo-1", std::string(40, 'b') });
+    REQUIRE(test.coordinator.handle_web_message(test.action({ { "type", "blame_previous" }, { "origin", 0 } })).accepted);
+    REQUIRE(test.opened_blames.size() == 1);
+    CHECK(test.opened_blames.front().first == "repo-1");
+    CHECK(test.opened_blames.front().second == blame_file_request { .path = "old.txt", .revision = std::string(40, 'a') });
+
+    // 다른 파일의 blame을 기다리는 동안 앞 파일의 것을 남기지 않는다.
+    const blame_target other { "repo-1", blame_file_request { .path = "g.txt", .revision = {} }, {} };
+    test.coordinator.sync_blame(other, &blame, 2);
+    REQUIRE(test.coordinator.controller().poll());
+    CHECK(test.coordinator.controller().content() == diff_content::empty);
+
+    // 변경 내용으로 돌아오면 diff가 다시 선다.
+    test.coordinator.sync_blame(target, &blame, 2);
+    REQUIRE(test.coordinator.controller().poll());
+    test.coordinator.sync(target_of(diff), &diff, ++test.serial);
+    REQUIRE(test.coordinator.controller().poll());
+    CHECK(test.coordinator.controller().content() == diff_content::text);
+    REQUIRE(test.coordinator.shown().has_value());
 }

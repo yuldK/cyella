@@ -336,6 +336,15 @@ namespace cyella::win32 {
         ports.sides_ready = [relay = &relay_](diff_sides_ready_intent message) { relay->post(luil::app_message { std::move(message) }); };
         ports.external_done = [relay = &relay_](external_open_done_intent message) { relay->post(luil::app_message { std::move(message) }); };
         ports.tools = [this] { return controller_ != nullptr ? controller_->settings().external_diff_tools : std::vector<external_diff_tool> {}; };
+        // blame 뷰어의 단추다. 그래프와 탭 상태는 controller의 것이라 메시지로 넘긴다 (웹뷰 사건을 처리하는 logic thread에서 불린다).
+        ports.open_commit = [this](const std::string& repository_id, std::string sha) {
+            if (controller_ != nullptr)
+                static_cast<void>(controller_->handle(luil::app_message { reveal_commit_intent { .repository_id = repository_id, .sha = std::move(sha) } }));
+        };
+        ports.open_blame = [this](const std::string& repository_id, blame_file_request request) {
+            if (controller_ != nullptr)
+                static_cast<void>(controller_->handle(luil::app_message { open_blame_revision_intent { .repository_id = repository_id, .request = std::move(request) } }));
+        };
         ports.registry = &registry_;
         ports.gateway = diff_gateway_.get();
         ports.opener = diff_opener_.get();
@@ -683,6 +692,8 @@ namespace cyella::win32 {
                     workspace_->apply(*event);
                 if (std::holds_alternative<file_diff_loaded>(event->payload))
                     ++diff_serials_[event->repository_id];
+                if (std::holds_alternative<file_blame_loaded>(event->payload))
+                    ++blame_serials_[event->repository_id];
                 if (const auto* const finished { std::get_if<operation_finished>(&event->payload) }; finished != nullptr)
                 {
                     if (diff_ != nullptr)
@@ -795,6 +806,21 @@ namespace cyella::win32 {
     {
         if (diff_ == nullptr || controller_ == nullptr)
             return;
+        // 판이 blame 모드면 웹뷰는 diff 대신 blame을 보인다.
+        if (const std::optional<blame_target> blame { controller_->current_blame_target() }; blame.has_value())
+        {
+            const file_blame* read { nullptr };
+            std::uint64_t blame_serial { 0 };
+            if (workspace_ != nullptr)
+            {
+                if (const repository_session* const session { std::as_const(*workspace_).find_session(blame->repository_id) }; session != nullptr && session->selected_blame().has_value())
+                    read = &*session->selected_blame();
+                if (const auto found { blame_serials_.find(blame->repository_id) }; found != blame_serials_.end())
+                    blame_serial = found->second;
+            }
+            diff_->sync_blame(blame, read, blame_serial);
+            return;
+        }
         const std::optional<diff_target> wanted { controller_->current_diff_target() };
         const file_diff* loaded { nullptr };
         std::uint64_t serial { 0 };

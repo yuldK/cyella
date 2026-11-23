@@ -778,6 +778,8 @@ namespace cyella::ui {
         }
         if (sources.diff != nullptr)
             built.feedback.diff_maximum = sources.diff->metrics().maximum_scroll;
+        if (sources.file_history != nullptr)
+            built.feedback.file_history_maximum = sources.file_history->metrics().maximum_scroll;
         if (sources.log != nullptr)
             built.feedback.log_maximum = sources.log->metrics().maximum_scroll;
         if (notification_list != nullptr)

@@ -430,6 +430,53 @@ namespace cyella {
         return dump(result);
     }
 
+    std::string serialize_show_blame(const show_blame_message& message)
+    {
+        json result {};
+        result["type"] = "show_blame";
+        result["seq"] = message.seq;
+        add_state(result, message.state);
+        result["path"] = to_valid_utf8(message.path);
+        result["revision"] = to_valid_utf8(message.revision);
+        result["focus"] = to_valid_utf8(message.focus);
+
+        json origins { json::array() };
+        if (message.origins != nullptr)
+        {
+            for (const blame_origin& origin : *message.origins)
+            {
+                json entry {};
+                entry["sha"] = to_valid_utf8(origin.sha);
+                entry["author"] = to_valid_utf8(origin.author_name);
+                entry["mail"] = to_valid_utf8(origin.author_email);
+                entry["time"] = origin.author_time;
+                entry["summary"] = to_valid_utf8(origin.summary);
+                entry["path"] = to_valid_utf8(origin.path);
+                entry["previous"] = origin.previous_sha.empty() == false;
+                entry["uncommitted"] = origin.uncommitted;
+                origins.push_back(std::move(entry));
+            }
+        }
+        result["origins"] = std::move(origins);
+
+        json lines { json::array() };
+        const std::size_t total { message.lines != nullptr ? message.lines->size() : 0 };
+        const std::size_t shown { message.line_limit != 0 ? std::min(total, message.line_limit) : total };
+        for (std::size_t index { 0 }; index < shown; ++index)
+        {
+            const blame_line& line { (*message.lines)[index] };
+            // diff의 줄과 같은 규칙이다. 올바른 UTF-8이 아니면 base64로 보내고 표지를 붙여 바이트를 잃지 않는다.
+            if (is_valid_utf8(line.text))
+                lines.push_back(json::array({ line.origin, line.final_line, line.text }));
+            else
+                lines.push_back(json::array({ line.origin, line.final_line, base64_encode(line.text), 1 }));
+        }
+        result["lines"] = std::move(lines);
+        result["truncated"] = shown < total;
+        result["total_lines"] = total;
+        return dump(result);
+    }
+
     std::string serialize_show_image(const show_image_message& message)
     {
         json result {};
@@ -585,6 +632,19 @@ namespace cyella {
             if (*type == "open_external")
                 return accept(open_external_action { *seq });
             return accept(show_full_action { *seq });
+        }
+
+        if (*type == "blame_open_commit" || *type == "blame_previous")
+        {
+            if (has_exactly(root, { "type", "seq", "origin" }) == false)
+                return reject(*type + ": unexpected fields");
+            const std::optional<std::uint64_t> seq { read_unsigned(root, "seq") };
+            const std::optional<std::size_t> origin { read_index(root, "origin") };
+            if (seq.has_value() == false || origin.has_value() == false)
+                return reject(*type + ": bad seq or origin");
+            if (*type == "blame_open_commit")
+                return accept(blame_open_commit_action { *seq, *origin });
+            return accept(blame_previous_action { *seq, *origin });
         }
 
         if (*type == "copy")

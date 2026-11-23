@@ -748,3 +748,64 @@ TEST_CASE("the ref list popup is transparent, reports its placement and maps its
     CHECK(shown.border);
     CHECK(shown.placed == nullptr);
 }
+
+TEST_CASE("cyella_driver opens the commit a blamed line points at when the viewer asks", "[driver][webview][blame]")
+{
+    if (cyella::test::git_is_available() == false)
+        SKIP("git is not installed");
+
+    const cyella::test::temp_directory directory {};
+    const std::filesystem::path repo { make_committed_repository(directory.path()) };
+    // 커밋된 줄 하나와 커밋하지 않은 줄 하나가 있는 작업 파일이다.
+    cyella::test::write_file(repo / "a.txt", "one\ntwo\n");
+    cyella::win32::cyella_driver_options options {};
+    options.initial_repository = repo.generic_u8string();
+    options.disable_file_watching = true;
+    options.assume_webview_capable = true;
+    cyella::win32::cyella_driver driver { std::move(options) };
+    driver.start();
+    REQUIRE(driver.controller() != nullptr);
+    REQUIRE(pump_until(driver, [&] { return only_session(driver) != nullptr && only_session(driver)->loaded() && only_session(driver)->snapshot().unstaged.size() == 1; }));
+
+    driver.handle(luil::app_message { cyella::select_file_intent { .request = cyella::diff_file_request { .path = "a.txt", .view = cyella::diff_view::unstaged } } });
+    REQUIRE(pump_until(driver, [&] { return only_session(driver)->selected_diff().has_value(); }));
+    driver.handle(luil::app_message { cyella::set_file_view_mode_intent { cyella::file_view_mode::blame } });
+    REQUIRE(pump_until(driver, [&] { return only_session(driver)->selected_blame().has_value(); }));
+
+    const cyella::file_blame& blame { *only_session(driver)->selected_blame() };
+    REQUIRE(blame.lines.size() == 2);
+    std::optional<std::size_t> committed {};
+    for (std::size_t index { 0 }; index < blame.origins.size(); ++index)
+        if (blame.origins[index].uncommitted == false)
+            committed = index;
+    REQUIRE(committed.has_value());
+    const std::string sha { blame.origins[*committed].sha };
+
+    // 페이지가 준비되면 다음 frame이 blame을 싣는다.
+    const std::shared_ptr<const luil::win32::ui_frame> first { driver.make_frame() };
+    REQUIRE(first != nullptr);
+    REQUIRE(first->webviews.size() == 1);
+    luil::webview_event ready {};
+    ready.id = std::u8string { cyella::ui::diff_webview_id };
+    ready.kind = luil::webview_event_kind::web_message_received;
+    ready.url = first->webviews.front().navigate_url;
+    ready.message = u8R"({"type":"ready","protocol":1})";
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { ready } });
+    const std::shared_ptr<const luil::win32::ui_frame> shown { driver.make_frame() };
+    REQUIRE(shown != nullptr);
+    REQUIRE(shown->webviews.size() == 1);
+    CHECK(shown->webviews.front().post_message.find(u8"\"show_blame\"") != std::u8string::npos);
+    CHECK(driver.diff_view()->controller().content() == cyella::diff_content::blame);
+
+    // 뷰어의 "그래프에서 이 커밋 보기"가 판을 닫고 그 커밋을 고른다.
+    const std::string action { "{\"type\":\"blame_open_commit\",\"seq\":" + std::to_string(driver.diff_view()->controller().content_seq()) + ",\"origin\":" + std::to_string(*committed) + "}" };
+    luil::webview_event open { ready };
+    open.message = std::u8string { action.begin(), action.end() };
+    driver.handle(luil::app_message { cyella::ui::diff_webview_event_intent { open } });
+    const cyella::tab_ui_state& tab { driver.controller()->state().tabs.at(driver.controller()->tabs().selected().id) };
+    CHECK(tab.selected_sha == sha);
+    CHECK_FALSE(tab.diff.has_value());
+    CHECK_FALSE(tab.file_view.has_value());
+
+    driver.stop_workers();
+}

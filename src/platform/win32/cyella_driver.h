@@ -271,6 +271,8 @@ namespace cyella::win32 {
         std::unique_ptr<diff_view_coordinator> diff_ {};
         // 저장소마다 `file_diff_loaded`가 온 횟수다. 같은 요청을 다시 읽어 왔는지(stage 뒤) 알아내는 데 쓴다.
         std::map<std::string, std::uint64_t> diff_serials_ {};
+        // 같은 것을 `file_blame_loaded`로 센다. 같은 blame 요청을 다시 읽어 왔는지 알아낸다.
+        std::map<std::string, std::uint64_t> blame_serials_ {};
         std::atomic<luil::app_host*> host_ { nullptr };
         ssh_programs ssh_programs_ {};
         std::filesystem::path ssh_directory_ {};

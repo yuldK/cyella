@@ -39,6 +39,8 @@ namespace cyella::ui {
     inline constexpr luil::ui_element_kind kind_file_row { luil::application_element_kind(13) };
     inline constexpr luil::ui_element_kind kind_diff_row { luil::application_element_kind(14) };
     inline constexpr luil::ui_element_kind kind_log_row { luil::application_element_kind(15) };
+    // diff 판의 파일 이력 목록 행이다.
+    inline constexpr luil::ui_element_kind kind_file_history_row { luil::application_element_kind(27) };
     inline constexpr luil::ui_element_kind kind_start_row { luil::application_element_kind(16) };
     inline constexpr luil::ui_element_kind kind_start_card { luil::application_element_kind(17) };
     inline constexpr luil::ui_element_kind kind_banner { luil::application_element_kind(18) };

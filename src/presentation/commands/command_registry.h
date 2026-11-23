@@ -76,6 +76,8 @@ namespace cyella {
         bool drawer { false };
         // 고른 항목의 우클릭 메뉴가 있다.
         bool selection_menu { false };
+        // 파일 판이 열려 있고 그 파일이 추적 중이다 (blame·이력을 볼 수 있다).
+        bool file_view { false };
         // 저장소의 원격이 GitHub·GitLab으로 알려진 호스트이고, 그 호스트에 로그인했으며, 현재 브랜치로 PR을 만들 수 있다.
         bool hosting_supported { false };
         bool hosting_signed_in { false };

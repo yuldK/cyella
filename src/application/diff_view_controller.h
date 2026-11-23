@@ -51,7 +51,19 @@ namespace cyella {
         std::string text {};
     };
 
-    using diff_view_effect = std::variant<apply_patch_effect, prepare_sides_effect, open_external_effect, copy_text_effect>;
+    // blame의 줄을 남긴 커밋을 그래프에서 연다. 그래프와 탭 상태는 화면 쪽 것이라 호출자가 넘긴다.
+    struct open_commit_effect
+    {
+        std::string sha {};
+    };
+
+    // 다른 리비전으로 blame을 다시 연다 ("이 변경 직전 보기"). 화면이 요청을 바꿔 workspace에 낸다.
+    struct blame_revision_effect
+    {
+        blame_file_request request {};
+    };
+
+    using diff_view_effect = std::variant<apply_patch_effect, prepare_sides_effect, open_external_effect, copy_text_effect, open_commit_effect, blame_revision_effect>;
 
     struct web_message_result
     {
@@ -101,6 +113,10 @@ namespace cyella {
         // workspace가 읽은 diff 결과를 보인다. 같은 파일이 다시 오면(stage 뒤 새로 읽음) 뷰어가 스크롤을 유지한다.
         // 바이너리 파일이면 두 쪽을 꺼내는 일을 돌려준다.
         [[nodiscard]] std::vector<diff_view_effect> show(const file_diff& diff, std::u8string repository_path);
+
+        // workspace가 읽은 blame을 보인다. 같은 파일·리비전이 다시 오면 뷰어가 스크롤과 고른 커밋을 유지한다.
+        // `focus`가 비어 있지 않으면 뷰어가 그 커밋의 줄을 고른 채로 연다.
+        void show_blame(const file_blame& blame, std::string focus = {});
 
         // 보일 diff가 없다.
         void clear();
@@ -167,9 +183,11 @@ namespace cyella {
             image,
             binary,
             special,
+            blame,
         };
 
         [[nodiscard]] std::string build_content_message();
+        [[nodiscard]] web_message_result handle_blame_action(std::size_t origin, bool previous) const;
         [[nodiscard]] bool has_actionable_content() const noexcept;
         [[nodiscard]] web_message_result reject(std::string reason) const;
         [[nodiscard]] web_message_result handle_hunk_action(const hunk_action& action);
@@ -192,6 +210,9 @@ namespace cyella {
         std::string textconv_driver_ {};
         std::u8string repository_path_ {};
         extracted_sides sides_ {};
+        // 보고 있는 blame이다 (`content_kind::blame`).
+        file_blame blame_ {};
+        std::string blame_focus_ {};
         // 줄 수 상한을 풀고 전체를 보낸다.
         bool full_requested_ { false };
         // 패치를 적용하러 보냈고 아직 diff를 다시 받지 못했다. 같은 hunk를 두 번 내지 않게 막는다.

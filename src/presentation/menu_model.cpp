@@ -283,6 +283,13 @@ namespace cyella {
                         make_entry(u8"ignore", tr(u8"menu.add_to_gitignore"), icons::icon_circle_slash),
                     });
             }
+            // 파일 하나의 blame과 이력이다. 추적하지 않는 파일에는 둘 다 없고, 여러 파일을 고른 메뉴에서는 어느 파일인지 정할 수 없다.
+            const bool single_tracked { target.untracked == false && target.paths.size() <= 1 };
+            add_group(model.entries,
+                {
+                    make_entry(u8"blame", tr(u8"menu.blame"), icons::icon_person, single_tracked),
+                    make_entry(u8"file_history", tr(u8"menu.file_history"), icons::icon_history, single_tracked),
+                });
             add_group(model.entries,
                 {
                     make_entry(u8"open_external_diff", tr(u8"menu.open_external_diff"), icons::icon_diff, target.untracked == false),
@@ -301,7 +308,12 @@ namespace cyella {
         {
             menu_model model {};
             model.title = to_u8(target.name);
-            add_group(model.entries, { make_entry(u8"open_diff", tr(u8"menu.view_changes"), icons::icon_diff) });
+            add_group(model.entries,
+                {
+                    make_entry(u8"open_diff", tr(u8"menu.view_changes"), icons::icon_diff),
+                    make_entry(u8"blame", tr(u8"menu.blame"), icons::icon_person),
+                    make_entry(u8"file_history", tr(u8"menu.file_history"), icons::icon_history),
+                });
             add_group(model.entries,
                 {
                     make_entry(u8"copy_path", tr(u8"menu.copy_path"), icons::icon_copy),

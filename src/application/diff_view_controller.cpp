@@ -129,10 +129,30 @@ namespace cyella {
         return effects;
     }
 
+    void diff_view_controller::show_blame(const file_blame& blame, std::string focus)
+    {
+        // 같은 파일·리비전을 다시 읽은 것이면 전체 보기 선택을 유지한다.
+        const bool same_file { kind_ == content_kind::blame && blame_.request == blame.request };
+        blame_ = blame;
+        blame_focus_ = std::move(focus);
+        kind_ = content_kind::blame;
+        file_ = {};
+        sides_ = {};
+        textconv_driver_.clear();
+        if (same_file == false)
+            full_requested_ = false;
+        awaiting_refresh_ = false;
+        content_dirty_ = true;
+        // 앞 파일의 두 쪽 꺼내기가 늦게 와도 이 내용을 덮지 못하게 한다.
+        ++ticket_;
+    }
+
     void diff_view_controller::clear()
     {
         kind_ = content_kind::empty;
         file_ = {};
+        blame_ = {};
+        blame_focus_.clear();
         sides_ = {};
         full_requested_ = false;
         awaiting_refresh_ = false;
@@ -179,13 +199,19 @@ namespace cyella {
             return diff_content::binary;
         case content_kind::special:
             return diff_content::special;
+        case content_kind::blame:
+            return diff_content::blame;
         }
         return diff_content::empty;
     }
 
     bool diff_view_controller::truncated() const noexcept
     {
-        return kind_ == content_kind::text && full_requested_ == false && options_.line_limit != 0 && count_diff_lines(file_) > options_.line_limit;
+        if (full_requested_ || options_.line_limit == 0)
+            return false;
+        if (kind_ == content_kind::blame)
+            return blame_.lines.size() > options_.line_limit;
+        return kind_ == content_kind::text && count_diff_lines(file_) > options_.line_limit;
     }
 
     bool diff_view_controller::can_stage() const noexcept
@@ -255,6 +281,18 @@ namespace cyella {
             message.old_size = sides_.left.size;
             message.new_size = sides_.right.size;
             return serialize_show_binary(message);
+        }
+        case content_kind::blame: {
+            show_blame_message message {};
+            message.seq = content_seq_;
+            message.state = state_;
+            message.path = blame_.request.path;
+            message.revision = blame_.request.revision;
+            message.origins = &blame_.origins;
+            message.lines = &blame_.lines;
+            message.line_limit = full_requested_ ? 0 : options_.line_limit;
+            message.focus = blame_focus_;
+            return serialize_show_blame(message);
         }
         }
         return serialize_clear(content_seq_, state_);
@@ -352,6 +390,29 @@ namespace cyella {
         return build_patch_effect(action.command, action.hunk, std::move(lines));
     }
 
+    web_message_result diff_view_controller::handle_blame_action(const std::size_t origin, const bool previous) const
+    {
+        if (kind_ != content_kind::blame || origin >= blame_.origins.size())
+            return reject(tr_narrow(u8"diff_action.blame_origin_out_of_range"));
+        const blame_origin& chosen { blame_.origins[origin] };
+        // 커밋하지 않은 줄에는 열 커밋이 없다. 뷰어도 단추를 두지 않는다.
+        if (chosen.uncommitted)
+            return reject(tr_narrow(u8"diff_action.blame_not_committed"));
+        web_message_result result {};
+        if (previous)
+        {
+            if (chosen.previous_sha.empty())
+                return reject(tr_narrow(u8"diff_action.blame_no_previous"));
+            result.effects.emplace_back(blame_revision_effect { blame_file_request { .path = chosen.previous_path.empty() ? chosen.path : chosen.previous_path, .revision = chosen.previous_sha } });
+        }
+        else
+        {
+            result.effects.emplace_back(open_commit_effect { chosen.sha });
+        }
+        result.accepted = true;
+        return result;
+    }
+
     web_message_result diff_view_controller::handle_web_message(const std::string_view message)
     {
         diff_action_parse_result parsed { parse_diff_view_action(message) };
@@ -393,6 +454,11 @@ namespace cyella {
             return handle_hunk_action(*hunk);
         if (const auto* const lines { std::get_if<lines_action>(&*parsed.action) }; lines != nullptr)
             return handle_lines_action(*lines);
+
+        if (const auto* const open { std::get_if<blame_open_commit_action>(&*parsed.action) }; open != nullptr)
+            return handle_blame_action(open->origin, false);
+        if (const auto* const previous { std::get_if<blame_previous_action>(&*parsed.action) }; previous != nullptr)
+            return handle_blame_action(previous->origin, true);
 
         if (std::holds_alternative<open_external_action>(*parsed.action))
         {

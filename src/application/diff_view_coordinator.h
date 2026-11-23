@@ -25,6 +25,15 @@ namespace cyella {
         diff_file_request request {};
     };
 
+    // 웹뷰가 보여야 하는 blame이다. 선택된 탭이 연 blame 요청과 그 저장소다.
+    struct blame_target
+    {
+        std::string repository_id {};
+        blame_file_request request {};
+        // 비어 있지 않으면 뷰어가 그 커밋의 줄을 고른 채로 연다.
+        std::string focus {};
+    };
+
     // 화면 안내 한 줄로 올릴 결과다 (외부 도구를 열지 못했다, 적용에 실패했다).
     struct diff_notice
     {
@@ -45,6 +54,10 @@ namespace cyella {
         // worker의 결과를 logic thread로 돌려보낸다 (relay). 어느 스레드에서나 불린다.
         std::function<void(diff_sides_ready_intent message)> sides_ready {};
         std::function<void(external_open_done_intent message)> external_done {};
+        // blame의 줄을 남긴 커밋을 그래프에서 연다. 그래프와 탭은 화면 쪽 상태라 코디네이터는 넘기기만 한다.
+        std::function<void(const std::string& repository_id, std::string sha)> open_commit {};
+        // 보이는 blame을 다른 리비전으로 다시 연다 ("이 변경 직전 보기").
+        std::function<void(const std::string& repository_id, blame_file_request request)> open_blame {};
         // 지금 설정의 확장자별 외부 도구 표다.
         std::function<std::vector<external_diff_tool>()> tools {};
         // 앱을 닫을 때 진행 중인 일을 함께 취소하려고 취소 source를 맡긴다. 없어도 된다.
@@ -89,6 +102,10 @@ namespace cyella {
         //  - 아직 읽는 중이면 낡은 내용을 지워 둔다 (stage 단추가 엉뚱한 파일에 걸리지 않게).
         //  - `wanted`가 없으면 비운다.
         void sync(const std::optional<diff_target>& wanted, const file_diff* loaded, std::uint64_t serial);
+
+        // 판이 blame 모드일 때 `sync` 대신 frame마다 부른다. 웹뷰가 보여야 할 blame(`wanted`)과 그 저장소 세션이 마지막으로 읽은
+        // blame(`loaded`)을 같은 규칙으로 맞춘다. 읽는 중이면 낡은 내용을 지워 둔다. diff를 보이던 중이면 그 대상은 잊는다.
+        void sync_blame(const std::optional<blame_target>& wanted, const file_blame* loaded, std::uint64_t serial);
 
         // 웹뷰가 보낸 JSON이다. 받아들였으면 그 동작이 낳은 일까지 실행한다.
         web_message_result handle_web_message(std::string_view message);
@@ -137,6 +154,9 @@ namespace cyella {
 
         std::optional<diff_target> shown_target_ {};
         std::uint64_t shown_serial_ { 0 };
+        // 지금 보이는 blame이다. diff 대상(`shown_target_`)과 함께 서지 않는다.
+        std::optional<blame_target> shown_blame_ {};
+        std::uint64_t shown_blame_serial_ { 0 };
         operation_id pending_apply_ { 0 };
         // 진행 중인 적용이 index에 더하는 stage다 (`--cached`이고 `-R`이 아니다). 추적하지 않던 파일이 추적되는지 가른다.
         bool applied_to_index_ { false };

@@ -20,6 +20,7 @@ namespace cyella::ui {
         const luil::virtual_list_element* detail { nullptr };
         const luil::scroll_area_element* detail_area { nullptr };
         const luil::virtual_list_element* diff { nullptr };
+        const luil::virtual_list_element* file_history { nullptr };
         const luil::virtual_list_element* log { nullptr };
         const luil::scroll_area_element* start { nullptr };
         // 커밋 상세의 메시지·메타 칸이다. 넘칠 때만 흘리는 창이 선다.

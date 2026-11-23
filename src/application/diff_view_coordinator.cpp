@@ -59,8 +59,50 @@ namespace cyella {
             sides_source_->request_cancellation();
     }
 
+    void diff_view_coordinator::sync_blame(const std::optional<blame_target>& wanted, const file_blame* const loaded, const std::uint64_t serial)
+    {
+        // blame으로 넘어왔다. 보이던 diff는 잊어 그 stage 단추와 두 쪽 꺼내기가 남지 않게 한다.
+        if (shown_target_.has_value())
+        {
+            forget_shown();
+            controller_.clear();
+        }
+        if (wanted.has_value() == false)
+        {
+            if (shown_blame_.has_value())
+            {
+                shown_blame_.reset();
+                controller_.clear();
+            }
+            return;
+        }
+
+        const bool same_target { shown_blame_.has_value() && shown_blame_->repository_id == wanted->repository_id && shown_blame_->request == wanted->request };
+        if (loaded != nullptr && loaded->request == wanted->request)
+        {
+            if (same_target && shown_blame_serial_ == serial && shown_blame_->focus == wanted->focus)
+                return;
+            shown_blame_ = wanted;
+            shown_blame_serial_ = serial;
+            controller_.show_blame(*loaded, wanted->focus);
+            return;
+        }
+        // 아직 읽는 중이다. 다른 파일의 blame을 남기면 새 파일의 것으로 보인다.
+        if (shown_blame_.has_value() && same_target == false)
+        {
+            shown_blame_.reset();
+            controller_.clear();
+        }
+    }
+
     void diff_view_coordinator::sync(const std::optional<diff_target>& wanted, const file_diff* const loaded, const std::uint64_t serial)
     {
+        // diff로 돌아왔다. 보이던 blame은 잊는다.
+        if (shown_blame_.has_value())
+        {
+            shown_blame_.reset();
+            controller_.clear();
+        }
         if (wanted.has_value() == false)
         {
             if (shown_target_.has_value())
@@ -206,6 +248,16 @@ namespace cyella {
             {
                 if (ports_.copy_text != nullptr)
                     ports_.copy_text(copy->text);
+            }
+            else if (const auto* const commit { std::get_if<open_commit_effect>(&effect) }; commit != nullptr)
+            {
+                if (ports_.open_commit != nullptr && shown_blame_.has_value())
+                    ports_.open_commit(shown_blame_->repository_id, commit->sha);
+            }
+            else if (const auto* const revision { std::get_if<blame_revision_effect>(&effect) }; revision != nullptr)
+            {
+                if (ports_.open_blame != nullptr && shown_blame_.has_value())
+                    ports_.open_blame(shown_blame_->repository_id, revision->request);
             }
         }
     }

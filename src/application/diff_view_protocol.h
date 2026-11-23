@@ -2,6 +2,7 @@
 
 #include "application/git_operation.h"
 #include "domain/diff_file.h"
+#include "domain/file_blame.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -65,6 +66,8 @@ namespace cyella {
         binary,
         // 텍스트 diff로 보일 수 없는 변경(submodule 포인터, 실제 내용이 로컬에 없는 LFS 포인터)이다. 웹뷰는 비우고 luil 카드가 그린다.
         special,
+        // 파일의 blame이다. diff가 아니라서 보기 전환(inline·split)과 줄 단위 동작이 없다.
+        blame,
     };
 
     // 웹뷰가 쓰는 색이다. tokens는 CSS 변수 이름(`--window-background`)과 값(`#1e1e1e`)이며 비워 두면 뷰어에
@@ -135,7 +138,25 @@ namespace cyella {
         bool can_open_external { true };
     };
 
+    // 파일의 blame이다. 줄마다 그 줄을 마지막으로 바꾼 커밋(`origins`의 위치)을 싣는다. 뷰어는 같은 커밋이 이어지는 묶음의
+    // 첫 줄에만 커밋·작성자·날짜를 적는다.
+    struct show_blame_message
+    {
+        std::uint64_t seq { 0 };
+        diff_view_state state {};
+        std::string path {};
+        // 비면 작업 트리, 아니면 blame한 리비전이다.
+        std::string revision {};
+        const std::vector<blame_origin>* origins { nullptr };
+        const std::vector<blame_line>* lines { nullptr };
+        // 0이 아니면 이 줄 수까지만 보낸다.
+        std::size_t line_limit { 0 };
+        // 비어 있지 않으면 뷰어가 그 커밋의 줄을 고른 채로 열고 그 첫 줄로 흘린다 (파일 이력에서 고른 커밋).
+        std::string focus {};
+    };
+
     [[nodiscard]] std::string serialize_show_diff(const show_diff_message& message);
+    [[nodiscard]] std::string serialize_show_blame(const show_blame_message& message);
     [[nodiscard]] std::string serialize_show_image(const show_image_message& message);
     [[nodiscard]] std::string serialize_show_binary(const show_binary_message& message);
     [[nodiscard]] std::string serialize_clear(std::uint64_t seq, const diff_view_state& state);
@@ -228,7 +249,22 @@ namespace cyella {
         image_compare_mode mode { image_compare_mode::side_by_side };
     };
 
-    using diff_view_action = std::variant<ready_action, hunk_action, lines_action, open_external_action, copy_action, show_full_action, layout_changed_action, image_mode_changed_action>;
+    // blame의 줄을 남긴 커밋을 그래프에서 연다. `origin`은 보고 있는 blame의 `origins` 위치다.
+    struct blame_open_commit_action
+    {
+        std::uint64_t seq { 0 };
+        std::size_t origin { 0 };
+    };
+
+    // 그 커밋 직전 판으로 blame을 다시 연다 (`blame_origin::previous_sha`·`previous_path`).
+    struct blame_previous_action
+    {
+        std::uint64_t seq { 0 };
+        std::size_t origin { 0 };
+    };
+
+    using diff_view_action = std::variant<ready_action, hunk_action, lines_action, open_external_action, copy_action, show_full_action, layout_changed_action, image_mode_changed_action,
+        blame_open_commit_action, blame_previous_action>;
 
     struct diff_action_parse_result
     {

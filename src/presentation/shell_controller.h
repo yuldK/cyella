@@ -119,6 +119,8 @@ namespace cyella {
 
         // 선택된 탭이 연 diff와 그 저장소다. 웹뷰가 보여야 할 대상이며, 열린 diff가 없으면 값이 없다.
         [[nodiscard]] std::optional<diff_target> current_diff_target() const;
+        // 선택된 탭의 판이 blame 모드면 웹뷰가 보여야 할 blame이다. 값이 있으면 `current_diff_target`은 비어 있다.
+        [[nodiscard]] std::optional<blame_target> current_blame_target() const;
         // diff 웹뷰의 지금 모습이다. 웹뷰를 쥔 driver가 frame마다 올려 머리 막대와 대체 보기가 읽는다.
         void set_diff_surface(const diff_surface_state& surface);
 
@@ -198,6 +200,19 @@ namespace cyella {
         void handle_graph_sweep(const graph_sweep_intent& intent);
         // relay를 비운 뒤다. 조상 답을 기다리던 비교를 정하고, 새로 고침으로 고른 커밋이 사라진 비교를 푼다.
         void sync_compares();
+        // ---- diff 판의 blame·파일 이력 (shell_controller_file_view.cpp)
+        bool handle_file_view_message(const luil::app_message& message);
+        // 판의 보기를 바꾼다. blame과 이력은 그 보기에 처음 들어갈 때 읽는다.
+        void set_file_view_mode(tab_ui_state& tab, file_view_mode mode);
+        // blame·이력 보기를 거두고 끝나지 않은 읽기를 취소한다. 판의 diff는 건드리지 않는다.
+        void close_file_view(tab_ui_state& tab);
+        void select_history_entry(tab_ui_state& tab, const file_history_entry& entry);
+        // 메시지와 worker 사건을 처리한 뒤다. diff가 닫힌 탭의 보기를 거두고, 방금 온 이력의 첫 커밋을 고르고, 찾던 커밋을 보인다.
+        void settle_file_views();
+        // 커밋을 그래프에서 고르고 그 행을 보인다. 아직 읽지 않은 커밋이면 찾을 때까지 이력을 이어 읽는다.
+        void reveal_commit(const std::string& sha);
+        // 찾던 커밋(`pending_reveal`)이 그래프에 왔으면 고른다. 더 기다릴 것이 없으면 참이다.
+        bool settle_reveal();
         // ---- 작업 영역의 여러 파일 고르기 (shell_controller_working.cpp)
         // 파일 행을 눌렀다. 키가 있으면 Ctrl·Shift로 여러 파일을 고르고, 없으면 선택을 풀고 그 diff 하나를 연다.
         void handle_select_file(const select_file_intent& intent);

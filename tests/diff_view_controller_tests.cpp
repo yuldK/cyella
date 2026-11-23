@@ -697,3 +697,128 @@ TEST_CASE("a diff read without context needs --unidiff-zero to be applied", "[di
     REQUIRE(with_context.accepted);
     CHECK_FALSE(effect_of<apply_patch_effect>(with_context).request.unidiff_zero);
 }
+
+namespace {
+    // 줄 셋의 blame이다: 첫 커밋의 줄, 이름을 바꾼 뒤 고친 줄(깨진 UTF-8), 커밋하지 않은 줄.
+    file_blame sample_blame()
+    {
+        const std::string first(40, 'a');
+        const std::string second(40, 'b');
+        file_blame blame {};
+        blame.request = blame_file_request { .path = "memo.txt", .revision = {} };
+        blame.origins.push_back(blame_origin { .sha = first, .path = "notes.txt", .author_name = "Morgan", .author_email = "morgan@example.com", .author_time = 1767574800, .summary = "first" });
+        const blame_origin renamed {
+            .sha = second, .path = "memo.txt", .author_name = "Robin", .author_email = "robin@example.com", .author_time = 1769956200, .summary = "second", .previous_sha = first, .previous_path = "notes.txt"
+        };
+        blame.origins.push_back(renamed);
+        blame.origins.push_back(blame_origin { .sha = std::string(40, '0'), .path = "memo.txt", .previous_sha = second, .previous_path = "memo.txt", .uncommitted = true });
+        blame.lines.push_back(blame_line { .origin = 0, .original_line = 1, .final_line = 1, .text = "alpha" });
+        blame.lines.push_back(blame_line { .origin = 1, .original_line = 2, .final_line = 2, .text = "beta \xFF" });
+        blame.lines.push_back(blame_line { .origin = 2, .original_line = 3, .final_line = 3, .text = "local" });
+        return blame;
+    }
+} // namespace
+
+TEST_CASE("a blame is posted with its origins and lines, and invalid UTF-8 travels as base64", "[diff][controller][blame]")
+{
+    page ui {};
+    ui.controller.show_blame(sample_blame(), std::string(40, 'b'));
+    REQUIRE(ui.controller.poll());
+    const json message = ui.latest();
+    CHECK(message["type"] == "show_blame");
+    CHECK(message["path"] == "memo.txt");
+    CHECK(message["revision"] == "");
+    CHECK(message["focus"] == std::string(40, 'b'));
+    REQUIRE(message["origins"].size() == 3);
+    CHECK(message["origins"][0]["author"] == "Morgan");
+    CHECK(message["origins"][0]["previous"] == false);
+    CHECK(message["origins"][1]["previous"] == true);
+    CHECK(message["origins"][1]["path"] == "memo.txt");
+    CHECK(message["origins"][2]["uncommitted"] == true);
+    REQUIRE(message["lines"].size() == 3);
+    CHECK(message["lines"][0] == json::array({ 0, 1, "alpha" }));
+    // 올바르지 않은 UTF-8은 base64와 표지로 간다.
+    REQUIRE(message["lines"][1].size() == 4);
+    CHECK(message["lines"][1][3] == 1);
+    CHECK(message["truncated"] == false);
+    CHECK(message["total_lines"] == 3);
+    CHECK(ui.controller.content() == diff_content::blame);
+    // blame은 diff가 아니다. 줄 단위 동작이 없다.
+    CHECK_FALSE(ui.controller.can_stage());
+    CHECK_FALSE(ui.controller.can_discard());
+}
+
+TEST_CASE("blame buttons name the commit to open and the revision before it", "[diff][controller][blame]")
+{
+    page ui {};
+    ui.controller.show_blame(sample_blame());
+    REQUIRE(ui.controller.poll());
+
+    const web_message_result open { ui.controller.handle_web_message(ui.action({ { "type", "blame_open_commit" }, { "origin", 1 } })) };
+    REQUIRE(open.accepted);
+    CHECK(effect_of<open_commit_effect>(open).sha == std::string(40, 'b'));
+
+    // 직전 판은 그 커밋의 부모에서, 그때의 경로로 읽는다.
+    const web_message_result previous { ui.controller.handle_web_message(ui.action({ { "type", "blame_previous" }, { "origin", 1 } })) };
+    REQUIRE(previous.accepted);
+    CHECK(effect_of<blame_revision_effect>(previous).request == blame_file_request { .path = "notes.txt", .revision = std::string(40, 'a') });
+
+    // 파일을 처음 만든 커밋 앞에는 판이 없고, 커밋하지 않은 줄에는 열 커밋이 없다.
+    CHECK_FALSE(ui.controller.handle_web_message(ui.action({ { "type", "blame_previous" }, { "origin", 0 } })).accepted);
+    CHECK_FALSE(ui.controller.handle_web_message(ui.action({ { "type", "blame_open_commit" }, { "origin", 2 } })).accepted);
+    CHECK_FALSE(ui.controller.handle_web_message(ui.action({ { "type", "blame_open_commit" }, { "origin", 9 } })).accepted);
+    // 낡은 내용에 대한 동작과 diff의 동작은 받지 않는다.
+    CHECK_FALSE(ui.controller.handle_web_message(R"({"type":"blame_open_commit","seq":0,"origin":1})").accepted);
+    CHECK_FALSE(ui.controller.handle_web_message(ui.action({ { "type", "stage_hunk" }, { "hunk", 0 } })).accepted);
+    CHECK_FALSE(ui.controller.handle_web_message(ui.action({ { "type", "open_external" } })).accepted);
+}
+
+TEST_CASE("a long blame is cut at the line limit until the page asks for all of it", "[diff][controller][blame]")
+{
+    page ui { diff_view_options { .line_limit = 2 } };
+    ui.controller.show_blame(sample_blame());
+    REQUIRE(ui.controller.poll());
+    CHECK(ui.latest()["lines"].size() == 2);
+    CHECK(ui.latest()["truncated"] == true);
+    CHECK(ui.latest()["total_lines"] == 3);
+    CHECK(ui.controller.truncated());
+
+    REQUIRE(ui.controller.handle_web_message(ui.action({ { "type", "show_full" } })).accepted);
+    REQUIRE(ui.controller.poll());
+    CHECK(ui.latest()["lines"].size() == 3);
+    CHECK_FALSE(ui.controller.truncated());
+
+    // 같은 파일을 다시 읽어 와도 전체 보기를 지키고, 다른 리비전이면 다시 자른다.
+    ui.controller.show_blame(sample_blame());
+    REQUIRE(ui.controller.poll());
+    CHECK(ui.latest()["lines"].size() == 3);
+    file_blame other { sample_blame() };
+    other.request.revision = std::string(40, 'a');
+    ui.controller.show_blame(other);
+    REQUIRE(ui.controller.poll());
+    CHECK(ui.latest()["lines"].size() == 2);
+
+    // diff로 돌아가면 blame은 남지 않는다.
+    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    REQUIRE(ui.controller.poll());
+    CHECK(ui.latest()["type"] == "show_diff");
+    CHECK(ui.controller.content() == diff_content::text);
+}
+
+TEST_CASE("blame actions from the page are parsed strictly", "[diff][protocol][blame]")
+{
+    const diff_action_parse_result open { parse_diff_view_action(R"({"type":"blame_open_commit","seq":7,"origin":3})") };
+    REQUIRE(open.action.has_value());
+    REQUIRE(std::holds_alternative<blame_open_commit_action>(*open.action));
+    CHECK(std::get<blame_open_commit_action>(*open.action).seq == 7);
+    CHECK(std::get<blame_open_commit_action>(*open.action).origin == 3);
+
+    const diff_action_parse_result previous { parse_diff_view_action(R"({"type":"blame_previous","seq":7,"origin":0})") };
+    REQUIRE(previous.action.has_value());
+    CHECK(std::holds_alternative<blame_previous_action>(*previous.action));
+
+    CHECK_FALSE(parse_diff_view_action(R"({"type":"blame_open_commit","seq":7})").action.has_value());
+    CHECK_FALSE(parse_diff_view_action(R"({"type":"blame_open_commit","seq":7,"origin":-1})").action.has_value());
+    CHECK_FALSE(parse_diff_view_action(R"({"type":"blame_open_commit","seq":7,"origin":"1"})").action.has_value());
+    CHECK_FALSE(parse_diff_view_action(R"({"type":"blame_previous","seq":7,"origin":1,"sha":"x"})").action.has_value());
+}
