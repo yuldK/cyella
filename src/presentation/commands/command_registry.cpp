@@ -65,6 +65,10 @@ namespace cyella {
             list.push_back(make("view.drawer", tr(u8"command.view.drawer"), u8"detail panel drawer sidebar", group::view));
             list.push_back(make("view.menu", tr(u8"command.view.menu"), u8"context menu right click actions", group::view, { u8"Shift+F10" }));
             list.push_back(make("view.close", tr(u8"command.view.close"), u8"close dismiss escape overlay", group::view, { u8"Escape" }, command_scope::global, false));
+            // ---- 그래프의 커밋 검색이다. 다음·이전은 검색 막대가 열려 있을 때만 쓸 수 있다.
+            list.push_back(make("graph.search", tr(u8"command.graph.search"), u8"search find commit message author sha graph log", group::view, { u8"Ctrl+F" }));
+            list.push_back(make("graph.search.next", tr(u8"command.graph.search.next"), u8"search find next result commit", group::view, { u8"F3" }));
+            list.push_back(make("graph.search.previous", tr(u8"command.graph.search.previous"), u8"search find previous result commit", group::view, { u8"Shift+F3" }));
             // ---- 열린 파일 판의 보기다. 판이 열려 있을 때만 쓸 수 있다.
             list.push_back(make("file.blame", tr(u8"command.file.blame"), u8"blame annotate who changed line author file", group::view));
             list.push_back(make("file.history", tr(u8"command.file.history"), u8"file history log follow commits changed", group::view));
@@ -192,6 +196,10 @@ namespace cyella {
             return availability.selection_menu;
         if (id == "file.blame" || id == "file.history")
             return availability.file_view;
+        if (id == "graph.search")
+            return availability.repository;
+        if (id == "graph.search.next" || id == "graph.search.previous")
+            return availability.graph_search;
         if (id == "profile.apply")
             return availability.repository;
         // 로그인은 서비스를 아는 원격이 있을 때, 목록·만들기는 로그인한 뒤에만 쓸 수 있다.

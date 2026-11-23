@@ -134,3 +134,22 @@ TEST_CASE("a title match outranks a keyword-only match", "[hangul]")
     REQUIRE(keyword.has_value());
     REQUIRE(*title > *keyword);
 }
+
+TEST_CASE("contiguous search matches letters, case-folded ascii and initial consonants but never skips", "[hangul][search]")
+{
+    const auto contains = [](const std::u8string_view query, const std::u8string_view text) { return contains_search_text(decode_utf8(query), decode_utf8(text)); };
+    CHECK(contains(u8"", u8"anything"));
+    CHECK(contains(u8"인사말", u8"fix: 인사말을 고친다"));
+    CHECK(contains(u8"ㅇㅅㅁ", u8"fix: 인사말을 고친다"));
+    // 초성과 음절을 섞어 써도 된다.
+    CHECK(contains(u8"인ㅅ말", u8"fix: 인사말을 고친다"));
+    CHECK(contains(u8"FIX", u8"fix: 인사말을 고친다"));
+    CHECK(contains(u8"fix", u8"FIX: done"));
+    // 건너뛰며 맞는 것(부분 수열)은 받지 않는다.
+    CHECK_FALSE(contains(u8"인말", u8"fix: 인사말을 고친다"));
+    CHECK_FALSE(contains(u8"fx", u8"fix: 인사말을 고친다"));
+    // 초성 자모는 그 초성의 음절과만 맞는다. 음절은 같은 음절과만 맞는다.
+    CHECK_FALSE(contains(u8"ㄱㅅㅁ", u8"인사말"));
+    CHECK_FALSE(contains(u8"인사맘", u8"인사말"));
+    CHECK_FALSE(contains(u8"긴 질의", u8"짧다"));
+}

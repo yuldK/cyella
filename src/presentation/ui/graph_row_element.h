@@ -63,6 +63,9 @@ namespace cyella::ui {
         // 세션이 읽어 둔 서명이다. 읽지 않았거나 서명이 없으면 표지를 달지 않는다.
         bool signature_known { false };
         signature_status signature { signature_status::none };
+        // 커밋 검색에 맞은 행과, 앞·뒤 이동이 선 행이다. 행 바탕을 강조색으로 옅게 칠한다.
+        bool search_hit { false };
+        bool search_current { false };
         // 목록이 고른 행으로 그리는 행이다 (여러 커밋 비교 포함). 고르지 않은 행의 우클릭은 메뉴를 열기 전에 그 행만 고른다.
         bool selected { false };
         // 행과 라벨 칩을 누르면 초점이 갈 그래프 목록이다 (↑↓로 이어 훑는다).

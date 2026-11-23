@@ -1675,3 +1675,229 @@ TEST_CASE("show in graph gives up once when reading more history fails", "[prese
     REQUIRE(test.send(select_sidebar_item_intent { .key = u8"l:main", .target_sha = sha_of(5) }));
     CHECK(tab_of(test).pending_reveal.empty());
 }
+
+namespace {
+    // 검색 칸에 글을 친다 (지금 글 끝에 덧붙인다).
+    void type_search(controller_harness& test, const std::u8string& text)
+    {
+        luil::text_edit_request insert {};
+        insert.target = to_luil_target(text_target::graph_search);
+        insert.command = luil::text::text_edit_command::insert;
+        insert.text = text;
+        REQUIRE(test.send(edit_text_intent { insert }));
+    }
+
+    // 한글 제목이 섞인 이력이다 (자식이 앞).
+    std::vector<commit_info> searchable_history()
+    {
+        return {
+            { .sha = sha_of(5), .parents = { sha_of(4) }, .author_name = "Morgan", .author_email = "morgan@example.com", .subject = "fix: 인사말을 고친다" },
+            { .sha = sha_of(4), .parents = { sha_of(3) }, .author_name = "Robin Lee", .author_email = "robin@example.com", .subject = "docs: 설명을 더한다" },
+            { .sha = sha_of(3), .parents = { sha_of(2) }, .author_name = "Morgan", .author_email = "morgan@example.com", .subject = "feat: 인사말을 더한다" },
+            { .sha = sha_of(2), .parents = { sha_of(1) }, .author_name = "Robin Lee", .author_email = "robin@example.com", .subject = "chore: Cleanup" },
+            { .sha = sha_of(1), .author_name = "Morgan", .author_email = "morgan@example.com", .subject = "first" },
+        };
+    }
+
+    const graph_search_view& search_view_of(const view_snapshot& view)
+    {
+        REQUIRE(view.repository.has_value());
+        REQUIRE(view.repository->graph.search.has_value());
+        return *view.repository->graph.search;
+    }
+} // namespace
+
+TEST_CASE("the graph search opens over the graph, takes focus and closes with Esc after the file panel", "[presentation][controller][search]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, searchable_history());
+
+    CHECK_FALSE(test.controller.make_view(1400.0f, 900.0f, 1.0f).repository->graph.search.has_value());
+    REQUIRE(test.send(run_command_intent { "graph.search" }));
+    REQUIRE(tab_of(test).search.has_value());
+    // 열면 칸이 초점을 받는다. 다시 열면(Ctrl+F를 또 누르면) 새 요청으로 초점을 돌린다.
+    REQUIRE(test.controller.state().popup_focus.has_value());
+    CHECK(test.controller.state().popup_focus->target == popup_focus_target::graph_search);
+    const std::uint64_t first_focus { test.controller.state().popup_focus->id };
+    REQUIRE(test.send(open_graph_search_intent {}));
+    CHECK(test.controller.state().popup_focus->id > first_focus);
+
+    const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+    CHECK(search_view_of(view).status.empty());
+    CHECK_FALSE(search_view_of(view).can_step);
+    const ui::built_tree built { ui::build_ui_tree(view) };
+    CHECK(built.tree->find({ ui::kind_graph_search_input, u8"graph-search" }) != nullptr);
+    REQUIRE(built.focus.has_value());
+    CHECK(built.focus->target == luil::ui_element_id { ui::kind_graph_search_input, u8"graph-search" });
+
+    // 파일 판이 그래프를 덮고 있으면 Esc는 판부터 닫고, 그다음에 검색을 닫는다.
+    REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(3)) }));
+    REQUIRE(test.send(select_file_intent { diff_file_request { .path = "a.txt", .view = diff_view::commit, .sha = sha_of(3) } }));
+    REQUIRE(test.send(close_overlays_intent {}));
+    CHECK_FALSE(tab_of(test).diff.has_value());
+    CHECK(tab_of(test).search.has_value());
+    REQUIRE(test.send(close_overlays_intent {}));
+    CHECK_FALSE(tab_of(test).search.has_value());
+
+    // 판이 열린 채 검색을 열면 그래프가 보이게 판을 닫는다.
+    REQUIRE(test.send(select_file_intent { diff_file_request { .path = "a.txt", .view = diff_view::commit, .sha = sha_of(3) } }));
+    REQUIRE(test.send(open_graph_search_intent {}));
+    CHECK_FALSE(tab_of(test).diff.has_value());
+    CHECK(tab_of(test).search.has_value());
+    REQUIRE(test.send(close_graph_search_intent {}));
+    CHECK_FALSE(tab_of(test).search.has_value());
+}
+
+TEST_CASE("loaded commits are matched at once by subject, author, sha prefix and initial consonants", "[presentation][controller][search]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, searchable_history());
+    REQUIRE(test.send(open_graph_search_intent {}));
+
+    const auto hits_for = [&test](const std::u8string& query) {
+        luil::text_edit_request clear {};
+        clear.target = to_luil_target(text_target::graph_search);
+        clear.command = luil::text::text_edit_command::clear;
+        REQUIRE(test.send(edit_text_intent { clear }));
+        type_search(test, query);
+        const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+        const graph_search_view& search { search_view_of(view) };
+        REQUIRE(search.hits != nullptr);
+        return std::vector<bool> { search.hits->contains(sha_of(5)), search.hits->contains(sha_of(4)), search.hits->contains(sha_of(3)), search.hits->contains(sha_of(2)), search.hits->contains(sha_of(1)) };
+    };
+    // 제목의 한글 부분 문자열
+    CHECK(hits_for(u8"인사말") == std::vector<bool> { true, false, true, false, false });
+    // 초성: ㅇㅅㅁ → 인사말
+    CHECK(hits_for(u8"ㅇㅅㅁ") == std::vector<bool> { true, false, true, false, false });
+    // 영문은 대소문자를 가리지 않는다
+    CHECK(hits_for(u8"cleanup") == std::vector<bool> { false, false, false, true, false });
+    // 작성자 이름과 메일
+    CHECK(hits_for(u8"robin") == std::vector<bool> { false, true, false, true, false });
+    CHECK(hits_for(u8"morgan@") == std::vector<bool> { true, false, true, false, true });
+    // SHA 앞부분 (넷 이상의 16진수)
+    const std::string prefix { sha_of(4).substr(0, 8) };
+    CHECK(hits_for(std::u8string { prefix.begin(), prefix.end() }) == std::vector<bool> { false, true, false, false, false });
+    // 건너뛰며 맞는 것은 받지 않는다
+    CHECK(hits_for(u8"인말") == std::vector<bool> { false, false, false, false, false });
+
+    const view_snapshot none { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+    CHECK_FALSE(search_view_of(none).can_step);
+}
+
+TEST_CASE("git is asked once typing pauses and its hits join the loaded ones, unloaded hits last", "[presentation][controller][search]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, searchable_history());
+    REQUIRE(test.send(open_graph_search_intent {}));
+
+    // 한 글자는 git에 묻지 않는다. 읽은 커밋은 그래도 훑는다.
+    type_search(test, u8"인");
+    REQUIRE(test.controller.next_tick().has_value());
+    test.advance(std::chrono::milliseconds { 300 });
+    test.controller.tick(test.steady());
+    CHECK(count_operations(test.workspace, operation_kind::search_commits) == 0);
+
+    // 치는 동안에는 내지 않고, 멈춘 뒤 한 번 낸다.
+    type_search(test, u8"사");
+    type_search(test, u8"말");
+    CHECK(count_operations(test.workspace, operation_kind::search_commits) == 0);
+    test.controller.tick(test.steady());
+    CHECK(count_operations(test.workspace, operation_kind::search_commits) == 0);
+    test.advance(std::chrono::milliseconds { 300 });
+    test.controller.tick(test.steady());
+    REQUIRE(count_operations(test.workspace, operation_kind::search_commits) == 1);
+    const operation_id operation { tab_of(test).search->operation };
+    REQUIRE(operation != 0);
+    CHECK(tab_of(test).search->submitted == "인사말");
+    // 같은 질의로는 다시 내지 않는다 (caret만 옮겼다).
+    test.advance(std::chrono::milliseconds { 300 });
+    test.controller.tick(test.steady());
+    CHECK(count_operations(test.workspace, operation_kind::search_commits) == 1);
+
+    // git이 본문에서 찾은 읽은 커밋(4)과 아직 읽지 않은 커밋(9)을 돌려준다.
+    commit_search found {};
+    found.request = search_commits_request { .query = "인사말" };
+    found.commits.push_back(commit_info { .sha = sha_of(5), .subject = "fix: 인사말을 고친다" });
+    found.commits.push_back(commit_info { .sha = sha_of(4), .subject = "docs: 설명을 더한다" });
+    found.commits.push_back(commit_info { .sha = sha_of(9), .subject = "old: 인사말" });
+    REQUIRE(session->apply(operation, commit_search_loaded { found }));
+    test.controller.after_events();
+
+    const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+    const graph_search_view& search { search_view_of(view) };
+    REQUIRE(search.hits != nullptr);
+    CHECK(search.hits->size() == 4);
+    CHECK(search.hits->contains(sha_of(9)));
+    CHECK(search.can_step);
+    CHECK(search.status == u8"4개");
+
+    // 앞으로: 읽은 커밋이 그래프 순서로(5, 4, 3), 그다음 읽지 않은 커밋(9)이다.
+    REQUIRE(test.send(graph_search_step_intent { .forward = true }));
+    CHECK(tab_of(test).selected_sha == sha_of(5));
+    CHECK(tab_of(test).search->current == sha_of(5));
+    CHECK(search_view_of(test.controller.make_view(1400.0f, 900.0f, 1.0f)).status == u8"1 / 4");
+    REQUIRE(test.send(graph_search_step_intent { .forward = true }));
+    CHECK(tab_of(test).selected_sha == sha_of(4));
+    REQUIRE(test.send(graph_search_step_intent { .forward = true }));
+    CHECK(tab_of(test).selected_sha == sha_of(3));
+    // 읽지 않은 커밋은 그래프에서 찾기로 넘어간다. 이 이력은 끝까지 읽혀 있어 없다고 알리고 선택은 그대로다.
+    REQUIRE(test.send(graph_search_step_intent { .forward = true }));
+    CHECK(tab_of(test).search->current == sha_of(9));
+    CHECK(tab_of(test).selected_sha == sha_of(3));
+    // 끝에서 처음으로 돌고, 뒤로는 거꾸로 돈다.
+    REQUIRE(test.send(graph_search_step_intent { .forward = true }));
+    CHECK(tab_of(test).selected_sha == sha_of(5));
+    REQUIRE(test.send(graph_search_step_intent { .forward = false }));
+    CHECK(tab_of(test).search->current == sha_of(9));
+    REQUIRE(test.send(graph_search_step_intent { .forward = false }));
+    CHECK(tab_of(test).selected_sha == sha_of(3));
+
+    // 질의를 고치면 앞 질의의 git 결과는 쓰지 않고, 새 질의를 낼 때 앞 검색을 거둔다.
+    type_search(test, u8"을");
+    const view_snapshot edited { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+    CHECK_FALSE(search_view_of(edited).hits->contains(sha_of(9)));
+    CHECK(search_view_of(edited).hits->contains(sha_of(5)));
+    CHECK(tab_of(test).search->current.empty());
+
+    // 닫으면 강조가 사라진다.
+    REQUIRE(test.send(close_graph_search_intent {}));
+    CHECK_FALSE(test.controller.make_view(1400.0f, 900.0f, 1.0f).repository->graph.search.has_value());
+}
+
+TEST_CASE("stepping starts from the selected commit when it is a hit", "[presentation][controller][search]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_history(*session, searchable_history());
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+    REQUIRE(test.send(select_commit_intent { graph_item_key(sha_of(3)) }));
+    REQUIRE(test.send(open_graph_search_intent {}));
+    type_search(test, u8"인사말");
+
+    // 고른 커밋이 결과에 있으면 첫 걸음은 그 커밋에 서고, 다음 걸음부터 옮긴다.
+    REQUIRE(test.send(graph_search_step_intent { .forward = true }));
+    CHECK(tab_of(test).search->current == sha_of(3));
+    REQUIRE(test.send(graph_search_step_intent { .forward = true }));
+    CHECK(tab_of(test).search->current == sha_of(5));
+    CHECK(tab_of(test).selected_sha == sha_of(5));
+
+    // 다음·이전 명령은 검색이 열려 있을 때만 쓸 수 있다.
+    command_availability open {};
+    open.repository = true;
+    open.graph_search = true;
+    CHECK(command_available("graph.search.next", open));
+    open.graph_search = false;
+    CHECK_FALSE(command_available("graph.search.previous", open));
+    CHECK(command_available("graph.search", open));
+}

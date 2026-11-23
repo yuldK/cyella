@@ -426,6 +426,7 @@ cyella_add_source_filter(cyella_lib_files "presentation/shell"
     presentation/shell_controller.h
     presentation/shell_controller_compare.cpp
     presentation/shell_controller_file_view.cpp
+    presentation/shell_controller_search.cpp
     presentation/shell_controller_working.cpp
     presentation/shell_layout.cpp
     presentation/shell_layout.h
@@ -541,6 +542,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/screens"
     presentation/ui/diff_webview.h
     presentation/ui/file_history_ui.cpp
     presentation/ui/file_history_ui.h
+    presentation/ui/graph_search_ui.cpp
+    presentation/ui/graph_search_ui.h
     presentation/ui/diff_webview_theme.cpp
     presentation/ui/diff_webview_theme.h
     presentation/ui/graph_row_element.cpp

@@ -32,6 +32,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <unordered_set>
 #include <memory>
 #include <optional>
 #include <set>
@@ -267,8 +268,23 @@ namespace cyella {
         std::string worktree_path {};
     };
 
+    // 그래프 위에 열린 커밋 검색 막대다.
+    struct graph_search_view
+    {
+        luil::text_input_view input {};
+        // 칸 옆의 글이다 ("2 / 17", "17개", "결과 없음", "찾는 중…"). 질의가 비면 비어 있다.
+        std::u8string status {};
+        // 앞·뒤로 갈 결과가 있다.
+        bool can_step { false };
+        // 맞는 커밋의 SHA와, 앞·뒤 이동이 선 커밋이다. 그래프 행이 자기를 칠할지 묻는다.
+        std::shared_ptr<const std::unordered_set<std::string>> hits {};
+        std::string current {};
+    };
+
     struct graph_view
     {
+        // 열린 커밋 검색이다. 없으면 막대가 서지 않는다.
+        std::optional<graph_search_view> search {};
         // 세션의 행과 커밋이다 (같은 순서). 위의 포인터 규칙을 따른다.
         const std::vector<graph_row>* rows { nullptr };
         const std::vector<commit_info>* commits { nullptr };

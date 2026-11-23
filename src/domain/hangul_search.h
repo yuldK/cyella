@@ -27,6 +27,10 @@ namespace cyella {
     //    정확히 맞지 않은 이 느슨한 일치는 정확한 일치보다 점수가 조금 낮다.
     [[nodiscard]] std::optional<int> fuzzy_token_score(std::u32string_view query, std::u32string_view text);
 
+    // 질의가 글 안에 연속으로 들어 있는가. 글자 하나는 같은 글자(ASCII는 대소문자 무시)나, 질의가 초성 자모일 때 그 초성의 음절과 맞는다.
+    // 팔레트의 퍼지 일치와 달리 건너뛰며 맞는 것은 받지 않는다. 커밋 수만 개에서 찾을 때 그런 일치는 거의 다 잡음이다. 빈 질의는 늘 맞는다.
+    [[nodiscard]] bool contains_search_text(std::u32string_view query, std::u32string_view text) noexcept;
+
     // 공백으로 가른 질의의 모든 토큰이 제목이나 키워드에서 맞아야 한다. 제목에서 맞는 것이 키워드에서 맞는 것보다 높다.
     // 질의가 비어 있으면 0이다.
     [[nodiscard]] std::optional<int> fuzzy_match_score(std::u8string_view query, std::u8string_view title, std::u8string_view keywords);

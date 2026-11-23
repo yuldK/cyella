@@ -262,6 +262,29 @@ cyella_driver::sync_diff_view
 - **UIA**: 전환·돌아가기·그래프에서 보기·이력 목록은 UI Automation으로 닿는다. blame 본문(여백 칸의 누름, 정보 띠의 단추)은 웹뷰 안이라 UIA2 client에
   보이지 않고, 뷰어의 Node 테스트(`tests/js`)와 controller 테스트가 확인한다.
 
+## 그래프의 커밋 검색 (`presentation/shell_controller_search.cpp`)
+
+`Ctrl+F`(`graph.search`)가 그래프의 열 머리 위에 검색 막대를 열고, 맞는 커밋의 행을 그래프에서 칠한다([ADR-011](decisions/ADR-011-commit-search.md)).
+
+```text
+open_graph_search_intent ─▶ tab_ui_state::search (질의 초안, 낸 질의와 operation, 낼 시각, 지금 자리) + popup_focus(graph_search)
+edit_text_intent(graph_search) ─▶ graph_search_changed ─ 250 ms 뒤(tick) ─▶ submit(search_commits_request)   (두 글자부터, 읽기 lane)
+make_view ─▶ fill_graph_search ─▶ graph_search_matches (질의·세션 revision·git 결과가 바뀔 때만 다시 센다)
+                                     ├ 읽은 커밋: 제목·작성자·SHA 앞부분, 초성 (`domain/hangul_search`의 `contains_search_text`)
+                                     └ git 결과: 세션의 selected_search (지금 질의의 것일 때만)
+graph_search_step_intent ─▶ step_graph_search ─▶ reveal_commit(sha)   (아직 읽지 않은 커밋이면 이력을 이어 읽는다)
+```
+
+- **막대** (`presentation/ui/graph_search_ui.*`): 칸(`graph-search`, `text_target::graph_search`), 상태 글(`graph-search-status`: "2 / 17"·"17개"·"결과 없음"·"찾는 중…"),
+  이전(`graph-search-previous`)·다음(`graph-search-next`)·닫기(`graph-search-close`) 단추다. 단추는 키와 같은 일을 하며 UI Automation으로 닿는다.
+- **키**: 칸에서 Enter는 다음, Shift+Enter는 이전이다(`cyella_policy::on_key`). `F3`·`Shift+F3`(`graph.search.next`·`graph.search.previous`)은 초점과 무관하게 같고
+  검색이 열려 있을 때만 쓸 수 있다. Esc(`close_overlays_intent`)는 파일 판 다음, 여러 커밋 비교 앞에서 검색을 닫는다.
+- **초점**: 열 때(이미 열려 있으면 다시 누를 때) `popup_focus_target::graph_search`를 새 번호로 내고, tree가 그 칸을 지은 frame에 luil `focus_request`로 싣는다.
+- **강조**: `graph_view::search`의 `hits`(맞는 SHA의 집합, 공유 포인터)와 `current`를 행이 읽어 바탕을 강조색으로 옅게 칠한다(`graph_row_data::search_hit`·`search_current`).
+  고른 행의 바탕 위에 얹힌다.
+- **순서**: 읽은 커밋이 그래프의 행 순서로 앞에, 아직 읽지 않은 커밋이 git이 준 순서(새 것부터)로 뒤에 선다. 고른 커밋이 결과에 있으면 첫 걸음은 그 커밋에 선다.
+- **파일 판과의 관계**: 막대는 그래프 위에만 선다. 파일 판이 그래프를 덮고 있을 때 검색을 열면 판을 닫는다. 판이 열려도 검색 상태는 남아 돌아오면 그대로다.
+
 ## 환경 설정 화면
 
 탭 줄 오른쪽의 톱니바퀴가 `open_settings_intent`를 낸다. 대화 상자(`modal_host_element`, 최대 900×700)이고 왼쪽 목록에서 일반·diff 도구·SSH를 고른다.
@@ -680,7 +703,8 @@ identity: shell_controller ── request_identity ─▶ driver ─ scheduler("
 범위(`global`, `commit_input`), 기본 단축키. 팔레트와 단축키가 이 표 하나를 읽는다. 지금 할 수 없는 명령은 `command_availability`(툴바 단추가 켜지는 조건과 같다)로 팔레트에서 뺀다.
 
 - 정책이 처리하는 키는 모두 표 항목이다: Ctrl+Enter(`git.commit`, 커밋 상자에 초점이 있을 때만), Ctrl+Tab·Ctrl+Shift+Tab(`tab.next`·`tab.previous`), Ctrl+W(`tab.close`),
-  Shift+F10(`view.menu`), F5(`repo.refresh`), Esc(`view.close`), Ctrl+Shift+P·Ctrl+P(`palette.open`), Ctrl+,(`app.settings`), Ctrl+T(`tab.new`), Ctrl+O(`repo.open`).
+  Shift+F10(`view.menu`), F5(`repo.refresh`), Esc(`view.close`), Ctrl+Shift+P·Ctrl+P(`palette.open`), Ctrl+,(`app.settings`), Ctrl+T(`tab.new`), Ctrl+O(`repo.open`),
+  Ctrl+F(`graph.search`), F3·Shift+F3(`graph.search.next`·`graph.search.previous`).
 - 사용자가 바꾼 값은 `app_settings::shortcuts`(명령 id → 정규 표기 목록)에만 남는다. 기본값과 같아지면 기록을 지우고, 빈 목록은 "키 없음"이다.
 - 단축키로 쓸 수 있는 키(`check_key_chord`): 글자·숫자·기호는 Ctrl이나 Alt와 함께여야 한다(수정키 없는 글자는 문자 입력으로만 온다). 수정키 없이 쓸 수 있는 것은 F1~F12와 Esc뿐이다.
   텍스트 칸의 편집 키(Ctrl+A·C·V·X·Y·Z)와 Alt+F4는 예약이다. 같은 키를 다른 명령이 쓰면 거절한다(범위와 무관하게 — 전역 명령이 커밋 상자에서도 먼저 잡으므로).

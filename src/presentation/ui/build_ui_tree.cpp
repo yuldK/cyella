@@ -751,6 +751,10 @@ namespace cyella::ui {
             if (target == popup_focus_target::ui_font_field || target == popup_focus_target::code_font_field)
                 if (const luil::ui_element_id field { font_field_id(target == popup_focus_target::code_font_field) }; built.tree->find(field) != nullptr)
                     built.focus = luil::focus_request { .id = view.popup_focus->id, .surface = {}, .target = field };
+            // 커밋 검색 막대를 열면 그 칸이 초점을 받아 바로 칠 수 있다.
+            if (target == popup_focus_target::graph_search)
+                if (const luil::ui_element_id field { kind_graph_search_input, u8"graph-search" }; built.tree->find(field) != nullptr)
+                    built.focus = luil::focus_request { .id = view.popup_focus->id, .surface = {}, .target = field };
         }
         if (sources.graph != nullptr)
         {

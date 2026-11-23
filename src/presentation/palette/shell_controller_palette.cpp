@@ -137,6 +137,7 @@ namespace cyella {
         if (const tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
         {
             availability.file_view = tab->diff.has_value() && tab->diff->untracked == false;
+            availability.graph_search = tab->search.has_value();
             // 커밋 단추가 켜지는 조건과 같다 (`find_commit_blocker`). 팔레트에 서는 커밋이 실행해도 막히지 않게 한다.
             const bool has_subject { std::ranges::any_of(tab->commit_subject.text, [](const char8_t value) { return value != u8' ' && value != u8'\t' && value != u8'\r' && value != u8'\n'; }) };
             availability.commit = ready && find_commit_blocker(session->snapshot(), tab->amend, has_subject, tab->pending_commit != 0) == commit_blocker::none;
@@ -232,6 +233,12 @@ namespace cyella {
             send(luil::app_message { toggle_drawer_intent { ui_.drawer_open == false } });
         else if (id == "view.menu")
             open_menu_for_selection();
+        else if (id == "graph.search")
+            send(luil::app_message { open_graph_search_intent {} });
+        else if (id == "graph.search.next")
+            send(luil::app_message { graph_search_step_intent { .forward = true } });
+        else if (id == "graph.search.previous")
+            send(luil::app_message { graph_search_step_intent { .forward = false } });
         else if (id == "file.blame")
             send(luil::app_message { set_file_view_mode_intent { file_view_mode::blame } });
         else if (id == "file.history")

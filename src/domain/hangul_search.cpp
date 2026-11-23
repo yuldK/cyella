@@ -270,4 +270,29 @@ namespace cyella {
         }
         return total;
     }
+    bool contains_search_text(const std::u32string_view query, const std::u32string_view text) noexcept
+    {
+        if (query.empty())
+            return true;
+        if (query.size() > text.size())
+            return false;
+        const auto fold = [](const char32_t value) { return value >= U'A' && value <= U'Z' ? static_cast<char32_t>(value - U'A' + U'a') : value; };
+        const auto same = [&fold](const char32_t wanted, const char32_t found) {
+            if (fold(wanted) == fold(found))
+                return true;
+            if (is_choseong_jamo(wanted) == false)
+                return false;
+            const std::optional<char32_t> lead { choseong_of(found) };
+            return lead.has_value() && *lead == wanted;
+        };
+        for (std::size_t start { 0 }; start + query.size() <= text.size(); ++start)
+        {
+            std::size_t offset { 0 };
+            while (offset < query.size() && same(query[offset], text[start + offset]))
+                ++offset;
+            if (offset == query.size())
+                return true;
+        }
+        return false;
+    }
 } // namespace cyella

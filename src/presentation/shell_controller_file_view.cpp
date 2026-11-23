@@ -269,9 +269,9 @@ namespace cyella {
         if (tab == nullptr || session == nullptr || tab->pending_reveal.empty() || session->loaded() == false)
             return tab == nullptr || tab->pending_reveal.empty();
         const std::string sha { tab->pending_reveal };
-        const std::vector<commit_info>& commits { session->graph_commits() };
-        const auto found { std::find_if(commits.begin(), commits.end(), [&sha](const commit_info& commit) { return commit.sha == sha; }) };
-        if (found == commits.end())
+        // 찾는 동안 메시지마다 불린다. 읽은 커밋을 다 훑지 않고 색인에 묻는다.
+        const std::optional<std::size_t> found { history_index(*session)->find(sha) };
+        if (found.has_value() == false)
         {
             // 아직 읽지 않은 쪽에 있을 수 있다. 찾을 때까지 한 쪽씩 이어 읽는다 — 쪽이 올 때마다 `after_events`가 다시 온다.
             if (session->history_complete())
@@ -316,7 +316,7 @@ namespace cyella {
         close_file_view(*tab);
         handle_select_commit(select_commit_intent { graph_item_key(sha) });
         const float viewport { feedback_.graph_viewport > 0.0f ? feedback_.graph_viewport : assumed_reveal_viewport };
-        const float row { static_cast<float>(found - commits.begin()) * graph_row_height };
+        const float row { static_cast<float>(*found) * graph_row_height };
         tab->graph_scroll = std::max(0.0f, row - viewport / 3.0f);
         return true;
     }

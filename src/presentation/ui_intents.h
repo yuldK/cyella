@@ -349,6 +349,19 @@ namespace cyella {
     struct blame_back_intent
     {};
 
+    // 그래프 위에 커밋 검색 막대를 열고 칸에 초점을 준다. 이미 열려 있으면 초점만 돌린다.
+    struct open_graph_search_intent
+    {};
+
+    struct close_graph_search_intent
+    {};
+
+    // 검색 결과의 다음(뒤로면 이전) 커밋을 고르고 보인다. 끝에서는 처음으로 돈다.
+    struct graph_search_step_intent
+    {
+        bool forward { true };
+    };
+
     struct set_repository_layout_intent
     {
         bool graph { true };

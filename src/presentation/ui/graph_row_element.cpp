@@ -554,6 +554,10 @@ namespace cyella::ui {
         const float tail { columns_.compact ? 0.0f : (columns_.author + columns_.date) * scale };
         const float summary { std::max(box.width - refs - graph - tail, 0.0f) };
 
+        // 검색에 맞은 행이다. 고른 행의 바탕 위에 얹히므로 옅게 칠하고, 앞·뒤 이동이 선 행만 조금 더 짙게 한다.
+        if (data_.search_hit)
+            context.canvas.drawRect(SkRect::MakeXYWH(box.x, box.y, box.width, box.height), luil::solid_paint(luil::with_alpha(context.palette.accent, data_.search_current ? 0.30f : 0.14f)));
+
         float x { box.x + refs };
         draw_graph(context, { x, box.y, graph, box.height });
         x += graph;

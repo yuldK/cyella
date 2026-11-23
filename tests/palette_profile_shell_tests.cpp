@@ -1195,3 +1195,33 @@ TEST_CASE("a quoted key path or rule prefix is stored without its quotes", "[pro
     REQUIRE(test.controller.settings().profile_rules.size() == 1);
     CHECK(test.controller.settings().profile_rules[0].path_prefix == u8"C:\\work");
 }
+
+TEST_CASE("search keys: Ctrl+F opens, F3 steps, and Enter in the search box goes to the next or previous hit", "[commands][policy][search]")
+{
+    p6_harness test {};
+    const view_snapshot view { test.view() };
+    const std::shared_ptr<const luil::ui_tree> tree { tree_of(view) };
+    ui::cyella_policy policy {};
+    const luil::interaction_snapshot snapshot {};
+    const auto command_of = [&policy, &tree](const luil::key_pressed_event& event, const luil::interaction_snapshot& state) -> std::string {
+        const std::vector<luil::input_action> actions { policy.on_key(tree.get(), event, state) };
+        const run_command_intent* const run { intent_of<run_command_intent>(actions) };
+        return run != nullptr ? run->id : std::string {};
+    };
+    CHECK(command_of(key_event(luil::key_code::key_f, true), snapshot) == "graph.search");
+    CHECK(command_of(key_event(luil::key_code::f3), snapshot) == "graph.search.next");
+    CHECK(command_of(key_event(luil::key_code::f3, false, true), snapshot) == "graph.search.previous");
+
+    // 검색 칸의 Enter는 다음, Shift+Enter는 이전이다. 다른 칸의 Enter는 검색을 움직이지 않는다.
+    luil::interaction_snapshot in_search {};
+    in_search.focused_input = luil::ui_element_id { ui::kind_graph_search_input, u8"graph-search" };
+    const std::vector<luil::input_action> next { policy.on_key(tree.get(), key_event(luil::key_code::enter), in_search) };
+    REQUIRE(intent_of<graph_search_step_intent>(next) != nullptr);
+    CHECK(intent_of<graph_search_step_intent>(next)->forward);
+    const std::vector<luil::input_action> previous { policy.on_key(tree.get(), key_event(luil::key_code::enter, false, true), in_search) };
+    REQUIRE(intent_of<graph_search_step_intent>(previous) != nullptr);
+    CHECK_FALSE(intent_of<graph_search_step_intent>(previous)->forward);
+    CHECK(intent_of<graph_search_step_intent>(policy.on_key(tree.get(), key_event(luil::key_code::enter), snapshot)) == nullptr);
+    // 검색 칸에서도 Ctrl+F는 같은 명령이다 (초점을 칸으로 돌린다).
+    CHECK(command_of(key_event(luil::key_code::key_f, true), in_search) == "graph.search");
+}

@@ -52,6 +52,8 @@ namespace cyella {
         rebase_message_body,
         // 툴바 저장소·브랜치 선택 상자 popup의 거르기 칸이다.
         selector_filter = 110,
+        // 그래프 위 커밋 검색 막대의 칸이다.
+        graph_search = 120,
         // 환경 설정 "호스팅" 화면의 호스트·API 주소 칸이다. 다른 칸과 겹치지 않게 500부터 쓴다.
         settings_hosting_host = 500,
         settings_hosting_api_base,
@@ -134,6 +136,19 @@ namespace cyella {
         operation_id ancestry_query { 0 };
     };
 
+    // 그래프의 커밋 검색이다 (ADR-011). 막대가 열려 있는 동안만 선다.
+    struct commit_search_state
+    {
+        luil::text::text_edit_state query {};
+        // git에 낸 질의(앞뒤 공백을 뗀 것)와 그 operation이다. 질의가 그대로면 다시 내지 않는다. 한 글자 질의는 git에 내지 않아 operation이 0이다.
+        std::string submitted {};
+        operation_id operation { 0 };
+        // 치기를 멈추고 이 시각이 되면 git에 낸다 (`shell_controller::tick`). 글자마다 git을 띄우지 않으려는 것이다.
+        std::optional<std::chrono::steady_clock::time_point> due {};
+        // 앞·뒤 이동이 선 커밋이다. 질의를 고치면 비운다.
+        std::string current {};
+    };
+
     // diff 판이 보이는 것이다. 머리의 [변경 내용 | Blame | 이력] 전환이 바꾼다.
     enum class file_view_mode : std::uint8_t
     {
@@ -190,6 +205,8 @@ namespace cyella {
         std::optional<bool> sign {};
         // 상세 패널에서 고른 파일의 diff 요청이다. 있으면 그래프 자리를 diff가 덮는다.
         std::optional<diff_file_request> diff {};
+        // 그래프 위에 열린 커밋 검색이다. Ctrl+F로 열고 Esc·닫기 단추로 닫는다.
+        std::optional<commit_search_state> search {};
         // 판의 blame·파일 이력 보기다. 없으면 판은 변경 내용이다. `diff`가 비면 함께 비운다 (`shell_controller::settle_file_views`).
         std::optional<file_view_state> file_view {};
         // 그래프에서 보이려는 커밋이다 (blame·이력의 "그래프에서 보기"). 아직 읽지 않은 커밋이면 찾을 때까지 이력을 이어 읽고,
@@ -352,6 +369,8 @@ namespace cyella {
         // 사라지는데, 그대로 두면 환경 설정의 가둠 진입이 다시 서서 초점이 페이지 목록으로 튄다.
         ui_font_field,
         code_font_field,
+        // 그래프 위 커밋 검색 막대의 칸이다. 막대를 열 때(이미 열려 있으면 Ctrl+F를 다시 누를 때) 주 창의 이 칸으로 초점을 옮긴다.
+        graph_search,
     };
 
     // popup을 열 때 그 안의 칸으로, 또는 닫을 때 주 창의 칸으로 초점을 옮기는 요청이다 (luil `focus_request`).
@@ -474,7 +493,7 @@ namespace cyella {
         const bool basic { value >= static_cast<std::uint32_t>(text_target::start_search) && value <= static_cast<std::uint32_t>(text_target::settings_test_host) };
         const bool form { value >= static_cast<std::uint32_t>(text_target::form_field_0) && value <= static_cast<std::uint32_t>(text_target::form_field_2) };
         const bool rebase { value >= static_cast<std::uint32_t>(text_target::rebase_message_subject) && value <= static_cast<std::uint32_t>(text_target::rebase_message_body) };
-        const bool selector { value == static_cast<std::uint32_t>(text_target::selector_filter) };
+        const bool selector { value == static_cast<std::uint32_t>(text_target::selector_filter) || value == static_cast<std::uint32_t>(text_target::graph_search) };
         const bool signing { value >= static_cast<std::uint32_t>(text_target::settings_signing_gpg_program) && value <= static_cast<std::uint32_t>(text_target::settings_signing_allowed_signers) };
         const bool hosting { value >= static_cast<std::uint32_t>(text_target::settings_hosting_host) && value <= static_cast<std::uint32_t>(text_target::settings_web_link_icon) };
         const bool commands { value >= static_cast<std::uint32_t>(text_target::palette_filter) && value <= static_cast<std::uint32_t>(text_target::settings_profile_ssh_key) };

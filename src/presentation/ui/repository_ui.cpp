@@ -18,6 +18,8 @@
 #include "presentation/ui/ui_parts.h"
 #include "presentation/ui_intents.h"
 
+#include "presentation/ui/graph_search_ui.h"
+
 #include "luil/ui/check_element.h"
 #include "luil/ui/dialog_elements.h"
 #include "luil/ui/list_element.h"
@@ -1070,6 +1072,9 @@ namespace cyella::ui {
                 labels_width = std::max(labels_width, estimate_ref_label_strip_width(labels));
         const graph_columns columns { make_graph_columns(graph.lane_count, graph.compact_columns, width - luil::list_scrollbar_width, labels_width) };
         auto column { std::make_unique<luil::stack_element>(luil::ui_element_id { kind_layout, u8"graph-area" }, luil::stack_config {}) };
+        // 커밋 검색 막대는 열 머리 위에 선다. 그래프가 비어 있어도(읽는 중) 칸은 남아 치던 글을 잃지 않는다.
+        if (graph.search.has_value())
+            column->add(build_graph_search_bar(*graph.search), graph_search_bar_height);
         auto header { std::make_unique<graph_header_element>(columns) };
         graph_header_element* const header_row { header.get() };
         column->add(std::move(header), 26.0f);
@@ -1120,6 +1125,11 @@ namespace cyella::ui {
             data.head = commit.sha == graph_state.head_sha;
             data.row_key = graph_item_key(commit.sha);
             data.sha = commit.sha;
+            if (graph_state.search.has_value() && graph_state.search->hits != nullptr)
+            {
+                data.search_hit = graph_state.search->hits->contains(commit.sha);
+                data.search_current = data.search_hit && commit.sha == graph_state.search->current;
+            }
             data.selected = selected;
             data.list = luil::ui_element_id { luil::ui_element_kind::virtual_list, u8"graph" };
             data.ref_list_open = card_sha.empty() == false && commit.sha == card_sha;

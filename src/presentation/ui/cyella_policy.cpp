@@ -37,6 +37,8 @@ namespace cyella::ui {
             return to_luil_target(text_target::start_search);
         if (kind == kind_sidebar_filter_input)
             return to_luil_target(text_target::sidebar_filter);
+        if (kind == kind_graph_search_input)
+            return to_luil_target(text_target::graph_search);
         if (kind == kind_commit_subject_input)
             return to_luil_target(text_target::commit_subject);
         if (kind == kind_commit_body_input)
@@ -255,6 +257,9 @@ namespace cyella::ui {
         switch (event.key)
         {
         case luil::key_code::enter:
+            // 검색 칸의 Enter는 다음 결과, Shift+Enter는 이전 결과다.
+            if (focused == kind_graph_search_input)
+                return { message(graph_search_step_intent { .forward = event.shift == false }) };
             if (focused == kind_ui_font_input || focused == kind_code_font_input)
                 return { message(apply_font_settings_intent {}) };
             if (focused == kind_clone_url_input || focused == kind_clone_path_input)

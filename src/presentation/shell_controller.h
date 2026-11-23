@@ -32,6 +32,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -44,6 +45,23 @@ namespace cyella {
     //
     // driver는 메시지를 여기로 넘기고(`handle`), relay를 비운 뒤 `after_events`를 부르며, frame마다
     // `make_view`로 snapshot을 받는다. tree는 `ui::build_ui_tree`가 snapshot에서 짓는다.
+    // 그래프의 커밋 검색이 지금 질의로 찾은 것이다. 질의·세션·git 결과가 바뀔 때만 다시 센다 (frame마다 세지 않는다).
+    struct commit_search_matches
+    {
+        std::u8string query {};
+        std::uint64_t revision { 0 };
+        // git의 결과가 지금 질의의 것으로 와 있다.
+        bool git_ready { false };
+        // 치기를 기다리는 중이거나 git 검색이 돌고 있다.
+        bool searching { false };
+        // git이 상한에서 끊었다. 실제로는 더 있다.
+        bool truncated { false };
+        // 앞·뒤 이동의 순서다: 읽은 커밋이 그래프의 행 순서로 앞에, 아직 읽지 않은 커밋이 새 것부터 뒤에 선다.
+        std::vector<std::string> ordered {};
+        // 맞는 커밋의 SHA다. 그래프 행이 자기가 맞는지 묻는다. 게시된 tree가 함께 쥐므로 바꿀 때는 새로 만든다.
+        std::shared_ptr<const std::unordered_set<std::string>> hits {};
+    };
+
     class shell_controller
     {
     public:
@@ -200,6 +218,18 @@ namespace cyella {
         void handle_graph_sweep(const graph_sweep_intent& intent);
         // relay를 비운 뒤다. 조상 답을 기다리던 비교를 정하고, 새로 고침으로 고른 커밋이 사라진 비교를 푼다.
         void sync_compares();
+        // ---- 그래프의 커밋 검색 (shell_controller_search.cpp)
+        bool handle_search_message(const luil::app_message& message);
+        void close_graph_search(tab_ui_state& tab);
+        // 검색 칸의 글이 바뀌었다. 치기를 멈추면 git에 낼 시각을 잡는다.
+        void graph_search_changed(tab_ui_state& tab);
+        // 낼 시각이 된 검색을 git에 낸다 (`tick`).
+        void submit_due_searches(std::chrono::steady_clock::time_point now);
+        [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> search_deadline() const noexcept;
+        [[nodiscard]] const commit_search_matches& graph_search_matches(repository_tab_id tab_id, const tab_ui_state& tab, const repository_session& session);
+        void step_graph_search(bool forward);
+        // snapshot에 열린 검색 막대의 값을 채운다. 맞는 커밋은 controller가 cache해 둔 것이다.
+        void fill_graph_search(view_snapshot& view);
         // ---- diff 판의 blame·파일 이력 (shell_controller_file_view.cpp)
         bool handle_file_view_message(const luil::app_message& message);
         // 판의 보기를 바꾼다. blame과 이력은 그 보기에 처음 들어갈 때 읽는다.
@@ -436,6 +466,8 @@ namespace cyella {
         std::optional<std::pair<selector_kind, std::chrono::steady_clock::time_point>> selector_dismissed_ {};
         // popup 초점 요청(열 때의 첫 초점, 글꼴 목록을 닫은 뒤의 되돌림)의 마지막 번호다. 0은 낸 적이 없다는 뜻이고, luil이 이미 본 번호를 다시 쓰지 않게 줄지 않는다.
         std::uint64_t popup_focus_revision_ { 0 };
+        // 탭마다 지금 질의의 검색 결과다.
+        std::map<repository_tab_id, commit_search_matches> search_matches_ {};
         settings_controller settings_;
         rebase_editor_controller rebase_;
         hosting_controller hosting_;

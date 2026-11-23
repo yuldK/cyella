@@ -454,6 +454,10 @@ namespace cyella {
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
                 return &tab->sidebar_filter;
             return nullptr;
+        case text_target::graph_search:
+            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr && tab->search.has_value())
+                return &tab->search->query;
+            return nullptr;
         case text_target::commit_subject:
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
                 return &tab->commit_subject;
@@ -542,6 +546,12 @@ namespace cyella {
         {
             if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr)
                 tab->sidebar_scroll = 0.0f;
+        }
+        else if (target == text_target::graph_search)
+        {
+            // caret 이동·선택은 질의를 바꾸지 않는다. 글이 바뀐 편집만 검색을 다시 건다.
+            if (tab_ui_state* const tab { selected_tab_state() }; tab != nullptr && state->text != before)
+                graph_search_changed(*tab);
         }
         else if (target == text_target::palette_filter && ui_.palette.has_value())
         {
@@ -1130,6 +1140,8 @@ namespace cyella {
                 ui_.drawer_open = false;
             else if (tab != nullptr && tab->diff.has_value())
                 tab->diff.reset();
+            else if (tab != nullptr && tab->search.has_value())
+                close_graph_search(*tab);
             else if (tab != nullptr && tab->compare.has_value())
                 clear_compare(*tab);
             else
@@ -1434,6 +1446,9 @@ namespace cyella {
             return true;
         // diff 판의 blame·파일 이력이다.
         if (handle_file_view_message(message))
+            return true;
+        // 그래프의 커밋 검색이다.
+        if (handle_search_message(message))
             return true;
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         // 이 메시지 전에 열려 있던 글꼴 목록이 어느 칸의 것인가다. 닫은 뒤 초점을 돌려보낼 칸이다.
@@ -1744,6 +1759,8 @@ namespace cyella {
             inputs.history_index = [this](const repository_session& session) { return history_index(session); };
         }
         view_snapshot view { build_view_snapshot(inputs) };
+        // 검색 결과는 질의·세션이 바뀔 때만 세어 둔 것을 얹는다. snapshot을 짓는 순수 함수가 frame마다 커밋 전부를 훑지 않게 한다.
+        fill_graph_search(view);
         // 연 뒤 창 크기·판 폭·스크롤이 바뀌었거나 그래프를 다시 읽었으면 칩이 다른 자리로 갔다. 연 때의 사각형으로 그리면 엉뚱한 곳을 가리키므로 닫는다.
         if (ui_.ref_list.has_value())
         {
@@ -1894,6 +1911,8 @@ namespace cyella {
         }
         if (const std::optional<std::chrono::steady_clock::time_point> hover { ref_hover_deadline() }; hover.has_value())
             earlier(*hover);
+        if (const std::optional<std::chrono::steady_clock::time_point> search { search_deadline() }; search.has_value())
+            earlier(*search);
         return next;
     }
 
@@ -1912,6 +1931,8 @@ namespace cyella {
             }
         }
         std::erase_if(ui_.notifications, [](const notification& value) { return value.remove_after_leave && value.toast == false; });
+        // 검색 칸에서 치기를 멈춘 지 250ms가 찼으면 git에 묻는다.
+        submit_due_searches(now);
         // 칸에 머문 지 180ms가 찼거나 칸과 카드를 떠난 지 400ms가 찼다.
         settle_ref_hover(now);
     }
