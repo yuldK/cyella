@@ -394,6 +394,89 @@ TEST_CASE("sidebar rows group remotes, filter by name and collapse sections", "[
     CHECK(folded.counts[0] == 2);
 }
 
+TEST_CASE("sidebar rows carry the graph filter mark and say so in the tooltip", "[presentation][snapshot][graph_filter]")
+{
+    const repository_snapshot snapshot { make_snapshot(sha_of(0), 0) };
+    const auto row_of = [](const sidebar_rows& rows, const std::u8string& key) {
+        const auto found { std::ranges::find(rows.rows, key, &sidebar_row_view::key) };
+        REQUIRE(found != rows.rows.end());
+        return *found;
+    };
+
+    // 필터를 주지 않거나 비어 있으면 표시가 없고 툴팁도 그대로다.
+    const graph_ref_filter none {};
+    for (const sidebar_rows& rows : { build_sidebar_rows(snapshot, {}, 0), build_sidebar_rows(snapshot, {}, 0, nullptr, &none) })
+    {
+        for (const sidebar_row_view& row : rows.rows)
+            CHECK(row.graph_mark == graph_ref_mark::none);
+        CHECK(row_of(rows, u8"l:feature/graph").tooltip == u8"feature/graph\nupstream 없음");
+    }
+
+    graph_ref_filter hidden {};
+    hidden.hidden = { "refs/heads/feature/graph", "refs/tags/v1.0" };
+    const sidebar_rows hiding { build_sidebar_rows(snapshot, {}, 0, nullptr, &hidden) };
+    CHECK(row_of(hiding, u8"l:feature/graph").graph_mark == graph_ref_mark::hidden);
+    CHECK(row_of(hiding, u8"l:feature/graph").tooltip == u8"feature/graph\nupstream 없음\n그래프에서 숨김");
+    CHECK(row_of(hiding, u8"t:v1.0").graph_mark == graph_ref_mark::hidden);
+    CHECK(row_of(hiding, u8"t:v1.0").tooltip == u8"v1.0\n원격에 없는 태그\n그래프에서 숨김");
+    CHECK(row_of(hiding, u8"l:main").graph_mark == graph_ref_mark::none);
+    CHECK(row_of(hiding, u8"rb:origin/main").graph_mark == graph_ref_mark::none);
+    // 머리 줄과 원격 묶음에는 표시가 없다.
+    CHECK(row_of(hiding, u8"h:LOCAL").graph_mark == graph_ref_mark::none);
+    CHECK(row_of(hiding, u8"r:origin").graph_mark == graph_ref_mark::none);
+
+    // "이것만 보기"가 있으면 그 ref만 표시하고, 숨긴 것은 그동안 듣지 않으므로 표시하지 않는다.
+    graph_ref_filter only { hidden };
+    only.only = { "refs/remotes/origin/main" };
+    const sidebar_rows showing { build_sidebar_rows(snapshot, {}, 0, nullptr, &only) };
+    CHECK(row_of(showing, u8"rb:origin/main").graph_mark == graph_ref_mark::only);
+    CHECK(row_of(showing, u8"rb:origin/main").tooltip == u8"origin/main\n그래프에 이것만 보는 중");
+    CHECK(row_of(showing, u8"l:feature/graph").graph_mark == graph_ref_mark::none);
+    CHECK(row_of(showing, u8"t:v1.0").graph_mark == graph_ref_mark::none);
+    // 짧은 이름이 같은 로컬 브랜치 main은 다른 ref다.
+    CHECK(row_of(showing, u8"l:main").graph_mark == graph_ref_mark::none);
+}
+
+TEST_CASE("the snapshot carries the filter band only while the session has a graph filter", "[presentation][snapshot][graph_filter]")
+{
+    snapshot_harness harness {};
+    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    repository_session& session { *harness.sessions["repo-1"] };
+    load(session, linear_history(3), 0);
+    CHECK_FALSE(harness.build().repository->graph.filter.has_value());
+
+    graph_ref_filter filter {};
+    filter.hidden = { "refs/heads/feature/graph" };
+    REQUIRE(session.set_graph_filter(filter));
+    {
+        const view_snapshot view { harness.build() };
+        REQUIRE(view.repository->graph.filter.has_value());
+        CHECK(view.repository->graph.filter->status == u8"브랜치 1개를 숨긴 중");
+        const auto row { std::ranges::find(view.repository->sidebar, std::u8string { u8"l:feature/graph" }, &sidebar_row_view::key) };
+        REQUIRE(row != view.repository->sidebar.end());
+        CHECK(row->graph_mark == graph_ref_mark::hidden);
+    }
+
+    filter.hidden.push_back("refs/tags/v1.0");
+    filter.hidden.push_back("refs/remotes/origin/main");
+    REQUIRE(session.set_graph_filter(filter));
+    CHECK(harness.build().repository->graph.filter->status == u8"브랜치 3개를 숨긴 중");
+
+    // "이것만 보기"가 있으면 그 수를 말한다. 숨긴 것은 그동안 세지 않는다.
+    filter.only = { "refs/heads/main", "refs/tags/v1.0" };
+    REQUIRE(session.set_graph_filter(filter));
+    CHECK(harness.build().repository->graph.filter->status == u8"브랜치 2개만 보는 중");
+
+    // 현재 브랜치는 숨긴 목록에 남지 않는다. 남는 것이 없으면 띠도 없다.
+    graph_ref_filter current {};
+    current.hidden = { "refs/heads/main" };
+    REQUIRE(session.set_graph_filter(current));
+    CHECK(session.graph_filter().empty());
+    CHECK_FALSE(harness.build().repository->graph.filter.has_value());
+    // 그대로면 바뀐 것이 없다.
+    CHECK_FALSE(session.set_graph_filter({}));
+}
+
 TEST_CASE("a token in a remote URL does not show in the sidebar row or its tooltip", "[presentation][snapshot]")
 {
     repository_snapshot snapshot { make_snapshot(sha_of(0), 0) };

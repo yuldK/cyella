@@ -3,6 +3,7 @@
 #include "application/git_operation.h"
 #include "application/operation_events.h"
 #include "application/process_cancellation.h"
+#include "domain/graph_ref_filter.h"
 
 #include <atomic>
 #include <cstddef>
@@ -29,6 +30,9 @@ namespace cyella {
         // load_more_log와 search_commits에서 HEAD도 log의 시작점으로 넣는다. 첫 커밋 전이면 `log HEAD`가 실패하므로
         // 마지막 snapshot이 HEAD를 알 때만 켠다.
         bool log_include_head { true };
+        // 접수 시점의 세션이 든 그래프의 브랜치 필터다 (ADR-012). refresh·load_more_log·search_commits가 같은 ref 집합을 읽게 한다.
+        // refresh는 ref를 먼저 읽으므로 log 인자를 만들기 전에 지금 있는 ref로 다시 거른다 (`settle_graph_ref_filter`).
+        graph_ref_filter graph_filter {};
         // 접수 시점의 현재 브랜치다. merge(into)·fast_forward(target)가 체크아웃 여부를 가른다.
         // 실행 중에 바뀌었을 수 있어 실행기는 status로 다시 확인한다.
         std::string current_branch_hint {};

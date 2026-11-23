@@ -1,5 +1,7 @@
 #pragma once
 
+#include "domain/graph_ref_filter.h"
+
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -41,21 +43,46 @@ namespace cyella {
     // refs/heads, refs/remotes, refs/tags를 parse_git_refs의 필드 순서로 나열한다.
     [[nodiscard]] git_arguments make_git_for_each_ref_args();
 
+    // 그래프에 보이는 커밋의 시작점(그래프의 ref 집합)을 정하는 값이다. 그래프 log와 커밋 검색
+    // (`make_git_log_args`·`make_git_search_log_args`·`make_git_graph_reachability_args`)이 같은 값을 받아 같은 인자를 만든다.
+    //  - 필터가 없으면 `--branches --remotes --tags [HEAD]`다.
+    //  - `filter.only`가 있으면 그 전체 ref 이름들뿐이다 (`refs/heads/x refs/tags/v1`). HEAD도 더하지 않는다.
+    //    없는 ref가 끼면 git이 `bad revision`으로 실패하므로 호출자가 `settle_graph_ref_filter`로 먼저 거른다.
+    //  - 아니면 `filter.hidden`의 ref를 묶음마다 `--exclude=<짧은 이름>`으로 그 묶음 **앞에** 준다:
+    //    `--exclude=x --branches --exclude=origin/x --exclude=*/HEAD --remotes --exclude=v1 --tags [HEAD]`.
+    //    git 2.56에서 확인한 것:
+    //      · `--exclude`는 바로 다음의 `--branches`·`--remotes`·`--tags` 하나에만 걸리고 그 뒤 지워진다. `--exclude=origin/x --branches --remotes`는
+    //        원격을 빼지 못한다. 한 묶음 앞에 여럿을 주면 모두 걸린다.
+    //      · 패턴은 `refs/heads/` 같은 접두어 없이 적는다. `--exclude=refs/heads/x --branches`는 아무것도 빼지 않는다.
+    //      · 패턴은 glob이지만 ref 이름에는 `*`·`?`·`[`·`\`가 올 수 없어(`git check-ref-format`) 짧은 이름을 그대로 적으면 그 ref 하나다.
+    //        이름 전체가 맞아야 한다: `--exclude=feat`는 `feature`를 빼지 않고, `--exclude=topic`은 `topic/a`를 빼지 않는다.
+    //      · 원격 브랜치를 숨길 때는 `*/HEAD`도 함께 뺀다. `refs/remotes/origin/HEAD`는 원격의 기본 브랜치를 가리키는 기호 ref라,
+    //        남겨 두면 `origin/main`을 숨겨도 그 커밋이 `origin/HEAD`에서 그대로 닿는다. 가리키는 브랜치가 숨겨지지 않았으면
+    //        그 브랜치가 시작점으로 남으므로 잃는 커밋이 없다.
+    //    현재 브랜치(`current_branch`)는 숨긴 목록에 있어도 빼지 않는다.
+    //  - 이름이 `refs/heads/`·`refs/remotes/`·`refs/tags/`로 시작하지 않거나, 제어 문자나 glob 글자(`*`·`?`·`[`·`\`)를 품으면
+    //    `std::invalid_argument`다.
+    struct git_graph_refs
+    {
+        // 첫 커밋 전 저장소에서는 HEAD를 해석할 수 없으므로 false로 둔다.
+        bool include_head { true };
+        graph_ref_filter filter {};
+        // 현재 브랜치의 짧은 이름이다. detached면 비어 있다.
+        std::string current_branch {};
+    };
+
     struct git_log_options
     {
         // 0이면 제한이 없다.
         std::uint32_t max_count { 0 };
         std::uint32_t skip { 0 };
-        // 첫 커밋 전 저장소에서는 HEAD를 해석할 수 없으므로 false로 둔다.
-        bool include_head { true };
+        git_graph_refs graph {};
         // 본문(%b)도 받는다. git_log_parser의 has_body와 같아야 한다.
         bool include_body { false };
     };
 
-    // `log --topo-order -z --format=... --branches --remotes --tags [HEAD] [--max-count]
-    // [--skip] --`. 쪽 나누기는 `--skip`과 `--max-count`로 하며, 그 사이에 ref가
-    // 바뀌면 쪽 경계가 어긋날 수 있다. `--branches --remotes --tags [HEAD]`가 그래프의 ref 집합이고,
-    // 커밋 검색(`make_git_search_log_args`·`make_git_graph_reachability_args`)이 같은 집합을 쓴다.
+    // `log --topo-order -z --format=... <그래프의 ref 집합> [--max-count] [--skip] --`. 쪽 나누기는 `--skip`과
+    // `--max-count`로 하며, 그 사이에 ref가 바뀌면 쪽 경계가 어긋날 수 있다. ref 집합은 `git_graph_refs`가 정한다.
     [[nodiscard]] git_arguments make_git_log_args(const git_log_options& options = {});
 
     // 커밋 검색이 질의를 견줄 자리다.
@@ -68,14 +95,14 @@ namespace cyella {
     };
 
     // 그래프의 ref 집합에서 `query`가 든 커밋을 찾는다. `log --topo-order -z --format=<log 형식> --no-mailmap -i --fixed-strings
-    // --grep=<query>|--author=<query> [--max-count=<n>] --branches --remotes --tags [HEAD] --`. 본문은 받지 않는다
+    // --grep=<query>|--author=<query> [--max-count=<n>] <그래프의 ref 집합> --`. 본문은 받지 않는다
     // (git_log_parser, has_body=false). max_count가 0이면 제한이 없다. 질의가 비었거나 NUL·줄바꿈을 품으면 `std::invalid_argument`다.
     //  - `-i --fixed-strings`: 대소문자를 가리지 않는 글자 그대로의 부분 일치다. `.*`도 그 두 글자를 찾고, 명령줄에 준 것이라
     //    사용자의 `grep.patternType` 설정을 덮는다. 한글과 악센트 붙은 글자도 맞는다 (git 2.56, `LC_ALL=C`에서 확인).
     //  - `--grep`과 `--author`를 한 명령에 함께 주면 둘 다 맞는 커밋만 나온다. "메시지 또는 작성자"는 필드마다 따로 돌려 합친다.
     //  - `--no-mailmap`: 없으면 `--author`가 `.mailmap`으로 바꾼 이름·메일과 견준다. 그래프가 보이는 것은 바꾸기 전 값(`%an`·`%ae`)이라,
     //    화면에 보이는 이름으로 찾으면 안 나오고 보이지 않는 이름으로 찾으면 나온다 (git 2.56에서 확인).
-    [[nodiscard]] git_arguments make_git_search_log_args(std::string_view query, commit_search_field field, bool include_head = true, std::uint32_t max_count = 0);
+    [[nodiscard]] git_arguments make_git_search_log_args(std::string_view query, commit_search_field field, const git_graph_refs& graph = {}, std::uint32_t max_count = 0);
 
     // SHA 앞부분으로 볼 수 있는 글인지다: 16진수(대소문자 무관) 4~64자. git은 4자보다 짧은 앞부분을 풀지 않는다.
     // 앞부분을 커밋으로 푸는 명령은 `make_git_resolve_commit_args`(git_interactive_rebase.h)다: 그런 커밋이 없거나, 여러 커밋에 맞거나,
@@ -83,10 +110,10 @@ namespace cyella {
     // 앞부분으로 시작하는지 확인해야 한다.
     [[nodiscard]] bool is_commit_hash_prefix(std::string_view text) noexcept;
 
-    // `rev-list --max-count=1 <sha> --not --branches --remotes --tags [HEAD] --`. 그래프의 ref 집합에서 `sha`에 닿는지 묻는다.
-    // 출력이 비면 닿고(그래프에 있는 커밋), `sha`가 나오면 어느 ref에서도 닿지 않는다 (reflog나 stash에만 남은 커밋).
-    // `sha`가 `is_commit_hash_prefix`가 아니면 `std::invalid_argument`다.
-    [[nodiscard]] git_arguments make_git_graph_reachability_args(std::string_view sha, bool include_head = true);
+    // `rev-list --max-count=1 <sha> --not <그래프의 ref 집합> --`. 그래프의 ref 집합에서 `sha`에 닿는지 묻는다.
+    // 출력이 비면 닿고(그래프에 있는 커밋), `sha`가 나오면 그 집합의 어느 ref에서도 닿지 않는다 (reflog나 stash에만 남은 커밋,
+    // 브랜치 필터가 걸러 낸 커밋). `sha`가 `is_commit_hash_prefix`가 아니면 `std::invalid_argument`다.
+    [[nodiscard]] git_arguments make_git_graph_reachability_args(std::string_view sha, const git_graph_refs& graph = {});
 
     // 한 커밋의 diff다. 병합 커밋은 `-m --first-parent`로 첫 부모와의 일반 diff만 받는다.
     // 헤더는 `--format=`으로 없앤다. 첫 커밋(root)도 전체 내용을 diff로 보여 준다.

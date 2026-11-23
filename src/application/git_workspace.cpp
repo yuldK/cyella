@@ -253,6 +253,9 @@ namespace cyella {
         job.repository_id = repository_id;
         job.repository_path = session->path();
         job.current_branch_hint = session->snapshot().summary.current_branch;
+        // 그래프를 읽는 작업(refresh·load_more_log·search_commits)이 같은 ref 집합을 쓰게 한다. 쓰기 뒤의 후속 refresh와
+        // 파일 감시가 낸 refresh도 이 길로 오므로 필터가 걸린 채 다시 읽는다.
+        job.graph_filter = session->graph_filter();
 
         const operation_id id { next_id_ };
         if (kind == operation_kind::refresh)
@@ -321,6 +324,16 @@ namespace cyella {
             last_write_[repository_id] = id;
         }
         return dispatch(std::move(record), std::move(job), std::move(lane_key));
+    }
+
+    operation_id git_workspace::set_graph_filter(const std::string& repository_id, graph_ref_filter filter)
+    {
+        repository_session* const session { find_session(repository_id) };
+        if (session == nullptr || session->set_graph_filter(std::move(filter)) == false)
+            return 0;
+        ++revision_;
+        // 걸러 읽은 log를 처음부터 다시 배치한다. 사용자가 고른 일이라 자동 작업으로 감추지 않는다 (실패하면 알림이 뜬다).
+        return submit(repository_id, refresh_request {});
     }
 
     operation_id git_workspace::submit_setup(git_operation operation)

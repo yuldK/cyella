@@ -284,6 +284,48 @@ graph_search_step_intent ─▶ step_graph_search ─▶ reveal_commit(sha)   (�
   고른 행의 바탕 위에 얹힌다.
 - **순서**: 읽은 커밋이 그래프의 행 순서로 앞에, 아직 읽지 않은 커밋이 git이 준 순서(새 것부터)로 뒤에 선다. 고른 커밋이 결과에 있으면 첫 걸음은 그 커밋에 선다.
 - **파일 판과의 관계**: 막대는 그래프 위에만 선다. 파일 판이 그래프를 덮고 있을 때 검색을 열면 판을 닫는다. 판이 열려도 검색 상태는 남아 돌아오면 그대로다.
+- **브랜치 필터와의 관계**: git 검색은 그래프와 같은 ref 집합에서 찾는다(아래 절). 낼 때의 필터를 `commit_search_state::filter`에 적어 두고,
+  세션의 필터가 그것과 달라지면 같은 질의를 다시 낸다.
+
+## 그래프의 브랜치 필터 (`presentation/shell_controller_graph_filter.cpp`)
+
+사이드바의 브랜치·태그 메뉴가 그래프에 그 ref만 남기거나 그 ref를 숨긴다([ADR-012](decisions/ADR-012-graph-branch-filter.md)). 화면에서 행을 빼지 않고
+git이 읽는 시작점을 좁혀 걸러 읽은 log를 그대로 배치한다.
+
+```text
+menu_select_intent(graph_only | graph_hide) ─▶ run_menu_action ─▶ toggle_graph_filter ─┐
+clear_graph_filter_intent (띠의 [모두 보기], graph.filter.clear) ──────────────────────┤
+                                                                                        ▼
+                         apply_graph_filter ─▶ git_workspace::set_graph_filter(repository_id, filter)
+                                                  ├ repository_session::set_graph_filter  (지금 있는 ref로 거른다, 검색 결과를 버린다)
+                                                  └ submit(refresh_request)  ── job.graph_filter ──▶ 실행기
+실행기 refresh: for-each-ref ─▶ settle_graph_ref_filter ─▶ [only면 HEAD가 닿는지 rev-list] ─▶ snapshot_loaded ─▶ log <그래프의 ref 집합>
+세션: snapshot_loaded ─▶ 같은 settle_graph_ref_filter ─▶ 이후의 load_more_log·search_commits job이 그 필터를 싣는다
+build_view_snapshot ─▶ graph_view::filter (띠의 글) · sidebar_row_view::graph_mark (행의 표시)
+```
+
+- **정본은 세션이다** (`repository_session::graph_filter()`, 전체 ref 이름의 `only`·`hidden`). `ui_state`에는 없다. workspace가 스스로 내는
+  refresh(쓰기 뒤의 후속, 파일 감시)도 `submit`에서 세션의 필터를 job에 싣는다. 탭을 닫으면 사라지고 설정 파일에 남기지 않는다.
+- **인자** (`infrastructure/git_command_builder`의 `git_graph_refs`·`push_graph_refs`): 필터가 없으면 `--branches --remotes --tags [HEAD]`,
+  `only`가 있으면 그 ref 이름들뿐(HEAD 없음), 아니면 묶음마다 `--exclude=<짧은 이름>`을 그 묶음 앞에 둔다. 원격 브랜치를 숨기면 `--exclude=*/HEAD`가 함께 간다.
+  그래프 log·검색의 두 log·닿는지 묻는 `rev-list`가 같은 함수를 쓴다.
+- **메뉴** (`menu_model.cpp`의 `graph_filter_group`): 로컬 브랜치·원격 브랜치·태그 메뉴의 `graph_only`("그래프에 이것만 보기" ↔ "…풀기")와
+  `graph_hide`("그래프에서 숨기기" ↔ "그래프에 다시 보이기"). 현재 브랜치의 숨기기와, "이것만 보기"가 하나라도 켜진 동안의 숨기기는 꺼지고 문구가 까닭을 말한다.
+  대상의 전체 ref 이름은 `graph_filter_ref_of`가 snapshot의 ref에서 찾는다 (메뉴와 controller가 같이 쓴다).
+- **띠** (`presentation/ui/graph_filter_ui.*`): 검색 막대 아래, 열 머리 위에 선다. 띠(`graph-filter-bar`, UIA group이고 이름이 상태 글이다),
+  상태 글(`graph-filter-status`: "브랜치 2개만 보는 중"·"브랜치 3개를 숨긴 중"), [모두 보기](`graph-filter-reset`, `clear_graph_filter_intent`)다.
+  그래프가 비어 있어도(걸러 낸 결과가 없다, 읽는 중) 띠는 선다. 파일 판·충돌 화면이 그래프를 덮으면 함께 가려진다.
+- **사이드바 행** (`sidebar_row_view::graph_mark`): 꼬리의 눈 아이콘(이것만 보기는 강조색 눈, 숨김은 흐린 감은 눈)과 흐린 이름, 툴팁의 한 줄,
+  보조 기술 이름의 꼬리(" (그래프에 이것만 보는 중)"·" (그래프에서 숨김)")다. "이것만 보기"가 있는 동안 숨긴 ref는 표시하지 않는다.
+- **명령**: `graph.filter.clear`(단축키 없음)는 필터가 걸려 있을 때만 팔레트에 선다(`command_availability::graph_filter`).
+- **그 밖의 손본 곳**:
+  - 필터를 바꾸면 그래프 스크롤을 처음으로 돌린다 (그래프가 통째로 바뀐다).
+  - "그래프에서 보기"가 이력 끝까지 커밋을 못 찾았을 때, 필터가 걸려 있으면 `shell.file_view.commit_filtered_out`을 띄운다.
+  - 사이드바에서 고른 ref의 커밋이 아직 읽히지 않았다는 안내(`shell.sidebar.commit_not_loaded`)는 필터가 걸려 있으면 띄우지 않는다. 우클릭도
+    먼저 그 항목을 고르므로, 숨긴 브랜치의 메뉴를 열 때마다 틀린 안내가 뜬다.
+  - "이것만 보기"가 HEAD 커밋을 그래프에서 빼면 WIP 행은 부모 없이 선다 (`repository_snapshot::head_in_graph`).
+- **UIA**: 우클릭 메뉴는 UI Automation으로 열 수 없다. 사이드바에서 브랜치·태그 행을 고른 뒤 명령 팔레트에서 "그래프에 이것만 보기 — main"처럼
+  선 항목(`menu:graph_only`·`menu:graph_hide`)을 고르면 같은 일이다. 띠와 [모두 보기]는 UIA로 닿는다.
 
 ## 환경 설정 화면
 
@@ -427,9 +469,11 @@ create_ssh_repository이고, 그 밖의 작업(submodule 갱신 등)은 거두�
 Shift+F10은 고른 사이드바 항목이나 커밋의 메뉴를 연다. SHA·이름·경로 복사는 controller가 글을 들고 있다가 driver가 UI thread 클립보드로 넘긴다.
 
 대상: 커밋(체크아웃(detached 경고)·브랜치/태그 만들기·cherry-pick·revert·reset soft/mixed/hard(hard는 확인)·SHA 복사), 로컬 브랜치(체크아웃·merge/rebase·
-push·upstream 설정·이름 바꾸기·삭제(확인, 강제는 체크)), 원격 브랜치, 태그(원격마다 push, 로컬 삭제, 원격에도 삭제), stash(apply·pop·삭제 확인),
+push·upstream 설정·이름 바꾸기·그래프에 이것만 보기·그래프에서 숨기기·삭제(확인, 강제는 체크)), 원격 브랜치(체크아웃·merge/rebase·그래프에 이것만 보기·그래프에서 숨기기),
+태그(원격마다 push, 그래프에 이것만 보기·그래프에서 숨기기, 로컬 삭제, 원격에도 삭제), stash(apply·pop·삭제 확인),
 TAGS 머리(모든 태그 push), 작업 영역 파일(stage·unstage·버리기 확인·ignore·Blame·파일 이력·외부 diff·경로 복사), 커밋 상세의 변경 파일(`commit_file`: 변경 내용 보기·Blame·파일 이력·경로·파일 이름·`커밋:경로` 복사).
-Blame과 파일 이력은 추적하지 않는 파일과 여러 파일을 고른 메뉴에서 꺼진다.
+Blame과 파일 이력은 추적하지 않는 파일과 여러 파일을 고른 메뉴에서 꺼진다. 그래프의 두 항목은 다시 고르면 풀리고, 숨기기는 현재 브랜치와
+"이것만 보기"가 켜진 동안 꺼진다(위 "그래프의 브랜치 필터").
 
 목록 행 안의 내용 element가 툴팁·우클릭을 가지면 포인터의 hit를 그 element가 받는다(`ui_element::interactive`). 그래서 파일 행·그래프 행·사이드바 행은 한 번 누름의
 고르기 메시지를 스스로 다시 낸다. 내지 않으면 마우스 누름이 목록까지 가지 못해 키보드로만 고를 수 있다.

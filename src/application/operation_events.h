@@ -77,6 +77,9 @@ namespace cyella {
         lfs_repository_state lfs {};
         // 서명 설정의 실효 값이다. 커밋 상자의 "서명" 기본값(`commit.gpgsign`)과 태그 대화 상자가 읽는다. refresh가 채운다.
         signing_config signing {};
+        // HEAD 커밋이 이 refresh가 읽는 그래프에 있다. "이것만 보기"(`graph_ref_filter::only`)가 HEAD에서 닿지 않는 브랜치만 남기면 거짓이다.
+        // 세션이 WIP 행의 부모를 정하는 데 쓴다: 그래프에 오지 않을 커밋을 부모로 두면 그 레인이 끝까지 열린 채 남는다.
+        bool head_in_graph { true };
     };
 
     struct snapshot_loaded

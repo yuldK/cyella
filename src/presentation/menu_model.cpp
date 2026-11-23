@@ -132,6 +132,29 @@ namespace cyella {
             return make_entry(u8"fast_forward_to_current", label + count_suffix(facts.only_in_source), icons::icon_arrow_up);
         }
 
+        // 그래프의 브랜치 필터다 (ADR-012). 두 항목 모두 다시 고르면 풀린다.
+        //  - "이것만 보기"가 하나라도 켜져 있으면 숨기기는 듣지 않으므로 끈다. 현재 브랜치는 숨길 수 없다.
+        //  - 저장소가 모르는 ref(방금 지워졌다)에는 항목을 세우지 않는다.
+        std::vector<menu_entry> graph_filter_group(const menu_target& target, const menu_context& context, const bool is_current)
+        {
+            const std::optional<std::string> name { graph_filter_ref_of(target, context.refs) };
+            if (name.has_value() == false)
+                return {};
+            const graph_ref_filter& filter { context.graph_filter };
+            const bool only { std::ranges::find(filter.only, *name) != filter.only.end() };
+            const bool hidden { std::ranges::find(filter.hidden, *name) != filter.hidden.end() };
+            const bool only_active { filter.only.empty() == false };
+            std::vector<menu_entry> group {};
+            group.push_back(make_entry(u8"graph_only", only ? tr(u8"menu.graph_only_off") : tr(u8"menu.graph_only"), icons::icon_eye));
+            if (only_active)
+                group.push_back(make_entry(u8"graph_hide", tr(u8"menu.graph_hide_while_only"), icons::icon_eye_closed, false));
+            else if (is_current)
+                group.push_back(make_entry(u8"graph_hide", tr(u8"menu.graph_hide_current"), icons::icon_eye_closed, false));
+            else
+                group.push_back(make_entry(u8"graph_hide", hidden ? tr(u8"menu.graph_show") : tr(u8"menu.graph_hide"), icons::icon_eye_closed));
+            return group;
+        }
+
         menu_model local_branch_menu(const menu_target& target, const menu_context& context)
         {
             menu_model model {};
@@ -166,6 +189,7 @@ namespace cyella {
                     make_entry(u8"unset_upstream", has_upstream ? tr(u8"menu.unset_upstream") : tr(u8"menu.unset_upstream_none"), icons::icon_cloud, has_upstream),
                     make_entry(u8"rename", tr(u8"menu.rename"), icons::icon_edit),
                 });
+            add_group(model.entries, graph_filter_group(target, context, is_current));
             // 다른 worktree가 체크아웃한 브랜치는 git이 지우지 못한다 (`Cannot delete branch ... checked out at`).
             const std::u8string delete_label { is_current ? tr(u8"menu.delete_current_branch") : elsewhere ? tr(u8"menu.delete") + tr(u8"menu.in_other_worktree") : tr(u8"menu.delete") };
             add_group(model.entries, { make_entry(u8"delete", delete_label, icons::icon_trash, is_current == false && elsewhere == false, true) });
@@ -179,6 +203,7 @@ namespace cyella {
             model.title = to_u8(target.name);
             add_group(model.entries, { make_entry(u8"checkout", tr(u8"menu.checkout"), icons::icon_check) });
             add_group(model.entries, merge_rebase_group(target, context));
+            add_group(model.entries, graph_filter_group(target, context, false));
             add_group(model.entries, { make_entry(u8"copy_name", tr(u8"menu.copy_name"), icons::icon_copy) });
             return model;
         }
@@ -198,6 +223,7 @@ namespace cyella {
             }
             add_group(model.entries, std::move(push));
             add_group(model.entries, { make_entry(u8"checkout_detached", tr(u8"menu.checkout_tag_detached"), icons::icon_target) });
+            add_group(model.entries, graph_filter_group(target, context, false));
             std::vector<menu_entry> removal {};
             removal.push_back(make_entry(u8"delete_local", tr(u8"menu.delete_local_tag"), icons::icon_trash, true, true));
             if (tag != nullptr)
@@ -535,6 +561,23 @@ namespace cyella {
         if (source.kind == ref_kind::remote)
             return tr(u8"menu.merge_into", { { u8"source", a }, { u8"target", b } }) + count_suffix(facts.only_in_source);
         return tr(u8"menu.rebase_onto", { { u8"branch", a }, { u8"onto", b } }) + count_suffix(facts.only_in_source);
+    }
+
+    std::optional<std::string> graph_filter_ref_of(const menu_target& target, const std::vector<ref>& refs)
+    {
+        std::optional<ref_kind> kind {};
+        if (target.kind == menu_target_kind::local_branch)
+            kind = ref_kind::local;
+        else if (target.kind == menu_target_kind::remote_branch)
+            kind = ref_kind::remote;
+        else if (target.kind == menu_target_kind::tag)
+            kind = ref_kind::tag;
+        if (kind.has_value() == false)
+            return std::nullopt;
+        const ref* const found { find_ref(refs, *kind, target.name) };
+        if (found == nullptr || found->full_name.empty())
+            return std::nullopt;
+        return found->full_name;
     }
 
     std::optional<std::string> menu_key_argument(const std::u8string& key, const std::u8string_view prefix)

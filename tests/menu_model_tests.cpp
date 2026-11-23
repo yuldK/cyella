@@ -635,3 +635,109 @@ TEST_CASE("the tab menu closes tabs in groups and opens repository folders elsew
     // 사라진 탭은 빈 메뉴다.
     CHECK(build_tab_menu(tabs, 999).entries.empty());
 }
+
+namespace {
+    // 전체 ref 이름을 아는 저장소다 (실제 snapshot의 ref는 늘 전체 이름을 든다). main이 현재 브랜치다.
+    menu_context filter_context()
+    {
+        menu_context context {};
+        context.current_branch = "main";
+        context.head_sha = sha_of(7);
+        context.remotes = { "origin" };
+        context.refs = {
+            { .kind = ref_kind::local, .name = "main", .full_name = "refs/heads/main", .target_sha = sha_of(7), .is_current = true },
+            { .kind = ref_kind::local, .name = "feature", .full_name = "refs/heads/feature", .target_sha = sha_of(9) },
+            { .kind = ref_kind::remote, .name = "origin/feature", .full_name = "refs/remotes/origin/feature", .target_sha = sha_of(9) },
+            // 브랜치와 이름이 같은 태그다.
+            { .kind = ref_kind::tag, .name = "feature", .full_name = "refs/tags/feature", .target_sha = sha_of(5) },
+        };
+        return context;
+    }
+
+    // 값으로 돌려준다. 임시 메뉴에서 꺼낸 항목을 이름에 묶어 두어도 된다.
+    menu_entry entry_of(const menu_model& model, const std::u8string& key)
+    {
+        const auto found { std::ranges::find(model.entries, key, &menu_entry::key) };
+        REQUIRE(found != model.entries.end());
+        return *found;
+    }
+
+    const menu_target filter_main { .kind = menu_target_kind::local_branch, .name = "main", .sha = sha_of(7) };
+    const menu_target filter_feature { .kind = menu_target_kind::local_branch, .name = "feature", .sha = sha_of(9) };
+    const menu_target filter_remote { .kind = menu_target_kind::remote_branch, .name = "origin/feature", .sha = sha_of(9) };
+    const menu_target filter_tag { .kind = menu_target_kind::tag, .name = "feature", .sha = sha_of(5) };
+} // namespace
+
+TEST_CASE("branch and tag menus offer to show a ref alone or hide it in the graph", "[presentation][menu][graph_filter]")
+{
+    const menu_context context { filter_context() };
+    for (const menu_target& target : { filter_main, filter_feature, filter_remote, filter_tag })
+    {
+        INFO("target " << target.name << " kind " << static_cast<int>(target.kind));
+        const menu_model model { build_context_menu(target, context) };
+        const menu_entry only { entry_of(model, u8"graph_only") };
+        CHECK(only.enabled);
+        CHECK(only.label == u8"그래프에 이것만 보기");
+        // 두 항목은 한 묶음이다: "이것만 보기" 위에 구분선이 서고 숨기기가 바로 뒤따른다.
+        CHECK(only.separator_above);
+        const auto at { std::ranges::find(model.entries, std::u8string { u8"graph_only" }, &menu_entry::key) };
+        REQUIRE(at + 1 != model.entries.end());
+        CHECK((at + 1)->key == u8"graph_hide");
+        CHECK_FALSE((at + 1)->separator_above);
+    }
+
+    // 현재 브랜치(HEAD가 가리키는 브랜치)는 숨길 수 없다. 까닭을 문구가 말한다.
+    const menu_entry current { entry_of(build_context_menu(filter_main, context), u8"graph_hide") };
+    CHECK_FALSE(current.enabled);
+    CHECK(current.label == u8"그래프에서 숨기기 (현재 브랜치는 숨길 수 없음)");
+    CHECK(entry_of(build_context_menu(filter_feature, context), u8"graph_hide").enabled);
+    CHECK(entry_of(build_context_menu(filter_feature, context), u8"graph_hide").label == u8"그래프에서 숨기기");
+    CHECK(entry_of(build_context_menu(filter_remote, context), u8"graph_hide").enabled);
+    CHECK(entry_of(build_context_menu(filter_tag, context), u8"graph_hide").enabled);
+
+    // detached HEAD에는 현재 브랜치가 없다. main도 숨길 수 있다.
+    menu_context detached { context };
+    detached.detached = true;
+    detached.current_branch.clear();
+    CHECK(entry_of(build_context_menu(filter_main, detached), u8"graph_hide").enabled);
+
+    // 다른 대상의 메뉴에는 없다.
+    CHECK_FALSE(has_entry(build_context_menu({ .kind = menu_target_kind::commit, .sha = sha_of(5) }, context), u8"graph_only"));
+    CHECK_FALSE(has_entry(build_context_menu({ .kind = menu_target_kind::stash, .name = "stash@{0}" }, context), u8"graph_hide"));
+    // 저장소가 모르는 ref(방금 지워졌다)에도 세우지 않는다.
+    CHECK_FALSE(has_entry(build_context_menu({ .kind = menu_target_kind::local_branch, .name = "gone" }, context), u8"graph_only"));
+    CHECK_FALSE(graph_filter_ref_of({ .kind = menu_target_kind::local_branch, .name = "gone" }, context.refs).has_value());
+}
+
+TEST_CASE("the filter entries say what picking them will do and hiding is off while refs are shown alone", "[presentation][menu][graph_filter]")
+{
+    menu_context context { filter_context() };
+
+    // 숨긴 ref의 항목은 다시 보이기다. 같은 이름의 태그는 다른 ref라 그대로다.
+    context.graph_filter.hidden = { "refs/heads/feature" };
+    CHECK(entry_of(build_context_menu(filter_feature, context), u8"graph_hide").label == u8"그래프에 다시 보이기");
+    CHECK(entry_of(build_context_menu(filter_feature, context), u8"graph_hide").enabled);
+    CHECK(entry_of(build_context_menu(filter_tag, context), u8"graph_hide").label == u8"그래프에서 숨기기");
+    CHECK(entry_of(build_context_menu(filter_remote, context), u8"graph_hide").label == u8"그래프에서 숨기기");
+    CHECK(entry_of(build_context_menu(filter_feature, context), u8"graph_only").label == u8"그래프에 이것만 보기");
+
+    // "이것만 보기"가 하나라도 켜져 있으면 숨기기는 뜻이 없다. 숨겨 둔 ref의 다시 보이기까지 모두 꺼진다.
+    context.graph_filter.only = { "refs/tags/feature" };
+    CHECK(entry_of(build_context_menu(filter_tag, context), u8"graph_only").label == u8"그래프에 이것만 보기 풀기");
+    CHECK(entry_of(build_context_menu(filter_tag, context), u8"graph_only").enabled);
+    CHECK(entry_of(build_context_menu(filter_feature, context), u8"graph_only").label == u8"그래프에 이것만 보기");
+    CHECK(entry_of(build_context_menu(filter_feature, context), u8"graph_only").enabled);
+    for (const menu_target& target : { filter_main, filter_feature, filter_remote, filter_tag })
+    {
+        INFO("target " << target.name << " kind " << static_cast<int>(target.kind));
+        const menu_entry hide { entry_of(build_context_menu(target, context), u8"graph_hide") };
+        CHECK_FALSE(hide.enabled);
+        CHECK(hide.label == u8"그래프에서 숨기기 (이것만 보기 중에는 쓸 수 없음)");
+    }
+
+    // 메뉴와 controller가 같은 전체 이름을 쓴다.
+    CHECK(graph_filter_ref_of(filter_feature, context.refs) == std::optional<std::string> { "refs/heads/feature" });
+    CHECK(graph_filter_ref_of(filter_tag, context.refs) == std::optional<std::string> { "refs/tags/feature" });
+    CHECK(graph_filter_ref_of(filter_remote, context.refs) == std::optional<std::string> { "refs/remotes/origin/feature" });
+    CHECK_FALSE(graph_filter_ref_of({ .kind = menu_target_kind::commit, .sha = sha_of(5) }, context.refs).has_value());
+}

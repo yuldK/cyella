@@ -106,6 +106,14 @@ namespace {
             static_cast<void>(run(repository, refresh_request {}));
         }
 
+        // 그래프의 브랜치 필터를 바꾸고 workspace가 낸 refresh까지 끝낸다. 필터가 그대로면 아무것도 내지 않고 0이다.
+        operation_id filter(const std::string& repository, graph_ref_filter value)
+        {
+            const operation_id id { workspace_->set_graph_filter(repository, std::move(value)) };
+            settle();
+            return id;
+        }
+
         void settle()
         {
             for (int round { 0 }; round < 64; ++round)
@@ -968,6 +976,324 @@ TEST_CASE("integration: search_commits in a repository without commits finds not
     REQUIRE(live.status(blank).failure.has_value());
     CHECK(live.status(blank).failure->kind == failure_kind::invalid_request);
     CHECK_FALSE(live.session(repo).selected_search().has_value());
+}
+
+namespace {
+    // 갈래가 둘인 저장소다. main이 현재 브랜치이고, feature는 둘째 커밋에서 갈라졌다. 태그와 원격 추적 브랜치에만 있는 커밋도 하나씩 있다.
+    //   1 ─ 2 ─ 3 (main, origin/main) ─ 7 (origin/topic)
+    //        ├─ 4 ─ 5 (feature)
+    //        └─ 6 (태그 v-side)
+    struct filter_fixture
+    {
+        filter_fixture()
+        {
+            std::filesystem::create_directories(path);
+            git_ok(path, { "init", "-q", "-b", "main" });
+            const std::string morgan { "Morgan <morgan@example.com>" };
+            std::string stream {};
+            stream.append(import_commit("refs/heads/main", 1, 0, morgan, 1700001000, "base one\n"));
+            stream.append(import_commit("refs/heads/main", 2, 1, morgan, 1700002000, "base two\n"));
+            stream.append(import_commit("refs/heads/main", 3, 2, morgan, 1700003000, "main three\n"));
+            stream.append(import_commit("refs/heads/feature", 4, 2, morgan, 1700004000, "feat four\n"));
+            stream.append(import_commit("refs/heads/feature", 5, 4, morgan, 1700005000, "feat five\n"));
+            stream.append(import_commit("refs/heads/tagged", 6, 2, morgan, 1700006000, "tagged six\n"));
+            stream.append(import_commit("refs/heads/remote", 7, 3, morgan, 1700007000, "remote seven\n"));
+            git_ok(path, { "fast-import", "--quiet" }, stream);
+            git_ok(path, { "reset", "-q", "--hard", "main" });
+            one = git_text(path, { "rev-parse", "main~2" });
+            two = git_text(path, { "rev-parse", "main~1" });
+            three = git_text(path, { "rev-parse", "main" });
+            four = git_text(path, { "rev-parse", "feature~1" });
+            five = git_text(path, { "rev-parse", "feature" });
+            six = git_text(path, { "rev-parse", "tagged" });
+            seven = git_text(path, { "rev-parse", "remote" });
+            git_ok(path, { "tag", "v-side", six });
+            git_ok(path, { "update-ref", "refs/remotes/origin/topic", seven });
+            git_ok(path, { "update-ref", "refs/remotes/origin/main", three });
+            git_ok(path, { "branch", "-q", "-D", "tagged", "remote" });
+        }
+
+        test::temp_directory directory {};
+        std::filesystem::path path { directory.path() / "repo" };
+        std::string one {};
+        std::string two {};
+        std::string three {};
+        std::string four {};
+        std::string five {};
+        std::string six {};
+        std::string seven {};
+    };
+
+    // 그래프에 선 커밋의 SHA다 (WIP 행은 뺀다). 견주기 좋게 정렬한다.
+    text_list graph_shas(const repository_session& session)
+    {
+        text_list shas {};
+        for (const commit_info& commit : session.graph_commits())
+        {
+            if (commit.sha != graph_wip_sha)
+                shas.push_back(commit.sha);
+        }
+        std::sort(shas.begin(), shas.end());
+        return shas;
+    }
+
+    text_list sorted(text_list shas)
+    {
+        std::sort(shas.begin(), shas.end());
+        return shas;
+    }
+
+    // 그래프의 커밋을 처음부터 다시 배치했을 때 끝까지 열린 레인의 수다. 걸러 읽은 log가 조상까지 닫혀 있으면 0이다.
+    std::uint16_t open_lanes(const repository_session& session)
+    {
+        std::vector<graph_commit> commits {};
+        for (const commit_info& commit : session.graph_commits())
+            commits.push_back(graph_commit { commit.sha, commit.parents });
+        commit_graph_layout layout {};
+        const std::vector<graph_row> rows { layout.append(commits) };
+        REQUIRE(rows == session.graph_rows());
+        return layout.open_lane_count();
+    }
+
+    graph_ref_filter only_filter(std::vector<std::string> names)
+    {
+        graph_ref_filter filter {};
+        filter.only = std::move(names);
+        return filter;
+    }
+
+    graph_ref_filter hidden_filter(std::vector<std::string> names)
+    {
+        graph_ref_filter filter {};
+        filter.hidden = std::move(names);
+        return filter;
+    }
+} // namespace
+
+TEST_CASE("integration: showing only a branch reads the commits it reaches and hiding one keeps the shared ancestors", "[session][integration][graph_filter]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    const filter_fixture fixture {};
+    live_workspace live {};
+    const std::string repo { live.open(fixture.path) };
+    const repository_session& session { live.session(repo) };
+    const text_list everything { sorted({ fixture.one, fixture.two, fixture.three, fixture.four, fixture.five, fixture.six, fixture.seven }) };
+    REQUIRE(graph_shas(session) == everything);
+    CHECK(session.history_complete());
+
+    // 이것만 보기: feature에서 닿는 커밋만이다. HEAD(main)도 따로 더하지 않는다.
+    live.require_succeeded(live.filter(repo, only_filter({ "refs/heads/feature" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.four, fixture.five }));
+    // git이 준 topo 순서 그대로 배치한다. 한 줄 이력이라 레인은 하나이고 열린 채 남는 레인이 없다.
+    REQUIRE(session.graph_commits().size() == 4);
+    CHECK(session.graph_commits()[0].sha == fixture.five);
+    CHECK(session.graph_commits()[3].sha == fixture.one);
+    CHECK(session.graph_lane_count() == 1);
+    CHECK(open_lanes(session) == 0);
+    CHECK(session.history_complete());
+    CHECK_FALSE(session.snapshot().head_in_graph);
+
+    // 여러 개를 함께 켜면 그 ref들에서 닿는 커밋의 합이다. 태그와 원격 추적 브랜치도 된다.
+    live.require_succeeded(live.filter(repo, only_filter({ "refs/heads/feature", "refs/tags/v-side" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.four, fixture.five, fixture.six }));
+    CHECK(open_lanes(session) == 0);
+    live.require_succeeded(live.filter(repo, only_filter({ "refs/remotes/origin/topic" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.seven }));
+    // HEAD(3번 커밋)는 origin/topic에서 닿는다.
+    CHECK(session.snapshot().head_in_graph);
+
+    // 숨기기: feature에만 있는 커밋(4, 5)이 빠지고 공통 조상(1, 2)은 남는다.
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/heads/feature" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.six, fixture.seven }));
+    CHECK(open_lanes(session) == 0);
+    // 태그와 원격 추적 브랜치도 숨겨진다. 묶음마다 `--exclude`가 제 자리에 서야 한다.
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/tags/v-side" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.four, fixture.five, fixture.seven }));
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/remotes/origin/topic" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.four, fixture.five, fixture.six }));
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/remotes/origin/topic", "refs/heads/feature", "refs/tags/v-side" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three }));
+    CHECK(session.graph_lane_count() == 1);
+
+    // 다른 ref에서도 닿는 커밋은 남는다: origin/main을 숨겨도 main이 3번 커밋을 가리킨다.
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/remotes/origin/main" })));
+    CHECK(graph_shas(session) == everything);
+
+    // 현재 브랜치는 숨길 수 없다. 세션이 받지 않으므로 다시 읽을 것도 없다.
+    live.require_succeeded(live.filter(repo, {}));
+    CHECK(live.filter(repo, hidden_filter({ "refs/heads/main" })) == 0);
+    CHECK(session.graph_filter().empty());
+    CHECK(graph_shas(session) == everything);
+
+    // `--exclude`는 이름 전체가 맞는 ref만 뺀다. 앞부분이 같은 `fea`를 숨겨도 `feature`의 커밋은 남는다.
+    git_ok(fixture.path, { "branch", "fea", fixture.two });
+    live.refresh(repo);
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/heads/fea" })));
+    CHECK(session.graph_filter().hidden == std::vector<std::string> { "refs/heads/fea" });
+    CHECK(graph_shas(session) == everything);
+}
+
+TEST_CASE("integration: hiding a remote branch also hides it from the remote's symbolic HEAD", "[session][integration][graph_filter]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    const filter_fixture fixture {};
+    // clone한 저장소에는 `refs/remotes/origin/HEAD`가 원격의 기본 브랜치를 가리키는 기호 ref로 있다. 여기서는 topic을 가리킨다.
+    git_ok(fixture.path, { "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/topic" });
+    live_workspace live {};
+    const std::string repo { live.open(fixture.path) };
+    const repository_session& session { live.session(repo) };
+    REQUIRE(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.four, fixture.five, fixture.six, fixture.seven }));
+
+    // `--exclude=origin/topic --remotes`만으로는 7번 커밋이 origin/HEAD로 그대로 닿는다 (git 2.56에서 확인). `*/HEAD`도 함께 뺀다.
+    const text_list naive_arguments { "log", "--format=%H", "--branches", "--exclude=origin/topic", "--remotes", "--tags", "HEAD", "--" };
+    const test::git_run_result naive { run_git(fixture.path, naive_arguments) };
+    REQUIRE(naive.exit_code == 0);
+    CHECK(naive.standard_output.find(fixture.seven) != std::string::npos);
+
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/remotes/origin/topic" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.four, fixture.five, fixture.six }));
+
+    // 다른 원격 브랜치를 숨길 때는 origin/HEAD가 가리키는 topic이 시작점으로 남아 잃는 커밋이 없다.
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/remotes/origin/main" })));
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.four, fixture.five, fixture.six, fixture.seven }));
+}
+
+TEST_CASE("integration: a filtered graph pages with --skip over the same refs and keeps a parentless WIP row when HEAD is filtered out", "[session][integration][graph_filter][graph]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    const filter_fixture fixture {};
+    // 쪽이 둘씩이라 걸러 읽은 이력도 여러 쪽에 걸친다. 첫 쪽과 이어 읽는 쪽의 ref 집합이 다르면 커밋이 빠지거나 겹친다.
+    git_operation_runner_options options {};
+    options.log_page_size = 2;
+    live_workspace live { options };
+    const std::string repo { live.open(fixture.path) };
+    const repository_session& session { live.session(repo) };
+    const auto read_all = [&live, &repo, &session] {
+        for (int page { 0 }; page < 16 && session.history_complete() == false; ++page)
+            live.require_succeeded(live.run(repo, load_more_log_request {}));
+        REQUIRE(session.history_complete());
+    };
+
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/heads/feature", "refs/tags/v-side" })));
+    CHECK(session.loaded_commit_count() == 2);
+    read_all();
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.seven }));
+    CHECK(session.graph_commits().size() == 4);
+    CHECK(open_lanes(session) == 0);
+
+    // 작업 트리에 변경이 있으면 WIP 행이 선다. feature만 보면 HEAD(main의 3번 커밋)는 그래프에 없다.
+    test::write_file(fixture.path / "note.txt", "work in progress\n");
+    live.require_succeeded(live.filter(repo, only_filter({ "refs/heads/feature" })));
+    REQUIRE(session.snapshot().summary.changed_file_count > 0);
+    CHECK_FALSE(session.snapshot().head_in_graph);
+    REQUIRE(session.has_wip_row());
+    read_all();
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.four, fixture.five }));
+    // WIP 행은 그래프에 오지 않을 HEAD를 기다리지 않는다. 열린 채 남는 레인이 없고 레인도 하나다.
+    CHECK(session.graph_rows().front().is_root);
+    CHECK(session.graph_commits().front().parents.empty());
+    CHECK(open_lanes(session) == 0);
+    CHECK(session.graph_lane_count() == 1);
+
+    // HEAD가 그래프에 있으면 WIP 행은 평소처럼 HEAD 커밋에 매달린다.
+    live.require_succeeded(live.filter(repo, only_filter({ "refs/heads/main" })));
+    CHECK(session.snapshot().head_in_graph);
+    REQUIRE(session.has_wip_row());
+    CHECK(session.graph_commits().front().parents == text_list { fixture.three });
+    read_all();
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three }));
+    CHECK(open_lanes(session) == 0);
+}
+
+TEST_CASE("integration: the graph still reads after a branch shown alone or hidden is deleted", "[session][integration][graph_filter]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    const filter_fixture fixture {};
+    live_workspace live {};
+    const std::string repo { live.open(fixture.path) };
+    const repository_session& session { live.session(repo) };
+
+    live.require_succeeded(live.filter(repo, only_filter({ "refs/heads/feature" })));
+    REQUIRE(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.four, fixture.five }));
+
+    // 다른 곳(터미널)에서 그 브랜치를 지웠다. 세션의 필터는 아직 그 이름을 들고 있고, 다음 refresh의 job이 그대로 싣고 간다.
+    git_ok(fixture.path, { "branch", "-q", "-D", "feature" });
+    REQUIRE(session.graph_filter().only == std::vector<std::string> { "refs/heads/feature" });
+    // 걸러 내지 않으면 git은 이렇게 실패한다.
+    const text_list stale_arguments { "log", "--format=%H", "refs/heads/feature", "--" };
+    CHECK(run_git(fixture.path, stale_arguments).exit_code != 0);
+    const operation_id refresh { live.run(repo, refresh_request {}) };
+
+    // 실행기가 방금 읽은 ref로 걸러 필터 없이 읽었다. 세션의 필터도 같은 규칙으로 비었다.
+    live.require_succeeded(refresh);
+    CHECK(session.graph_filter().empty());
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.six, fixture.seven }));
+
+    // 여럿 가운데 하나만 없어지면 남은 것만 본다. 숨긴 목록의 없어진 ref도 빠진다.
+    live.require_succeeded(live.filter(repo, only_filter({ "refs/tags/v-side", "refs/remotes/origin/topic" })));
+    git_ok(fixture.path, { "tag", "-d", "v-side" });
+    live.require_succeeded(live.run(repo, refresh_request {}));
+    CHECK(session.graph_filter().only == std::vector<std::string> { "refs/remotes/origin/topic" });
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three, fixture.seven }));
+
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/remotes/origin/topic", "refs/remotes/origin/main" })));
+    git_ok(fixture.path, { "update-ref", "-d", "refs/remotes/origin/topic" });
+    live.require_succeeded(live.run(repo, refresh_request {}));
+    CHECK(session.graph_filter().hidden == std::vector<std::string> { "refs/remotes/origin/main" });
+    CHECK(graph_shas(session) == sorted({ fixture.one, fixture.two, fixture.three }));
+
+    // 숨긴 브랜치로 옮겨 가면 그 브랜치는 현재 브랜치라 다시 보인다.
+    git_ok(fixture.path, { "branch", "side", fixture.two });
+    live.refresh(repo);
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/heads/side" })));
+    REQUIRE(session.graph_filter().hidden == std::vector<std::string> { "refs/heads/side" });
+    live.require_succeeded(live.run(repo, checkout_branch_request { "side" }));
+    CHECK(session.snapshot().summary.current_branch == "side");
+    CHECK(session.graph_filter().empty());
+}
+
+TEST_CASE("integration: search_commits does not find commits that the graph filter leaves out", "[session][integration][graph_filter][commit_search]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    const filter_fixture fixture {};
+    live_workspace live {};
+    const std::string repo { live.open(fixture.path) };
+    const auto find = [&live, &repo](const std::string& query) {
+        live.require_succeeded(live.run(repo, search_commits_request { .query = query }));
+        REQUIRE(live.session(repo).selected_search().has_value());
+        return found_shas(*live.session(repo).selected_search());
+    };
+    REQUIRE(find("feat") == text_list { fixture.five, fixture.four });
+    REQUIRE(find(fixture.five.substr(0, 10)) == text_list { fixture.five });
+
+    // 숨긴 브랜치에만 있는 커밋은 메시지로도 SHA로도 찾지 않는다. 그래프에 없어 화면이 갈 곳이 없다.
+    live.require_succeeded(live.filter(repo, hidden_filter({ "refs/heads/feature" })));
+    // 필터를 바꾸면 앞 ref 집합에서 찾은 결과는 버린다.
+    CHECK_FALSE(live.session(repo).selected_search().has_value());
+    CHECK(find("feat").empty());
+    CHECK(find(fixture.five.substr(0, 10)).empty());
+    CHECK(find(fixture.five).empty());
+    // 다른 ref에서도 닿는 공통 조상과, 숨기지 않은 ref의 커밋은 찾는다.
+    CHECK(find("base") == text_list { fixture.two, fixture.one });
+    CHECK(find("tagged six") == text_list { fixture.six });
+    CHECK(find(fixture.seven.substr(0, 10)) == text_list { fixture.seven });
+
+    // 이것만 보기: 그 ref에서 닿는 커밋만 찾는다. HEAD의 커밋(main three)도 그래프에 없으면 찾지 않는다.
+    live.require_succeeded(live.filter(repo, only_filter({ "refs/heads/feature" })));
+    CHECK(find("feat") == text_list { fixture.five, fixture.four });
+    CHECK(find("main three").empty());
+    CHECK(find(fixture.three.substr(0, 10)).empty());
+    CHECK(find("morgan@example.com") == text_list { fixture.five, fixture.four, fixture.two, fixture.one });
+
+    // 필터를 풀면 다시 다 찾는다.
+    live.require_succeeded(live.filter(repo, {}));
+    CHECK(find("main three") == text_list { fixture.three });
+    CHECK(find("feat") == text_list { fixture.five, fixture.four });
 }
 
 TEST_CASE("integration: set_upstream connects a pushed branch without pushing and unset_upstream removes it", "[session][integration][upstream]")

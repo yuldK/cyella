@@ -18,6 +18,7 @@
 #include "presentation/ui/ui_parts.h"
 #include "presentation/ui_intents.h"
 
+#include "presentation/ui/graph_filter_ui.h"
 #include "presentation/ui/graph_search_ui.h"
 
 #include "luil/ui/check_element.h"
@@ -1075,6 +1076,9 @@ namespace cyella::ui {
         // 커밋 검색 막대는 열 머리 위에 선다. 그래프가 비어 있어도(읽는 중) 칸은 남아 치던 글을 잃지 않는다.
         if (graph.search.has_value())
             column->add(build_graph_search_bar(*graph.search), graph_search_bar_height);
+        // 브랜치 필터가 걸려 있으면 그래프가 평소와 다르다는 띠가 선다. 그래프가 비어 있어도(걸러 낸 결과가 없다) 푸는 단추가 남아야 한다.
+        if (graph.filter.has_value())
+            column->add(build_graph_filter_bar(*graph.filter), graph_filter_bar_height);
         auto header { std::make_unique<graph_header_element>(columns) };
         graph_header_element* const header_row { header.get() };
         column->add(std::move(header), 26.0f);

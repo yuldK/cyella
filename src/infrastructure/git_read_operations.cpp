@@ -93,7 +93,14 @@ namespace cyella {
             std::chrono::steady_clock::time_point last_flush_ {};
         };
 
-        operation_outcome stream_log(git_operation_context& context, const std::size_t skip, const bool include_head)
+        // load_more_log와 search_commits가 읽을 그래프의 ref 집합이다. 접수할 때 세션이 든 값 그대로다 — 세션의 필터는 snapshot이 올 때
+        // 이미 지금 있는 ref로 걸러져 있어, refresh가 첫 쪽을 읽은 집합과 같다.
+        git_graph_refs graph_refs_of(const git_operation_job& job)
+        {
+            return git_graph_refs { .include_head = job.log_include_head, .filter = job.graph_filter, .current_branch = job.current_branch_hint };
+        }
+
+        operation_outcome stream_log(git_operation_context& context, const std::size_t skip, const git_graph_refs& graph)
         {
             const git_operation_runner_options& options { context.owner().options() };
             commit_batcher batcher { context, skip };
@@ -103,7 +110,7 @@ namespace cyella {
             const std::size_t page_size { std::max(options.log_page_size, context.job().minimum_log_count) };
             log_options.max_count = static_cast<std::uint32_t>(page_size);
             log_options.skip = static_cast<std::uint32_t>(skip);
-            log_options.include_head = include_head;
+            log_options.graph = graph;
 
             git_command_spec spec {};
             spec.arguments = make_git_log_args(log_options);
@@ -229,6 +236,22 @@ namespace cyella {
 
             const bool has_head { snapshot.summary.head_sha.empty() == false };
             const bool has_refs { snapshot.refs.empty() == false };
+            // 브랜치 필터를 방금 읽은 ref에 맞춘다. 접수한 뒤 지워진 브랜치가 "이것만 보기"에 남아 있으면 `log <없는 ref>`가 실패해
+            // 그래프 전체가 읽히지 않는다. 현재 브랜치도 status가 방금 말한 값으로 본다 (접수 때의 값은 체크아웃 직후 낡았다).
+            // 세션은 이 snapshot을 받을 때 같은 함수로 자기 필터를 거르므로, 이어 읽는 쪽이 같은 ref 집합을 쓴다.
+            git_graph_refs graph {};
+            graph.include_head = has_head;
+            graph.filter = settle_graph_ref_filter(context.job().graph_filter, snapshot.refs, snapshot.summary.current_branch);
+            graph.current_branch = snapshot.summary.current_branch;
+            // "이것만 보기"는 HEAD를 시작점에 더하지 않는다. HEAD가 그 ref들에서 닿지 않으면 WIP 행이 매달릴 커밋이 그래프에 없다.
+            // 모르면(git 실패) 있다고 본다. 틀려도 선 하나가 열려 보일 뿐이라 이 물음 때문에 refresh를 실패시키지 않는다.
+            if (graph.filter.only.empty() == false && has_head)
+            {
+                git_command_spec reachability {};
+                reachability.arguments = make_git_graph_reachability_args(snapshot.summary.head_sha, graph);
+                const git_command_outcome answer { context.run(std::move(reachability)) };
+                snapshot.head_in_graph = answer.accepted == false || trim_line(answer.standard_output).empty();
+            }
             context.emit(snapshot_loaded { context.job().generation, std::move(snapshot) });
 
             // 첫 커밋 전이고 다른 ref도 없으면 읽을 이력이 없다. `log HEAD`는 실패하므로 부르지 않는다.
@@ -241,7 +264,7 @@ namespace cyella {
                 context.emit(std::move(empty));
                 return operation_outcome::succeeded();
             }
-            return stream_log(context, 0, has_head);
+            return stream_log(context, 0, graph);
         }
 
         // 작업 트리 변경만 다시 읽는다. refresh의 status·줄 수 부분이고, 그래프·ref·stash·원격은 읽지 않는다.
@@ -531,7 +554,7 @@ namespace cyella {
             const std::uint32_t asked { limit == 0 || limit == std::numeric_limits<std::uint32_t>::max() ? limit : limit + 1 };
             // 맞는 커밋이 많으면 출력이 캡처 상한을 넘을 수 있어 조각을 받는 대로 해석한다.
             git_command_spec spec {};
-            spec.arguments = make_git_search_log_args(query, field, context.job().log_include_head, asked);
+            spec.arguments = make_git_search_log_args(query, field, graph_refs_of(context.job()), asked);
             spec.on_standard_output = [&parser](const std::string_view bytes) { parser.feed(bytes); };
             const git_command_outcome outcome { context.run(std::move(spec)) };
             if (outcome.accepted == false)
@@ -568,7 +591,7 @@ namespace cyella {
                 return true;
 
             git_command_spec reachability {};
-            reachability.arguments = make_git_graph_reachability_args(sha, context.job().log_include_head);
+            reachability.arguments = make_git_graph_reachability_args(sha, graph_refs_of(context.job()));
             if (context.run_required(std::move(reachability), outcome, stop) == false)
                 return false;
             // 닿지 않으면 git이 그 SHA를 낸다.
@@ -666,7 +689,7 @@ namespace cyella {
                 else if constexpr (std::is_same_v<request_type, refresh_status_request>)
                     return refresh_status(context);
                 else if constexpr (std::is_same_v<request_type, load_more_log_request>)
-                    return stream_log(context, job.log_skip, job.log_include_head);
+                    return stream_log(context, job.log_skip, graph_refs_of(job));
                 else if constexpr (std::is_same_v<request_type, show_commit_request>)
                     return show_commit(context, request);
                 else if constexpr (std::is_same_v<request_type, diff_file_request>)

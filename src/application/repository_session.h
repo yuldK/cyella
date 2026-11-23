@@ -3,6 +3,7 @@
 #include "application/operation_events.h"
 #include "domain/commit_graph_layout.h"
 #include "domain/commit_info.h"
+#include "domain/graph_ref_filter.h"
 #include "domain/operation_status.h"
 
 #include <cstddef>
@@ -144,6 +145,13 @@ namespace cyella {
             return commit_search_;
         }
 
+        // 그래프의 브랜치 필터다 (ADR-012). refresh·load_more_log·search_commits의 job이 이 값을 싣고 간다.
+        // 탭이 열려 있는 동안만 산다. snapshot이 올 때마다 없어진 ref가 빠진다.
+        [[nodiscard]] const graph_ref_filter& graph_filter() const noexcept
+        {
+            return graph_filter_;
+        }
+
         // 읽어 둔 서명 정보다. 아직 검증하지 않은 커밋은 null이다. SHA별로 한 번만 읽고 refresh가 지우지 않는다 (커밋은 바뀌지 않는다).
         // 서명 설정이 바뀌면 `forget_signatures`로 비운다.
         [[nodiscard]] const commit_signature* signature_of(const std::string& sha) const noexcept;
@@ -188,6 +196,9 @@ namespace cyella {
         // 앞 결과를 비운다. 질의를 고쳐 치는 동안 앞 질의의 결과가 새 질의의 것처럼 보이지 않게 한다.
         void expect_commit_search(operation_id id) noexcept;
         void set_awaiting_input(std::optional<operation_id> id) noexcept;
+        // 브랜치 필터를 바꾼다. 읽힌 세션이면 지금 snapshot의 ref에 맞춰 거른 값을 둔다 (없는 ref, 현재 브랜치 숨기기).
+        // 바뀌었으면 true이고, 그래프는 호출자(workspace)가 refresh를 내야 따라온다. 앞 필터로 찾은 검색 결과는 버린다.
+        bool set_graph_filter(graph_ref_filter filter);
 
         // 받아들였으면 true다. 늦게 온 결과면 false이고 상태는 그대로다.
         bool apply(const snapshot_loaded& event);
@@ -211,6 +222,8 @@ namespace cyella {
     private:
         void replace_snapshot(const snapshot_loaded& event);
         void apply_known_remote_tags();
+        // 필터가 달라졌으면 바꾸고 true다. 앞 필터의 ref 집합에서 찾은 검색 결과를 버리고, 돌고 있는 검색의 결과도 받지 않는다.
+        bool replace_graph_filter(graph_ref_filter filter);
 
         std::string id_ {};
         std::u8string path_ {};
@@ -258,5 +271,6 @@ namespace cyella {
         std::optional<commit_search> commit_search_ {};
         // 마지막으로 요청한 커밋 검색이다. 그보다 앞선 요청의 결과는 버린다.
         operation_id expected_search_ { 0 };
+        graph_ref_filter graph_filter_ {};
     };
 } // namespace cyella

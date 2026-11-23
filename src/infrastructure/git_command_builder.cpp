@@ -107,12 +107,64 @@ namespace cyella {
             return arguments;
         }
 
+        constexpr std::string_view local_ref_prefix { "refs/heads/" };
+        constexpr std::string_view remote_ref_prefix { "refs/remotes/" };
+        constexpr std::string_view tag_ref_prefix { "refs/tags/" };
+
+        // 브랜치 필터의 ref 이름이다. 세 묶음 가운데 하나의 전체 이름이어야 `--exclude`의 짧은 이름으로 옮길 수 있고,
+        // `only`의 시작점으로 주었을 때 같은 이름의 브랜치·태그와 헷갈리지 않는다.
+        std::string_view require_graph_ref(const std::string_view value)
+        {
+            const auto under = [value](const std::string_view prefix) { return value.size() > prefix.size() && value.starts_with(prefix); };
+            if (under(local_ref_prefix) == false && under(remote_ref_prefix) == false && under(tag_ref_prefix) == false)
+                reject("graph ref", "not a full branch, remote branch or tag ref name");
+            // `--exclude`의 값은 glob이다. git은 ref 이름에 이 글자들을 받지 않으므로(`git check-ref-format`) 실제 ref에는 없고,
+            // 있다면 다른 ref까지 걸러 낼 패턴이다.
+            if (value.find_first_of("*?[\\") != std::string_view::npos)
+                reject("graph ref", "name contains a glob character");
+            return require_revision(value, "graph ref");
+        }
+
+        // 숨긴 ref 가운데 `prefix` 묶음의 것을 `--exclude=<짧은 이름>`으로 넣는다. 하나라도 넣었으면 true다.
+        // `--exclude`는 바로 다음 묶음 옵션 하나에만 걸리므로 부르는 쪽이 곧이어 그 묶음 옵션을 넣는다.
+        bool push_hidden_refs(git_arguments& arguments, const git_graph_refs& graph, const std::string_view prefix)
+        {
+            bool pushed { false };
+            for (const std::string& name : graph.filter.hidden)
+            {
+                const std::string_view full { require_graph_ref(name) };
+                if (full.starts_with(prefix) == false)
+                    continue;
+                const std::string_view short_name { full.substr(prefix.size()) };
+                // 현재 브랜치는 숨기지 않는다. 화면이 먼저 막지만, 숨긴 브랜치로 옮겨 간 직후처럼 낡은 필터가 올 수 있다.
+                if (prefix == local_ref_prefix && graph.current_branch.empty() == false && short_name == graph.current_branch)
+                    continue;
+                push_text(arguments, std::string { "--exclude=" }.append(short_name));
+                pushed = true;
+            }
+            return pushed;
+        }
+
         // 그래프에 보이는 커밋의 시작점이다. 그래프 log와 커밋 검색이 이 한곳을 함께 써야, 검색이 그래프에 없는 커밋을 내거나
         // 그래프를 좁힐 때 한쪽만 좁혀지지 않는다. 첫 커밋 전에는 HEAD를 풀 수 없어 git이 실패하므로 뺀다.
-        void push_graph_refs(git_arguments& arguments, const bool include_head)
+        // 인자의 꼴과 git으로 확인한 `--exclude`의 동작은 `git_graph_refs`의 설명에 적었다.
+        void push_graph_refs(git_arguments& arguments, const git_graph_refs& graph)
         {
-            push_all(arguments, { "--branches", "--remotes", "--tags" });
-            if (include_head)
+            if (graph.filter.only.empty() == false)
+            {
+                for (const std::string& name : graph.filter.only)
+                    push_text(arguments, require_graph_ref(name));
+                return;
+            }
+            static_cast<void>(push_hidden_refs(arguments, graph, local_ref_prefix));
+            push_text(arguments, "--branches");
+            // 원격의 기본 브랜치를 가리키는 `<remote>/HEAD`가 남으면 숨긴 원격 브랜치의 커밋이 그리로 닿는다.
+            if (push_hidden_refs(arguments, graph, remote_ref_prefix))
+                push_text(arguments, "--exclude=*/HEAD");
+            push_text(arguments, "--remotes");
+            static_cast<void>(push_hidden_refs(arguments, graph, tag_ref_prefix));
+            push_text(arguments, "--tags");
+            if (graph.include_head)
                 push_text(arguments, "HEAD");
         }
 
@@ -195,7 +247,7 @@ namespace cyella {
     {
         git_arguments arguments {};
         push_all(arguments, { "log", "--topo-order", "-z", options.include_body ? log_format_with_body : log_format });
-        push_graph_refs(arguments, options.include_head);
+        push_graph_refs(arguments, options.graph);
         if (options.max_count != 0)
             push_text(arguments, std::string { "--max-count=" }.append(std::to_string(options.max_count)));
         if (options.skip != 0)
@@ -969,7 +1021,7 @@ namespace cyella {
         return text.size() >= minimum_hash_prefix_length && text.size() <= maximum_hash_length && std::all_of(text.begin(), text.end(), is_hex_digit);
     }
 
-    git_arguments make_git_search_log_args(const std::string_view query, const commit_search_field field, const bool include_head, const std::uint32_t max_count)
+    git_arguments make_git_search_log_args(const std::string_view query, const commit_search_field field, const git_graph_refs& graph, const std::uint32_t max_count)
     {
         git_arguments arguments {};
         push_all(arguments, { "log", "--topo-order", "-z", log_format, "--no-mailmap", "-i", "--fixed-strings" });
@@ -977,16 +1029,16 @@ namespace cyella {
         push_text(arguments, std::string { field == commit_search_field::author ? "--author=" : "--grep=" }.append(require_search_text(query)));
         if (max_count != 0)
             push_text(arguments, std::string { "--max-count=" }.append(std::to_string(max_count)));
-        push_graph_refs(arguments, include_head);
+        push_graph_refs(arguments, graph);
         push_text(arguments, "--");
         return arguments;
     }
 
-    git_arguments make_git_graph_reachability_args(const std::string_view sha, const bool include_head)
+    git_arguments make_git_graph_reachability_args(const std::string_view sha, const git_graph_refs& graph)
     {
         git_arguments arguments {};
         push_all(arguments, { "rev-list", "--max-count=1", require_hash_prefix(sha), "--not" });
-        push_graph_refs(arguments, include_head);
+        push_graph_refs(arguments, graph);
         push_text(arguments, "--");
         return arguments;
     }

@@ -2,6 +2,7 @@
 
 #include "application/repository_tabs.h"
 #include "domain/file_change.h"
+#include "domain/graph_ref_filter.h"
 #include "domain/lfs.h"
 #include "domain/ref.h"
 #include "domain/submodule.h"
@@ -121,6 +122,8 @@ namespace cyella {
         std::vector<submodule_info> submodules {};
         std::vector<worktree_info> worktrees {};
         lfs_repository_state lfs {};
+        // 그래프의 브랜치 필터다. 브랜치·태그 메뉴의 "그래프에 이것만 보기"·"그래프에서 숨기기"가 켜짐과 문구를 정한다.
+        graph_ref_filter graph_filter {};
     };
 
     struct menu_entry
@@ -159,6 +162,10 @@ namespace cyella {
 
     // 끄는 동안 대상 위에서 보일 한 줄이다 ("feature를 main 위로 rebase · 커밋 3개"). 놓을 수 없으면 빈 값이다.
     [[nodiscard]] std::optional<std::u8string> describe_drop(const drop_party& source, const drop_party& destination, const std::string& current_branch, const drop_facts& facts);
+
+    // 브랜치·태그 메뉴의 대상이 가리키는 전체 ref 이름이다 (`refs/heads/main`). 그래프의 브랜치 필터가 이 이름으로 든다.
+    // 다른 대상이거나 `refs`에 없는 ref면 값이 없다. 메뉴(항목을 세울지)와 controller(무엇을 켜고 끌지)가 같은 답을 쓴다.
+    [[nodiscard]] std::optional<std::string> graph_filter_ref_of(const menu_target& target, const std::vector<ref>& refs);
 
     // 항목 키의 접두다. `push:<remote>`, `delete_remote:<remote>`처럼 뒤에 원격 이름이 붙는 키를 가른다.
     [[nodiscard]] std::optional<std::string> menu_key_argument(const std::u8string& key, std::u8string_view prefix);

@@ -49,7 +49,7 @@ TEST_CASE("make_git_log_args pages with max-count and skip", "[git][builder]")
     git_log_options paged {};
     paged.max_count = 500;
     paged.skip = 1000;
-    paged.include_head = false;
+    paged.graph.include_head = false;
     paged.include_body = true;
     CHECK(to_text(make_git_log_args(paged))
         == text_list { "log", "--topo-order", "-z", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s%x1f%b", "--branches", "--remotes", "--tags", "--max-count=500", "--skip=1000", "--" });
@@ -431,7 +431,7 @@ TEST_CASE("commit search matches one field literally over the refs the graph rea
     // 이름(`%an`)이 아니라 `.mailmap`으로 바꾼 이름과 견준다.
     CHECK(to_text(make_git_search_log_args("fix parser", commit_search_field::message))
         == text_list { "log", "--topo-order", "-z", format, "--no-mailmap", "-i", "--fixed-strings", "--grep=fix parser", "--branches", "--remotes", "--tags", "HEAD", "--" });
-    CHECK(to_text(make_git_search_log_args("morgan@example.com", commit_search_field::author, false, 1001))
+    CHECK(to_text(make_git_search_log_args("morgan@example.com", commit_search_field::author, git_graph_refs { .include_head = false }, 1001))
         == text_list { "log", "--topo-order", "-z", format, "--no-mailmap", "-i", "--fixed-strings", "--author=morgan@example.com", "--max-count=1001", "--branches", "--remotes", "--tags", "--" });
     // 그래프 log와 같은 해석기로 읽는다. 본문은 받지 않는다.
     CHECK(format == to_text(make_git_log_args())[3]);
@@ -440,13 +440,13 @@ TEST_CASE("commit search matches one field literally over the refs the graph rea
     for (const commit_search_field field : { commit_search_field::message, commit_search_field::author })
     {
         const std::string option { field == commit_search_field::message ? "--grep=" : "--author=" };
-        const text_list plain { to_text(make_git_search_log_args("x", field, true, 5)) };
+        const text_list plain { to_text(make_git_search_log_args("x", field, {}, 5)) };
         for (const std::string query : { "--all", "-n1", "--grep=other", ".*", "a b", "인사", "--" })
         {
             INFO("query " << query);
             text_list expected { plain };
             expected[7] = option + query;
-            CHECK(to_text(make_git_search_log_args(query, field, true, 5)) == expected);
+            CHECK(to_text(make_git_search_log_args(query, field, {}, 5)) == expected);
         }
         check_wellformed(make_git_search_log_args("x", field));
         // 빈 질의는 모든 커밋에 맞고, 줄바꿈은 git이 패턴 여럿으로 나눠 읽는다.
@@ -463,7 +463,7 @@ TEST_CASE("commit search and the graph log read the same set of refs", "[git][bu
     {
         INFO("include_head " << include_head);
         git_log_options options {};
-        options.include_head = include_head;
+        options.graph.include_head = include_head;
         // `log --topo-order -z <format> <refs> --`에서 ref 집합만 떼어 낸다.
         const text_list graph { to_text(make_git_log_args(options)) };
         REQUIRE(graph.size() > 5);
@@ -472,7 +472,7 @@ TEST_CASE("commit search and the graph log read the same set of refs", "[git][bu
 
         for (const commit_search_field field : { commit_search_field::message, commit_search_field::author })
         {
-            const text_list search { to_text(make_git_search_log_args("x", field, include_head)) };
+            const text_list search { to_text(make_git_search_log_args("x", field, options.graph)) };
             REQUIRE(search.size() > 9);
             CHECK(text_list { search.begin() + 8, search.end() - 1 } == refs);
             CHECK(search.back() == "--");
@@ -482,10 +482,119 @@ TEST_CASE("commit search and the graph log read the same set of refs", "[git][bu
         text_list reachability { "rev-list", "--max-count=1", sha, "--not" };
         reachability.insert(reachability.end(), refs.begin(), refs.end());
         reachability.push_back("--");
-        CHECK(to_text(make_git_graph_reachability_args(sha, include_head)) == reachability);
+        CHECK(to_text(make_git_graph_reachability_args(sha, options.graph)) == reachability);
     }
     CHECK_THROWS_AS(make_git_graph_reachability_args("--all"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_graph_reachability_args("main"), std::invalid_argument);
+}
+
+namespace {
+    // 그래프의 ref 집합만 떼어 낸다. 그래프 log, 두 검색, 닿는지 묻는 명령이 모두 같은 집합을 내는지도 함께 본다.
+    text_list graph_refs_of(const git_graph_refs& graph)
+    {
+        const std::string sha { "1111111111111111111111111111111111111111" };
+        git_log_options options {};
+        options.graph = graph;
+        // `log --topo-order -z <format> <refs> --`
+        const text_list log { to_text(make_git_log_args(options)) };
+        REQUIRE(log.size() >= 5);
+        const text_list refs { log.begin() + 4, log.end() - 1 };
+        for (const commit_search_field field : { commit_search_field::message, commit_search_field::author })
+        {
+            // `log --topo-order -z <format> --no-mailmap -i --fixed-strings <--grep|--author> <refs> --`
+            const text_list search { to_text(make_git_search_log_args("x", field, graph)) };
+            REQUIRE(search.size() >= 9);
+            CHECK(text_list { search.begin() + 8, search.end() - 1 } == refs);
+        }
+        text_list reachability { "rev-list", "--max-count=1", sha, "--not" };
+        reachability.insert(reachability.end(), refs.begin(), refs.end());
+        reachability.push_back("--");
+        CHECK(to_text(make_git_graph_reachability_args(sha, graph)) == reachability);
+        return refs;
+    }
+} // namespace
+
+TEST_CASE("without a graph ref filter the graph reads every branch, remote branch and tag as before", "[git][builder][graph_filter]")
+{
+    CHECK(graph_refs_of({}) == text_list { "--branches", "--remotes", "--tags", "HEAD" });
+    CHECK(graph_refs_of({ .include_head = false }) == text_list { "--branches", "--remotes", "--tags" });
+    // 현재 브랜치만 알려 주어도 인자는 그대로다.
+    CHECK(graph_refs_of({ .current_branch = "main" }) == text_list { "--branches", "--remotes", "--tags", "HEAD" });
+    CHECK(to_text(make_git_log_args()) == text_list { "log", "--topo-order", "-z", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s", "--branches", "--remotes", "--tags", "HEAD", "--" });
+}
+
+TEST_CASE("showing only some refs starts the graph from exactly those refs, without HEAD", "[git][builder][graph_filter]")
+{
+    git_graph_refs graph {};
+    graph.current_branch = "main";
+    graph.filter.only = { "refs/heads/feature", "refs/tags/v1.0", "refs/remotes/origin/topic" };
+    // 전체 이름 그대로다. 같은 이름의 브랜치와 태그가 있어도 헷갈리지 않는다.
+    CHECK(graph_refs_of(graph) == text_list { "refs/heads/feature", "refs/tags/v1.0", "refs/remotes/origin/topic" });
+
+    // 그동안 숨긴 ref는 듣지 않는다.
+    graph.filter.hidden = { "refs/heads/old", "refs/heads/feature" };
+    CHECK(graph_refs_of(graph) == text_list { "refs/heads/feature", "refs/tags/v1.0", "refs/remotes/origin/topic" });
+    graph.include_head = false;
+    CHECK(graph_refs_of(graph) == text_list { "refs/heads/feature", "refs/tags/v1.0", "refs/remotes/origin/topic" });
+}
+
+TEST_CASE("hidden refs are excluded right before the group they belong to", "[git][builder][graph_filter]")
+{
+    git_graph_refs graph {};
+    // 넣은 순서와 무관하게 묶음마다 모은다. `--exclude`는 바로 다음의 `--branches`·`--remotes`·`--tags` 하나에만 걸린다.
+    graph.filter.hidden = { "refs/tags/v0.1", "refs/heads/old", "refs/remotes/origin/old", "refs/heads/wip/x", "refs/remotes/up/stream/y" };
+    CHECK(graph_refs_of(graph)
+        == text_list { "--exclude=old", "--exclude=wip/x", "--branches", "--exclude=origin/old", "--exclude=up/stream/y", "--exclude=*/HEAD", "--remotes", "--exclude=v0.1", "--tags", "HEAD" });
+    graph.include_head = false;
+    CHECK(graph_refs_of(graph)
+        == text_list { "--exclude=old", "--exclude=wip/x", "--branches", "--exclude=origin/old", "--exclude=up/stream/y", "--exclude=*/HEAD", "--remotes", "--exclude=v0.1", "--tags" });
+
+    // 원격 브랜치를 숨기지 않으면 원격의 기호 ref(`origin/HEAD`)는 건드리지 않는다.
+    git_graph_refs tag_only {};
+    tag_only.filter.hidden = { "refs/tags/v0.1" };
+    CHECK(graph_refs_of(tag_only) == text_list { "--branches", "--remotes", "--exclude=v0.1", "--tags", "HEAD" });
+    git_graph_refs branch_only {};
+    branch_only.filter.hidden = { "refs/heads/old" };
+    CHECK(graph_refs_of(branch_only) == text_list { "--exclude=old", "--branches", "--remotes", "--tags", "HEAD" });
+    // 숨긴 원격 브랜치가 하나라도 있으면 그 커밋이 `<remote>/HEAD`로 닿지 않게 함께 뺀다.
+    git_graph_refs remote_only {};
+    remote_only.filter.hidden = { "refs/remotes/origin/main" };
+    CHECK(graph_refs_of(remote_only) == text_list { "--branches", "--exclude=origin/main", "--exclude=*/HEAD", "--remotes", "--tags", "HEAD" });
+}
+
+TEST_CASE("the current branch is never excluded, whatever the filter says", "[git][builder][graph_filter]")
+{
+    git_graph_refs graph {};
+    graph.current_branch = "main";
+    graph.filter.hidden = { "refs/heads/main", "refs/heads/old" };
+    CHECK(graph_refs_of(graph) == text_list { "--exclude=old", "--branches", "--remotes", "--tags", "HEAD" });
+
+    // 이름만 같은 원격 브랜치와 태그는 현재 브랜치가 아니다.
+    graph.filter.hidden = { "refs/heads/main", "refs/remotes/main", "refs/tags/main" };
+    CHECK(graph_refs_of(graph) == text_list { "--branches", "--exclude=main", "--exclude=*/HEAD", "--remotes", "--exclude=main", "--tags", "HEAD" });
+
+    // detached HEAD에는 현재 브랜치가 없다.
+    graph.current_branch.clear();
+    graph.filter.hidden = { "refs/heads/main" };
+    CHECK(graph_refs_of(graph) == text_list { "--exclude=main", "--branches", "--remotes", "--tags", "HEAD" });
+}
+
+TEST_CASE("a graph ref filter takes full ref names of branches, remote branches and tags only", "[git][builder][graph_filter]")
+{
+    // 짧은 이름, 세 묶음 밖의 ref, 옵션처럼 보이는 글, 그리고 `--exclude`의 glob으로 다른 ref까지 걸러 낼 글자다.
+    const text_list bad_names { "main", "origin/main", "refs/heads/", "refs/stash", "refs/notes/commits", "--all", "HEAD", "", "refs/heads/a*", "refs/tags/v[1]", "refs/remotes/origin/?", "refs/heads/a\\b", "refs/heads/a\nb" };
+    for (const std::string& bad : bad_names)
+    {
+        INFO("name " << bad);
+        git_log_options only {};
+        only.graph.filter.only = { bad };
+        CHECK_THROWS_AS(make_git_log_args(only), std::invalid_argument);
+        git_log_options hidden {};
+        hidden.graph.filter.hidden = { bad };
+        CHECK_THROWS_AS(make_git_log_args(hidden), std::invalid_argument);
+        CHECK_THROWS_AS(make_git_search_log_args("x", commit_search_field::message, hidden.graph), std::invalid_argument);
+        CHECK_THROWS_AS(make_git_graph_reachability_args("1111111111111111111111111111111111111111", only.graph), std::invalid_argument);
+    }
 }
 
 TEST_CASE("a commit hash prefix is 4 to 64 hexadecimal digits", "[git][builder][commit_search]")

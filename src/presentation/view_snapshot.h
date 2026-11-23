@@ -7,6 +7,7 @@
 #include "domain/commit_info.h"
 #include "domain/diff_file.h"
 #include "domain/file_change.h"
+#include "domain/graph_ref_filter.h"
 #include "domain/operation_status.h"
 #include "domain/ref.h"
 #include "domain/submodule.h"
@@ -266,6 +267,15 @@ namespace cyella {
         bool dimmed { false };
         // 로컬 브랜치가 **다른** worktree에 체크아웃되어 있으면 그 폴더다.
         std::string worktree_path {};
+        // 그래프의 브랜치 필터가 이 ref에 건 것이다 ("이것만 보기"·숨김). 행 꼬리의 눈 아이콘과 보조 기술의 이름에 실린다.
+        graph_ref_mark graph_mark { graph_ref_mark::none };
+    };
+
+    // 그래프 위의 브랜치 필터 띠다 (ADR-012). 필터가 걸려 있을 때만 선다.
+    struct graph_filter_view
+    {
+        // "브랜치 2개만 보는 중" 또는 "브랜치 3개를 숨긴 중"이다.
+        std::u8string status {};
     };
 
     // 그래프 위에 열린 커밋 검색 막대다.
@@ -285,6 +295,8 @@ namespace cyella {
     {
         // 열린 커밋 검색이다. 없으면 막대가 서지 않는다.
         std::optional<graph_search_view> search {};
+        // 걸려 있는 브랜치 필터다. 없으면 띠가 서지 않는다.
+        std::optional<graph_filter_view> filter {};
         // 세션의 행과 커밋이다 (같은 순서). 위의 포인터 규칙을 따른다.
         const std::vector<graph_row>* rows { nullptr };
         const std::vector<commit_info>* commits { nullptr };

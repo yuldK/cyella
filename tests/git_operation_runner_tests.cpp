@@ -46,6 +46,9 @@ namespace {
             job.repository_path = std::u8string { repository_path };
             job.operation = std::move(operation);
             job.generation = generation;
+            job.graph_filter = graph_filter;
+            job.current_branch_hint = current_branch;
+            job.log_include_head = include_head;
             std::vector<operation_event> events {};
             runner.execute(job, [&events](operation_event event) { events.push_back(std::move(event)); });
             return events;
@@ -54,6 +57,10 @@ namespace {
         fake_git_runner process {};
         fake_workspace_files files {};
         git_operation_runner runner;
+        // job에 실어 보낼 값이다. workspace가 접수할 때 세션에서 채우는 것들이다.
+        graph_ref_filter graph_filter {};
+        std::string current_branch {};
+        bool include_head { true };
     };
 
     template<typename payload_type>
@@ -145,6 +152,199 @@ TEST_CASE("refresh reads status before the log and streams commits in batches", 
     CHECK(batches.back().history_complete);
     CHECK(finished_of(events).state == operation_state::succeeded);
     CHECK(payloads<operation_command_finished>(events).size() == test.process.calls().size());
+}
+
+namespace {
+    // `for-each-ref` 출력의 한 줄이다 (필드 여덟, 0x1F로 가른다). `current`면 HEAD가 가리키는 브랜치다.
+    std::string ref_line(const std::string& full_name, const std::string& sha, const bool current = false)
+    {
+        return full_name + "\x1f" + sha + "\x1f\x1f" + (current ? "*" : " ") + "\x1f\x1f\x1f\x1f\n";
+    }
+
+    // 그래프 log(`log --topo-order ...`)의 형식 뒤, `--max-count` 앞까지가 그래프의 ref 집합이다.
+    text_list graph_refs_of(const test::recorded_call& call)
+    {
+        const auto last { std::find_if(call.arguments.begin(), call.arguments.end(), [](const std::string& argument) { return argument.starts_with("--max-count="); }) };
+        REQUIRE(call.arguments.size() > 4);
+        REQUIRE(last != call.arguments.end());
+        return text_list { call.arguments.begin() + 4, last };
+    }
+
+    std::vector<test::recorded_call> calls_named(const fake_git_runner& process, const std::string& name)
+    {
+        std::vector<test::recorded_call> found {};
+        for (const test::recorded_call& call : process.calls())
+        {
+            if (call.arguments.empty() == false && call.arguments.front() == name)
+                found.push_back(call);
+        }
+        return found;
+    }
+
+    // main(현재 브랜치)과 feature, 원격 추적 브랜치, 태그가 있는 저장소의 refresh를 꾸민다.
+    void script_filtered_refresh(harness& test)
+    {
+        const std::string head { test::sha_of(3) };
+        test.process.when({ "status" }, scripted_response { 0, test::status_header(head, "main") + test::status_modified("a.txt") });
+        std::string refs { ref_line("refs/heads/main", head, true) + ref_line("refs/heads/feature", test::sha_of(2)) };
+        refs.append(ref_line("refs/remotes/origin/feature", test::sha_of(2))).append(ref_line("refs/tags/v1.0", test::sha_of(1)));
+        test.process.when({ "for-each-ref" }, scripted_response { 0, refs });
+        test.process.when({ "log", "--topo-order" }, scripted_response { 0, test::log_record(test::sha_of(2), { test::sha_of(1) }) + test::log_record(test::sha_of(1), {}) });
+    }
+} // namespace
+
+TEST_CASE("refresh reads the log from only the refs of the filter that still exist", "[operation][refresh][graph_filter]")
+{
+    harness test {};
+    script_filtered_refresh(test);
+    // 접수한 뒤 지워진 브랜치가 필터에 남아 있다. 그대로 주면 `log refs/heads/gone`이 실패해 그래프 전체가 읽히지 않는다.
+    test.graph_filter.only = { "refs/heads/gone", "refs/heads/feature", "refs/tags/v1.0" };
+    // 접수 때의 현재 브랜치는 낡았을 수 있다. 실행기는 방금 읽은 status를 쓴다.
+    test.current_branch = "stale";
+    // HEAD(3번 커밋)는 feature와 v1.0에서 닿지 않는다: 닿지 않으면 git이 그 SHA를 낸다.
+    test.process.when({ "rev-list", "--max-count=1" }, scripted_response { 0, test::sha_of(3) + "\n" });
+
+    const std::vector<operation_event> events { test.execute(refresh_request {}) };
+
+    CHECK(finished_of(events).state == operation_state::succeeded);
+    const std::vector<test::recorded_call> logs { calls_named(test.process, "log") };
+    REQUIRE(logs.size() == 1);
+    CHECK(graph_refs_of(logs[0]) == text_list { "refs/heads/feature", "refs/tags/v1.0" });
+    // HEAD가 그 ref들에서 닿는지 같은 집합으로 묻는다. snapshot이 log보다 먼저 가야 하므로 log 앞이다.
+    const std::vector<test::recorded_call> reachability { calls_named(test.process, "rev-list") };
+    REQUIRE(reachability.size() == 1);
+    CHECK(reachability[0].arguments == text_list { "rev-list", "--max-count=1", test::sha_of(3), "--not", "refs/heads/feature", "refs/tags/v1.0", "--" });
+    const text_list names { test.process.command_names() };
+    CHECK(std::find(names.begin(), names.end(), "rev-list") < std::find(names.begin(), names.end(), "log"));
+
+    const std::vector<snapshot_loaded> snapshots { payloads<snapshot_loaded>(events) };
+    REQUIRE(snapshots.size() == 1);
+    CHECK_FALSE(snapshots[0].snapshot.head_in_graph);
+    CHECK(snapshots[0].snapshot.summary.changed_file_count == 1);
+    CHECK(payloads<commits_loaded>(events).back().history_complete);
+}
+
+TEST_CASE("refresh keeps HEAD in the graph when the shown refs reach it or git cannot tell", "[operation][refresh][graph_filter]")
+{
+    SECTION("the shown ref reaches HEAD")
+    {
+        harness test {};
+        script_filtered_refresh(test);
+        test.graph_filter.only = { "refs/heads/main" };
+        // 닿으면 출력이 빈다 (가짜 runner의 기본 응답이다).
+        const std::vector<operation_event> events { test.execute(refresh_request {}) };
+
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        CHECK(calls_named(test.process, "rev-list").size() == 1);
+        REQUIRE(payloads<snapshot_loaded>(events).size() == 1);
+        CHECK(payloads<snapshot_loaded>(events)[0].snapshot.head_in_graph);
+    }
+    SECTION("git fails to answer")
+    {
+        harness test {};
+        script_filtered_refresh(test);
+        test.graph_filter.only = { "refs/heads/feature" };
+        test.process.when({ "rev-list", "--max-count=1" }, scripted_response { 128, "", { "fatal: bad object" } });
+        const std::vector<operation_event> events { test.execute(refresh_request {}) };
+
+        // 모르면 있다고 본다. refresh는 이 물음 때문에 실패하지 않는다.
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        REQUIRE(payloads<snapshot_loaded>(events).size() == 1);
+        CHECK(payloads<snapshot_loaded>(events)[0].snapshot.head_in_graph);
+        CHECK(calls_named(test.process, "log").size() == 1);
+    }
+    SECTION("no ref is shown alone")
+    {
+        harness test {};
+        script_filtered_refresh(test);
+        test.graph_filter.hidden = { "refs/heads/feature" };
+        const std::vector<operation_event> events { test.execute(refresh_request {}) };
+
+        // 숨기기는 HEAD를 시작점에 남긴다. 물을 것이 없다.
+        CHECK(calls_named(test.process, "rev-list").empty());
+        REQUIRE(payloads<snapshot_loaded>(events).size() == 1);
+        CHECK(payloads<snapshot_loaded>(events)[0].snapshot.head_in_graph);
+    }
+}
+
+TEST_CASE("refresh falls back to every ref when all the shown refs are gone", "[operation][refresh][graph_filter]")
+{
+    harness test {};
+    script_filtered_refresh(test);
+    test.graph_filter.only = { "refs/heads/gone", "refs/tags/v0.9" };
+
+    const std::vector<operation_event> events { test.execute(refresh_request {}) };
+
+    CHECK(finished_of(events).state == operation_state::succeeded);
+    const std::vector<test::recorded_call> logs { calls_named(test.process, "log") };
+    REQUIRE(logs.size() == 1);
+    CHECK(graph_refs_of(logs[0]) == text_list { "--branches", "--remotes", "--tags", "HEAD" });
+    CHECK(calls_named(test.process, "rev-list").empty());
+}
+
+TEST_CASE("refresh excludes the hidden refs that exist but never the branch that status reports as current", "[operation][refresh][graph_filter]")
+{
+    harness test {};
+    script_filtered_refresh(test);
+    // main은 방금 읽은 status의 현재 브랜치다. 접수 때는 다른 브랜치에 있었다(숨긴 브랜치로 옮겨 간 직후의 refresh).
+    test.current_branch = "feature";
+    test.graph_filter.hidden = { "refs/heads/main", "refs/heads/gone", "refs/heads/feature", "refs/remotes/origin/feature", "refs/tags/v1.0", "refs/tags/gone" };
+
+    const std::vector<operation_event> events { test.execute(refresh_request {}) };
+
+    CHECK(finished_of(events).state == operation_state::succeeded);
+    const std::vector<test::recorded_call> logs { calls_named(test.process, "log") };
+    REQUIRE(logs.size() == 1);
+    CHECK(graph_refs_of(logs[0]) == text_list { "--exclude=feature", "--branches", "--exclude=origin/feature", "--exclude=*/HEAD", "--remotes", "--exclude=v1.0", "--tags", "HEAD" });
+}
+
+TEST_CASE("load_more_log and search_commits read the refs of the filter the job carries", "[operation][log][commit_search][graph_filter]")
+{
+    harness test {};
+    test.current_branch = "main";
+    test.graph_filter.hidden = { "refs/heads/main", "refs/heads/feature", "refs/tags/v1.0" };
+    test.process.when({ "log", "--topo-order" }, scripted_response { 0, test::log_record(test::sha_of(1), {}) });
+
+    // 이어 읽기는 ref를 읽지 않는다. 세션이 snapshot 때 걸러 둔 필터를 그대로 쓰고, 현재 브랜치만 한 번 더 지킨다.
+    CHECK(finished_of(test.execute(load_more_log_request {})).state == operation_state::succeeded);
+    std::vector<test::recorded_call> logs { calls_named(test.process, "log") };
+    REQUIRE(logs.size() == 1);
+    CHECK(graph_refs_of(logs[0]) == text_list { "--exclude=feature", "--branches", "--remotes", "--exclude=v1.0", "--tags", "HEAD" });
+
+    // 검색의 두 log와 SHA가 닿는지 묻는 명령도 같은 집합이다. 숨긴 브랜치에만 있는 커밋은 찾아도 갈 수 없다.
+    // 가짜 SHA는 `aaaa…9`다. 숨긴 브랜치에만 있어 닿지 않는다고 답하게 한다 (닿지 않으면 git이 그 SHA를 낸다).
+    test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, test::sha_of(9) + "\n" });
+    test.process.when({ "rev-list", "--max-count=1" }, scripted_response { 0, test::sha_of(9) + "\n" });
+    const std::vector<operation_event> searched { test.execute(search_commits_request { .query = "aaaa" }) };
+    CHECK(finished_of(searched).state == operation_state::succeeded);
+    REQUIRE(payloads<commit_search_loaded>(searched).size() == 1);
+    // 두 log가 찾은 1번 커밋뿐이다. 닿지 않는 9번은 넣지 않는다.
+    REQUIRE(payloads<commit_search_loaded>(searched)[0].search.commits.size() == 1);
+    CHECK(payloads<commit_search_loaded>(searched)[0].search.commits[0].sha == test::sha_of(1));
+    logs = calls_named(test.process, "log");
+    REQUIRE(logs.size() == 3);
+    const text_list refs { "--exclude=feature", "--branches", "--remotes", "--exclude=v1.0", "--tags", "HEAD" };
+    for (const std::size_t index : { std::size_t { 1 }, std::size_t { 2 } })
+    {
+        const text_list& arguments { logs[index].arguments };
+        REQUIRE(arguments.size() > refs.size() + 1);
+        CHECK(text_list { arguments.end() - 1 - static_cast<std::ptrdiff_t>(refs.size()), arguments.end() - 1 } == refs);
+    }
+    const std::vector<test::recorded_call> reachability { calls_named(test.process, "rev-list") };
+    REQUIRE(reachability.size() == 1);
+    text_list expected { "rev-list", "--max-count=1", test::sha_of(9), "--not" };
+    expected.insert(expected.end(), refs.begin(), refs.end());
+    expected.push_back("--");
+    CHECK(reachability[0].arguments == expected);
+
+    // "이것만 보기"면 그 ref들뿐이다.
+    harness only {};
+    only.graph_filter.only = { "refs/heads/feature" };
+    only.process.when({ "log", "--topo-order" }, scripted_response { 0, test::log_record(test::sha_of(1), {}) });
+    CHECK(finished_of(only.execute(load_more_log_request {})).state == operation_state::succeeded);
+    logs = calls_named(only.process, "log");
+    REQUIRE(logs.size() == 1);
+    CHECK(graph_refs_of(logs[0]) == text_list { "refs/heads/feature" });
 }
 
 TEST_CASE("refresh of an unborn repository skips the log", "[operation][refresh]")

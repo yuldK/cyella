@@ -844,6 +844,22 @@ namespace cyella {
                 diff.next_file = request_at(position + 1);
         }
 
+        // 그래프 위 띠의 글이다. "이것만 보기"가 있으면 그 수를, 아니면 숨긴 수를 말한다 (그동안 숨긴 것은 듣지 않는다).
+        std::optional<graph_filter_view> build_graph_filter_view(const graph_ref_filter& filter)
+        {
+            if (filter.empty())
+                return std::nullopt;
+            graph_filter_view view {};
+            if (const std::size_t count { filter.only.size() }; count > 0)
+                view.status = count == 1 ? tr(u8"graph_filter.only_one", { { u8"count", count } }) : tr(u8"graph_filter.only", { { u8"count", count } });
+            else
+            {
+                const std::size_t hidden { filter.hidden.size() };
+                view.status = hidden == 1 ? tr(u8"graph_filter.hidden_one", { { u8"count", hidden } }) : tr(u8"graph_filter.hidden", { { u8"count", hidden } });
+            }
+            return view;
+        }
+
         repository_view build_repository(const view_inputs& inputs, const repository_tab& tab, const repository_session& session, const tab_ui_state& tab_state,
             std::span<const operation_status* const> operations, const std::int64_t now, const std::shared_ptr<const graph_index>& index)
         {
@@ -858,7 +874,8 @@ namespace cyella {
                 view.load_error = load_error_of(operations);
 
             view.sidebar_filter = luil::make_text_input_view(tab_state.sidebar_filter, ui.composition, to_luil_target(text_target::sidebar_filter));
-            sidebar_rows sidebar { build_sidebar_rows(snapshot, view.sidebar_filter.displayed_text(), tab_state.collapsed_sections, inputs.settings != nullptr ? &inputs.settings->hosting : nullptr) };
+            const hosting_settings* const web_links { inputs.settings != nullptr ? &inputs.settings->hosting : nullptr };
+            sidebar_rows sidebar { build_sidebar_rows(snapshot, view.sidebar_filter.displayed_text(), tab_state.collapsed_sections, web_links, &session.graph_filter()) };
             std::optional<hosting_repository_view> hosting {};
             if (inputs.hosting_view != nullptr)
             {
@@ -888,6 +905,7 @@ namespace cyella {
             graph.history_complete = session.history_complete();
             graph.compact_columns = select_layout_mode(inputs.width / std::max(inputs.scale, 0.01f)) == layout_mode::narrow;
             graph.now = now;
+            graph.filter = build_graph_filter_view(session.graph_filter());
 
             if (tab_state.selected_sha == graph_wip_sha)
             {
@@ -1028,6 +1046,18 @@ namespace cyella {
                 tooltip += u8"\n" + tr(u8"snapshot.sidebar.tooltip.checked_out_elsewhere") + u8"\n" + to_u8(value.worktree_path);
             return tooltip;
         }
+
+        // 그래프의 브랜치 필터가 이 ref에 건 표시와 그 까닭 한 줄이다. 툴팁의 줄은 눈 아이콘이 무슨 뜻인지 말한다.
+        void mark_graph_filter(sidebar_row_view& row, const ref& value, const graph_ref_filter* const filter)
+        {
+            if (filter == nullptr)
+                return;
+            row.graph_mark = graph_ref_mark_of(*filter, value.full_name);
+            if (row.graph_mark == graph_ref_mark::only)
+                row.tooltip += u8"\n" + tr(u8"snapshot.sidebar.tooltip.graph_only");
+            else if (row.graph_mark == graph_ref_mark::hidden)
+                row.tooltip += u8"\n" + tr(u8"snapshot.sidebar.tooltip.graph_hidden");
+        }
     } // namespace
 
     float toast_presence(const notification& value, const std::chrono::steady_clock::time_point now) noexcept
@@ -1153,7 +1183,8 @@ namespace cyella {
         return suggestion_blocker::none;
     }
 
-    sidebar_rows build_sidebar_rows(const repository_snapshot& snapshot, const std::u8string_view filter, const std::uint8_t collapsed_sections, const hosting_settings* const hosting)
+    sidebar_rows build_sidebar_rows(
+        const repository_snapshot& snapshot, const std::u8string_view filter, const std::uint8_t collapsed_sections, const hosting_settings* const hosting, const graph_ref_filter* const graph_filter)
     {
         sidebar_rows result {};
         const auto collapsed = [collapsed_sections](const sidebar_section section) { return (collapsed_sections & (1u << static_cast<unsigned>(section))) != 0; };
@@ -1192,6 +1223,7 @@ namespace cyella {
                 row.upstream_gone = value.upstream_gone;
                 row.worktree_path = value.worktree_path;
                 row.tooltip = local_branch_tooltip(value, has_remotes);
+                mark_graph_filter(row, value, graph_filter);
                 result.rows.push_back(std::move(row));
             }
             result.counts[header] = count;
@@ -1258,6 +1290,7 @@ namespace cyella {
                     row.target_sha = value->target_sha;
                     row.depth = 1;
                     row.tooltip = to_u8(value->name);
+                    mark_graph_filter(row, *value, graph_filter);
                     result.rows.push_back(std::move(row));
                 }
             }
@@ -1286,6 +1319,7 @@ namespace cyella {
                 row.target_sha = value.target_sha;
                 row.local_only = has_remotes && value.remotes.empty();
                 row.tooltip = row.local_only ? row.label + u8"\n" + tr(u8"snapshot.sidebar.tooltip.local_only_tag") : row.label;
+                mark_graph_filter(row, value, graph_filter);
                 result.rows.push_back(std::move(row));
             }
             result.counts[header] = count;

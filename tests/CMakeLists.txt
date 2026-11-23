@@ -11,7 +11,8 @@ cyella_add_source_filter(cyella_test_files "resource"
     "${CYELLA_GENERATED_RESOURCE}")
 
 cyella_add_source_filter(cyella_test_files "domain/graph"
-    commit_graph_layout_tests.cpp)
+    commit_graph_layout_tests.cpp
+    graph_ref_filter_tests.cpp)
 
 cyella_add_source_filter(cyella_test_files "domain/settings"
     app_settings_tests.cpp

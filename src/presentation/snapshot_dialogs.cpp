@@ -178,6 +178,7 @@ namespace cyella {
         context.submodules = snapshot.submodules;
         context.worktrees = snapshot.worktrees;
         context.lfs = snapshot.lfs;
+        context.graph_filter = session.graph_filter();
         if (target.kind == menu_target_kind::commit && index != nullptr)
         {
             // 병합 커밋은 부모를 골라야 cherry-pick·revert를 할 수 있다.

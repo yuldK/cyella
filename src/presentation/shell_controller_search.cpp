@@ -173,6 +173,9 @@ namespace cyella {
                 continue;
             const std::u8string query { trimmed(search.query.text) };
             search.submitted = to_text(query);
+            // 이 검색이 읽을 ref 집합이다. 세션의 필터가 이것과 달라지면 다시 낸다 (`rearm_filtered_searches`).
+            if (const repository_session* const session { workspace->find_session(repository->second) }; session != nullptr)
+                search.filter = session->graph_filter();
             // 질의가 짧아졌으면 앞 질의의 git 검색은 쓸모없다.
             if (search.operation != 0)
                 if (const operation_status* const status { workspace->find_operation(search.operation) }; status != nullptr && status->finished() == false)

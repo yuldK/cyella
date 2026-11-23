@@ -278,7 +278,12 @@ namespace cyella {
             {
                 tab->pending_reveal.clear();
                 tab->reveal_operation = 0;
-                show_notice(tr(u8"shell.file_view.commit_not_in_graph", { { u8"sha", short_sha(sha) } }), true);
+                // 브랜치 필터가 걸려 있으면 "어느 브랜치·태그에서도 닿지 않는다"는 틀린 말일 수 있다. 걸러진 것인지 정말 닿지 않는 것인지는
+                // git에 물어야 알므로, 필터가 걸려 있다는 것과 풀고 다시 찾으라는 것을 말한다.
+                if (session->graph_filter().empty())
+                    show_notice(tr(u8"shell.file_view.commit_not_in_graph", { { u8"sha", short_sha(sha) } }), true);
+                else
+                    show_notice(tr(u8"shell.file_view.commit_filtered_out", { { u8"sha", short_sha(sha) } }), true);
                 return true;
             }
             // 내가 낸 읽기가 끝나지 못했으면(실패·취소) 그만둔다. 이 함수는 메시지마다 불리므로 다시 내면 같은 실패를 되풀이한다.

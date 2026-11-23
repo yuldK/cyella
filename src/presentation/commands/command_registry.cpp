@@ -69,6 +69,8 @@ namespace cyella {
             list.push_back(make("graph.search", tr(u8"command.graph.search"), u8"search find commit message author sha graph log", group::view, { u8"Ctrl+F" }));
             list.push_back(make("graph.search.next", tr(u8"command.graph.search.next"), u8"search find next result commit", group::view, { u8"F3" }));
             list.push_back(make("graph.search.previous", tr(u8"command.graph.search.previous"), u8"search find previous result commit", group::view, { u8"Shift+F3" }));
+            // ---- 그래프의 브랜치 필터다 ("이것만 보기"·숨기기). 필터가 걸려 있을 때만 쓸 수 있다.
+            list.push_back(make("graph.filter.clear", tr(u8"command.graph.filter.clear"), u8"graph filter clear reset show all branches hidden only solo", group::view));
             // ---- 열린 파일 판의 보기다. 판이 열려 있을 때만 쓸 수 있다.
             list.push_back(make("file.blame", tr(u8"command.file.blame"), u8"blame annotate who changed line author file", group::view));
             list.push_back(make("file.history", tr(u8"command.file.history"), u8"file history log follow commits changed", group::view));
@@ -200,6 +202,8 @@ namespace cyella {
             return availability.repository;
         if (id == "graph.search.next" || id == "graph.search.previous")
             return availability.graph_search;
+        if (id == "graph.filter.clear")
+            return availability.graph_filter;
         if (id == "profile.apply")
             return availability.repository;
         // 로그인은 서비스를 아는 원격이 있을 때, 목록·만들기는 로그인한 뒤에만 쓸 수 있다.

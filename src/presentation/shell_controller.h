@@ -230,6 +230,14 @@ namespace cyella {
         void step_graph_search(bool forward);
         // snapshot에 열린 검색 막대의 값을 채운다. 맞는 커밋은 controller가 cache해 둔 것이다.
         void fill_graph_search(view_snapshot& view);
+        // ---- 그래프의 브랜치 필터 (shell_controller_graph_filter.cpp)
+        bool handle_graph_filter_message(const luil::app_message& message);
+        // 브랜치·태그 메뉴의 "그래프에 이것만 보기"(`only`가 참)와 "그래프에서 숨기기"다. 다시 고르면 풀린다.
+        void toggle_graph_filter(const menu_target& target, const menu_context& context, bool only);
+        // 선택된 저장소의 필터를 바꾼다. 달라졌으면 workspace가 그래프를 다시 읽는다.
+        void apply_graph_filter(graph_ref_filter filter);
+        // 열린 검색이 git에 낸 뒤로 세션의 필터가 달라졌으면(사용자가 바꿨다, 지워진 브랜치가 빠졌다) 같은 질의를 새 ref 집합으로 다시 낸다.
+        void rearm_filtered_searches();
         // ---- diff 판의 blame·파일 이력 (shell_controller_file_view.cpp)
         bool handle_file_view_message(const luil::app_message& message);
         // 판의 보기를 바꾼다. blame과 이력은 그 보기에 처음 들어갈 때 읽는다.

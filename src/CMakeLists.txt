@@ -74,7 +74,9 @@ set(cyella_lib_files)
 # domain: 순수 규칙과 값 타입이다. 다른 계층에 의존하지 않는다.
 cyella_add_source_filter(cyella_lib_files "domain/graph"
     domain/commit_graph_layout.cpp
-    domain/commit_graph_layout.h)
+    domain/commit_graph_layout.h
+    domain/graph_ref_filter.cpp
+    domain/graph_ref_filter.h)
 
 cyella_add_source_filter(cyella_lib_files "domain/diagnostics"
     domain/diagnostic.cpp
@@ -426,6 +428,7 @@ cyella_add_source_filter(cyella_lib_files "presentation/shell"
     presentation/shell_controller.h
     presentation/shell_controller_compare.cpp
     presentation/shell_controller_file_view.cpp
+    presentation/shell_controller_graph_filter.cpp
     presentation/shell_controller_search.cpp
     presentation/shell_controller_working.cpp
     presentation/shell_layout.cpp
@@ -542,6 +545,8 @@ cyella_add_source_filter(cyella_lib_files "presentation/ui/screens"
     presentation/ui/diff_webview.h
     presentation/ui/file_history_ui.cpp
     presentation/ui/file_history_ui.h
+    presentation/ui/graph_filter_ui.cpp
+    presentation/ui/graph_filter_ui.h
     presentation/ui/graph_search_ui.cpp
     presentation/ui/graph_search_ui.h
     presentation/ui/diff_webview_theme.cpp

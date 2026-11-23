@@ -1241,7 +1241,9 @@ namespace cyella {
                     //  - 참조 행만이다. 서브모듈·PR 행의 커밋은 이 저장소의 이력에 없을 수 있다.
                     const bool ref_row { intent->key.starts_with(u8"l:") || intent->key.starts_with(u8"rb:") || intent->key.starts_with(u8"t:") };
                     const repository_session* const session { selected_session() };
-                    if (ref_row && session != nullptr && session->history_complete() == false
+                    //  - 브랜치 필터가 걸려 있으면 그 커밋이 걸러져 그래프에 없는 것일 수 있다. 우클릭도 먼저 고르므로, 숨긴 브랜치의
+                    //    메뉴를 열 때마다 틀린 안내가 뜨지 않게 한다 (숨겼다는 것은 행의 표시가 말한다).
+                    if (ref_row && session != nullptr && session->history_complete() == false && session->graph_filter().empty()
                         && std::none_of(session->graph_commits().begin(), session->graph_commits().end(), [intent](const commit_info& commit) { return commit.sha == intent->target_sha; }))
                         show_notice(tr(u8"shell.sidebar.commit_not_loaded"));
                 }
@@ -1450,6 +1452,9 @@ namespace cyella {
         // 그래프의 커밋 검색이다.
         if (handle_search_message(message))
             return true;
+        // 그래프의 브랜치 필터다.
+        if (handle_graph_filter_message(message))
+            return true;
         // 환경 설정 화면의 메시지다. 화면이 닫혀 있으면 늦게 온 것이라 삼킨다.
         // 이 메시지 전에 열려 있던 글꼴 목록이 어느 칸의 것인가다. 닫은 뒤 초점을 돌려보낼 칸이다.
         std::optional<bool> font_list_code {};
@@ -1615,6 +1620,8 @@ namespace cyella {
         refit_working_diffs();
         settle_file_views();
         sync_compares();
+        // 새 snapshot이 지워진 브랜치를 필터에서 뺐을 수 있다. 열린 검색이 같은 ref 집합에서 찾게 한다.
+        rearm_filtered_searches();
         notify_failures();
         settings_.after_events();
         rebase_.after_events();

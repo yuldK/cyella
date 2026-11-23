@@ -280,6 +280,11 @@ namespace cyella::ui {
         std::u8string name { row_.label + (row_.local_only ? tr(u8"list.not_on_remote_suffix") : std::u8string {}) };
         if (row_.worktree_path.empty() == false)
             name += tr(u8"list.in_other_worktree_suffix");
+        // 그래프의 브랜치 필터가 건 표시다. 눈 아이콘은 보이는 사람만 알아본다.
+        if (row_.graph_mark == graph_ref_mark::only)
+            name += tr(u8"list.graph_only_suffix");
+        else if (row_.graph_mark == graph_ref_mark::hidden)
+            name += tr(u8"list.graph_hidden_suffix");
         // PR 행은 브랜치 흐름(`feature → main`)이 화면 읽기에도 닿도록 이름에 넣는다.
         if (row_.item == sidebar_item_kind::pull_request && row_.detail.empty() == false && row_.path.empty() == false)
             name += u8" (" + row_.detail + u8")";
@@ -324,6 +329,14 @@ namespace cyella::ui {
         // 다른 worktree가 체크아웃한 브랜치다. git이 이 브랜치로 옮기는 것을 거절한다.
         if (row_.worktree_path.empty() == false)
             right -= draw_worktree_marker(context, box, right);
+        // 그래프의 브랜치 필터다: "이것만 보기"는 강조색 눈, 숨김은 흐린 감은 눈이다. 다른 꼬리(앞섬·뒤처짐, 구름)보다 바깥에 선다.
+        if (row_.graph_mark != graph_ref_mark::none)
+        {
+            const bool only { row_.graph_mark == graph_ref_mark::only };
+            const luil::rect_f slot { right - icon_size * scale, box.y, icon_size * scale, box.height };
+            luil::draw_centered_glyph(context.canvas, only ? codicons::icon_eye : codicons::icon_eye_closed, slot, icon_font(context, 12.0f), luil::solid_paint(only ? palette.accent : palette.disabled_foreground));
+            right -= (icon_size + 6.0f) * scale;
+        }
         const SkFont small { ui_font(context, 11.0f) };
         std::u8string tail {};
         if (row_.ahead > 0)
@@ -345,7 +358,9 @@ namespace cyella::ui {
 
         const SkFont font { ui_font(context, 12.0f, row_.current) };
         const float baseline { box.y + luil::centered_text_baseline(font, box.height) };
-        const float drawn { luil::draw_text_within(context.canvas, row_.label, x, baseline, std::max(right - x, 0.0f), font, luil::solid_paint(palette.primary_foreground)) };
+        // 그래프에서 숨긴 ref의 이름은 흐리다.
+        const luil::ui_color label_color { row_.graph_mark == graph_ref_mark::hidden ? palette.secondary_foreground : palette.primary_foreground };
+        const float drawn { luil::draw_text_within(context.canvas, row_.label, x, baseline, std::max(right - x, 0.0f), font, luil::solid_paint(label_color)) };
         if (row_.group && link_ != nullptr)
         {
             // 주소 링크다. 강조색 글자와 밑줄이고, 올리면 밑줄이 굵어진다.

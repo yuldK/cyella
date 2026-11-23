@@ -1282,3 +1282,236 @@ TEST_CASE("the session accepts only the commit search it expects", "[session][co
     CHECK(session.apply(13, found));
     CHECK(session.selected_history().has_value());
 }
+
+namespace {
+    // `for-each-ref` 출력의 한 줄이다 (필드 여덟, 0x1F로 가른다). `current`면 HEAD가 가리키는 브랜치다.
+    std::string ref_line(const std::string& full_name, const std::string& sha, const bool current = false)
+    {
+        return full_name + "\x1f" + sha + "\x1f\x1f" + (current ? "*" : " ") + "\x1f\x1f\x1f\x1f\n";
+    }
+
+    // 그래프 log(`log --topo-order -z <format> <refs> --max-count=…`)에서 ref 집합만 떼어 낸다.
+    text_list graph_refs_of(const test::recorded_call& call)
+    {
+        const auto last { std::find_if(call.arguments.begin(), call.arguments.end(), [](const std::string& argument) { return argument.starts_with("--max-count="); }) };
+        REQUIRE(call.arguments.size() > 4);
+        REQUIRE(last != call.arguments.end());
+        return text_list { call.arguments.begin() + 4, last };
+    }
+
+    std::vector<test::recorded_call> graph_logs(const test::fake_git_runner& process)
+    {
+        std::vector<test::recorded_call> found {};
+        for (const test::recorded_call& call : process.calls())
+        {
+            if (call.arguments.size() > 1 && call.arguments[0] == "log" && call.arguments[1] == "--topo-order")
+                found.push_back(call);
+        }
+        return found;
+    }
+
+    std::string all_refs()
+    {
+        return ref_line("refs/heads/main", test::sha_of(3), true) + ref_line("refs/heads/feature", test::sha_of(1)) + ref_line("refs/tags/v1.0", test::sha_of(2));
+    }
+} // namespace
+
+TEST_CASE("set_graph_filter keeps the filter in the session, refreshes, and every graph read carries it", "[workspace][graph_filter]")
+{
+    // 쪽 크기가 3이라 첫 쪽이 꽉 차면 이력이 더 있다고 본다 (이어 읽기를 낼 수 있다).
+    workspace_harness test { 3 };
+    test.script_history(3, false);
+    test.process.when({ "for-each-ref" }, scripted_response { 0, all_refs() });
+    static_cast<void>(test.workspace.submit(test.repository, refresh_request {}));
+    test.settle();
+    REQUIRE(test.session().loaded());
+    CHECK(test.session().graph_filter().empty());
+    REQUIRE(graph_logs(test.process).size() == 1);
+    CHECK(graph_refs_of(graph_logs(test.process)[0]) == text_list { "--branches", "--remotes", "--tags", "HEAD" });
+
+    graph_ref_filter filter {};
+    filter.hidden = { "refs/heads/feature", "refs/tags/v1.0" };
+    const std::uint64_t session_revision { test.session().revision() };
+    const std::uint64_t workspace_revision { test.workspace.revision() };
+    const operation_id refresh { test.workspace.set_graph_filter(test.repository, filter) };
+
+    REQUIRE(refresh != 0);
+    CHECK(test.status(refresh).kind == operation_kind::refresh);
+    // 사용자가 고른 일이다. 자동 작업으로 감추지 않는다.
+    CHECK_FALSE(test.status(refresh).automatic);
+    CHECK(test.session().graph_filter() == filter);
+    CHECK(test.session().revision() > session_revision);
+    CHECK(test.workspace.revision() > workspace_revision);
+    // 그대로면 아무것도 내지 않는다. 없는 저장소도 그렇다.
+    const std::size_t operations { test.workspace.operation_order().size() };
+    CHECK(test.workspace.set_graph_filter(test.repository, filter) == 0);
+    CHECK(test.workspace.set_graph_filter("missing", {}) == 0);
+    CHECK(test.workspace.operation_order().size() == operations);
+
+    test.settle();
+    CHECK(test.status(refresh).state == operation_state::succeeded);
+    const text_list hidden_refs { "--exclude=feature", "--branches", "--remotes", "--exclude=v1.0", "--tags", "HEAD" };
+    REQUIRE(graph_logs(test.process).size() == 2);
+    CHECK(graph_refs_of(graph_logs(test.process)[1]) == hidden_refs);
+
+    // 이어 읽는 쪽도 같은 ref 집합이다. 다르면 `--skip` 경계가 어긋난다.
+    REQUIRE_FALSE(test.session().history_complete());
+    REQUIRE(test.workspace.submit(test.repository, load_more_log_request {}) != 0);
+    test.settle();
+    REQUIRE(graph_logs(test.process).size() == 3);
+    CHECK(graph_refs_of(graph_logs(test.process)[2]) == hidden_refs);
+
+    // 쓰기 뒤의 후속 refresh도 필터가 걸린 채 다시 읽는다.
+    REQUIRE(test.workspace.submit(test.repository, stage_files_request { { "a.txt" } }) != 0);
+    test.settle();
+    REQUIRE(graph_logs(test.process).size() == 4);
+    CHECK(graph_refs_of(graph_logs(test.process)[3]) == hidden_refs);
+
+    // 검색의 두 log도 그렇다 (그래프에 안 보이는 커밋을 찾으면 그 커밋으로 갈 수 없다).
+    const std::size_t before { test.process.calls().size() };
+    REQUIRE(test.workspace.submit(test.repository, search_commits_request { .query = "subject" }) != 0);
+    test.settle();
+    const std::vector<test::recorded_call> calls { test.process.calls() };
+    REQUIRE(calls.size() == before + 2);
+    for (std::size_t index { before }; index < calls.size(); ++index)
+    {
+        const text_list& arguments { calls[index].arguments };
+        REQUIRE(arguments.size() > hidden_refs.size() + 1);
+        CHECK(text_list { arguments.end() - 1 - static_cast<std::ptrdiff_t>(hidden_refs.size()), arguments.end() - 1 } == hidden_refs);
+    }
+
+    // 필터를 풀면 다시 모든 ref다.
+    REQUIRE(test.workspace.set_graph_filter(test.repository, {}) != 0);
+    test.settle();
+    CHECK(test.session().graph_filter().empty());
+    CHECK(graph_refs_of(graph_logs(test.process).back()) == text_list { "--branches", "--remotes", "--tags", "HEAD" });
+}
+
+TEST_CASE("the current branch is not hidden and a ref the repository does not have is not kept", "[workspace][graph_filter]")
+{
+    workspace_harness test {};
+    test.script_history(3, false);
+    test.process.when({ "for-each-ref" }, scripted_response { 0, all_refs() });
+    static_cast<void>(test.workspace.submit(test.repository, refresh_request {}));
+    test.settle();
+
+    graph_ref_filter filter {};
+    filter.hidden = { "refs/heads/main", "refs/heads/gone" };
+    // 남는 것이 없으니 바뀐 것도 없다. 그래프를 다시 읽지 않는다.
+    CHECK(test.workspace.set_graph_filter(test.repository, filter) == 0);
+    CHECK(test.session().graph_filter().empty());
+
+    filter.hidden.push_back("refs/heads/feature");
+    REQUIRE(test.workspace.set_graph_filter(test.repository, filter) != 0);
+    CHECK(test.session().graph_filter().hidden == text_list { "refs/heads/feature" });
+}
+
+TEST_CASE("a snapshot drops refs that are gone from the filter, and a filter left with nothing shown alone reads every ref again", "[workspace][graph_filter]")
+{
+    workspace_harness test { 3 };
+    test.script_history(3, false);
+    // 처음 두 번의 refresh는 feature가 있고, 그 뒤로는 지워졌다 (다른 곳에서 `branch -D`).
+    test.process.when_once({ "for-each-ref" }, scripted_response { 0, all_refs() });
+    test.process.when_once({ "for-each-ref" }, scripted_response { 0, all_refs() });
+    test.process.when({ "for-each-ref" }, scripted_response { 0, ref_line("refs/heads/main", test::sha_of(3), true) + ref_line("refs/tags/v1.0", test::sha_of(2)) });
+    static_cast<void>(test.workspace.submit(test.repository, refresh_request {}));
+    test.settle();
+
+    graph_ref_filter filter {};
+    filter.only = { "refs/heads/feature" };
+    filter.hidden = { "refs/tags/v1.0" };
+    REQUIRE(test.workspace.set_graph_filter(test.repository, filter) != 0);
+    test.settle();
+    CHECK(graph_refs_of(graph_logs(test.process).back()) == text_list { "refs/heads/feature" });
+    CHECK(test.session().graph_filter() == filter);
+
+    // 파일 감시가 낸 것과 같은 자동 refresh다. job은 아직 feature를 든 필터를 싣고 간다.
+    const std::uint64_t revision { test.session().revision() };
+    const operation_id refresh { test.workspace.submit(test.repository, refresh_request {}, true) };
+    REQUIRE(refresh != 0);
+    test.settle();
+
+    // 실행기는 방금 읽은 ref로 걸러 `log refs/heads/feature`(실패한다)를 내지 않았다. "이것만 보기"가 비어 숨긴 태그가 다시 듣는다.
+    CHECK(test.status(refresh).state == operation_state::succeeded);
+    CHECK(graph_refs_of(graph_logs(test.process).back()) == text_list { "--branches", "--remotes", "--exclude=v1.0", "--tags", "HEAD" });
+    // 세션도 같은 규칙으로 정리했다. 이어 읽는 쪽이 같은 ref 집합을 쓴다.
+    CHECK(test.session().graph_filter().only.empty());
+    CHECK(test.session().graph_filter().hidden == text_list { "refs/tags/v1.0" });
+    CHECK(test.session().revision() > revision);
+    REQUIRE(test.workspace.submit(test.repository, load_more_log_request {}) != 0);
+    test.settle();
+    CHECK(graph_refs_of(graph_logs(test.process).back()) == text_list { "--branches", "--remotes", "--exclude=v1.0", "--tags", "HEAD" });
+}
+
+TEST_CASE("changing the filter drops the search result found over the old refs and the result of a search still running", "[workspace][graph_filter][commit_search]")
+{
+    workspace_harness test {};
+    test.script_history(3, false);
+    test.process.when({ "for-each-ref" }, scripted_response { 0, all_refs() });
+    static_cast<void>(test.workspace.submit(test.repository, refresh_request {}));
+    test.settle();
+    REQUIRE(test.workspace.submit(test.repository, search_commits_request { .query = "subject" }) != 0);
+    test.settle();
+    REQUIRE(test.session().selected_search().has_value());
+
+    // 앞 ref 집합에서 찾은 커밋은 새 그래프에 없을 수 있다.
+    graph_ref_filter filter {};
+    filter.hidden = { "refs/heads/feature" };
+    REQUIRE(test.workspace.set_graph_filter(test.repository, filter) != 0);
+    CHECK_FALSE(test.session().selected_search().has_value());
+    test.settle();
+
+    // 낸 뒤 필터가 바뀐 검색의 결과도 받지 않는다. job은 낼 때의 필터로 찾았다.
+    const operation_id running { test.workspace.submit(test.repository, search_commits_request { .query = "subject" }) };
+    REQUIRE(running != 0);
+    REQUIRE(test.workspace.set_graph_filter(test.repository, {}) != 0);
+    test.settle();
+    CHECK(test.status(running).state == operation_state::succeeded);
+    CHECK_FALSE(test.session().selected_search().has_value());
+}
+
+TEST_CASE("the WIP row stands without a parent when the filter leaves HEAD out of the graph", "[workspace][graph_filter][graph]")
+{
+    workspace_harness test {};
+    // 작업 트리가 더럽고 HEAD는 3번 커밋이다. feature는 1번 커밋에 있다.
+    test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(3), "main") + test::status_modified("a.txt") });
+    test.process.when({ "for-each-ref" }, scripted_response { 0, all_refs() });
+    std::string full {};
+    for (int index { 3 }; index >= 1; --index)
+        full.append(test::log_record(test::sha_of(index), index == 1 ? text_list {} : text_list { test::sha_of(index - 1) }));
+    test.process.when_once({ "log", "--topo-order" }, scripted_response { 0, full });
+    // 걸러 읽은 log에는 feature에서 닿는 1번 커밋뿐이다.
+    test.process.when({ "log", "--topo-order" }, scripted_response { 0, test::log_record(test::sha_of(1), {}) });
+    // HEAD는 feature에서 닿지 않는다 (닿지 않으면 git이 그 SHA를 낸다).
+    test.process.when({ "rev-list", "--max-count=1" }, scripted_response { 0, test::sha_of(3) + "\n" });
+    static_cast<void>(test.workspace.submit(test.repository, refresh_request {}));
+    test.settle();
+
+    // 필터가 없으면 WIP 행은 HEAD 커밋에 매달린다.
+    REQUIRE(test.session().has_wip_row());
+    REQUIRE(test.session().graph_rows().size() == 4);
+    CHECK_FALSE(test.session().graph_rows()[0].is_root);
+    CHECK(test.session().graph_commits()[0].parents == text_list { test::sha_of(3) });
+
+    graph_ref_filter filter {};
+    filter.only = { "refs/heads/feature" };
+    REQUIRE(test.workspace.set_graph_filter(test.repository, filter) != 0);
+    test.settle();
+
+    // 행은 남는다 (작업 영역으로 가는 길이다). 다만 그래프에 오지 않을 HEAD를 부모로 두지 않는다: 두면 그 레인이 끝까지 열린다.
+    REQUIRE(test.session().has_wip_row());
+    REQUIRE(test.session().graph_rows().size() == 2);
+    CHECK_FALSE(test.session().snapshot().head_in_graph);
+    CHECK(test.session().graph_rows()[0].is_root);
+    CHECK(test.session().graph_rows()[0].edges.empty());
+    CHECK(test.session().graph_commits()[0].parents.empty());
+    // 1번 커밋은 지나가는 선 없이 제 레인에 선다.
+    CHECK(test.session().graph_rows()[1].edges.empty());
+    CHECK(test.session().graph_lane_count() == 1);
+
+    // 작업 트리만 다시 읽는 새로 고침은 WIP 행이 그대로라 전체 refresh로 올리지 않는다.
+    const std::size_t operations { test.workspace.operation_order().size() };
+    REQUIRE(test.workspace.submit(test.repository, refresh_status_request {}, true) != 0);
+    test.settle();
+    CHECK(test.workspace.operation_order().size() == operations + 1);
+}

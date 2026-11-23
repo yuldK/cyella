@@ -362,6 +362,10 @@ namespace cyella {
         bool forward { true };
     };
 
+    // 그래프의 브랜치 필터("이것만 보기"·숨기기)를 모두 푼다 (그래프 위 띠의 [모두 보기], `graph.filter.clear`).
+    struct clear_graph_filter_intent
+    {};
+
     struct set_repository_layout_intent
     {
         bool graph { true };

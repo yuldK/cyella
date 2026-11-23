@@ -90,11 +90,34 @@ namespace cyella {
         ++revision_;
     }
 
+    bool repository_session::set_graph_filter(graph_ref_filter filter)
+    {
+        if (loaded())
+            filter = settle_graph_ref_filter(filter, snapshot_.refs, snapshot_.summary.current_branch);
+        return replace_graph_filter(std::move(filter));
+    }
+
+    bool repository_session::replace_graph_filter(graph_ref_filter filter)
+    {
+        if (filter == graph_filter_)
+            return false;
+        graph_filter_ = std::move(filter);
+        // 앞 필터의 ref 집합에서 찾은 커밋은 새 그래프에 없을 수 있다. 화면이 그 커밋으로 가려다 못 찾지 않게 버린다.
+        commit_search_.reset();
+        expected_search_ = 0;
+        ++revision_;
+        return true;
+    }
+
     bool repository_session::apply(const snapshot_loaded& event)
     {
         // 더 새 refresh를 이미 냈으면 이 snapshot은 곧 덮인다. 섞어 그리지 않게 버린다.
         if (event.generation != requested_generation_)
             return false;
+
+        // 이 refresh의 실행기가 같은 ref 목록·같은 함수로 거른 필터로 log를 읽는다. 세션도 여기서 맞춰 두어야 이어 읽는 쪽과
+        // 검색이 같은 ref 집합을 쓰고, 지워진 브랜치가 필터에 남아 다음 `log`를 실패시키지 않는다.
+        static_cast<void>(replace_graph_filter(settle_graph_ref_filter(graph_filter_, event.snapshot.refs, event.snapshot.summary.current_branch)));
 
         if (loaded() && rows_.empty() == false)
         {
@@ -134,7 +157,9 @@ namespace cyella {
         // HEAD를 이 시점에 알아야 WIP 행을 첫 쪽 앞에 끼울 수 있다. snapshot이 log보다 먼저 온다.
         if (snapshot_.summary.changed_file_count > 0)
         {
-            const graph_commit wip { make_wip_commit(snapshot_.summary.head_sha) };
+            // 브랜치 필터가 HEAD 커밋을 그래프에서 뺐으면 WIP 행을 부모 없이 세운다. 오지 않을 커밋을 부모로 두면 그 레인이
+            // 그래프 끝까지 열린 채 남는다. 행 자체는 남긴다 — 작업 영역으로 가는 길이고, `status_loaded`가 변경 유무와 WIP 행을 견준다.
+            const graph_commit wip { make_wip_commit(snapshot_.head_in_graph ? std::string_view { snapshot_.summary.head_sha } : std::string_view {}) };
             std::vector<graph_row> appended { layout_.append(std::span<const graph_commit> { &wip, 1 }) };
             rows_.insert(rows_.end(), std::make_move_iterator(appended.begin()), std::make_move_iterator(appended.end()));
             commit_info commit {};

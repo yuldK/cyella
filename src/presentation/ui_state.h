@@ -3,6 +3,7 @@
 #include "application/diff_view_protocol.h"
 #include "application/git_operation.h"
 #include "application/repository_tabs.h"
+#include "domain/graph_ref_filter.h"
 #include "domain/operation_status.h"
 #include "presentation/dialog_state.h"
 #include "presentation/palette/palette_state.h"
@@ -147,6 +148,9 @@ namespace cyella {
         std::optional<std::chrono::steady_clock::time_point> due {};
         // 앞·뒤 이동이 선 커밋이다. 질의를 고치면 비운다.
         std::string current {};
+        // git에 마지막으로 낼 때 세션이 든 그래프의 브랜치 필터다. 세션의 필터가 이것과 달라지면(사용자가 바꿨거나 지워진 브랜치가
+        // 빠졌다) 같은 질의를 새 ref 집합으로 다시 낸다 (`shell_controller::rearm_filtered_searches`).
+        graph_ref_filter filter {};
     };
 
     // diff 판이 보이는 것이다. 머리의 [변경 내용 | Blame | 이력] 전환이 바꾼다.

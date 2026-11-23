@@ -80,6 +80,8 @@ namespace cyella {
         bool file_view { false };
         // 그래프의 커밋 검색 막대가 열려 있다.
         bool graph_search { false };
+        // 그래프에 브랜치 필터("이것만 보기"·숨기기)가 걸려 있다.
+        bool graph_filter { false };
         // 저장소의 원격이 GitHub·GitLab으로 알려진 호스트이고, 그 호스트에 로그인했으며, 현재 브랜치로 PR을 만들 수 있다.
         bool hosting_supported { false };
         bool hosting_signed_in { false };

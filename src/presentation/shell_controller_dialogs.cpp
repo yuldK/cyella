@@ -1206,6 +1206,13 @@ namespace cyella {
             return std::nullopt;
         };
 
+        // 브랜치·원격 브랜치·태그 메뉴가 함께 두는 그래프의 브랜치 필터다.
+        if (key == u8"graph_only" || key == u8"graph_hide")
+        {
+            toggle_graph_filter(target, context, key == u8"graph_only");
+            return;
+        }
+
         switch (target.kind)
         {
         case menu_target_kind::commit:

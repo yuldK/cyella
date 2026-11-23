@@ -4,6 +4,7 @@
 #include "infrastructure/git_operation_runner.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/dialog_intents.h"
+#include "presentation/palette/palette_intents.h"
 #include "presentation/shell_controller.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/cyella_policy.h"
@@ -1900,4 +1901,338 @@ TEST_CASE("stepping starts from the selected commit when it is a hit", "[present
     open.graph_search = false;
     CHECK_FALSE(command_available("graph.search.previous", open));
     CHECK(command_available("graph.search", open));
+}
+
+namespace {
+    using name_list = std::vector<std::string>;
+
+    // main(현재 브랜치)이 5번 커밋에, 옆 갈래 feature와 그 원격 추적 브랜치가 4번에, 태그 v1이 2번에 있는 저장소다.
+    void load_branches(repository_session& session, const bool history_complete = true)
+    {
+        const std::uint64_t generation { session.begin_refresh() };
+        repository_snapshot snapshot {};
+        snapshot.summary.head_sha = sha_of(5);
+        snapshot.summary.current_branch = "main";
+        snapshot.summary.remotes = { { .name = "origin", .fetch_url = "https://example.com/repo.git" } };
+        snapshot.refs = {
+            { .kind = ref_kind::local, .name = "main", .full_name = "refs/heads/main", .target_sha = sha_of(5), .is_current = true },
+            { .kind = ref_kind::local, .name = "feature", .full_name = "refs/heads/feature", .target_sha = sha_of(4) },
+            { .kind = ref_kind::remote, .name = "origin/feature", .full_name = "refs/remotes/origin/feature", .target_sha = sha_of(4) },
+            { .kind = ref_kind::tag, .name = "v1", .full_name = "refs/tags/v1", .target_sha = sha_of(2) },
+        };
+        REQUIRE(session.apply(snapshot_loaded { generation, snapshot }));
+        REQUIRE(session.apply(commits_loaded { .generation = generation, .commits = branching_history(), .page_complete = true, .history_complete = history_complete }));
+    }
+
+    const menu_target feature_branch { .kind = menu_target_kind::local_branch, .name = "feature", .sha = sha_of(4) };
+    const menu_target main_branch { .kind = menu_target_kind::local_branch, .name = "main", .sha = sha_of(5) };
+    const menu_target remote_feature { .kind = menu_target_kind::remote_branch, .name = "origin/feature", .sha = sha_of(4) };
+    const menu_target tag_v1 { .kind = menu_target_kind::tag, .name = "v1", .sha = sha_of(2) };
+
+    // 우클릭 메뉴를 열어 항목 하나를 고른다. 꺼진 항목은 controller가 실행하지 않는다.
+    void pick_menu(controller_harness& test, const menu_target& target, const std::u8string& key)
+    {
+        REQUIRE(test.send(open_context_menu_intent { target, 10.0f, 10.0f }));
+        REQUIRE(test.send(menu_select_intent { key }));
+    }
+
+    // 열린 메뉴의 그 항목이다.
+    menu_entry menu_entry_of(controller_harness& test, const menu_target& target, const std::u8string& key)
+    {
+        REQUIRE(test.send(open_context_menu_intent { target, 10.0f, 10.0f }));
+        const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+        REQUIRE(view.menu.has_value());
+        const auto found { std::ranges::find(view.menu->entries, key, &menu_entry::key) };
+        REQUIRE(found != view.menu->entries.end());
+        const menu_entry entry { *found };
+        REQUIRE(test.send(close_menu_intent {}));
+        return entry;
+    }
+
+    graph_ref_mark sidebar_mark_of(const view_snapshot& view, const std::u8string& key)
+    {
+        REQUIRE(view.repository.has_value());
+        const auto found { std::ranges::find(view.repository->sidebar, key, &sidebar_row_view::key) };
+        REQUIRE(found != view.repository->sidebar.end());
+        return found->graph_mark;
+    }
+} // namespace
+
+TEST_CASE("branch and tag menus show refs alone or hide them in the graph, and picking again undoes it", "[presentation][controller][graph_filter]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_branches(*session);
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+    const std::size_t refreshes { count_operations(test.workspace, operation_kind::refresh) };
+
+    // 필터가 없으면 띠도 표시도 없다. 숨기기는 현재 브랜치에서만 꺼져 있다.
+    CHECK_FALSE(test.controller.make_view(1400.0f, 900.0f, 1.0f).repository->graph.filter.has_value());
+    CHECK(menu_entry_of(test, feature_branch, u8"graph_only").enabled);
+    CHECK(menu_entry_of(test, feature_branch, u8"graph_only").label == u8"그래프에 이것만 보기");
+    CHECK(menu_entry_of(test, feature_branch, u8"graph_hide").enabled);
+    CHECK(menu_entry_of(test, feature_branch, u8"graph_hide").label == u8"그래프에서 숨기기");
+    CHECK(menu_entry_of(test, main_branch, u8"graph_only").enabled);
+    CHECK_FALSE(menu_entry_of(test, main_branch, u8"graph_hide").enabled);
+    CHECK(menu_entry_of(test, remote_feature, u8"graph_hide").enabled);
+    CHECK(menu_entry_of(test, tag_v1, u8"graph_hide").enabled);
+
+    // 숨기기: 필터가 세션에 서고 그래프를 다시 읽는다. 그래프가 통째로 바뀌므로 스크롤은 처음으로 간다.
+    REQUIRE(test.send(scroll_intent { .target = scroll_target::graph, .value = 40.0f, .absolute = true }));
+    pick_menu(test, remote_feature, u8"graph_hide");
+    CHECK(session->graph_filter().hidden == name_list { "refs/remotes/origin/feature" });
+    CHECK(session->graph_filter().only.empty());
+    CHECK(count_operations(test.workspace, operation_kind::refresh) == refreshes + 1);
+    CHECK(tab_of(test).graph_scroll == 0.0f);
+    pick_menu(test, tag_v1, u8"graph_hide");
+    CHECK(session->graph_filter().hidden == name_list { "refs/remotes/origin/feature", "refs/tags/v1" });
+    CHECK(count_operations(test.workspace, operation_kind::refresh) == refreshes + 2);
+    {
+        const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+        REQUIRE(view.repository->graph.filter.has_value());
+        CHECK(view.repository->graph.filter->status == u8"브랜치 2개를 숨긴 중");
+        CHECK(sidebar_mark_of(view, u8"rb:origin/feature") == graph_ref_mark::hidden);
+        CHECK(sidebar_mark_of(view, u8"t:v1") == graph_ref_mark::hidden);
+        CHECK(sidebar_mark_of(view, u8"l:feature") == graph_ref_mark::none);
+    }
+    CHECK(menu_entry_of(test, tag_v1, u8"graph_hide").label == u8"그래프에 다시 보이기");
+    // 현재 브랜치는 골라도 숨겨지지 않는다 (꺼진 항목이다).
+    pick_menu(test, main_branch, u8"graph_hide");
+    CHECK(session->graph_filter().hidden == name_list { "refs/remotes/origin/feature", "refs/tags/v1" });
+    // 다시 고르면 다시 보인다.
+    pick_menu(test, tag_v1, u8"graph_hide");
+    CHECK(session->graph_filter().hidden == name_list { "refs/remotes/origin/feature" });
+    CHECK(test.controller.make_view(1400.0f, 900.0f, 1.0f).repository->graph.filter->status == u8"브랜치 1개를 숨긴 중");
+
+    // 이것만 보기: 여러 개를 함께 켤 수 있다. 숨긴 것은 그대로 남되 그동안 듣지 않는다.
+    pick_menu(test, feature_branch, u8"graph_only");
+    pick_menu(test, tag_v1, u8"graph_only");
+    CHECK(session->graph_filter().only == name_list { "refs/heads/feature", "refs/tags/v1" });
+    CHECK(session->graph_filter().hidden == name_list { "refs/remotes/origin/feature" });
+    {
+        const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+        CHECK(view.repository->graph.filter->status == u8"브랜치 2개만 보는 중");
+        CHECK(sidebar_mark_of(view, u8"l:feature") == graph_ref_mark::only);
+        CHECK(sidebar_mark_of(view, u8"t:v1") == graph_ref_mark::only);
+        // 표시는 지금 그래프에 듣는 것만 말한다.
+        CHECK(sidebar_mark_of(view, u8"rb:origin/feature") == graph_ref_mark::none);
+        CHECK(sidebar_mark_of(view, u8"l:main") == graph_ref_mark::none);
+    }
+    // 그동안 숨기기는 뜻이 없어 어느 ref에서나 꺼진다.
+    CHECK_FALSE(menu_entry_of(test, feature_branch, u8"graph_hide").enabled);
+    CHECK_FALSE(menu_entry_of(test, remote_feature, u8"graph_hide").enabled);
+    CHECK(menu_entry_of(test, feature_branch, u8"graph_only").label == u8"그래프에 이것만 보기 풀기");
+    pick_menu(test, remote_feature, u8"graph_hide");
+    CHECK(session->graph_filter().hidden == name_list { "refs/remotes/origin/feature" });
+    // 현재 브랜치도 이것만 볼 수 있다.
+    CHECK(menu_entry_of(test, main_branch, u8"graph_only").enabled);
+
+    // 다시 고르면 풀리고, 마지막 하나를 풀면 숨긴 것이 다시 듣는다.
+    pick_menu(test, feature_branch, u8"graph_only");
+    CHECK(session->graph_filter().only == name_list { "refs/tags/v1" });
+    CHECK(test.controller.make_view(1400.0f, 900.0f, 1.0f).repository->graph.filter->status == u8"브랜치 1개만 보는 중");
+    pick_menu(test, tag_v1, u8"graph_only");
+    CHECK(session->graph_filter().only.empty());
+    {
+        const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+        CHECK(view.repository->graph.filter->status == u8"브랜치 1개를 숨긴 중");
+        CHECK(sidebar_mark_of(view, u8"rb:origin/feature") == graph_ref_mark::hidden);
+    }
+    CHECK(menu_entry_of(test, feature_branch, u8"graph_hide").enabled);
+
+    // 숨긴 ref를 "이것만 보기"로 고르면 숨긴 목록에서 빠진다. 풀고 나서 다시 숨겨지지 않는다.
+    pick_menu(test, remote_feature, u8"graph_only");
+    CHECK(session->graph_filter().hidden.empty());
+    pick_menu(test, remote_feature, u8"graph_only");
+    CHECK(session->graph_filter().empty());
+    CHECK_FALSE(test.controller.make_view(1400.0f, 900.0f, 1.0f).repository->graph.filter.has_value());
+}
+
+TEST_CASE("the band over the graph and the palette command clear the filter", "[presentation][controller][graph_filter]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_branches(*session);
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+
+    // 필터가 없으면 명령은 쓸 수 없고 띠도 서지 않는다.
+    std::size_t refreshes { count_operations(test.workspace, operation_kind::refresh) };
+    REQUIRE(test.send(run_command_intent { "graph.filter.clear" }));
+    CHECK(count_operations(test.workspace, operation_kind::refresh) == refreshes);
+    {
+        const ui::built_tree built { ui::build_ui_tree(test.controller.make_view(1400.0f, 900.0f, 1.0f)) };
+        CHECK(built.tree->find({ ui::kind_panel, u8"graph-filter-bar" }) == nullptr);
+    }
+    command_availability availability {};
+    availability.repository = true;
+    CHECK_FALSE(command_available("graph.filter.clear", availability));
+    availability.graph_filter = true;
+    CHECK(command_available("graph.filter.clear", availability));
+
+    // 띠와 그 안의 글·단추는 UI Automation으로 닿는 id를 가진다.
+    pick_menu(test, feature_branch, u8"graph_hide");
+    pick_menu(test, tag_v1, u8"graph_only");
+    REQUIRE_FALSE(session->graph_filter().empty());
+    {
+        const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+        const ui::built_tree built { ui::build_ui_tree(view) };
+        const luil::ui_element* const bar { built.tree->find({ ui::kind_panel, u8"graph-filter-bar" }) };
+        REQUIRE(bar != nullptr);
+        CHECK(bar->accessibility().role == luil::access_role::group);
+        CHECK(bar->accessibility().name == u8"브랜치 1개만 보는 중");
+        const luil::ui_element* const status { built.tree->find({ ui::kind_label, u8"graph-filter-status" }) };
+        REQUIRE(status != nullptr);
+        CHECK(status->accessibility().name == u8"브랜치 1개만 보는 중");
+        const luil::ui_element* const reset { built.tree->find({ ui::kind_text_button, u8"graph-filter-reset" }) };
+        REQUIRE(reset != nullptr);
+        CHECK(reset->accessibility().name == u8"모두 보기");
+        // 띠는 검색 막대 아래, 그래프의 열 머리 위에 선다.
+        const luil::ui_element* const header { built.tree->find({ ui::kind_graph_header, u8"graph-header" }) };
+        if (header != nullptr)
+            CHECK(bar->bounds().y < header->bounds().y);
+    }
+
+    // 단추가 내는 메시지다: "이것만 보기"와 숨기기를 모두 푼다.
+    refreshes = count_operations(test.workspace, operation_kind::refresh);
+    REQUIRE(test.send(clear_graph_filter_intent {}));
+    CHECK(session->graph_filter().empty());
+    CHECK(count_operations(test.workspace, operation_kind::refresh) == refreshes + 1);
+    CHECK_FALSE(test.controller.make_view(1400.0f, 900.0f, 1.0f).repository->graph.filter.has_value());
+
+    // 팔레트의 명령도 같은 일을 한다.
+    pick_menu(test, feature_branch, u8"graph_hide");
+    REQUIRE_FALSE(session->graph_filter().empty());
+    REQUIRE(test.send(run_command_intent { "graph.filter.clear" }));
+    CHECK(session->graph_filter().empty());
+}
+
+TEST_CASE("the selected sidebar branch's filter entries run from the palette like the context menu", "[presentation][controller][graph_filter][palette]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_branches(*session);
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+
+    // 우클릭 메뉴는 UI Automation으로 열 수 없다. 사이드바에서 고른 항목의 메뉴는 팔레트에 `menu:<키>`로 선다.
+    REQUIRE(test.send(select_sidebar_item_intent { .key = u8"l:feature", .target_sha = sha_of(4) }));
+    REQUIRE(test.send(open_palette_intent {}));
+    REQUIRE(test.send(palette_pick_intent { u8"menu:graph_only" }));
+    CHECK_FALSE(test.controller.state().palette.has_value());
+    CHECK(session->graph_filter().only == name_list { "refs/heads/feature" });
+
+    // 꺼진 항목(이것만 보기 중의 숨기기)은 팔레트에서 골라도 실행되지 않는다.
+    REQUIRE(test.send(open_palette_intent {}));
+    REQUIRE(test.send(palette_pick_intent { u8"menu:graph_hide" }));
+    CHECK(session->graph_filter().hidden.empty());
+    REQUIRE(test.send(open_palette_intent {}));
+    REQUIRE(test.send(palette_pick_intent { u8"menu:graph_only" }));
+    CHECK(session->graph_filter().empty());
+}
+
+TEST_CASE("show in graph says a filter is on when the commit is not in the filtered graph", "[presentation][controller][graph_filter][file_view]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_branches(*session);
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+
+    // 필터가 없으면 그래프에 없는 커밋은 어느 ref에서도 닿지 않는 커밋이다.
+    REQUIRE(test.send(reveal_commit_intent { .repository_id = {}, .sha = sha_of(9) }));
+    REQUIRE(test.controller.state().notifications.empty() == false);
+    CHECK(test.controller.state().notifications.back().text.find(u8"어느 브랜치·태그에서도 닿지 않는") != std::u8string::npos);
+
+    // 필터가 걸려 있으면 그 말은 틀릴 수 있다. 필터 때문일 수 있다고 말한다.
+    pick_menu(test, feature_branch, u8"graph_hide");
+    REQUIRE(test.send(reveal_commit_intent { .repository_id = {}, .sha = sha_of(9) }));
+    const std::u8string& text { test.controller.state().notifications.back().text };
+    CHECK(text.find(u8"브랜치 필터") != std::u8string::npos);
+    CHECK(text.find(u8"닿지 않는") == std::u8string::npos);
+    CHECK(tab_of(test).pending_reveal.empty());
+}
+
+TEST_CASE("selecting a ref whose commit is not loaded does not claim it is unloaded while a filter may have removed it", "[presentation][controller][graph_filter]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    // 이력을 끝까지 읽지 않은 저장소다.
+    load_branches(*session, false);
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+
+    // 필터가 없으면 아직 읽지 않은 커밋이라고 알린다.
+    std::size_t notices { test.controller.state().notifications.size() };
+    REQUIRE(test.send(select_sidebar_item_intent { .key = u8"t:old", .target_sha = sha_of(9) }));
+    CHECK(test.controller.state().notifications.size() == notices + 1);
+
+    // 우클릭도 그 항목을 먼저 고른다. 숨긴 브랜치의 메뉴를 열 때마다 틀린 안내가 뜨면 안 된다.
+    pick_menu(test, feature_branch, u8"graph_hide");
+    notices = test.controller.state().notifications.size();
+    REQUIRE(test.send(select_sidebar_item_intent { .key = u8"t:old", .target_sha = sha_of(9) }));
+    CHECK(test.controller.state().notifications.size() == notices);
+}
+
+TEST_CASE("an open search is asked again over the new refs when the filter changes", "[presentation][controller][graph_filter][search]")
+{
+    controller_harness test {};
+    test.controller.open_repository(u8"C:\\work\\repo");
+    repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
+    REQUIRE(session != nullptr);
+    load_branches(*session);
+    static_cast<void>(test.controller.make_view(1400.0f, 900.0f, 1.0f));
+    REQUIRE(test.send(open_graph_search_intent {}));
+    type_search(test, u8"three");
+    test.advance(std::chrono::milliseconds { 300 });
+    test.controller.tick(test.steady());
+    REQUIRE(count_operations(test.workspace, operation_kind::search_commits) == 1);
+    const operation_id first { tab_of(test).search->operation };
+
+    // git이 아직 읽지 않은 커밋(9)을 찾았다. 앞·뒤 이동이 그 커밋에 선다.
+    commit_search found {};
+    found.request = search_commits_request { .query = "three" };
+    found.commits.push_back(commit_info { .sha = sha_of(9), .subject = "old three" });
+    REQUIRE(session->apply(first, commit_search_loaded { found }));
+    test.controller.after_events();
+    CHECK(search_view_of(test.controller.make_view(1400.0f, 900.0f, 1.0f)).hits->contains(sha_of(9)));
+
+    // 필터를 바꾸면 앞 ref 집합의 결과는 버리고, 글이 그대로여도 같은 질의를 다시 낸다.
+    pick_menu(test, feature_branch, u8"graph_hide");
+    CHECK_FALSE(session->selected_search().has_value());
+    {
+        const view_snapshot view { test.controller.make_view(1400.0f, 900.0f, 1.0f) };
+        CHECK_FALSE(search_view_of(view).hits->contains(sha_of(9)));
+        // 읽은 커밋은 그대로 훑는다.
+        CHECK(search_view_of(view).hits->contains(sha_of(3)));
+    }
+    CHECK(tab_of(test).search->current.empty());
+    REQUIRE(test.controller.next_tick().has_value());
+    test.controller.tick(test.steady());
+    CHECK(count_operations(test.workspace, operation_kind::search_commits) == 2);
+    CHECK(tab_of(test).search->operation != first);
+    CHECK(tab_of(test).search->filter == session->graph_filter());
+    // 같은 필터로는 다시 내지 않는다.
+    test.controller.after_events();
+    test.advance(std::chrono::milliseconds { 300 });
+    test.controller.tick(test.steady());
+    CHECK(count_operations(test.workspace, operation_kind::search_commits) == 2);
+
+    // 새 snapshot이 지워진 브랜치를 필터에서 빼도 같다 (사용자가 바꾼 것이 아니어도 ref 집합이 달라졌다).
+    const std::uint64_t generation { session->begin_refresh() };
+    repository_snapshot snapshot {};
+    snapshot.summary.head_sha = sha_of(5);
+    snapshot.summary.current_branch = "main";
+    snapshot.refs = { { .kind = ref_kind::local, .name = "main", .full_name = "refs/heads/main", .target_sha = sha_of(5), .is_current = true } };
+    REQUIRE(session->apply(snapshot_loaded { generation, snapshot }));
+    CHECK(session->graph_filter().empty());
+    test.controller.after_events();
+    test.controller.tick(test.steady());
+    CHECK(count_operations(test.workspace, operation_kind::search_commits) == 3);
 }

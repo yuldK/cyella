@@ -129,6 +129,7 @@ namespace cyella {
         availability.pop = ready && session->snapshot().stashes.empty() == false;
         availability.drawer = last_mode_ != layout_mode::wide;
         availability.selection_menu = selection_menu_target().has_value();
+        availability.graph_filter = session->graph_filter().empty() == false;
 
         const hosting_repository_view hosting { hosting_.view_of(session->id()) };
         availability.hosting_supported = hosting.support == hosting_support::supported;
@@ -239,6 +240,8 @@ namespace cyella {
             send(luil::app_message { graph_search_step_intent { .forward = true } });
         else if (id == "graph.search.previous")
             send(luil::app_message { graph_search_step_intent { .forward = false } });
+        else if (id == "graph.filter.clear")
+            send(luil::app_message { clear_graph_filter_intent {} });
         else if (id == "file.blame")
             send(luil::app_message { set_file_view_mode_intent { file_view_mode::blame } });
         else if (id == "file.history")

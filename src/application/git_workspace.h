@@ -71,6 +71,9 @@ namespace cyella {
         // 도는 중에 0이고, 마지막 전체 refresh가 실패·취소로 끝나 화면이 낡았으면 전체 refresh로 올려 낸다.
         // blame_file·file_history·search_commits는 그 저장소에서 아직 끝나지 않은 앞의 같은 종류 operation을 취소하고 낸다.
         operation_id submit(const std::string& repository_id, git_operation operation, bool automatic = false);
+        // 그 저장소의 그래프 브랜치 필터를 바꾸고 refresh를 낸다 (ADR-012). 낸 refresh의 id다. 저장소가 없거나 필터가 그대로면
+        // 아무것도 내지 않고 0이다. 필터는 세션이 들고, 이후의 refresh·load_more_log·search_commits job이 싣고 간다.
+        operation_id set_graph_filter(const std::string& repository_id, graph_ref_filter filter);
         // clone·init·inspect_path를 낸다. 대상 경로로 묶이며 저장소 id가 없다.
         operation_id submit_setup(git_operation operation);
         // 대기·실행 중이면 취소를 걸고 true다. 충돌 대기(needs_input)는 취소할 수 없다. `operation_order()`를
