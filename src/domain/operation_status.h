@@ -115,6 +115,8 @@ namespace cyella {
         blame_file,
         // 한 파일의 이력을 이름 바꾸기를 따라가며 읽는다(읽기 lane). 결과는 `file_history_loaded` 사건이다.
         file_history,
+        // 전체 이력에서 메시지·작성자·SHA로 커밋을 찾는다(읽기 lane). 결과는 `commit_search_loaded` 사건이다.
+        search_commits,
     };
 
     enum class operation_state

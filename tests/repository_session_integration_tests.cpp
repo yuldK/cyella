@@ -770,6 +770,206 @@ TEST_CASE("integration: blame_file and file_history end as failures when git can
     }
 }
 
+namespace {
+    // `git fast-import`의 커밋 하나다. `run_git`의 환경은 작성자와 시각을 고정하므로, 작성자와 committer 시각이 다른 커밋은
+    // 이 길로 만든다. 파일은 없다 (빈 트리). `parent`가 0이면 첫 커밋이다.
+    std::string import_commit(const std::string& ref, const int mark, const int parent, const std::string& author, const std::int64_t time, const std::string& message)
+    {
+        const std::string who { author + " " + std::to_string(time) + " +0000\n" };
+        std::string stream { "commit " + ref + "\nmark :" + std::to_string(mark) + "\n" };
+        stream.append("author ").append(who).append("committer ").append(who);
+        stream.append("data ").append(std::to_string(message.size())).append("\n").append(message).append("\n");
+        if (parent != 0)
+            stream.append("from :").append(std::to_string(parent)).append("\n");
+        stream.append("\n");
+        return stream;
+    }
+
+    text_list found_shas(const commit_search& search)
+    {
+        text_list shas {};
+        for (const commit_info& commit : search.commits)
+            shas.push_back(commit.sha);
+        return shas;
+    }
+} // namespace
+
+TEST_CASE("integration: search_commits finds commits by message, author and hash prefix over the refs of the graph in sha1 and sha256 repositories", "[session][integration][commit_search]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    for (const std::string format : { "sha1", "sha256" })
+    {
+        INFO("object format " << format);
+        test::temp_directory directory {};
+        const std::filesystem::path path { directory.path() / "repo" };
+        std::filesystem::create_directories(path);
+        git_ok(path, { "init", "-q", "-b", "main", "--object-format=" + format });
+
+        const std::string morgan { "Morgan <morgan@example.com>" };
+        const std::string robin { "Robin Lee <robin@example.org>" };
+        const std::string sasha { "Sasha Quill <sasha@example.net>" };
+        std::string stream {};
+        stream.append(import_commit("refs/heads/main", 1, 0, morgan, 1700001000, "인사말을 고친다\n"));
+        stream.append(import_commit("refs/heads/main", 2, 1, robin, 1700002000, "Fix Parser\n\nThe body mentions Kumquat only here.\n"));
+        stream.append(import_commit("refs/heads/main", 3, 2, morgan, 1700003000, "regex a.*b literal\n"));
+        stream.append(import_commit("refs/heads/main", 4, 3, morgan, 1700004000, "regex axxb expanded with --all\n"));
+        // main에서 닿지 않는 커밋들이다: 다른 브랜치, 태그만, 원격 추적 브랜치만, 그리고 어느 ref에서도 닿지 않는 커밋.
+        stream.append(import_commit("refs/heads/side", 5, 2, sasha, 1700005000, "side work for example.com\n"));
+        stream.append(import_commit("refs/heads/tagged", 6, 4, morgan, 1700006000, "tagged only release\n"));
+        stream.append(import_commit("refs/heads/lost", 7, 4, morgan, 1700007000, "lost commit nobody points at\n"));
+        stream.append(import_commit("refs/heads/remote", 8, 4, morgan, 1700008000, "remote only topic\n"));
+        git_ok(path, { "fast-import", "--quiet" }, stream);
+
+        const std::string first { git_text(path, { "rev-parse", "main~3" }) };
+        const std::string second { git_text(path, { "rev-parse", "main~2" }) };
+        const std::string third { git_text(path, { "rev-parse", "main~1" }) };
+        const std::string fourth { git_text(path, { "rev-parse", "main" }) };
+        const std::string side { git_text(path, { "rev-parse", "side" }) };
+        const std::string tagged { git_text(path, { "rev-parse", "tagged" }) };
+        const std::string lost { git_text(path, { "rev-parse", "lost" }) };
+        const std::string remote { git_text(path, { "rev-parse", "remote" }) };
+        git_ok(path, { "tag", "v1", tagged });
+        git_ok(path, { "update-ref", "refs/remotes/origin/topic", remote });
+        git_ok(path, { "branch", "-q", "-D", "tagged", "lost", "remote" });
+
+        live_workspace live {};
+        const std::string repo { live.open(path) };
+        const auto search = [&live, &repo](const std::string& query, const std::uint32_t max_count = 1000) {
+            const search_commits_request request { .query = query, .max_count = max_count };
+            live.require_succeeded(live.run(repo, request));
+            REQUIRE(live.session(repo).selected_search().has_value());
+            const commit_search found { *live.session(repo).selected_search() };
+            CHECK(found.request == request);
+            return found;
+        };
+        const auto find = [&search](const std::string& query) { return found_shas(search(query)); };
+
+        // 제목의 한글.
+        {
+            const commit_search found { search("인사") };
+            REQUIRE(found_shas(found) == text_list { first });
+            CHECK_FALSE(found.truncated);
+            CHECK(found.commits[0].subject == "인사말을 고친다");
+            CHECK(found.commits[0].author_name == "Morgan");
+            CHECK(found.commits[0].author_email == "morgan@example.com");
+            CHECK(found.commits[0].committer_time == 1700001000);
+            CHECK(found.commits[0].parents.empty());
+        }
+        // 본문에만 있는 낱말, 대소문자 무시. 결과에 본문은 싣지 않는다.
+        {
+            const commit_search found { search("kumquat") };
+            REQUIRE(found_shas(found) == text_list { second });
+            CHECK(found.commits[0].subject == "Fix Parser");
+            CHECK_FALSE(found.commits[0].body.has_value());
+            CHECK(found.commits[0].parents == text_list { first });
+        }
+        CHECK(find("fix parser") == text_list { second });
+        CHECK(find("  FIX PARSER  ") == text_list { second });
+        // 작성자의 이름과 메일.
+        CHECK(find("robin lee") == text_list { second });
+        CHECK(find("ROBIN@EXAMPLE.ORG") == text_list { second });
+        // 정규식 글자는 글자 그대로다. `a.*b`는 `axxb`에 맞지 않는다.
+        CHECK(find("a.*b") == text_list { third });
+        CHECK(find(".*") == text_list { third });
+        CHECK(find("^regex").empty());
+        // 옵션처럼 보이는 질의도 찾을 글일 뿐이다. `--all`이 옵션으로 읽히면 닿지 않는 커밋까지 나온다.
+        CHECK(find("--all") == text_list { fourth });
+        // 새 커밋이 앞이다.
+        CHECK(find("regex") == text_list { fourth, third });
+        // 다른 브랜치, 태그, 원격 추적 브랜치에만 있는 커밋도 찾는다. 어느 ref에서도 닿지 않는 커밋은 없다.
+        CHECK(find("side work") == text_list { side });
+        CHECK(find("sasha quill") == text_list { side });
+        CHECK(find("tagged only") == text_list { tagged });
+        CHECK(find("remote only") == text_list { remote });
+        CHECK(find("lost commit").empty());
+        // 메시지에 맞은 커밋(side)과 작성자에 맞은 커밋(Morgan의 것)을 합친다. 닿지 않는 커밋은 여기에도 없다.
+        CHECK(find("example.com") == text_list { remote, tagged, side, fourth, third, first });
+        // 상한보다 많으면 새 것부터 상한까지만 주고 더 있다고 알린다.
+        {
+            const commit_search found { search("example.com", 2) };
+            CHECK(found.truncated);
+            CHECK(found_shas(found) == text_list { remote, tagged });
+            const commit_search exact { search("regex", 2) };
+            CHECK_FALSE(exact.truncated);
+            CHECK(exact.commits.size() == 2);
+        }
+
+        // SHA 앞부분, 대문자, 전체 SHA.
+        {
+            const commit_search found { search(third.substr(0, 8)) };
+            REQUIRE(found_shas(found) == text_list { third });
+            CHECK(found.commits[0].subject == "regex a.*b literal");
+            CHECK(found.commits[0].parents == text_list { second });
+            CHECK_FALSE(found.commits[0].body.has_value());
+            std::string upper { third.substr(0, 8) };
+            std::transform(upper.begin(), upper.end(), upper.begin(), [](const char value) { return value >= 'a' && value <= 'f' ? static_cast<char>(value - 'a' + 'A') : value; });
+            CHECK(find(upper) == text_list { third });
+            CHECK(find(third) == text_list { third });
+            CHECK(find(side.substr(0, 10)) == text_list { side });
+            CHECK(find(tagged.substr(0, 10)) == text_list { tagged });
+            CHECK(find(remote.substr(0, 10)) == text_list { remote });
+        }
+        // 어느 ref에서도 닿지 않는 커밋은 SHA로도 나오지 않는다. 그래프에 없어 화면이 갈 곳이 없다.
+        CHECK(find(lost.substr(0, 10)).empty());
+        CHECK(find(lost).empty());
+        // 없는 SHA는 실패가 아니라 빈 결과다.
+        CHECK(find(std::string(12, '0')).empty());
+
+        // 브랜치 이름이 16진수처럼 생기면 git은 그 이름을 먼저 푼다. SHA가 맞은 것이 아니므로 그 커밋을 내지 않는다.
+        git_ok(path, { "branch", "cafe", side });
+        CHECK(find("cafe").empty());
+        git_ok(path, { "branch", "-q", "-D", "cafe" });
+
+        // `.mailmap`이 이름을 바꿔도 그래프가 보이는 이름(`%an`)으로 찾는다.
+        test::write_file(path / ".mailmap", "Renamed Person <renamed@example.org> Robin Lee <robin@example.org>\n");
+        CHECK(find("robin lee") == text_list { second });
+        CHECK(find("renamed person").empty());
+        std::filesystem::remove(path / ".mailmap");
+
+        // HEAD도 그래프의 시작점이다. HEAD만 가리키는 커밋은 찾는다.
+        git_ok(path, { "checkout", "-q", "--detach", lost });
+        live.refresh(repo);
+        CHECK(find("lost commit") == text_list { lost });
+        CHECK(find(lost.substr(0, 10)) == text_list { lost });
+
+        // 첫 커밋이 없는 브랜치에서는 HEAD를 풀 수 없다. HEAD 없이 다른 ref에서 찾는다.
+        git_ok(path, { "checkout", "-q", "--orphan", "blank" });
+        live.refresh(repo);
+        REQUIRE(live.session(repo).snapshot().summary.head_sha.empty());
+        CHECK(find("인사") == text_list { first });
+        CHECK(find(third.substr(0, 8)) == text_list { third });
+        CHECK(find("lost commit").empty());
+        CHECK(find(lost.substr(0, 10)).empty());
+    }
+}
+
+TEST_CASE("integration: search_commits in a repository without commits finds nothing and a blank query fails", "[session][integration][commit_search]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    test::temp_directory directory {};
+    const std::filesystem::path path { make_repository(directory.path() / "empty") };
+
+    live_workspace live {};
+    const std::string repo { live.open(path) };
+    // ref도 HEAD도 없다. git은 실패하지 않고 빈 출력을 준다.
+    for (const std::string query : { "anything", "abcd1234" })
+    {
+        INFO("query " << query);
+        live.require_succeeded(live.run(repo, search_commits_request { .query = query }));
+        REQUIRE(live.session(repo).selected_search().has_value());
+        CHECK(live.session(repo).selected_search()->commits.empty());
+        CHECK_FALSE(live.session(repo).selected_search()->truncated);
+    }
+
+    const operation_id blank { live.run(repo, search_commits_request { .query = "  " }) };
+    CHECK(live.status(blank).state == operation_state::failed);
+    REQUIRE(live.status(blank).failure.has_value());
+    CHECK(live.status(blank).failure->kind == failure_kind::invalid_request);
+    CHECK_FALSE(live.session(repo).selected_search().has_value());
+}
+
 TEST_CASE("integration: set_upstream connects a pushed branch without pushing and unset_upstream removes it", "[session][integration][upstream]")
 {
     if (test::git_is_available() == false)

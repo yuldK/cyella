@@ -54,8 +54,39 @@ namespace cyella {
 
     // `log --topo-order -z --format=... --branches --remotes --tags [HEAD] [--max-count]
     // [--skip] --`. 쪽 나누기는 `--skip`과 `--max-count`로 하며, 그 사이에 ref가
-    // 바뀌면 쪽 경계가 어긋날 수 있다.
+    // 바뀌면 쪽 경계가 어긋날 수 있다. `--branches --remotes --tags [HEAD]`가 그래프의 ref 집합이고,
+    // 커밋 검색(`make_git_search_log_args`·`make_git_graph_reachability_args`)이 같은 집합을 쓴다.
     [[nodiscard]] git_arguments make_git_log_args(const git_log_options& options = {});
+
+    // 커밋 검색이 질의를 견줄 자리다.
+    enum class commit_search_field
+    {
+        // 메시지의 제목과 본문이다 (`--grep`).
+        message,
+        // 작성자의 `이름 <메일>`이다 (`--author`). 이름과 메일 어느 쪽에 들어 있어도 맞는다.
+        author,
+    };
+
+    // 그래프의 ref 집합에서 `query`가 든 커밋을 찾는다. `log --topo-order -z --format=<log 형식> --no-mailmap -i --fixed-strings
+    // --grep=<query>|--author=<query> [--max-count=<n>] --branches --remotes --tags [HEAD] --`. 본문은 받지 않는다
+    // (git_log_parser, has_body=false). max_count가 0이면 제한이 없다. 질의가 비었거나 NUL·줄바꿈을 품으면 `std::invalid_argument`다.
+    //  - `-i --fixed-strings`: 대소문자를 가리지 않는 글자 그대로의 부분 일치다. `.*`도 그 두 글자를 찾고, 명령줄에 준 것이라
+    //    사용자의 `grep.patternType` 설정을 덮는다. 한글과 악센트 붙은 글자도 맞는다 (git 2.56, `LC_ALL=C`에서 확인).
+    //  - `--grep`과 `--author`를 한 명령에 함께 주면 둘 다 맞는 커밋만 나온다. "메시지 또는 작성자"는 필드마다 따로 돌려 합친다.
+    //  - `--no-mailmap`: 없으면 `--author`가 `.mailmap`으로 바꾼 이름·메일과 견준다. 그래프가 보이는 것은 바꾸기 전 값(`%an`·`%ae`)이라,
+    //    화면에 보이는 이름으로 찾으면 안 나오고 보이지 않는 이름으로 찾으면 나온다 (git 2.56에서 확인).
+    [[nodiscard]] git_arguments make_git_search_log_args(std::string_view query, commit_search_field field, bool include_head = true, std::uint32_t max_count = 0);
+
+    // SHA 앞부분으로 볼 수 있는 글인지다: 16진수(대소문자 무관) 4~64자. git은 4자보다 짧은 앞부분을 풀지 않는다.
+    // 앞부분을 커밋으로 푸는 명령은 `make_git_resolve_commit_args`(git_interactive_rebase.h)다: 그런 커밋이 없거나, 여러 커밋에 맞거나,
+    // 커밋이 아닌 객체면 종료 코드 1이다. 같은 글자의 ref가 있으면(`cafe`라는 브랜치) git은 그 ref를 먼저 풀므로, 호출자가 출력이
+    // 앞부분으로 시작하는지 확인해야 한다.
+    [[nodiscard]] bool is_commit_hash_prefix(std::string_view text) noexcept;
+
+    // `rev-list --max-count=1 <sha> --not --branches --remotes --tags [HEAD] --`. 그래프의 ref 집합에서 `sha`에 닿는지 묻는다.
+    // 출력이 비면 닿고(그래프에 있는 커밋), `sha`가 나오면 어느 ref에서도 닿지 않는다 (reflog나 stash에만 남은 커밋).
+    // `sha`가 `is_commit_hash_prefix`가 아니면 `std::invalid_argument`다.
+    [[nodiscard]] git_arguments make_git_graph_reachability_args(std::string_view sha, bool include_head = true);
 
     // 한 커밋의 diff다. 병합 커밋은 `-m --first-parent`로 첫 부모와의 일반 diff만 받는다.
     // 헤더는 `--format=`으로 없앤다. 첫 커밋(root)도 전체 내용을 diff로 보여 준다.

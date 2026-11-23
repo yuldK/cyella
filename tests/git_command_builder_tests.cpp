@@ -424,6 +424,86 @@ TEST_CASE("file history follows one literal path from HEAD or a revision", "[git
     CHECK_THROWS_AS(make_git_file_log_args("", sha), std::invalid_argument);
 }
 
+TEST_CASE("commit search matches one field literally over the refs the graph reads", "[git][builder][commit_search]")
+{
+    const std::string format { "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s" };
+    // `-i --fixed-strings`가 없으면 질의가 대소문자를 가리는 정규식으로 읽힌다. `--no-mailmap`이 없으면 `--author`가 화면에 보이는
+    // 이름(`%an`)이 아니라 `.mailmap`으로 바꾼 이름과 견준다.
+    CHECK(to_text(make_git_search_log_args("fix parser", commit_search_field::message))
+        == text_list { "log", "--topo-order", "-z", format, "--no-mailmap", "-i", "--fixed-strings", "--grep=fix parser", "--branches", "--remotes", "--tags", "HEAD", "--" });
+    CHECK(to_text(make_git_search_log_args("morgan@example.com", commit_search_field::author, false, 1001))
+        == text_list { "log", "--topo-order", "-z", format, "--no-mailmap", "-i", "--fixed-strings", "--author=morgan@example.com", "--max-count=1001", "--branches", "--remotes", "--tags", "--" });
+    // 그래프 log와 같은 해석기로 읽는다. 본문은 받지 않는다.
+    CHECK(format == to_text(make_git_log_args())[3]);
+
+    // 옵션처럼 보이는 질의는 `--grep=`·`--author=`의 값으로만 들어간다. 다른 인자는 그대로다.
+    for (const commit_search_field field : { commit_search_field::message, commit_search_field::author })
+    {
+        const std::string option { field == commit_search_field::message ? "--grep=" : "--author=" };
+        const text_list plain { to_text(make_git_search_log_args("x", field, true, 5)) };
+        for (const std::string query : { "--all", "-n1", "--grep=other", ".*", "a b", "인사", "--" })
+        {
+            INFO("query " << query);
+            text_list expected { plain };
+            expected[7] = option + query;
+            CHECK(to_text(make_git_search_log_args(query, field, true, 5)) == expected);
+        }
+        check_wellformed(make_git_search_log_args("x", field));
+        // 빈 질의는 모든 커밋에 맞고, 줄바꿈은 git이 패턴 여럿으로 나눠 읽는다.
+        CHECK_THROWS_AS(make_git_search_log_args("", field), std::invalid_argument);
+        CHECK_THROWS_AS(make_git_search_log_args("a\nb", field), std::invalid_argument);
+        CHECK_THROWS_AS(make_git_search_log_args(std::string { "a\0b", 3 }, field), std::invalid_argument);
+    }
+}
+
+TEST_CASE("commit search and the graph log read the same set of refs", "[git][builder][commit_search]")
+{
+    const std::string sha { "1111111111111111111111111111111111111111" };
+    for (const bool include_head : { true, false })
+    {
+        INFO("include_head " << include_head);
+        git_log_options options {};
+        options.include_head = include_head;
+        // `log --topo-order -z <format> <refs> --`에서 ref 집합만 떼어 낸다.
+        const text_list graph { to_text(make_git_log_args(options)) };
+        REQUIRE(graph.size() > 5);
+        const text_list refs { graph.begin() + 4, graph.end() - 1 };
+        CHECK(refs == (include_head ? text_list { "--branches", "--remotes", "--tags", "HEAD" } : text_list { "--branches", "--remotes", "--tags" }));
+
+        for (const commit_search_field field : { commit_search_field::message, commit_search_field::author })
+        {
+            const text_list search { to_text(make_git_search_log_args("x", field, include_head)) };
+            REQUIRE(search.size() > 9);
+            CHECK(text_list { search.begin() + 8, search.end() - 1 } == refs);
+            CHECK(search.back() == "--");
+        }
+
+        // 닿는지 묻는 명령도 같은 집합을 `--not` 뒤에 둔다. 출력이 비면 그래프의 ref에서 닿는 커밋이다.
+        text_list reachability { "rev-list", "--max-count=1", sha, "--not" };
+        reachability.insert(reachability.end(), refs.begin(), refs.end());
+        reachability.push_back("--");
+        CHECK(to_text(make_git_graph_reachability_args(sha, include_head)) == reachability);
+    }
+    CHECK_THROWS_AS(make_git_graph_reachability_args("--all"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_graph_reachability_args("main"), std::invalid_argument);
+}
+
+TEST_CASE("a commit hash prefix is 4 to 64 hexadecimal digits", "[git][builder][commit_search]")
+{
+    CHECK(is_commit_hash_prefix("abcd"));
+    CHECK(is_commit_hash_prefix("ABCDEF01"));
+    CHECK(is_commit_hash_prefix(std::string(40, '1')));
+    CHECK(is_commit_hash_prefix(std::string(64, 'f')));
+    // git은 4자보다 짧은 앞부분을 풀지 않는다.
+    CHECK_FALSE(is_commit_hash_prefix("abc"));
+    CHECK_FALSE(is_commit_hash_prefix(""));
+    CHECK_FALSE(is_commit_hash_prefix(std::string(65, 'f')));
+    CHECK_FALSE(is_commit_hash_prefix("abcg"));
+    CHECK_FALSE(is_commit_hash_prefix("ab cd"));
+    CHECK_FALSE(is_commit_hash_prefix("--all"));
+    CHECK_FALSE(is_commit_hash_prefix("인사말"));
+}
+
 TEST_CASE("fetch can keep stale tracking branches and pull can merge", "[git][builder]")
 {
     git_fetch_options fetch {};

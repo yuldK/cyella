@@ -135,6 +135,17 @@ namespace cyella {
         [[nodiscard]] bool operator==(const file_history_request&) const noexcept = default;
     };
 
+    // 그래프가 읽는 것과 같은 ref에서 메시지(제목·본문)나 작성자에 `query`가 들어 있는 커밋, 그리고 `query`가 SHA 앞부분이면 그 커밋을 찾는다.
+    // 대소문자를 가리지 않는 글자 그대로의 부분 일치다 (정규식이 아니다). `query`의 앞뒤 공백은 떼고 찾는다.
+    struct search_commits_request
+    {
+        std::string query {};
+        // 이만큼만 낸다. 더 있으면 결과의 `truncated`가 선다. 0이면 제한이 없다.
+        std::uint32_t max_count { 1000 };
+
+        [[nodiscard]] bool operator==(const search_commits_request&) const noexcept = default;
+    };
+
     // `merge-base --is-ancestor ancestor descendant`. 그래프를 다 읽지 않아 UI가 조상 관계를
     // 모를 때 끌어 놓기 메뉴가 묻는다.
     struct is_ancestor_request
@@ -608,7 +619,7 @@ namespace cyella {
         init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
         worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request, refresh_status_request, set_upstream_request,
         unset_upstream_request, trash_files_request, verify_signatures_request, show_range_request, add_remote_request, create_ssh_repository_request,
-        blame_file_request, file_history_request>;
+        blame_file_request, file_history_request, search_commits_request>;
 
     // 실행 lane이다.
     enum class operation_lane

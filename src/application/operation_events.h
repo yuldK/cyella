@@ -190,6 +190,21 @@ namespace cyella {
         file_history history {};
     };
 
+    // 전체 이력에서 찾은 커밋이다. committer 시간이 늦은 커밋이 앞이고, 같으면 SHA 순이다. 커밋은 제목까지만 싣는다 (본문은 없다).
+    struct commit_search
+    {
+        // 낸 요청 그대로다 (`query`의 앞뒤 공백도 떼지 않았다). 화면이 지금의 질의와 견준다.
+        search_commits_request request {};
+        std::vector<commit_info> commits {};
+        // `request.max_count`보다 맞는 커밋이 더 있다.
+        bool truncated { false };
+    };
+
+    struct commit_search_loaded
+    {
+        commit_search search {};
+    };
+
     struct ancestry_answered
     {
         std::string ancestor {};
@@ -262,7 +277,7 @@ namespace cyella {
 
     using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded,
         commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded, status_loaded,
-        signatures_verified, range_detail_loaded, file_blame_loaded, file_history_loaded>;
+        signatures_verified, range_detail_loaded, file_blame_loaded, file_history_loaded, commit_search_loaded>;
 
     struct operation_event
     {

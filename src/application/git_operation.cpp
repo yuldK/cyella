@@ -141,6 +141,8 @@ namespace cyella {
                 return operation_kind::blame_file;
             else if constexpr (std::is_same_v<request_type, file_history_request>)
                 return operation_kind::file_history;
+            else if constexpr (std::is_same_v<request_type, search_commits_request>)
+                return operation_kind::search_commits;
             else
                 // 새 요청 타입을 빠뜨리면 조용히 refresh로 돌지 않고 컴파일이 멈춘다.
                 static_assert(unmapped_request<request_type>, "fixed_kind_of: request type has no operation_kind");
@@ -179,6 +181,7 @@ namespace cyella {
         case operation_kind::show_range:
         case operation_kind::blame_file:
         case operation_kind::file_history:
+        case operation_kind::search_commits:
             return operation_lane::read;
         case operation_kind::clone:
         case operation_kind::init:

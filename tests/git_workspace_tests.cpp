@@ -1080,3 +1080,205 @@ TEST_CASE("the session accepts only the blame and file history it expects", "[se
     CHECK_FALSE(session.apply(9, history));
     CHECK_FALSE(session.selected_history().has_value());
 }
+
+TEST_CASE("search_commits reads on the read lane, starts from HEAD only when the snapshot knows it, and keeps its result in the session", "[workspace][commit_search]")
+{
+    workspace_harness test {};
+    // lane을 빠뜨리면 기본값인 쓰기 lane으로 가서 저장소의 쓰기를 막고 끝난 뒤 refresh까지 낸다.
+    CHECK(operation_kind_of(search_commits_request {}) == operation_kind::search_commits);
+    CHECK(operation_lane_of(operation_kind::search_commits) == operation_lane::read);
+    CHECK(operation_kind_name(operation_kind::search_commits) == "search_commits");
+    const auto names_head = [](const test::recorded_call& call) { return std::find(call.arguments.begin(), call.arguments.end(), "HEAD") != call.arguments.end(); };
+
+    // 첫 커밋 전의 저장소는 HEAD를 풀 수 없다. snapshot이 HEAD를 모르면 검색도 닿는지 묻는 명령도 HEAD 없이 돈다.
+    test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, test::sha_of(2) + "\n" });
+    const search_commits_request request { .query = "aaaa", .max_count = 5 };
+    const operation_id unborn { test.workspace.submit(test.repository, request) };
+    REQUIRE(unborn != 0);
+    REQUIRE(test.dispatcher.pending() == 1);
+    CHECK(test.dispatcher.peek(0).interactive);
+    CHECK(test.dispatcher.peek(0).repository_key.empty());
+    CHECK_FALSE(test.session().selected_search().has_value());
+    test.settle();
+
+    CHECK(test.status(unborn).state == operation_state::succeeded);
+    REQUIRE(test.session().selected_search().has_value());
+    CHECK(test.session().selected_search()->request == request);
+    CHECK(test.session().selected_search()->commits.empty());
+    CHECK(test.process.command_names() == text_list { "log", "log", "rev-parse", "rev-list", "log" });
+    for (const test::recorded_call& call : test.process.calls())
+        CHECK_FALSE(names_head(call));
+    // 읽기는 저장소를 바꾸지 않는다. 뒤따르는 refresh가 없다.
+    CHECK(test.workspace.operation_order().size() == 1);
+
+    // snapshot이 HEAD를 알면 그래프의 log처럼 HEAD도 시작점이다.
+    test.script_history(3, false);
+    static_cast<void>(test.workspace.submit(test.repository, refresh_request {}));
+    test.settle();
+    REQUIRE(test.session().snapshot().summary.head_sha.empty() == false);
+    const std::size_t before { test.process.calls().size() };
+    const operation_id born { test.workspace.submit(test.repository, request) };
+    // 요청하는 순간 앞 결과를 비운다.
+    CHECK_FALSE(test.session().selected_search().has_value());
+    test.settle();
+
+    CHECK(test.status(born).state == operation_state::succeeded);
+    REQUIRE(test.session().selected_search().has_value());
+    // 가짜 log는 두 검색에 같은 커밋 셋을 준다. 한 번씩만 남는다.
+    CHECK(test.session().selected_search()->commits.size() == 3);
+    CHECK_FALSE(test.session().selected_search()->truncated);
+    const std::vector<test::recorded_call> calls { test.process.calls() };
+    // `aaaa…2`는 메시지 검색이 이미 찾았다. 닿는지 묻지 않는다.
+    REQUIRE(calls.size() == before + 3);
+    CHECK(names_head(calls[before]));
+    CHECK(names_head(calls[before + 1]));
+    CHECK(calls[before + 2].arguments.front() == "rev-parse");
+}
+
+TEST_CASE("a new search_commits clears the shown result and cancels the one before it", "[workspace][commit_search][cancel]")
+{
+    workspace_harness test {};
+    const operation_id shown { test.workspace.submit(test.repository, search_commits_request { .query = "one" }) };
+    test.settle();
+    REQUIRE(test.session().selected_search().has_value());
+    const std::uint64_t revision { test.session().revision() };
+
+    // 앞 질의의 결과가 새 질의의 것처럼 보이지 않게, 요청하는 순간 앞 결과를 비운다.
+    const operation_id queued { test.workspace.submit(test.repository, search_commits_request { .query = "two" }) };
+    CHECK_FALSE(test.session().selected_search().has_value());
+    CHECK(test.session().revision() > revision);
+    // 이미 끝난 앞 operation은 건드리지 않는다.
+    CHECK(test.status(shown).state == operation_state::succeeded);
+    CHECK_FALSE(test.status(shown).cancel_requested);
+
+    // worker가 아직 집어 들지 않은 앞 검색은 바로 취소로 끝난다. git은 뜨지 않는다.
+    const operation_id latest { test.workspace.submit(test.repository, search_commits_request { .query = "three" }) };
+    CHECK(test.status(queued).state == operation_state::cancelled);
+    CHECK(test.status(queued).cancel_requested);
+    CHECK_FALSE(test.status(queued).failure.has_value());
+    CHECK_FALSE(test.status(latest).finished());
+    test.settle();
+
+    CHECK(test.status(latest).state == operation_state::succeeded);
+    REQUIRE(test.session().selected_search().has_value());
+    CHECK(test.session().selected_search()->request.query == "three");
+    text_list searched {};
+    for (const test::recorded_call& call : test.process.calls())
+        searched.push_back(call.arguments.at(7));
+    CHECK(searched == text_list { "--grep=one", "--author=one", "--grep=three", "--author=three" });
+}
+
+TEST_CASE("a new search_commits stops the git process of the one still running", "[workspace][commit_search][cancel]")
+{
+    workspace_harness test {};
+    operation_id newer { 0 };
+    // 앞 검색의 git이 도는 동안 사용자가 질의를 고쳐 친다. 가짜 runner는 응답 직전에 취소를 보고 git이 죽은 것처럼 끝낸다.
+    scripted_response interrupted { 0, test::log_record(test::sha_of(1), {}) };
+    interrupted.before_reply = [&test, &newer] { newer = test.workspace.submit(test.repository, search_commits_request { .query = "new" }); };
+    test.process.when_once({ "log", "--topo-order" }, interrupted);
+    test.process.when({ "log", "--topo-order" }, scripted_response { 0, test::log_record(test::sha_of(2), {}) });
+
+    const operation_id older { test.workspace.submit(test.repository, search_commits_request { .query = "old" }) };
+    REQUIRE(test.dispatcher.run());
+    REQUIRE(newer != 0);
+    // worker가 이미 집어 든 작업은 끝 사건을 기다린다.
+    CHECK(test.status(older).cancel_requested);
+    test.settle();
+
+    // 취소는 실패가 아니다. 실패 알림을 만들 것이 없다.
+    CHECK(test.status(older).state == operation_state::cancelled);
+    CHECK_FALSE(test.status(older).failure.has_value());
+    CHECK(test.status(newer).state == operation_state::succeeded);
+    REQUIRE(test.session().selected_search().has_value());
+    CHECK(test.session().selected_search()->request.query == "new");
+    REQUIRE(test.session().selected_search()->commits.size() == 1);
+    CHECK(test.session().selected_search()->commits[0].sha == test::sha_of(2));
+    // 취소된 검색은 첫 명령에서 멈춘다. 작성자 검색으로 넘어가지 않는다.
+    text_list searched {};
+    for (const test::recorded_call& call : test.process.calls())
+        searched.push_back(call.arguments.at(7));
+    CHECK(searched == text_list { "--grep=old", "--grep=new", "--author=new" });
+}
+
+TEST_CASE("the result of a superseded search_commits that still finishes is discarded", "[workspace][commit_search]")
+{
+    workspace_harness test {};
+    test.process.when({ "log", "--topo-order" }, scripted_response { 0, test::log_record(test::sha_of(1), {}) });
+
+    // 앞 검색의 git이 이미 끝났고 사건만 relay에 남았다. 그 사이에 새 검색이 나간다.
+    const operation_id older { test.workspace.submit(test.repository, search_commits_request { .query = "old" }) };
+    REQUIRE(test.dispatcher.run());
+    const operation_id newer { test.workspace.submit(test.repository, search_commits_request { .query = "new" }) };
+    test.apply_events();
+    CHECK(test.status(older).finished());
+    // 늦게 온 앞 검색의 결과가 새 질의의 것처럼 보이면 안 된다.
+    CHECK_FALSE(test.session().selected_search().has_value());
+    test.settle();
+    REQUIRE(test.session().selected_search().has_value());
+    CHECK(test.session().selected_search()->request.query == "new");
+    CHECK(test.status(newer).state == operation_state::succeeded);
+}
+
+TEST_CASE("search_commits cancels only its own kind in its own repository", "[workspace][commit_search][cancel]")
+{
+    workspace_harness test {};
+    const std::string other { test.workspace.open_repository(u8"C:/work/other") };
+
+    const operation_id search { test.workspace.submit(test.repository, search_commits_request { .query = "a" }) };
+    const operation_id history { test.workspace.submit(test.repository, file_history_request { .path = "a.txt" }) };
+    const operation_id blame { test.workspace.submit(test.repository, blame_file_request { .path = "a.txt" }) };
+    const operation_id other_search { test.workspace.submit(other, search_commits_request { .query = "a" }) };
+    CHECK_FALSE(test.status(search).finished());
+
+    const operation_id next_search { test.workspace.submit(test.repository, search_commits_request { .query = "ab" }) };
+    CHECK(test.status(search).state == operation_state::cancelled);
+    CHECK_FALSE(test.status(history).finished());
+    CHECK_FALSE(test.status(blame).finished());
+    CHECK_FALSE(test.status(other_search).finished());
+    CHECK_FALSE(test.status(next_search).finished());
+
+    // blame과 파일 이력의 새 요청도 검색을 건드리지 않는다.
+    static_cast<void>(test.workspace.submit(test.repository, file_history_request { .path = "b.txt" }));
+    static_cast<void>(test.workspace.submit(test.repository, blame_file_request { .path = "b.txt" }));
+    CHECK_FALSE(test.status(next_search).finished());
+    CHECK_FALSE(test.status(other_search).finished());
+}
+
+TEST_CASE("the session accepts only the commit search it expects", "[session][commit_search]")
+{
+    repository_session session { "repo", u8"C:/work/repo" };
+    commit_search_loaded found {};
+    found.search.request.query = "fix";
+    found.search.commits.push_back(commit_info { .sha = test::sha_of(1), .subject = "fix one" });
+    found.search.truncated = true;
+
+    CHECK_FALSE(session.selected_search().has_value());
+    // 기대한 적이 없는 결과는 받지 않는다.
+    CHECK_FALSE(session.apply(3, found));
+    session.expect_commit_search(7);
+    CHECK_FALSE(session.apply(6, found));
+    CHECK_FALSE(session.selected_search().has_value());
+    const std::uint64_t before { session.revision() };
+    CHECK(session.apply(7, found));
+    CHECK(session.revision() > before);
+    REQUIRE(session.selected_search().has_value());
+    CHECK(session.selected_search()->request.query == "fix");
+    REQUIRE(session.selected_search()->commits.size() == 1);
+    CHECK(session.selected_search()->commits[0].subject == "fix one");
+    CHECK(session.selected_search()->truncated);
+
+    // 새로 기대하면 앞 결과를 비우고, 앞 요청의 늦은 결과는 버린다.
+    const std::uint64_t shown { session.revision() };
+    session.expect_commit_search(11);
+    CHECK(session.revision() > shown);
+    CHECK_FALSE(session.selected_search().has_value());
+    CHECK_FALSE(session.apply(7, found));
+    CHECK_FALSE(session.selected_search().has_value());
+
+    // 검색은 blame과 파일 이력의 기대 값을 건드리지 않는다.
+    session.expect_file_history(12);
+    session.expect_commit_search(13);
+    CHECK(session.apply(12, file_history_loaded {}));
+    CHECK(session.apply(13, found));
+    CHECK(session.selected_history().has_value());
+}

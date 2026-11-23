@@ -233,6 +233,19 @@ TEST_CASE("blame and file history reads are not user operations", "[presentation
     CHECK(operation_display_name(operation_kind::file_history) == u8"파일 이력 읽기");
 }
 
+TEST_CASE("commit searches are not user operations", "[presentation][snapshot]")
+{
+    // 질의를 고쳐 칠 때마다 앞 검색이 취소된다. 사용자 작업으로 세면 글자마다 취소된 검색이 상태 줄에 뜬다.
+    // 읽는 중과 실패는 검색 상자가 보인다. 실패도 토스트로 띄우지 않는다.
+    const operation_status cancelled { .id = 5, .kind = operation_kind::search_commits, .state = operation_state::cancelled, .repository_id = "repo-1", .cancel_requested = true };
+    CHECK_FALSE(is_user_operation_status(cancelled));
+    CHECK_FALSE(failure_notification(cancelled).has_value());
+    operation_status failed { .id = 6, .kind = operation_kind::search_commits, .state = operation_state::failed, .repository_id = "repo-1" };
+    failed.failure = operation_failure { .kind = failure_kind::other, .summary = u8"git failed" };
+    CHECK_FALSE(is_user_operation_status(failed));
+    CHECK(operation_display_name(operation_kind::search_commits) == u8"커밋 검색");
+}
+
 TEST_CASE("notifications become toasts newest first until the center is opened", "[presentation][snapshot]")
 {
     snapshot_harness harness {};

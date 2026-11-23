@@ -69,7 +69,7 @@ namespace cyella {
         // 저장소 operation을 낸다. 저장소가 없거나 저장소 준비 작업이면 0이다. load_more_log는 첫 쪽 전,
         // 다른 쪽을 읽는 중, 이력 끝에 닿은 뒤에도 0이다. refresh_status는 첫 snapshot 전과 전체 refresh가
         // 도는 중에 0이고, 마지막 전체 refresh가 실패·취소로 끝나 화면이 낡았으면 전체 refresh로 올려 낸다.
-        // blame_file·file_history는 그 저장소에서 아직 끝나지 않은 앞의 같은 종류 operation을 취소하고 낸다.
+        // blame_file·file_history·search_commits는 그 저장소에서 아직 끝나지 않은 앞의 같은 종류 operation을 취소하고 낸다.
         operation_id submit(const std::string& repository_id, git_operation operation, bool automatic = false);
         // clone·init·inspect_path를 낸다. 대상 경로로 묶이며 저장소 id가 없다.
         operation_id submit_setup(git_operation operation);

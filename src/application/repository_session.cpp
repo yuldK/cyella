@@ -77,6 +77,13 @@ namespace cyella {
         ++revision_;
     }
 
+    void repository_session::expect_commit_search(const operation_id id) noexcept
+    {
+        expected_search_ = id;
+        commit_search_.reset();
+        ++revision_;
+    }
+
     void repository_session::set_awaiting_input(const std::optional<operation_id> id) noexcept
     {
         awaiting_input_ = id;
@@ -243,6 +250,16 @@ namespace cyella {
         if (id != expected_history_)
             return false;
         file_history_ = event.history;
+        ++revision_;
+        return true;
+    }
+
+    bool repository_session::apply(const operation_id id, const commit_search_loaded& event)
+    {
+        // 질의를 이미 고쳐 쳤으면 앞 질의의 결과를 버린다.
+        if (id != expected_search_)
+            return false;
+        commit_search_ = event.search;
         ++revision_;
         return true;
     }

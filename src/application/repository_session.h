@@ -138,6 +138,12 @@ namespace cyella {
             return file_history_;
         }
 
+        // 마지막으로 요청한 커밋 검색의 결과다. 새로 요청하면 결과가 올 때까지 비어 있다.
+        [[nodiscard]] const std::optional<commit_search>& selected_search() const noexcept
+        {
+            return commit_search_;
+        }
+
         // 읽어 둔 서명 정보다. 아직 검증하지 않은 커밋은 null이다. SHA별로 한 번만 읽고 refresh가 지우지 않는다 (커밋은 바뀌지 않는다).
         // 서명 설정이 바뀌면 `forget_signatures`로 비운다.
         [[nodiscard]] const commit_signature* signature_of(const std::string& sha) const noexcept;
@@ -179,6 +185,8 @@ namespace cyella {
         // 앞 결과를 비운다. 파일을 바꿔 가며 볼 때 낡은 내용이 새 요청의 것처럼 보이지 않게 한다.
         void expect_file_blame(operation_id id) noexcept;
         void expect_file_history(operation_id id) noexcept;
+        // 앞 결과를 비운다. 질의를 고쳐 치는 동안 앞 질의의 결과가 새 질의의 것처럼 보이지 않게 한다.
+        void expect_commit_search(operation_id id) noexcept;
         void set_awaiting_input(std::optional<operation_id> id) noexcept;
 
         // 받아들였으면 true다. 늦게 온 결과면 false이고 상태는 그대로다.
@@ -191,6 +199,7 @@ namespace cyella {
         bool apply(operation_id id, const range_detail_loaded& event);
         bool apply(operation_id id, const file_blame_loaded& event);
         bool apply(operation_id id, const file_history_loaded& event);
+        bool apply(operation_id id, const commit_search_loaded& event);
         // 작업 트리 변경만 새 값으로 바꾼다. 그래프 행은 건드리지 않는다. 가장 최근에 낸 `refresh_status`의 결과만 받는다.
         status_apply_result apply(operation_id id, const status_loaded& event);
         bool apply(const ancestry_answered& event);
@@ -246,5 +255,8 @@ namespace cyella {
         // 마지막으로 요청한 blame과 파일 이력이다. 그보다 앞선 요청의 결과는 버린다.
         operation_id expected_blame_ { 0 };
         operation_id expected_history_ { 0 };
+        std::optional<commit_search> commit_search_ {};
+        // 마지막으로 요청한 커밋 검색이다. 그보다 앞선 요청의 결과는 버린다.
+        operation_id expected_search_ { 0 };
     };
 } // namespace cyella

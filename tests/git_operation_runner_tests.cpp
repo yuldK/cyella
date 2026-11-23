@@ -1007,6 +1007,312 @@ TEST_CASE("file_history asks for one commit more than the limit to learn whether
     }
 }
 
+namespace {
+    // 검색 결과의 순서는 committer 시간이 정한다. 그 시간과 작성자를 정할 수 있는 log 레코드다.
+    std::string search_record(const std::string& sha, const std::int64_t committer_time, const std::string& subject, const std::string& author = "Morgan", const bool with_body = false)
+    {
+        std::string record { sha };
+        record.append("\x1f\x1f").append(author).append("\x1f").append("morgan@example.com").append("\x1f").append("1700000000").append("\x1f");
+        record.append(std::to_string(committer_time)).append("\x1f").append(subject);
+        if (with_body)
+            record.append("\x1f").append("a body line\n");
+        record.push_back('\0');
+        return record;
+    }
+
+    // 한 필드의 검색 명령에만 맞는 가짜 응답의 앞 토큰이다. `option`은 `--grep=<질의>`나 `--author=<질의>`다.
+    text_list search_command(const std::string& option)
+    {
+        return { "log", "--topo-order", "-z", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s", "--no-mailmap", "-i", "--fixed-strings", option };
+    }
+
+    text_list shas_of(const std::vector<commit_info>& commits)
+    {
+        text_list shas {};
+        for (const commit_info& commit : commits)
+            shas.push_back(commit.sha);
+        return shas;
+    }
+} // namespace
+
+TEST_CASE("search_commits merges the message and author matches, newest first and without duplicates", "[operation][commit_search]")
+{
+    harness test {};
+    // 메시지 검색과 작성자 검색은 저마다 topo 순서로 온다. 3번 커밋은 양쪽에 다 맞는다.
+    const std::string by_message { search_record(test::sha_of(3), 300, "Fix three") + search_record(test::sha_of(1), 100, "fix one") + search_record(test::sha_of(5), 50, "fix five") };
+    const std::string by_author { search_record(test::sha_of(4), 50, "four", "Fix Bot") + search_record(test::sha_of(2), 200, "two", "Fix Bot") + search_record(test::sha_of(3), 300, "Fix three", "Fix Bot") };
+    test.process.when(search_command("--grep=Fix"), scripted_response { 0, by_message });
+    test.process.when(search_command("--author=Fix"), scripted_response { 0, by_author });
+
+    // 앞뒤 공백은 떼고 찾되, 결과에는 받은 요청을 그대로 싣는다.
+    const search_commits_request request { .query = "  Fix\t" };
+    const std::vector<operation_event> events { test.execute(request) };
+
+    CHECK(finished_of(events).state == operation_state::succeeded);
+    const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+    REQUIRE(loaded.size() == 1);
+    CHECK(loaded[0].search.request == request);
+    CHECK_FALSE(loaded[0].search.truncated);
+    // committer 시간이 늦은 커밋이 앞이고, 시간이 같은 4번과 5번은 SHA 순이다.
+    CHECK(shas_of(loaded[0].search.commits) == text_list { test::sha_of(3), test::sha_of(2), test::sha_of(1), test::sha_of(4), test::sha_of(5) });
+    for (const commit_info& commit : loaded[0].search.commits)
+        CHECK_FALSE(commit.body.has_value());
+
+    const std::vector<test::recorded_call> calls { test.process.calls() };
+    // `Fix`는 16진수가 아니다. SHA를 풀지 않는다.
+    REQUIRE(calls.size() == 2);
+    // 더 있는지 알려고 상한(기본 1000)보다 하나 더 청한다.
+    CHECK(join(calls[0].arguments).find("--fixed-strings --grep=Fix --max-count=1001 --branches --remotes --tags HEAD --") != std::string::npos);
+    CHECK(join(calls[1].arguments).find("--fixed-strings --author=Fix --max-count=1001 --branches --remotes --tags HEAD --") != std::string::npos);
+    // 읽기 lane의 명령은 잠금을 잡지 않는다.
+    CHECK(calls[0].no_optional_locks);
+    CHECK(calls[1].no_optional_locks);
+}
+
+TEST_CASE("search_commits reports that it was cut when either search or the merged result exceeds the limit", "[operation][commit_search]")
+{
+    harness test {};
+    const std::string one { search_record(test::sha_of(1), 100, "one") };
+    const std::string two { search_record(test::sha_of(2), 200, "two") };
+    const std::string three { search_record(test::sha_of(3), 300, "three") };
+    const std::string four { search_record(test::sha_of(4), 400, "four") };
+
+    SECTION("the message search alone has more than the limit")
+    {
+        test.process.when(search_command("--grep=o"), scripted_response { 0, three + two + one });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "o", .max_count = 2 }) };
+
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(loaded[0].search.truncated);
+        CHECK(shas_of(loaded[0].search.commits) == text_list { test::sha_of(3), test::sha_of(2) });
+        CHECK(join(test.process.calls().front().arguments).find("--max-count=3 ") != std::string::npos);
+    }
+    SECTION("the author search alone has more than the limit")
+    {
+        test.process.when(search_command("--author=o"), scripted_response { 0, three + two + one });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "o", .max_count = 2 }) };
+
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(loaded[0].search.truncated);
+        CHECK(loaded[0].search.commits.size() == 2);
+    }
+    SECTION("each search fits but together they do not")
+    {
+        test.process.when(search_command("--grep=o"), scripted_response { 0, two + one });
+        test.process.when(search_command("--author=o"), scripted_response { 0, four + three });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "o", .max_count = 2 }) };
+
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(loaded[0].search.truncated);
+        // 합친 것 가운데 새 커밋을 남긴다.
+        CHECK(shas_of(loaded[0].search.commits) == text_list { test::sha_of(4), test::sha_of(3) });
+    }
+    SECTION("both searches find the same commits, exactly as many as the limit")
+    {
+        test.process.when(search_command("--grep=o"), scripted_response { 0, two + one });
+        test.process.when(search_command("--author=o"), scripted_response { 0, two + one });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "o", .max_count = 2 }) };
+
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK_FALSE(loaded[0].search.truncated);
+        CHECK(shas_of(loaded[0].search.commits) == text_list { test::sha_of(2), test::sha_of(1) });
+    }
+    SECTION("no limit")
+    {
+        test.process.when(search_command("--grep=o"), scripted_response { 0, four + three + two + one });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "o", .max_count = 0 }) };
+
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK_FALSE(loaded[0].search.truncated);
+        CHECK(loaded[0].search.commits.size() == 4);
+        for (const test::recorded_call& call : test.process.calls())
+            CHECK(join(call.arguments).find("--max-count") == std::string::npos);
+    }
+    SECTION("nothing matches")
+    {
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "nothing" }) };
+
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(loaded[0].search.commits.empty());
+        CHECK_FALSE(loaded[0].search.truncated);
+    }
+}
+
+TEST_CASE("search_commits resolves a hexadecimal query as a commit hash prefix and keeps it only when the graph reaches it", "[operation][commit_search]")
+{
+    harness test {};
+    // `sha_of`는 `aaaa…`로 시작한다. 질의는 대문자여도 된다.
+    const std::string sha { test::sha_of(7) };
+
+    SECTION("a prefix of a commit the graph reaches is added to the result")
+    {
+        test.process.when(search_command("--grep=AAAA"), scripted_response { 0, search_record(test::sha_of(1), 100, "mentions aaaa") });
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, sha + "\n" });
+        // 출력이 비면 그래프의 ref에서 닿는다.
+        test.process.when({ "rev-list" }, scripted_response { 0, "" });
+        test.process.when({ "log", "-1" }, scripted_response { 0, search_record(sha, 900, "found by hash", "Robin", true) });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "AAAA" }) };
+
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        REQUIRE(shas_of(loaded[0].search.commits) == text_list { sha, test::sha_of(1) });
+        CHECK(loaded[0].search.commits[0].subject == "found by hash");
+        CHECK(loaded[0].search.commits[0].author_name == "Robin");
+        // 메시지로 찾은 커밋과 같은 모양이다. 본문을 싣지 않는다.
+        CHECK_FALSE(loaded[0].search.commits[0].body.has_value());
+
+        const std::vector<test::recorded_call> calls { test.process.calls() };
+        REQUIRE(calls.size() == 5);
+        // `^{commit}`이 없으면 같은 앞부분의 tree·blob도 풀리고, 없는 40자 SHA도 그대로 되돌아온다.
+        CHECK(join(calls[2].arguments) == "rev-parse --verify --quiet --end-of-options AAAA^{commit}");
+        CHECK(join(calls[3].arguments) == "rev-list --max-count=1 " + sha + " --not --branches --remotes --tags HEAD --");
+        CHECK(join(calls[4].arguments).find(sha + " --") != std::string::npos);
+        for (const test::recorded_call& call : calls)
+            CHECK(call.no_optional_locks);
+    }
+    SECTION("a commit no ref reaches is left out")
+    {
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, sha + "\n" });
+        // 닿지 않으면 git이 그 SHA를 낸다.
+        test.process.when({ "rev-list" }, scripted_response { 0, sha + "\n" });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "aaaa" }) };
+
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(loaded[0].search.commits.empty());
+        CHECK(test.process.command_names() == text_list { "log", "log", "rev-parse", "rev-list" });
+    }
+    SECTION("no such commit, or a prefix of several commits, is not a failure")
+    {
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 1 });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "aaaa" }) };
+
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        REQUIRE(payloads<commit_search_loaded>(events).size() == 1);
+        CHECK(test.process.command_names() == text_list { "log", "log", "rev-parse" });
+    }
+    SECTION("a ref whose name looks like a hash is not a hash match")
+    {
+        // `cafe`라는 브랜치가 있으면 git은 그 ref가 가리키는 커밋을 준다. SHA가 `cafe`로 시작하지 않는다.
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, sha + "\n" });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "cafe" }) };
+
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(loaded[0].search.commits.empty());
+        CHECK(test.process.command_names() == text_list { "log", "log", "rev-parse" });
+    }
+    SECTION("a commit the message search already found is not read again")
+    {
+        test.process.when(search_command("--grep=aaaa"), scripted_response { 0, search_record(sha, 900, "mentions aaaa") });
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, sha + "\n" });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "aaaa" }) };
+
+        const std::vector<commit_search_loaded> loaded { payloads<commit_search_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(shas_of(loaded[0].search.commits) == text_list { sha });
+        CHECK(test.process.command_names() == text_list { "log", "log", "rev-parse" });
+    }
+    SECTION("only 4 to 64 hexadecimal digits are tried as a hash")
+    {
+        for (const std::string& query : text_list { "aaa", "aaag", "aa aa", "fix", std::string(65, 'a') })
+        {
+            INFO("query " << query);
+            harness other {};
+            other.process.when({ "rev-parse", "--verify" }, scripted_response { 0, sha + "\n" });
+            const std::vector<operation_event> events { other.execute(search_commits_request { .query = query }) };
+
+            CHECK(finished_of(events).state == operation_state::succeeded);
+            CHECK(other.process.command_names() == text_list { "log", "log" });
+        }
+    }
+}
+
+TEST_CASE("search_commits fails without a result when the query is blank or git fails", "[operation][commit_search]")
+{
+    SECTION("a blank query never reaches git")
+    {
+        for (const std::string query : { "", "   ", " \t\r\n" })
+        {
+            harness test {};
+            const std::vector<operation_event> events { test.execute(search_commits_request { .query = query }) };
+
+            const operation_finished done { finished_of(events) };
+            CHECK(done.state == operation_state::failed);
+            REQUIRE(done.failure.has_value());
+            CHECK(done.failure->kind == failure_kind::invalid_request);
+            CHECK(done.failure->summary == tr(u8"git.search_query_empty"));
+            CHECK(test.process.calls().empty());
+            CHECK(payloads<commit_search_loaded>(events).empty());
+        }
+    }
+    SECTION("a line break inside the query never reaches git")
+    {
+        // git은 줄바꿈으로 패턴을 나눠 어느 한 줄만 맞아도 찾는다. 글자 그대로의 한 덩어리가 아니다.
+        harness test {};
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "one\ntwo" }) };
+
+        const operation_finished done { finished_of(events) };
+        CHECK(done.state == operation_state::failed);
+        REQUIRE(done.failure.has_value());
+        CHECK(done.failure->kind == failure_kind::invalid_request);
+        CHECK(test.process.calls().empty());
+    }
+    SECTION("the message search fails")
+    {
+        harness test {};
+        test.process.when(search_command("--grep=fix"), scripted_response { 128, "", { "fatal: bad revision 'HEAD'" } });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "fix" }) };
+
+        const operation_finished done { finished_of(events) };
+        CHECK(done.state == operation_state::failed);
+        REQUIRE(done.failure.has_value());
+        CHECK(done.failure->detail.find(u8"bad revision") != std::u8string::npos);
+        CHECK(payloads<commit_search_loaded>(events).empty());
+        // 앞 검색이 실패하면 뒤 검색을 돌리지 않는다.
+        CHECK(test.process.calls().size() == 1);
+    }
+    SECTION("the author search fails after the message search found commits")
+    {
+        harness test {};
+        test.process.when(search_command("--grep=fix"), scripted_response { 0, search_record(test::sha_of(1), 100, "fix one") });
+        // 출력을 일부 낸 뒤 실패한다. 반쪽 결과를 내면 안 된다.
+        test.process.when(search_command("--author=fix"), scripted_response { 128, search_record(test::sha_of(2), 200, "two"), { "fatal: unable to read tree" } });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "fix" }) };
+
+        CHECK(finished_of(events).state == operation_state::failed);
+        CHECK(payloads<commit_search_loaded>(events).empty());
+    }
+    SECTION("asking whether the graph reaches the commit fails")
+    {
+        harness test {};
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 0, test::sha_of(7) + "\n" });
+        test.process.when({ "rev-list" }, scripted_response { 128, "", { "fatal: bad object" } });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "aaaa" }) };
+
+        CHECK(finished_of(events).state == operation_state::failed);
+        CHECK(payloads<commit_search_loaded>(events).empty());
+    }
+    SECTION("resolving the hash fails for a reason other than not finding it")
+    {
+        harness test {};
+        test.process.when({ "rev-parse", "--verify" }, scripted_response { 128, "", { "fatal: not a git repository" } });
+        const std::vector<operation_event> events { test.execute(search_commits_request { .query = "aaaa" }) };
+
+        CHECK(finished_of(events).state == operation_state::failed);
+        CHECK(payloads<commit_search_loaded>(events).empty());
+    }
+}
+
 TEST_CASE("apply_patch passes --unidiff-zero for zero-context diffs", "[operation][worktree]")
 {
     harness test {};

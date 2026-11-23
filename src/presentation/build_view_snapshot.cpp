@@ -279,7 +279,7 @@ namespace cyella {
                 const operation_status& status { **it };
                 if (status.kind == operation_kind::load_more_log || status.kind == operation_kind::diff_file || status.kind == operation_kind::show_commit
                     || status.kind == operation_kind::refresh_status || status.kind == operation_kind::verify_signatures || status.kind == operation_kind::show_range
-                    || status.kind == operation_kind::blame_file || status.kind == operation_kind::file_history)
+                    || status.kind == operation_kind::blame_file || status.kind == operation_kind::file_history || status.kind == operation_kind::search_commits)
                     continue;
                 ++shown;
                 std::u8string heading { u8"#" + number(status.id) + u8"  " + (status.finished() ? result_text(status) : phase_text(status)) };
@@ -1085,6 +1085,8 @@ namespace cyella {
         // 취소된 읽기가 상태 줄에 뜨고 앞선 작업의 실패 토스트를 내린다.
         case operation_kind::blame_file:
         case operation_kind::file_history:
+        // 커밋 검색도 질의를 고쳐 칠 때마다 앞 검색이 취소되고, 읽는 중과 실패는 검색 상자가 보인다.
+        case operation_kind::search_commits:
         case operation_kind::refresh_status:
         case operation_kind::inspect_path:
         // 편집기가 자기 자리에 읽는 중과 실패를 보인다.
@@ -1487,6 +1489,8 @@ namespace cyella {
             return tr(u8"snapshot.operation_name.blame_file");
         case operation_kind::file_history:
             return tr(u8"snapshot.operation_name.file_history");
+        case operation_kind::search_commits:
+            return tr(u8"snapshot.operation_name.search_commits");
         default:
             break;
         }

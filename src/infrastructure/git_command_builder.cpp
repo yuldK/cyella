@@ -107,6 +107,35 @@ namespace cyella {
             return arguments;
         }
 
+        // 그래프에 보이는 커밋의 시작점이다. 그래프 log와 커밋 검색이 이 한곳을 함께 써야, 검색이 그래프에 없는 커밋을 내거나
+        // 그래프를 좁힐 때 한쪽만 좁혀지지 않는다. 첫 커밋 전에는 HEAD를 풀 수 없어 git이 실패하므로 뺀다.
+        void push_graph_refs(git_arguments& arguments, const bool include_head)
+        {
+            push_all(arguments, { "--branches", "--remotes", "--tags" });
+            if (include_head)
+                push_text(arguments, "HEAD");
+        }
+
+        constexpr std::size_t minimum_hash_prefix_length { 4 };
+        constexpr std::size_t maximum_hash_length { 64 };
+
+        std::string_view require_search_text(const std::string_view value)
+        {
+            if (value.empty())
+                reject("query", "query is empty");
+            // 인자에 NUL은 실을 수 없고, 줄바꿈은 git이 패턴 여럿으로 나눠 읽는다 (글자 그대로의 한 덩어리가 아니게 된다).
+            if (value.find_first_of(std::string_view { "\0\n", 2 }) != std::string_view::npos)
+                reject("query", "query contains NUL or a line break");
+            return value;
+        }
+
+        std::string_view require_hash_prefix(const std::string_view value)
+        {
+            if (is_commit_hash_prefix(value) == false)
+                reject("commit", "not a hexadecimal object name of 4 to 64 digits");
+            return value;
+        }
+
         void push_revisions(git_arguments& arguments, const std::span<const std::string> revisions, const std::uint32_t mainline)
         {
             if (revisions.empty())
@@ -165,9 +194,8 @@ namespace cyella {
     git_arguments make_git_log_args(const git_log_options& options)
     {
         git_arguments arguments {};
-        push_all(arguments, { "log", "--topo-order", "-z", options.include_body ? log_format_with_body : log_format, "--branches", "--remotes", "--tags" });
-        if (options.include_head)
-            push_text(arguments, "HEAD");
+        push_all(arguments, { "log", "--topo-order", "-z", options.include_body ? log_format_with_body : log_format });
+        push_graph_refs(arguments, options.include_head);
         if (options.max_count != 0)
             push_text(arguments, std::string { "--max-count=" }.append(std::to_string(options.max_count)));
         if (options.skip != 0)
@@ -932,6 +960,34 @@ namespace cyella {
         if (max_count != 0)
             push_text(arguments, std::string { "--max-count=" }.append(std::to_string(max_count)));
         push_all(arguments, { revision.empty() ? std::string_view { "HEAD" } : require_revision(revision, "revision"), "--", require_path(path) });
+        return arguments;
+    }
+
+    bool is_commit_hash_prefix(const std::string_view text) noexcept
+    {
+        const auto is_hex_digit = [](const char value) { return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F'); };
+        return text.size() >= minimum_hash_prefix_length && text.size() <= maximum_hash_length && std::all_of(text.begin(), text.end(), is_hex_digit);
+    }
+
+    git_arguments make_git_search_log_args(const std::string_view query, const commit_search_field field, const bool include_head, const std::uint32_t max_count)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "log", "--topo-order", "-z", log_format, "--no-mailmap", "-i", "--fixed-strings" });
+        // 값을 `=`로 옵션에 붙여 한 인자로 넘긴다. `--all`처럼 옵션으로 보이는 질의도 찾을 글일 뿐이다.
+        push_text(arguments, std::string { field == commit_search_field::author ? "--author=" : "--grep=" }.append(require_search_text(query)));
+        if (max_count != 0)
+            push_text(arguments, std::string { "--max-count=" }.append(std::to_string(max_count)));
+        push_graph_refs(arguments, include_head);
+        push_text(arguments, "--");
+        return arguments;
+    }
+
+    git_arguments make_git_graph_reachability_args(const std::string_view sha, const bool include_head)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "rev-list", "--max-count=1", require_hash_prefix(sha), "--not" });
+        push_graph_refs(arguments, include_head);
+        push_text(arguments, "--");
         return arguments;
     }
 

@@ -23,7 +23,8 @@ namespace cyella {
     [[nodiscard]] git_arguments make_git_rebase_merge_count_args(std::string_view onto, std::string_view branch);
     // `rev-list <onto>..<branch> --not --remotes --`: 어느 원격 브랜치에도 없는 커밋이다.
     [[nodiscard]] git_arguments make_git_rebase_unpushed_args(std::string_view onto, std::string_view branch);
-    // `rev-parse --verify --quiet --end-of-options <revision>^{commit}`.
+    // `rev-parse --verify --quiet --end-of-options <revision>^{commit}`. 커밋으로 풀리지 않으면 종료 코드 1이다.
+    // 커밋 검색도 SHA 앞부분을 푸는 데 쓴다 (없거나 여러 커밋에 맞는 앞부분도 1이다).
     [[nodiscard]] git_arguments make_git_resolve_commit_args(std::string_view revision);
     // `rebase -i --empty=drop --no-autosquash --no-update-refs [--autostash] -- <onto> [<branch>]`.
     //  - `--empty=drop`: `-i`의 기본은 비게 된 커밋에서 멈추는 것이다. 멈추면 충돌 파일 없이 진행 중 상태가 남는다.

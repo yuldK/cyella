@@ -168,6 +168,8 @@ namespace cyella {
             return "blame_file";
         case operation_kind::file_history:
             return "file_history";
+        case operation_kind::search_commits:
+            return "search_commits";
         }
         return "unknown";
     }

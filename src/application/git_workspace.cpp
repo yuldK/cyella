@@ -228,7 +228,8 @@ namespace cyella {
 
         // blame은 큰 저장소에서 수십 초가 걸린다. 파일을 바꿔 가며 볼 때 낡은 git이 둘뿐인 읽기 worker를 붙잡지 않게,
         // 새 요청이 같은 저장소의 끝나지 않은 앞 요청을 취소한다. 세션은 마지막 요청의 결과만 받으므로 앞 결과는 어차피 버려진다.
-        if (kind == operation_kind::blame_file || kind == operation_kind::file_history)
+        // 커밋 검색도 같다. 질의를 치는 동안 글자마다 새 검색이 오고, 전체 이력을 훑는 낡은 검색이 worker를 붙잡으면 안 된다.
+        if (kind == operation_kind::blame_file || kind == operation_kind::file_history || kind == operation_kind::search_commits)
         {
             std::vector<operation_id> superseded {};
             for (const operation_id earlier : order_)
@@ -286,6 +287,12 @@ namespace cyella {
         else if (kind == operation_kind::file_history)
         {
             session->expect_file_history(id);
+        }
+        else if (kind == operation_kind::search_commits)
+        {
+            // 그래프의 log와 같은 ref에서 찾는다. 첫 커밋 전이면 HEAD를 풀 수 없어 git이 실패하므로 뺀다.
+            job.log_include_head = session->snapshot().summary.head_sha.empty() == false;
+            session->expect_commit_search(id);
         }
         else if (kind == operation_kind::refresh_status)
         {
@@ -575,7 +582,7 @@ namespace cyella {
                     rebase_plans_[event.id] = payload.plan;
                 }
                 else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded> || std::is_same_v<payload_type, range_detail_loaded> || std::is_same_v<payload_type, remote_tags_loaded>
-                    || std::is_same_v<payload_type, file_blame_loaded> || std::is_same_v<payload_type, file_history_loaded>)
+                    || std::is_same_v<payload_type, file_blame_loaded> || std::is_same_v<payload_type, file_history_loaded> || std::is_same_v<payload_type, commit_search_loaded>)
                 {
                     if (session != nullptr)
                         session->apply(event.id, payload);

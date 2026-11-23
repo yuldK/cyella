@@ -505,6 +505,127 @@ namespace cyella {
             return operation_outcome::succeeded();
         }
 
+        std::string_view trim_blank(const std::string_view text) noexcept
+        {
+            constexpr std::string_view blank { " \t\r\n" };
+            const std::size_t first { text.find_first_not_of(blank) };
+            if (first == std::string_view::npos)
+                return {};
+            return text.substr(first, text.find_last_not_of(blank) - first + 1);
+        }
+
+        // `prefix`가 `text`의 앞부분인지를 ASCII 대소문자를 가리지 않고 본다. git은 SHA를 소문자로 내고 질의는 어느 쪽이든 된다.
+        bool starts_with_hex(const std::string_view text, const std::string_view prefix) noexcept
+        {
+            const auto lower = [](const char value) { return value >= 'A' && value <= 'F' ? static_cast<char>(value - 'A' + 'a') : value; };
+            return text.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), text.begin(), [&lower](const char left, const char right) { return lower(left) == lower(right); });
+        }
+
+        // 한 필드(메시지 또는 작성자)에서 질의가 든 커밋을 `found`에 더한다. git이 실패하면 끝맺음을 `stop`에 넣고 false다.
+        // 상한보다 많이 맞았으면 `overflowed`를 세운다.
+        bool collect_search_matches(git_operation_context& context, const std::string_view query, const commit_search_field field, const std::uint32_t limit, std::vector<commit_info>& found
+            , bool& overflowed, std::optional<operation_outcome>& stop)
+        {
+            git_log_parser parser { [&found](commit_info&& commit) { found.push_back(std::move(commit)); } };
+            // 더 있는지 알려고 하나를 더 청한다. 0은 제한 없음이고, 최댓값은 더할 자리가 없어 그대로 둔다.
+            const std::uint32_t asked { limit == 0 || limit == std::numeric_limits<std::uint32_t>::max() ? limit : limit + 1 };
+            // 맞는 커밋이 많으면 출력이 캡처 상한을 넘을 수 있어 조각을 받는 대로 해석한다.
+            git_command_spec spec {};
+            spec.arguments = make_git_search_log_args(query, field, context.job().log_include_head, asked);
+            spec.on_standard_output = [&parser](const std::string_view bytes) { parser.feed(bytes); };
+            const git_command_outcome outcome { context.run(std::move(spec)) };
+            if (outcome.accepted == false)
+            {
+                stop = context.failure_from(outcome);
+                return false;
+            }
+
+            // 성공한 출력만 꼬리를 읽는다. 취소로 끊긴 출력의 꼬리는 잘린 레코드다.
+            parser.finish();
+            // 버려진 레코드도 git이 돌려준 한 건이다. 빼고 세면 더 있는데도 다 찾은 것으로 보인다.
+            if (limit != 0 && parser.commit_count() + parser.malformed_record_count() > limit)
+                overflowed = true;
+            return true;
+        }
+
+        // 질의가 SHA 앞부분이면 그 커밋을 `found`에 더한다. 그래프의 ref에서 닿지 않는 커밋은 화면이 그 행으로 갈 수 없어 넣지 않는다.
+        // 그런 커밋이 없는 것은 실패가 아니다. git이 실패하면 끝맺음을 `stop`에 넣고 false다.
+        bool collect_hash_match(git_operation_context& context, const std::string_view query, std::vector<commit_info>& found, std::optional<operation_outcome>& stop)
+        {
+            git_command_outcome outcome {};
+            git_command_spec resolve {};
+            resolve.arguments = make_git_resolve_commit_args(query);
+            // 없거나 여러 커밋에 맞는 앞부분은 1이다.
+            resolve.accepted_exit_codes = { 0, 1 };
+            if (context.run_required(std::move(resolve), outcome, stop) == false)
+                return false;
+            const std::string sha { trim_line(outcome.standard_output) };
+            // 같은 글자의 ref가 있으면 (`cafe`라는 브랜치) git은 ref를 먼저 풀어 다른 커밋을 준다. SHA가 맞은 것이 아니므로 버린다.
+            if (outcome.exit_code() != 0 || is_commit_hash_prefix(sha) == false || starts_with_hex(sha, query) == false)
+                return true;
+            // 메시지나 작성자로 이미 찾은 커밋이다. 그래프의 ref에서 찾았으니 닿는지 물을 것도 없다.
+            if (std::ranges::any_of(found, [&sha](const commit_info& commit) { return commit.sha == sha; }))
+                return true;
+
+            git_command_spec reachability {};
+            reachability.arguments = make_git_graph_reachability_args(sha, context.job().log_include_head);
+            if (context.run_required(std::move(reachability), outcome, stop) == false)
+                return false;
+            // 닿지 않으면 git이 그 SHA를 낸다.
+            if (trim_line(outcome.standard_output).empty() == false)
+                return true;
+
+            git_command_spec info {};
+            info.arguments = make_git_commit_info_args(sha);
+            if (context.run_required(std::move(info), outcome, stop) == false)
+                return false;
+            std::vector<commit_info> commits { parse_git_log(outcome.standard_output, true) };
+            if (commits.empty())
+                return true;
+            // 검색 결과는 본문을 싣지 않는다. 이 커밋만 본문을 달고 가면 같은 커밋이 찾은 길에 따라 다른 값이 된다.
+            commits.front().body.reset();
+            found.push_back(std::move(commits.front()));
+            return true;
+        }
+
+        operation_outcome load_commit_search(git_operation_context& context, const search_commits_request& request)
+        {
+            const std::string_view query { trim_blank(request.query) };
+            if (query.empty())
+                return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.search_query_empty"));
+
+            commit_search search {};
+            // 요청은 받은 그대로 돌려준다. 화면이 자기가 낸 요청과 `==`로 견준다.
+            search.request = request;
+            const std::uint32_t limit { request.max_count };
+            std::optional<operation_outcome> stop {};
+            // `--grep`과 `--author`를 한 명령에 주면 둘 다 맞는 커밋만 나온다. "메시지 또는 작성자"라서 따로 돌려 합친다.
+            for (const commit_search_field field : { commit_search_field::message, commit_search_field::author })
+            {
+                if (collect_search_matches(context, query, field, limit, search.commits, search.truncated, stop) == false)
+                    return *stop;
+            }
+            if (is_commit_hash_prefix(query) && collect_hash_match(context, query, search.commits, stop) == false)
+                return *stop;
+
+            // 두 검색의 순서(`--topo-order`)는 합치면 뜻이 없다. 새 커밋이 앞에 오게 하고, 같은 시각은 SHA로 순서를 고정한다.
+            // 같은 커밋은 시각도 같아 정렬하면 이웃한다.
+            std::ranges::sort(search.commits, [](const commit_info& left, const commit_info& right) {
+                if (left.committer_time != right.committer_time)
+                    return left.committer_time > right.committer_time;
+                return left.sha < right.sha;
+            });
+            const auto duplicates { std::ranges::unique(search.commits, {}, &commit_info::sha) };
+            search.commits.erase(duplicates.begin(), duplicates.end());
+            if (limit != 0 && search.commits.size() > limit)
+            {
+                search.truncated = true;
+                search.commits.resize(limit);
+            }
+            context.emit(commit_search_loaded { std::move(search) });
+            return operation_outcome::succeeded();
+        }
+
         operation_outcome is_ancestor(git_operation_context& context, const is_ancestor_request& request)
         {
             git_command_spec spec {};
@@ -564,6 +685,8 @@ namespace cyella {
                     return load_file_blame(context, request);
                 else if constexpr (std::is_same_v<request_type, file_history_request>)
                     return load_file_history(context, request);
+                else if constexpr (std::is_same_v<request_type, search_commits_request>)
+                    return load_commit_search(context, request);
                 else
                     return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.read_lane_unsupported"));
             },
