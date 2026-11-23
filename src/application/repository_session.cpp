@@ -63,6 +63,20 @@ namespace cyella {
         expected_range_ = id;
     }
 
+    void repository_session::expect_file_blame(const operation_id id) noexcept
+    {
+        expected_blame_ = id;
+        file_blame_.reset();
+        ++revision_;
+    }
+
+    void repository_session::expect_file_history(const operation_id id) noexcept
+    {
+        expected_history_ = id;
+        file_history_.reset();
+        ++revision_;
+    }
+
     void repository_session::set_awaiting_input(const std::optional<operation_id> id) noexcept
     {
         awaiting_input_ = id;
@@ -210,6 +224,25 @@ namespace cyella {
         if (id != expected_range_)
             return false;
         range_detail_ = event.detail;
+        ++revision_;
+        return true;
+    }
+
+    bool repository_session::apply(const operation_id id, const file_blame_loaded& event)
+    {
+        // 사용자가 다른 파일을 이미 골랐으면 앞선 파일의 결과를 버린다.
+        if (id != expected_blame_)
+            return false;
+        file_blame_ = event.blame;
+        ++revision_;
+        return true;
+    }
+
+    bool repository_session::apply(const operation_id id, const file_history_loaded& event)
+    {
+        if (id != expected_history_)
+            return false;
+        file_history_ = event.history;
         ++revision_;
         return true;
     }

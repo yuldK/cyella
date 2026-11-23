@@ -247,3 +247,98 @@ git add both.txt 2> "$out/err_index_lock.bin" || true
 rm -f .git/index.lock
 git fetch "$scratch/does-not-exist" > /dev/null 2> "$out/err_not_a_repository.bin" || true
 scrub_paths "$out"/err_*.bin
+
+# ---------------------------------------------------------------- blame과 파일 이력
+# git_command_builder의 make_git_blame_args·make_git_file_log_args와 같아야 한다.
+blame_args=(blame --porcelain)
+file_log_args=(--literal-pathspecs log --follow -z --name-status --root "--format=%x1e$log_format")
+
+# 작업 트리 blame의 "Not Committed Yet" 묶음에는 실행한 시각과 그 PC의 시간대가 들어간다. 고정 출력이 흔들리지 않게 바꾼다.
+fix_uncommitted_time()
+{
+    sed '/^author Not Committed Yet$/,/^summary /{s/^\(author\|committer\)-time .*/\1-time 1780000000/;s/^\(author\|committer\)-tz .*/\1-tz +0000/}'
+}
+
+new_repo "$scratch/blame"
+cd "$scratch/blame"
+set_date 2026-04-01T10:00:00
+# 이름의 `[1]`은 glob으로 읽히면 `a1.txt`에 맞는다. 글자 그대로 한 파일만 따라가야 한다.
+printf 'one\ntwo\nthree\nfour\nfive\nsix\n' > 'a[1].txt'
+printf 'decoy\n' > a1.txt
+printf 'decoy\n' > b1.txt
+printf 'keep\r\nme\r\n\xff\xfe not utf-8\r\nno newline at end' > crlf.txt
+printf 'a\x00b\nline2\n\x00\x00\n' > blob.bin
+git add .
+git commit -q -m "first"
+
+set_date 2026-04-02T10:00:00
+printf 'one\ntwo\nthree\nfour\nfive\nsix\nseven\n' > 'a[1].txt'
+printf 'decoy\nchanged\n' > a1.txt
+git commit -q -am "second 한글 제목 ✓"
+
+set_date 2026-04-03T10:00:00
+git mv 'a[1].txt' 'b[12].txt'
+printf 'one\nTWO\nthree\nfour\nfive\nsix\nseven\n' > 'b[12].txt'
+printf 'decoy\nchanged\n' > b1.txt
+git add -A
+git commit -q -m "third: rename"
+
+set_date 2026-04-04T10:00:00
+printf 'one\nTWO\nthree\nfour\nfive\nsix\nseven\neight\n' > 'b[12].txt'
+git commit -q -am "fourth"
+
+git "${blame_args[@]}" HEAD -- 'b[12].txt' > "$out/blame_renamed.bin"
+git "${blame_args[@]}" HEAD -- crlf.txt > "$out/blame_crlf.bin"
+git "${blame_args[@]}" HEAD -- blob.bin > "$out/blame_binary.bin"
+git "${file_log_args[@]}" HEAD -- 'b[12].txt' > "$out/file_log_renamed.bin"
+git "${file_log_args[@]}" --max-count=3 HEAD -- 'b[12].txt' > "$out/file_log_limited.bin"
+
+# 커밋하지 않은 줄: 맨 앞에 한 줄을 끼우고 마지막 줄을 고친다 (줄바꿈 없이 끝난다).
+printf 'zero\none\nTWO\nthree\nfour\nfive\nsix\nseven\nEIGHT' > 'b[12].txt'
+git "${blame_args[@]}" -- 'b[12].txt' | fix_uncommitted_time > "$out/blame_worktree.bin"
+git checkout -q -- 'b[12].txt'
+
+# 한 커밋이 두 경로에 걸친 blame: 병합이 q.txt의 줄을 p.txt로 옮겨 붙인다. p.txt의 줄은 첫 부모의 p.txt로, 나머지는
+# 둘째 부모(p.txt가 없다)의 q.txt로 거슬러 올라가 같은 첫 커밋에 두 경로로 닿는다.
+new_repo "$scratch/blame_paths"
+cd "$scratch/blame_paths"
+set_date 2026-05-01T10:00:00
+printf 'p1\np2\np3\n' > p.txt
+printf 'q1\nq2\nq3\nq4\nq5\nq6\nq7\n' > q.txt
+git add .
+git commit -q -m "base"
+git switch -q -c side
+set_date 2026-05-02T10:00:00
+git rm -q p.txt
+printf 'side\n' > side.txt
+git add -A
+git commit -q -m "side drops p"
+git switch -q main
+set_date 2026-05-03T10:00:00
+printf 'main\n' > main.txt
+git add main.txt
+git commit -q -m "main work"
+set_date 2026-05-04T10:00:00
+git merge -q --no-ff --no-commit side > /dev/null 2>&1
+printf 'p1\np2\np3\nq1\nq2\nq3\nq4\nq5\nq6\nq7\n' > p.txt
+git rm -q q.txt
+git add -A
+git commit -q -m "merge side: fold q into p"
+git "${blame_args[@]}" HEAD -- p.txt > "$out/blame_two_paths.bin"
+
+# sha256 저장소: 해시가 64자이고 커밋하지 않은 줄은 0이 64개다.
+git init -q -b main --object-format=sha256 "$scratch/blame_sha256"
+cd "$scratch/blame_sha256"
+git config core.autocrlf false
+set_date 2026-06-01T10:00:00
+printf 'a\nb\n' > f.txt
+git add f.txt
+git commit -q -m "one"
+set_date 2026-06-02T10:00:00
+git mv f.txt g.txt
+printf 'a\nb\nc\n' > g.txt
+git add -A
+git commit -q -m "two: rename"
+git "${file_log_args[@]}" HEAD -- g.txt > "$out/file_log_sha256.bin"
+printf 'a\nb\nc\nd\n' > g.txt
+git "${blame_args[@]}" -- g.txt | fix_uncommitted_time > "$out/blame_sha256.bin"

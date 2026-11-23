@@ -115,6 +115,26 @@ namespace cyella {
         [[nodiscard]] bool operator==(const show_range_request&) const noexcept = default;
     };
 
+    // `blame --porcelain [<revision>] -- <path>`. revision을 비우면 작업 트리다 (커밋하지 않은 줄이 0으로만 된 해시로 온다).
+    struct blame_file_request
+    {
+        std::string path {};
+        std::string revision {};
+
+        [[nodiscard]] bool operator==(const blame_file_request&) const noexcept = default;
+    };
+
+    // `log --follow`로 읽은 한 파일의 이력이다. revision을 비우면 HEAD부터다. path는 그 revision에서의 경로다.
+    struct file_history_request
+    {
+        std::string path {};
+        std::string revision {};
+        // 이만큼만 읽는다. 더 있으면 결과의 `truncated`가 선다. 0이면 제한이 없다.
+        std::uint32_t max_count { 2000 };
+
+        [[nodiscard]] bool operator==(const file_history_request&) const noexcept = default;
+    };
+
     // `merge-base --is-ancestor ancestor descendant`. 그래프를 다 읽지 않아 UI가 조상 관계를
     // 모를 때 끌어 놓기 메뉴가 묻는다.
     struct is_ancestor_request
@@ -587,7 +607,8 @@ namespace cyella {
         push_tags_request, delete_tag_request, delete_remote_tag_request, sequence_control_request, resolve_file_request, mark_resolved_request, remove_stale_index_lock_request, clone_request,
         init_request, inspect_path_request, ssh_keygen_request, ssh_connection_test_request, submodule_update_request, submodule_sync_request, worktree_add_request, worktree_remove_request,
         worktree_prune_request, lfs_pull_request, lfs_fetch_request, lfs_track_request, load_rebase_plan_request, interactive_rebase_request, refresh_status_request, set_upstream_request,
-        unset_upstream_request, trash_files_request, verify_signatures_request, show_range_request, add_remote_request, create_ssh_repository_request>;
+        unset_upstream_request, trash_files_request, verify_signatures_request, show_range_request, add_remote_request, create_ssh_repository_request,
+        blame_file_request, file_history_request>;
 
     // 실행 lane이다.
     enum class operation_lane

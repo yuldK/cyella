@@ -572,6 +572,204 @@ TEST_CASE("integration: show_range compares two commits and a range from the roo
         CHECK(session.selected_diff()->files[0].lines_added == 1);
     }
 }
+TEST_CASE("integration: blame_file and file_history follow a renamed file with glob characters in sha1 and sha256 repositories", "[session][integration][blame]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    for (const std::string format : { "sha1", "sha256" })
+    {
+        INFO("object format " << format);
+        const std::size_t hash_size { format == "sha256" ? 64u : 40u };
+        test::temp_directory directory {};
+        const std::filesystem::path path { directory.path() / "repo" };
+        std::filesystem::create_directories(path);
+        git_ok(path, { "init", "-q", "-b", "main", "--object-format=" + format });
+        // 이름의 `[12]`는 glob으로 읽히면 `b1.txt`에 맞는다. 글자 그대로 그 파일 하나만 따라가야 한다.
+        commit_file(path, "a[1].txt", "one\ntwo\nthree\nfour\nfive\nsix\n", "first");
+        const std::string first { git_text(path, { "rev-parse", "HEAD" }) };
+        commit_file(path, "b1.txt", "decoy\n", "decoy");
+        const std::string decoy { git_text(path, { "rev-parse", "HEAD" }) };
+        git_ok(path, { "mv", "a[1].txt", "b[12].txt" });
+        commit_file(path, "b[12].txt", "one\nTWO\nthree\nfour\nfive\nsix\n", "rename");
+        const std::string renamed { git_text(path, { "rev-parse", "HEAD" }) };
+        commit_file(path, "b1.txt", "decoy\nchanged\n", "decoy change");
+        commit_file(path, "b[12].txt", "one\nTWO\nthree\nfour\nfive\nsix\nseven\n", "append");
+        const std::string head { git_text(path, { "rev-parse", "HEAD" }) };
+
+        live_workspace live {};
+        const std::string repo { live.open(path) };
+        const repository_session& session { live.session(repo) };
+
+        // 커밋의 blame: 이름을 바꾸기 전의 줄은 옛 경로의 커밋으로 거슬러 올라간다.
+        const blame_file_request at_head { .path = "b[12].txt", .revision = head };
+        live.require_succeeded(live.run(repo, at_head));
+        REQUIRE(session.selected_blame().has_value());
+        {
+            const file_blame& blame { *session.selected_blame() };
+            CHECK(blame.request == at_head);
+            CHECK_FALSE(blame.binary);
+            REQUIRE(blame.lines.size() == 7);
+            REQUIRE(blame.origins.size() == 3);
+            const blame_origin& one { blame.origins[blame.lines[0].origin] };
+            CHECK(blame.lines[0].text == "one");
+            CHECK(one.sha == first);
+            CHECK(one.sha.size() == hash_size);
+            CHECK(one.path == "a[1].txt");
+            CHECK(one.summary == "first");
+            CHECK(one.previous_sha.empty());
+            const blame_origin& two { blame.origins[blame.lines[1].origin] };
+            CHECK(blame.lines[1].text == "TWO");
+            CHECK(two.sha == renamed);
+            CHECK(two.path == "b[12].txt");
+            // `previous`는 파일을 그 전에 바꾼 커밋이 아니라 이름을 바꾼 커밋의 부모이고, 거기서는 옛 경로다.
+            CHECK(two.previous_sha == decoy);
+            CHECK(two.previous_path == "a[1].txt");
+            // 셋째 줄부터는 다시 첫 커밋이다. 커밋 정보가 다시 오지 않아도 같은 주인을 가리킨다.
+            CHECK(blame.lines[2].origin == blame.lines[0].origin);
+            CHECK(blame.lines[5].origin == blame.lines[0].origin);
+            CHECK(blame.origins[blame.lines[6].origin].sha == head);
+            CHECK(blame.lines[6].final_line == 7);
+            for (const blame_origin& origin : blame.origins)
+                CHECK_FALSE(origin.uncommitted);
+        }
+
+        // 작업 트리의 blame: 커밋하지 않은 줄은 0으로만 된 해시로 온다.
+        test::write_file(path / "b[12].txt", "zero\none\nTWO\nthree\nfour\nfive\nsix\nseven\n");
+        live.require_succeeded(live.run(repo, blame_file_request { .path = "b[12].txt" }));
+        REQUIRE(session.selected_blame().has_value());
+        {
+            const file_blame& blame { *session.selected_blame() };
+            CHECK(blame.request.revision.empty());
+            REQUIRE(blame.lines.size() == 8);
+            const blame_origin& zero { blame.origins[blame.lines[0].origin] };
+            CHECK(blame.lines[0].text == "zero");
+            CHECK(zero.uncommitted);
+            CHECK(zero.sha == std::string(hash_size, '0'));
+            CHECK(zero.previous_sha == head);
+            CHECK(blame.lines[1].text == "one");
+            CHECK(blame.lines[1].original_line == 1);
+            CHECK(blame.lines[1].final_line == 2);
+            for (std::size_t index { 1 }; index < blame.lines.size(); ++index)
+                CHECK_FALSE(blame.origins[blame.lines[index].origin].uncommitted);
+        }
+        git_ok(path, { "checkout", "-q", "--", "b[12].txt" });
+
+        // 파일 이력: 이름 바꾸기를 넘어 첫 커밋까지 가고, `b1.txt`만 고친 커밋은 섞이지 않는다.
+        const file_history_request whole { .path = "b[12].txt" };
+        live.require_succeeded(live.run(repo, whole));
+        REQUIRE(session.selected_history().has_value());
+        {
+            const file_history& history { *session.selected_history() };
+            CHECK(history.request == whole);
+            CHECK_FALSE(history.truncated);
+            REQUIRE(history.entries.size() == 3);
+            CHECK(history.entries[0].commit.sha == head);
+            CHECK(history.entries[0].commit.subject == "append");
+            CHECK(history.entries[0].status == 'M');
+            CHECK(history.entries[0].path == "b[12].txt");
+            CHECK(history.entries[1].commit.sha == renamed);
+            CHECK(history.entries[1].status == 'R');
+            CHECK(history.entries[1].path == "b[12].txt");
+            CHECK(history.entries[1].previous_path == "a[1].txt");
+            CHECK(history.entries[2].commit.sha == first);
+            CHECK(history.entries[2].commit.sha.size() == hash_size);
+            CHECK(history.entries[2].status == 'A');
+            CHECK(history.entries[2].path == "a[1].txt");
+            CHECK(history.entries[2].commit.parents.empty());
+        }
+
+        // 상한보다 커밋이 많으면 상한까지만 주고 더 있다고 알린다.
+        live.require_succeeded(live.run(repo, file_history_request { .path = "b[12].txt", .revision = {}, .max_count = 2 }));
+        REQUIRE(session.selected_history().has_value());
+        CHECK(session.selected_history()->truncated);
+        REQUIRE(session.selected_history()->entries.size() == 2);
+        CHECK(session.selected_history()->entries[1].commit.sha == renamed);
+
+        // 옛 리비전에서는 그 리비전에서의 경로로 묻는다.
+        live.require_succeeded(live.run(repo, file_history_request { .path = "a[1].txt", .revision = first }));
+        REQUIRE(session.selected_history().has_value());
+        REQUIRE(session.selected_history()->entries.size() == 1);
+        CHECK(session.selected_history()->entries[0].commit.sha == first);
+        CHECK_FALSE(session.selected_history()->truncated);
+    }
+}
+
+TEST_CASE("integration: blame_file keeps CRLF and invalid UTF-8 bytes and reports binary files", "[session][integration][blame]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    test::temp_directory directory {};
+    const std::filesystem::path path { make_repository(directory.path() / "repo") };
+    git_ok(path, { "config", "core.autocrlf", "false" });
+    commit_file(path, "crlf.txt", "keep\r\n\xFF\xFE not utf-8\r\nlast", "crlf");
+    commit_file(path, "blob.bin", std::string_view { "a\0b\nline2\n", 10 }, "binary");
+
+    live_workspace live {};
+    const std::string repo { live.open(path) };
+    const repository_session& session { live.session(repo) };
+
+    live.require_succeeded(live.run(repo, blame_file_request { .path = "crlf.txt", .revision = "HEAD" }));
+    REQUIRE(session.selected_blame().has_value());
+    REQUIRE(session.selected_blame()->lines.size() == 3);
+    CHECK(session.selected_blame()->lines[0].text == "keep\r");
+    CHECK(session.selected_blame()->lines[1].text == "\xFF\xFE not utf-8\r");
+    CHECK(session.selected_blame()->lines[2].text == "last");
+
+    live.require_succeeded(live.run(repo, blame_file_request { .path = "blob.bin", .revision = "HEAD" }));
+    REQUIRE(session.selected_blame().has_value());
+    CHECK(session.selected_blame()->binary);
+    CHECK(session.selected_blame()->lines.empty());
+}
+
+TEST_CASE("integration: blame_file and file_history end as failures when git cannot answer", "[session][integration][blame]")
+{
+    if (test::git_is_available() == false)
+        SKIP("git is not installed");
+    test::temp_directory directory {};
+
+    SECTION("a missing path, a folder and a submodule path cannot be blamed")
+    {
+        const std::filesystem::path path { make_repository(directory.path() / "repo") };
+        commit_file(path, "dir/a.txt", "one\n", "first");
+        // 실제 submodule 없이 gitlink 항목만 만든다. blame에게는 같은 모양이다.
+        git_ok(path, { "update-index", "--add", "--cacheinfo", "160000," + git_text(path, { "rev-parse", "HEAD" }) + ",sub" });
+        git_ok(path, { "commit", "-q", "-m", "gitlink" });
+
+        live_workspace live {};
+        const std::string repo { live.open(path) };
+        for (const std::string target : { "gone.txt", "dir", "sub" })
+        {
+            INFO("path " << target);
+            const operation_id id { live.run(repo, blame_file_request { .path = target, .revision = "HEAD" }) };
+            CHECK(live.status(id).state == operation_state::failed);
+            CHECK(live.status(id).failure.has_value());
+            CHECK_FALSE(live.session(repo).selected_blame().has_value());
+        }
+        // 작업 트리의 blame도 추적하지 않는 파일에는 실패한다.
+        test::write_file(path / "untracked.txt", "new\n");
+        CHECK(live.status(live.run(repo, blame_file_request { .path = "untracked.txt" })).state == operation_state::failed);
+
+        // 이력은 없는 경로에 실패하지 않고 빈 목록을 준다.
+        live.require_succeeded(live.run(repo, file_history_request { .path = "gone.txt" }));
+        REQUIRE(live.session(repo).selected_history().has_value());
+        CHECK(live.session(repo).selected_history()->entries.empty());
+        CHECK_FALSE(live.session(repo).selected_history()->truncated);
+    }
+
+    SECTION("a repository without commits has nothing to blame and no history")
+    {
+        const std::filesystem::path path { make_repository(directory.path() / "empty") };
+        test::write_file(path / "a.txt", "one\n");
+
+        live_workspace live {};
+        const std::string repo { live.open(path) };
+        CHECK(live.status(live.run(repo, blame_file_request { .path = "a.txt" })).state == operation_state::failed);
+        CHECK_FALSE(live.session(repo).selected_blame().has_value());
+        CHECK(live.status(live.run(repo, file_history_request { .path = "a.txt" })).state == operation_state::failed);
+        CHECK_FALSE(live.session(repo).selected_history().has_value());
+    }
+}
+
 TEST_CASE("integration: set_upstream connects a pushed branch without pushing and unset_upstream removes it", "[session][integration][upstream]")
 {
     if (test::git_is_available() == false)

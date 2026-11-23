@@ -1,0 +1,32 @@
+f1eebbff60b564d209466e203a8fce2708791016 1 1 3
+author Ann Author
+author-mail <ann@example.com>
+author-time 1777597200
+author-tz +0900
+committer Cy Committer
+committer-mail <cy@example.com>
+committer-time 1777597200
+committer-tz +0900
+summary base
+boundary
+filename p.txt
+	p1
+f1eebbff60b564d209466e203a8fce2708791016 2 2
+	p2
+f1eebbff60b564d209466e203a8fce2708791016 3 3
+	p3
+f1eebbff60b564d209466e203a8fce2708791016 1 4 7
+filename q.txt
+	q1
+f1eebbff60b564d209466e203a8fce2708791016 2 5
+	q2
+f1eebbff60b564d209466e203a8fce2708791016 3 6
+	q3
+f1eebbff60b564d209466e203a8fce2708791016 4 7
+	q4
+f1eebbff60b564d209466e203a8fce2708791016 5 8
+	q5
+f1eebbff60b564d209466e203a8fce2708791016 6 9
+	q6
+f1eebbff60b564d209466e203a8fce2708791016 7 10
+	q7

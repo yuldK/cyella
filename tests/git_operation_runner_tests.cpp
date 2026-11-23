@@ -4,6 +4,7 @@
 #include "infrastructure/git_operation_runner.h"
 
 #include "fake_git_runner.h"
+#include "git_test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -813,6 +814,196 @@ TEST_CASE("a diff driver without a textconv command, no driver at all, and untra
         const std::vector<operation_event> events { test.execute(request) };
         CHECK(finished_of(events).state == operation_state::succeeded);
         CHECK(payloads<file_diff_loaded>(events).front().diff.textconv_driver.empty());
+    }
+}
+
+TEST_CASE("blame_file streams the porcelain output into one file_blame_loaded", "[operation][blame]")
+{
+    harness test {};
+    // 가짜 runner는 stdout을 반으로 나눠 두 조각으로 넘긴다. 해석기가 조각 경계를 이어 읽어야 한다.
+    test.process.when({ "blame", "--porcelain" }, scripted_response { 0, test::read_fixture("blame_renamed.bin") });
+
+    const blame_file_request request { .path = "b[12].txt", .revision = "HEAD" };
+    const std::vector<operation_event> events { test.execute(request) };
+
+    CHECK(finished_of(events).state == operation_state::succeeded);
+    const std::vector<file_blame_loaded> loaded { payloads<file_blame_loaded>(events) };
+    REQUIRE(loaded.size() == 1);
+    CHECK(loaded[0].blame.request == request);
+    CHECK(loaded[0].blame.origins.size() == 4);
+    REQUIRE(loaded[0].blame.lines.size() == 8);
+    CHECK(loaded[0].blame.lines[1].text == "TWO");
+    CHECK_FALSE(loaded[0].blame.binary);
+
+    const std::vector<test::recorded_call> calls { test.process.calls() };
+    REQUIRE(calls.size() == 1);
+    CHECK(join(calls[0].arguments) == "blame --porcelain HEAD -- b[12].txt");
+    // 읽기 lane의 명령은 잠금을 잡지 않는다.
+    CHECK(calls[0].no_optional_locks);
+}
+
+TEST_CASE("blame_file of the working tree passes no revision and reports a binary file without lines", "[operation][blame]")
+{
+    harness test {};
+    test.process.when({ "blame", "--porcelain" }, scripted_response { 0, test::read_fixture("blame_binary.bin") });
+
+    const std::vector<operation_event> events { test.execute(blame_file_request { .path = "blob.bin" }) };
+
+    const std::vector<file_blame_loaded> loaded { payloads<file_blame_loaded>(events) };
+    REQUIRE(loaded.size() == 1);
+    CHECK(loaded[0].blame.binary);
+    CHECK(loaded[0].blame.lines.empty());
+    CHECK(join(test.process.calls().front().arguments) == "blame --porcelain -- blob.bin");
+}
+
+TEST_CASE("blame_file reads output larger than the capture limit", "[operation][blame]")
+{
+    // 큰 파일의 blame 출력은 캡처 상한을 넘는다. 모으지 않고 조각을 받는 대로 읽으므로 잘리지 않는다.
+    harness test {};
+    const std::size_t limit { git_limits_for(git_command_class::local_query).maximum_captured_bytes_per_stream };
+    const std::string sha { test::sha_of(1) };
+    std::string output { sha + " 1 1 1\nauthor Morgan\nauthor-mail <morgan@example.com>\nauthor-time 1700000000\nsummary big\nfilename big.txt\n\tfirst\n" };
+    std::size_t line_count { 1 };
+    const std::string filler(200, 'x');
+    while (output.size() <= limit)
+    {
+        ++line_count;
+        output.append(sha).append(" ").append(std::to_string(line_count)).append(" ").append(std::to_string(line_count)).append(" 1\n\t").append(filler).append("\n");
+    }
+    test.process.when({ "blame" }, scripted_response { 0, output });
+
+    const std::vector<operation_event> events { test.execute(blame_file_request { .path = "big.txt" }) };
+
+    CHECK(finished_of(events).state == operation_state::succeeded);
+    const std::vector<file_blame_loaded> loaded { payloads<file_blame_loaded>(events) };
+    REQUIRE(loaded.size() == 1);
+    CHECK(loaded[0].blame.lines.size() == line_count);
+    CHECK(loaded[0].blame.origins.size() == 1);
+}
+
+TEST_CASE("blame_file fails without a result when git fails, the output is broken, or the request is invalid", "[operation][blame]")
+{
+    SECTION("git reports a missing path")
+    {
+        harness test {};
+        test.process.when({ "blame" }, scripted_response { 128, "", { "fatal: no such path 'gone.txt' in HEAD" } });
+        const std::vector<operation_event> events { test.execute(blame_file_request { .path = "gone.txt" }) };
+
+        const operation_finished done { finished_of(events) };
+        CHECK(done.state == operation_state::failed);
+        REQUIRE(done.failure.has_value());
+        CHECK(done.failure->detail.find(u8"no such path") != std::u8string::npos);
+        CHECK(payloads<file_blame_loaded>(events).empty());
+    }
+    SECTION("git prints part of a blame and then fails")
+    {
+        harness test {};
+        const std::string whole { test::read_fixture("blame_renamed.bin") };
+        test.process.when({ "blame" }, scripted_response { 128, whole.substr(0, whole.size() / 2), { "fatal: unable to read blob" } });
+        const std::vector<operation_event> events { test.execute(blame_file_request { .path = "b[12].txt" }) };
+
+        CHECK(finished_of(events).state == operation_state::failed);
+        CHECK(payloads<file_blame_loaded>(events).empty());
+    }
+    SECTION("the output is not blame output")
+    {
+        harness test {};
+        test.process.when({ "blame" }, scripted_response { 0, "something else entirely\n" });
+        const std::vector<operation_event> events { test.execute(blame_file_request { .path = "a.txt" }) };
+
+        const operation_finished done { finished_of(events) };
+        CHECK(done.state == operation_state::failed);
+        REQUIRE(done.failure.has_value());
+        CHECK(done.failure->summary == tr(u8"git.blame_parse_failed"));
+        CHECK(payloads<file_blame_loaded>(events).empty());
+    }
+    SECTION("an option in place of the revision never reaches git")
+    {
+        harness test {};
+        const std::vector<operation_event> events { test.execute(blame_file_request { .path = "a.txt", .revision = "--contents=x" }) };
+
+        const operation_finished done { finished_of(events) };
+        CHECK(done.state == operation_state::failed);
+        REQUIRE(done.failure.has_value());
+        CHECK(done.failure->kind == failure_kind::invalid_request);
+        CHECK(test.process.calls().empty());
+    }
+}
+
+TEST_CASE("file_history asks for one commit more than the limit to learn whether it was cut", "[operation][file_history]")
+{
+    // 고정 출력에는 커밋이 넷 있다.
+    const std::string four { test::read_fixture("file_log_renamed.bin") };
+
+    SECTION("more commits than the limit")
+    {
+        harness test {};
+        test.process.when({ "--literal-pathspecs", "log", "--follow" }, scripted_response { 0, four });
+        const file_history_request request { .path = "b[12].txt", .revision = {}, .max_count = 3 };
+        const std::vector<operation_event> events { test.execute(request) };
+
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        const std::vector<file_history_loaded> loaded { payloads<file_history_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(loaded[0].history.request == request);
+        CHECK(loaded[0].history.truncated);
+        // 넘친 하나는 버린다.
+        REQUIRE(loaded[0].history.entries.size() == 3);
+        CHECK(loaded[0].history.entries[0].commit.subject == "fourth");
+        CHECK(loaded[0].history.entries[1].status == 'R');
+        CHECK(loaded[0].history.entries[1].path == "b[12].txt");
+        CHECK(loaded[0].history.entries[1].previous_path == "a[1].txt");
+        CHECK(loaded[0].history.entries[2].path == "a[1].txt");
+
+        const std::vector<test::recorded_call> calls { test.process.calls() };
+        REQUIRE(calls.size() == 1);
+        CHECK(join(calls[0].arguments).find("--max-count=4 HEAD -- b[12].txt") != std::string::npos);
+        CHECK(calls[0].no_optional_locks);
+    }
+    SECTION("exactly as many commits as the limit")
+    {
+        harness test {};
+        test.process.when({ "--literal-pathspecs", "log", "--follow" }, scripted_response { 0, four });
+        const std::vector<operation_event> events { test.execute(file_history_request { .path = "b[12].txt", .revision = "main", .max_count = 4 }) };
+
+        const std::vector<file_history_loaded> loaded { payloads<file_history_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK_FALSE(loaded[0].history.truncated);
+        CHECK(loaded[0].history.entries.size() == 4);
+        CHECK(join(test.process.calls().front().arguments).find("--max-count=5 main -- b[12].txt") != std::string::npos);
+    }
+    SECTION("no limit")
+    {
+        harness test {};
+        test.process.when({ "--literal-pathspecs", "log", "--follow" }, scripted_response { 0, four });
+        const std::vector<operation_event> events { test.execute(file_history_request { .path = "b[12].txt", .revision = {}, .max_count = 0 }) };
+
+        const std::vector<file_history_loaded> loaded { payloads<file_history_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK_FALSE(loaded[0].history.truncated);
+        CHECK(loaded[0].history.entries.size() == 4);
+        CHECK(join(test.process.calls().front().arguments).find("--max-count") == std::string::npos);
+    }
+    SECTION("a path git has never seen is an empty history")
+    {
+        // git은 없는 경로의 이력을 실패가 아니라 빈 출력으로 답한다.
+        harness test {};
+        const std::vector<operation_event> events { test.execute(file_history_request { .path = "nope.txt" }) };
+
+        CHECK(finished_of(events).state == operation_state::succeeded);
+        const std::vector<file_history_loaded> loaded { payloads<file_history_loaded>(events) };
+        REQUIRE(loaded.size() == 1);
+        CHECK(loaded[0].history.entries.empty());
+        CHECK_FALSE(loaded[0].history.truncated);
+    }
+    SECTION("git fails in a repository without commits")
+    {
+        harness test {};
+        test.process.when({ "--literal-pathspecs", "log" }, scripted_response { 128, "", { "fatal: bad revision 'HEAD'" } });
+        const std::vector<operation_event> events { test.execute(file_history_request { .path = "a.txt" }) };
+
+        CHECK(finished_of(events).state == operation_state::failed);
+        CHECK(payloads<file_history_loaded>(events).empty());
     }
 }
 

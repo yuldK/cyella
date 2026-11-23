@@ -1,0 +1,41 @@
+b3422603fe0fafc5152be945632a8609ddbc7df47e90581b60148407d67fd47a 1 1 2
+author Ann Author
+author-mail <ann@example.com>
+author-time 1780275600
+author-tz +0900
+committer Cy Committer
+committer-mail <cy@example.com>
+committer-time 1780275600
+committer-tz +0900
+summary one
+boundary
+filename f.txt
+	a
+b3422603fe0fafc5152be945632a8609ddbc7df47e90581b60148407d67fd47a 2 2
+	b
+0ea81596ac74a737dad2bc54ee41f00c6a33ddea95fef22559f2dd760f0570f5 3 3 1
+author Ann Author
+author-mail <ann@example.com>
+author-time 1780362000
+author-tz +0900
+committer Cy Committer
+committer-mail <cy@example.com>
+committer-time 1780362000
+committer-tz +0900
+summary two: rename
+previous b3422603fe0fafc5152be945632a8609ddbc7df47e90581b60148407d67fd47a f.txt
+filename g.txt
+	c
+0000000000000000000000000000000000000000000000000000000000000000 4 4 1
+author Not Committed Yet
+author-mail <not.committed.yet>
+author-time 1780000000
+author-tz +0000
+committer Not Committed Yet
+committer-mail <not.committed.yet>
+committer-time 1780000000
+committer-tz +0000
+summary Version of g.txt from g.txt
+previous 0ea81596ac74a737dad2bc54ee41f00c6a33ddea95fef22559f2dd760f0570f5 g.txt
+filename g.txt
+	d

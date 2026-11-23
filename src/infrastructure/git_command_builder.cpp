@@ -15,6 +15,9 @@ namespace cyella {
         constexpr std::string_view for_each_ref_format { "--format=%(refname)%1f%(objectname)%1f%(*objectname)%1f%(HEAD)%1f%(upstream)%1f%(upstream:short)%1f%(upstream:track)%1f%(symref)" };
         constexpr std::string_view log_format { "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s" };
         constexpr std::string_view log_format_with_body { "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s%x1f%b" };
+        // 파일 이력의 레코드다. 필드는 `log_format`과 같고 (`git_log_parser`로 읽는다), 뒤따르는 name-status와 섞이지 않게 레코드를
+        // 0x1E로 시작한다.
+        constexpr std::string_view file_log_format { "--format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s" };
         constexpr std::string_view literal_pathspecs { "--literal-pathspecs" };
         constexpr std::string_view stash_format { "--format=%gd%x1f%H%x1f%P%x1f%ct%x1f%gs" };
 
@@ -909,6 +912,26 @@ namespace cyella {
     {
         git_arguments arguments {};
         push_all(arguments, { "hash-object", "-t", "tree", "--stdin" });
+        return arguments;
+    }
+
+    git_arguments make_git_blame_args(const std::string_view path, const std::string_view revision)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { "blame", "--porcelain" });
+        if (revision.empty() == false)
+            push_text(arguments, require_revision(revision, "revision"));
+        push_all(arguments, { "--", require_path(path) });
+        return arguments;
+    }
+
+    git_arguments make_git_file_log_args(const std::string_view path, const std::string_view revision, const std::uint32_t max_count)
+    {
+        git_arguments arguments {};
+        push_all(arguments, { literal_pathspecs, "log", "--follow", "-z", "--name-status", "--root", file_log_format });
+        if (max_count != 0)
+            push_text(arguments, std::string { "--max-count=" }.append(std::to_string(max_count)));
+        push_all(arguments, { revision.empty() ? std::string_view { "HEAD" } : require_revision(revision, "revision"), "--", require_path(path) });
         return arguments;
     }
 

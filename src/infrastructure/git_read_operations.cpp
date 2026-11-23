@@ -2,8 +2,10 @@
 
 #include "domain/path_syntax.h"
 #include "domain/text_catalog.h"
+#include "infrastructure/git_blame_parser.h"
 #include "infrastructure/git_diff_parser.h"
 #include "infrastructure/git_extension_operations.h"
+#include "infrastructure/git_file_log_parser.h"
 #include "infrastructure/git_interactive_rebase.h"
 #include "infrastructure/git_log_parser.h"
 #include "infrastructure/git_query_parser.h"
@@ -14,6 +16,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -444,6 +447,64 @@ namespace cyella {
             return operation_outcome::succeeded();
         }
 
+        operation_outcome load_file_blame(git_operation_context& context, const blame_file_request& request)
+        {
+            // 큰 파일의 blame 출력은 수십 MiB다. 캡처 상한을 타지 않게 조각을 받는 대로 해석한다.
+            git_blame_parser parser {};
+            git_command_spec spec {};
+            spec.arguments = make_git_blame_args(request.path, request.revision);
+            spec.on_standard_output = [&parser](const std::string_view bytes) { parser.feed(bytes); };
+            const git_command_outcome outcome { context.run(std::move(spec)) };
+            // 없는 경로, 커밋 없는 저장소, submodule 경로는 git이 실패로 알린다.
+            if (outcome.accepted == false)
+                return context.failure_from(outcome);
+
+            // 성공한 출력만 끝맺는다. 취소·시간 초과로 끊긴 출력은 앞부분만 있는 blame이라 내면 안 된다.
+            git_blame_result result { parser.finish() };
+            // 줄을 하나라도 버렸으면 줄 번호가 파일과 어긋난다. 틀린 주인을 보이느니 실패로 알린다.
+            if (result.malformed_line_count != 0)
+                return operation_outcome::failed(failure_kind::other, tr(u8"git.blame_parse_failed"));
+
+            file_blame blame {};
+            blame.request = request;
+            blame.origins = std::move(result.origins);
+            blame.lines = std::move(result.lines);
+            blame.binary = result.binary;
+            context.emit(file_blame_loaded { std::move(blame) });
+            return operation_outcome::succeeded();
+        }
+
+        operation_outcome load_file_history(git_operation_context& context, const file_history_request& request)
+        {
+            file_history history {};
+            history.request = request;
+            const auto collect = [&history](git_file_log_entry&& entry) {
+                history.entries.push_back(file_history_entry { std::move(entry.commit), std::move(entry.path), std::move(entry.previous_path), entry.status });
+            };
+            git_file_log_parser parser { collect, request.path };
+
+            // 더 있는지 알려고 하나를 더 청한다. 0은 제한 없음이고, 최댓값은 더할 자리가 없어 그대로 둔다.
+            const std::uint32_t limit { request.max_count };
+            const std::uint32_t asked { limit == 0 || limit == std::numeric_limits<std::uint32_t>::max() ? limit : limit + 1 };
+            git_command_spec spec {};
+            spec.arguments = make_git_file_log_args(request.path, request.revision, asked);
+            spec.on_standard_output = [&parser](const std::string_view bytes) { parser.feed(bytes); };
+            const git_command_outcome outcome { context.run(std::move(spec)) };
+            if (outcome.accepted == false)
+                return context.failure_from(outcome);
+
+            parser.finish();
+            // 버려진 레코드도 git이 돌려준 한 건이다. 빼고 세면 더 있는데도 끝난 것으로 보인다.
+            if (limit != 0 && history.entries.size() + parser.malformed_record_count() > limit)
+            {
+                history.truncated = true;
+                if (history.entries.size() > limit)
+                    history.entries.resize(limit);
+            }
+            context.emit(file_history_loaded { std::move(history) });
+            return operation_outcome::succeeded();
+        }
+
         operation_outcome is_ancestor(git_operation_context& context, const is_ancestor_request& request)
         {
             git_command_spec spec {};
@@ -499,6 +560,10 @@ namespace cyella {
                     return refresh_remote_tags(context, request.remotes);
                 else if constexpr (std::is_same_v<request_type, load_rebase_plan_request>)
                     return run_load_rebase_plan(context, request);
+                else if constexpr (std::is_same_v<request_type, blame_file_request>)
+                    return load_file_blame(context, request);
+                else if constexpr (std::is_same_v<request_type, file_history_request>)
+                    return load_file_history(context, request);
                 else
                     return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.read_lane_unsupported"));
             },

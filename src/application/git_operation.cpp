@@ -137,6 +137,10 @@ namespace cyella {
                 return operation_kind::add_remote;
             else if constexpr (std::is_same_v<request_type, create_ssh_repository_request>)
                 return operation_kind::create_ssh_repository;
+            else if constexpr (std::is_same_v<request_type, blame_file_request>)
+                return operation_kind::blame_file;
+            else if constexpr (std::is_same_v<request_type, file_history_request>)
+                return operation_kind::file_history;
             else
                 // 새 요청 타입을 빠뜨리면 조용히 refresh로 돌지 않고 컴파일이 멈춘다.
                 static_assert(unmapped_request<request_type>, "fixed_kind_of: request type has no operation_kind");
@@ -173,6 +177,8 @@ namespace cyella {
         case operation_kind::load_rebase_plan:
         case operation_kind::verify_signatures:
         case operation_kind::show_range:
+        case operation_kind::blame_file:
+        case operation_kind::file_history:
             return operation_lane::read;
         case operation_kind::clone:
         case operation_kind::init:

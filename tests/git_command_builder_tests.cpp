@@ -387,6 +387,43 @@ TEST_CASE("comparing two revisions diffs their trees with the older one on the l
     CHECK_THROWS_AS(make_git_diff_revisions_file_args(base, "-R", "a.txt"), std::invalid_argument);
 }
 
+TEST_CASE("blame reads the working tree unless a revision is given", "[git][builder]")
+{
+    const std::string sha { "1111111111111111111111111111111111111111" };
+    CHECK(to_text(make_git_blame_args("src/a.cpp")) == text_list { "blame", "--porcelain", "--", "src/a.cpp" });
+    CHECK(to_text(make_git_blame_args("src/a.cpp", sha)) == text_list { "blame", "--porcelain", sha, "--", "src/a.cpp" });
+    // blame의 경로는 pathspec이 아니라 파일 이름 그대로다. glob 글자가 든 이름도 그대로 넘긴다.
+    CHECK(to_text(make_git_blame_args("dir/b[12]*.txt", "main~2")) == text_list { "blame", "--porcelain", "main~2", "--", "dir/b[12]*.txt" });
+    check_wellformed(make_git_blame_args("a.txt", sha));
+
+    // 리비전 자리의 옵션과 빈 경로는 git에 닿기 전에 거절한다. 경로는 `--` 뒤라 `-`로 시작해도 된다.
+    CHECK_THROWS_AS(make_git_blame_args("a.txt", "--contents=x"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_blame_args("a.txt", "-L1,2"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_blame_args(""), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_blame_args(std::string { "a\0b", 3 }), std::invalid_argument);
+    CHECK(to_text(make_git_blame_args("-L1,2")) == text_list { "blame", "--porcelain", "--", "-L1,2" });
+}
+
+TEST_CASE("file history follows one literal path from HEAD or a revision", "[git][builder]")
+{
+    const std::string sha { "1111111111111111111111111111111111111111" };
+    const std::string format { "--format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s" };
+    // `--literal-pathspecs`가 없으면 `b[12].txt`가 glob으로 읽혀 `b1.txt`의 커밋이 섞이고 이름 바꾸기를 따라가지 못한다.
+    // `--root`가 없으면 `log.showRoot=false`인 사용자에게서 파일을 만든 첫 커밋이 빠진다.
+    CHECK(to_text(make_git_file_log_args("dir/b[12].txt"))
+        == text_list { "--literal-pathspecs", "log", "--follow", "-z", "--name-status", "--root", format, "HEAD", "--", "dir/b[12].txt" });
+    CHECK(to_text(make_git_file_log_args("a.txt", sha, 2001))
+        == text_list { "--literal-pathspecs", "log", "--follow", "-z", "--name-status", "--root", format, "--max-count=2001", sha, "--", "a.txt" });
+    // 레코드의 필드는 그래프 log와 같아야 한다 (같은 해석기로 읽는다). 앞에 레코드 시작 글자만 더 있다.
+    const text_list graph_log { to_text(make_git_log_args()) };
+    REQUIRE(graph_log.size() > 3);
+    CHECK(format == "--format=%x1e" + graph_log[3].substr(std::string { "--format=" }.size()));
+    check_wellformed(make_git_file_log_args("a.txt", sha, 10));
+
+    CHECK_THROWS_AS(make_git_file_log_args("a.txt", "--all"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_file_log_args("", sha), std::invalid_argument);
+}
+
 TEST_CASE("fetch can keep stale tracking branches and pull can merge", "[git][builder]")
 {
     git_fetch_options fetch {};

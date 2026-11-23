@@ -1,0 +1,19 @@
+44dc65181bf053aec47a2ecbac197fcacf2450f7 1 1 4
+author Ann Author
+author-mail <ann@example.com>
+author-time 1775005200
+author-tz +0900
+committer Cy Committer
+committer-mail <cy@example.com>
+committer-time 1775005200
+committer-tz +0900
+summary first
+boundary
+filename crlf.txt
+	keep
+44dc65181bf053aec47a2ecbac197fcacf2450f7 2 2
+	me
+44dc65181bf053aec47a2ecbac197fcacf2450f7 3 3
+	ÿþ not utf-8
+44dc65181bf053aec47a2ecbac197fcacf2450f7 4 4
+	no newline at end

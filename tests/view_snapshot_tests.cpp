@@ -1,6 +1,8 @@
 // 화면 snapshot builder다. 세션은 사건을 직접 넣어 만들고(git 없이), operation 상태는 값으로 짓는다.
 #include "view_snapshot_support.h"
 
+#include "presentation/snapshot_dialogs.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
@@ -216,6 +218,19 @@ TEST_CASE("a failed operation becomes an error notification with its commands an
 
     operation_status succeeded { .id = 4, .kind = operation_kind::fetch, .state = operation_state::succeeded, .repository_id = "repo-1" };
     CHECK_FALSE(failure_notification(succeeded).has_value());
+}
+
+TEST_CASE("blame and file history reads are not user operations", "[presentation][snapshot]")
+{
+    // 파일을 바꿔 볼 때마다 앞 읽기가 취소된다. 사용자 작업으로 세면 취소된 읽기가 상태 줄에 뜨고 앞선 작업의 실패 토스트를 내린다.
+    for (const operation_kind kind : { operation_kind::blame_file, operation_kind::file_history })
+    {
+        const operation_status cancelled { .id = 5, .kind = kind, .state = operation_state::cancelled, .repository_id = "repo-1", .cancel_requested = true };
+        CHECK_FALSE(is_user_operation_status(cancelled));
+        CHECK_FALSE(failure_notification(cancelled).has_value());
+    }
+    CHECK(operation_display_name(operation_kind::blame_file) == u8"blame 읽기");
+    CHECK(operation_display_name(operation_kind::file_history) == u8"파일 이력 읽기");
 }
 
 TEST_CASE("notifications become toasts newest first until the center is opened", "[presentation][snapshot]")

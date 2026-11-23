@@ -1,0 +1,60 @@
+44dc65181bf053aec47a2ecbac197fcacf2450f7 1 1 1
+author Ann Author
+author-mail <ann@example.com>
+author-time 1775005200
+author-tz +0900
+committer Cy Committer
+committer-mail <cy@example.com>
+committer-time 1775005200
+committer-tz +0900
+summary first
+boundary
+filename a[1].txt
+	one
+5ed2b77872588fff0b07af79a85bd001b980b058 2 2 1
+author Ann Author
+author-mail <ann@example.com>
+author-time 1775178000
+author-tz +0900
+committer Cy Committer
+committer-mail <cy@example.com>
+committer-time 1775178000
+committer-tz +0900
+summary third: rename
+previous f31445188ab1d83d45f716a1752f2dd36fb516dc a[1].txt
+filename b[12].txt
+	TWO
+44dc65181bf053aec47a2ecbac197fcacf2450f7 3 3 4
+	three
+44dc65181bf053aec47a2ecbac197fcacf2450f7 4 4
+	four
+44dc65181bf053aec47a2ecbac197fcacf2450f7 5 5
+	five
+44dc65181bf053aec47a2ecbac197fcacf2450f7 6 6
+	six
+f31445188ab1d83d45f716a1752f2dd36fb516dc 7 7 1
+author Ann Author
+author-mail <ann@example.com>
+author-time 1775091600
+author-tz +0900
+committer Cy Committer
+committer-mail <cy@example.com>
+committer-time 1775091600
+committer-tz +0900
+summary second 한글 제목 ✓
+previous 44dc65181bf053aec47a2ecbac197fcacf2450f7 a[1].txt
+filename a[1].txt
+	seven
+283b4124352629f213fdec2cda47fba269d9c8f8 8 8 1
+author Ann Author
+author-mail <ann@example.com>
+author-time 1775264400
+author-tz +0900
+committer Cy Committer
+committer-mail <cy@example.com>
+committer-time 1775264400
+committer-tz +0900
+summary fourth
+previous 5ed2b77872588fff0b07af79a85bd001b980b058 b[12].txt
+filename b[12].txt
+	eight

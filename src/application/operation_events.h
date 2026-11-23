@@ -6,6 +6,7 @@
 #include "domain/commit_signature.h"
 #include "domain/credential_prompt.h"
 #include "domain/diff_file.h"
+#include "domain/file_blame.h"
 #include "domain/file_change.h"
 #include "domain/interactive_rebase.h"
 #include "domain/lfs.h"
@@ -148,6 +149,47 @@ namespace cyella {
         file_diff diff {};
     };
 
+    // 파일 하나의 blame이다. 줄마다 `origins`의 한 항목을 가리킨다.
+    struct file_blame
+    {
+        blame_file_request request {};
+        std::vector<blame_origin> origins {};
+        // 파일의 줄 순서다.
+        std::vector<blame_line> lines {};
+        // 내용에 NUL이 있다. 줄로 보일 수 없어 `lines`를 비운다.
+        bool binary { false };
+    };
+
+    struct file_blame_loaded
+    {
+        file_blame blame {};
+    };
+
+    struct file_history_entry
+    {
+        commit_info commit {};
+        // 이 커밋에서의 경로다.
+        std::string path {};
+        // 이 커밋이 이름을 바꿨거나 복사했으면 옛 경로다. 아니면 비어 있다.
+        std::string previous_path {};
+        // name-status의 상태 글자다 (A·M·D·R·C·T).
+        char status { 'M' };
+    };
+
+    // 한 파일의 이력이다. 새 커밋이 앞이다.
+    struct file_history
+    {
+        file_history_request request {};
+        std::vector<file_history_entry> entries {};
+        // `request.max_count`보다 커밋이 더 있다.
+        bool truncated { false };
+    };
+
+    struct file_history_loaded
+    {
+        file_history history {};
+    };
+
     struct ancestry_answered
     {
         std::string ancestor {};
@@ -220,7 +262,7 @@ namespace cyella {
 
     using operation_event_payload = std::variant<operation_started, operation_progressed, operation_command_finished, operation_input_requested, snapshot_loaded, commits_loaded, remote_tags_loaded,
         commit_detail_loaded, file_diff_loaded, ancestry_answered, commit_count_answered, path_inspected, ssh_connection_tested, operation_finished, rebase_plan_loaded, status_loaded,
-        signatures_verified, range_detail_loaded>;
+        signatures_verified, range_detail_loaded, file_blame_loaded, file_history_loaded>;
 
     struct operation_event
     {

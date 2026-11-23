@@ -278,7 +278,8 @@ namespace cyella {
             {
                 const operation_status& status { **it };
                 if (status.kind == operation_kind::load_more_log || status.kind == operation_kind::diff_file || status.kind == operation_kind::show_commit
-                    || status.kind == operation_kind::refresh_status || status.kind == operation_kind::verify_signatures || status.kind == operation_kind::show_range)
+                    || status.kind == operation_kind::refresh_status || status.kind == operation_kind::verify_signatures || status.kind == operation_kind::show_range
+                    || status.kind == operation_kind::blame_file || status.kind == operation_kind::file_history)
                     continue;
                 ++shown;
                 std::u8string heading { u8"#" + number(status.id) + u8"  " + (status.finished() ? result_text(status) : phase_text(status)) };
@@ -936,6 +937,10 @@ namespace cyella {
         case operation_kind::refresh_remote_tags:
         case operation_kind::verify_signatures:
         case operation_kind::show_range:
+        // blame과 파일 이력은 그 패널이 읽는 중과 실패를 보인다. 파일을 바꿀 때마다 앞 요청이 취소되므로, 여기서 빼지 않으면
+        // 취소된 읽기가 상태 줄에 뜨고 앞선 작업의 실패 토스트를 내린다.
+        case operation_kind::blame_file:
+        case operation_kind::file_history:
         case operation_kind::refresh_status:
         case operation_kind::inspect_path:
         // 편집기가 자기 자리에 읽는 중과 실패를 보인다.
@@ -1334,6 +1339,10 @@ namespace cyella {
             return tr(u8"snapshot.operation_name.add_remote");
         case operation_kind::create_ssh_repository:
             return tr(u8"snapshot.operation_name.create_ssh_repository");
+        case operation_kind::blame_file:
+            return tr(u8"snapshot.operation_name.blame_file");
+        case operation_kind::file_history:
+            return tr(u8"snapshot.operation_name.file_history");
         default:
             break;
         }

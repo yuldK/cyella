@@ -414,6 +414,20 @@ namespace cyella {
     // `hash-object -t tree --stdin`. 빈 입력을 주면 이 저장소 객체 형식의 빈 트리 해시다 (객체를 쓰지 않는다).
     [[nodiscard]] git_arguments make_git_empty_tree_args();
 
+    // `blame --porcelain [<revision>] -- <path>`. revision을 비우면 작업 트리의 파일이고, 커밋하지 않은 줄은 0으로만 된 해시로 나온다.
+    // 해석은 `git_blame_parser`가 한다. blame의 경로는 pathspec이 아니라 파일 이름 그대로라서 `--literal-pathspecs`가 필요 없다
+    // (`[`·`*`가 든 이름으로 확인했다).
+    [[nodiscard]] git_arguments make_git_blame_args(std::string_view path, std::string_view revision = {});
+
+    // 한 파일의 이력이다. `--literal-pathspecs log --follow -z --name-status --root --format=%x1e<log 형식> [--max-count=<n>]
+    // <revision|HEAD> -- <path>`. 해석은 `git_file_log_parser`가 한다. max_count가 0이면 제한이 없다.
+    //  - `--literal-pathspecs`: 없으면 `b[12].txt` 같은 이름이 glob으로 읽혀 `b1.txt`·`b2.txt`의 커밋까지 섞이고, `--follow`가
+    //    이름 바꾸기를 넘어가지 못한다 (git 2.56에서 확인). 있으면 `[`·`*`·`?`가 든 이름도 그 파일 하나를 끝까지 따라간다.
+    //  - `--root`: `--follow`는 diff가 비는 커밋을 아예 내지 않는다. 사용자의 `log.showRoot=false`가 첫 커밋의 diff를 비우면
+    //    파일을 만든 커밋이 이력에서 빠지므로 설정과 무관하게 고정한다.
+    //  - 같은 이유로 병합 커밋은 나오지 않는다 (병합의 diff는 기본으로 내지 않는다).
+    [[nodiscard]] git_arguments make_git_file_log_args(std::string_view path, std::string_view revision = {}, std::uint32_t max_count = 0);
+
     // `symbolic-ref --quiet --short HEAD`. 현재 브랜치 이름이다. detached면 종료 코드가 1이다.
     [[nodiscard]] git_arguments make_git_current_branch_args();
 

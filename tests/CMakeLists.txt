@@ -141,8 +141,10 @@ cyella_add_source_filter(cyella_test_files "domain"
 # infrastructure: git 출력 해석기는 실제 git으로 만든 고정 출력(tests/data/git)을
 # 읽어 검증한다. 명령줄 조립기는 순수 함수라 인자 목록만 비교한다.
 cyella_add_source_filter(cyella_test_files "infrastructure/git_parsers"
+    git_blame_parser_tests.cpp
     git_diff_parser_tests.cpp
     git_error_classifier_tests.cpp
+    git_file_log_parser_tests.cpp
     git_log_parser_tests.cpp
     git_query_parser_tests.cpp
     git_ref_parser_tests.cpp

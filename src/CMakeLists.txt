@@ -93,6 +93,7 @@ cyella_add_source_filter(cyella_lib_files "domain/git"
 cyella_add_source_filter(cyella_lib_files "domain/model"
     domain/commit_info.h
     domain/diff_file.h
+    domain/file_blame.h
     domain/file_change.h
     domain/ref.cpp
     domain/ref.h
@@ -129,10 +130,14 @@ cyella_add_source_filter(cyella_lib_files "domain/rebase"
 # infrastructure: application 계약의 구현이다. git 출력 해석기와 명령줄 조립기는
 # 프로세스를 실행하지 않는 순수 함수다 (실행은 process runner가 맡는다).
 cyella_add_source_filter(cyella_lib_files "infrastructure/git_parsers"
+    infrastructure/git_blame_parser.cpp
+    infrastructure/git_blame_parser.h
     infrastructure/git_diff_parser.cpp
     infrastructure/git_diff_parser.h
     infrastructure/git_error_classifier.cpp
     infrastructure/git_error_classifier.h
+    infrastructure/git_file_log_parser.cpp
+    infrastructure/git_file_log_parser.h
     infrastructure/git_log_parser.cpp
     infrastructure/git_log_parser.h
     infrastructure/git_query_parser.cpp

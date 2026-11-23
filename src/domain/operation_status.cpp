@@ -164,6 +164,10 @@ namespace cyella {
             return "add_remote";
         case operation_kind::create_ssh_repository:
             return "create_ssh_repository";
+        case operation_kind::blame_file:
+            return "blame_file";
+        case operation_kind::file_history:
+            return "file_history";
         }
         return "unknown";
     }

@@ -4,6 +4,7 @@
 #include "infrastructure/git_operation_runner.h"
 
 #include "fake_git_runner.h"
+#include "git_test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -873,4 +874,209 @@ TEST_CASE("an older ls-remote that finishes last does not overwrite the newer re
     const auto tag { std::find_if(refs.begin(), refs.end(), [](const ref& entry) { return entry.name == "v1.0"; }) };
     REQUIRE(tag != refs.end());
     CHECK(tag->remotes == text_list { "origin" });
+}
+
+TEST_CASE("blame_file and file_history read on the read lane and keep their result in the session", "[workspace][blame]")
+{
+    workspace_harness test {};
+    test.process.when({ "blame", "--porcelain" }, scripted_response { 0, test::read_fixture("blame_renamed.bin") });
+    test.process.when({ "--literal-pathspecs", "log", "--follow" }, scripted_response { 0, test::read_fixture("file_log_renamed.bin") });
+
+    // lane을 빠뜨리면 기본값인 쓰기 lane으로 가서 저장소의 쓰기를 막고 끝난 뒤 refresh까지 낸다.
+    CHECK(operation_kind_of(blame_file_request {}) == operation_kind::blame_file);
+    CHECK(operation_kind_of(file_history_request {}) == operation_kind::file_history);
+    CHECK(operation_lane_of(operation_kind::blame_file) == operation_lane::read);
+    CHECK(operation_lane_of(operation_kind::file_history) == operation_lane::read);
+    CHECK(operation_kind_name(operation_kind::blame_file) == "blame_file");
+    CHECK(operation_kind_name(operation_kind::file_history) == "file_history");
+
+    const blame_file_request blame_request { .path = "b[12].txt", .revision = "HEAD" };
+    const operation_id blame { test.workspace.submit(test.repository, blame_request) };
+    REQUIRE(blame != 0);
+    REQUIRE(test.dispatcher.pending() == 1);
+    CHECK(test.dispatcher.peek(0).interactive);
+    CHECK(test.dispatcher.peek(0).repository_key.empty());
+    CHECK_FALSE(test.session().selected_blame().has_value());
+    test.settle();
+
+    CHECK(test.status(blame).state == operation_state::succeeded);
+    REQUIRE(test.session().selected_blame().has_value());
+    CHECK(test.session().selected_blame()->request == blame_request);
+    CHECK(test.session().selected_blame()->lines.size() == 8);
+    CHECK(test.session().selected_blame()->origins.size() == 4);
+
+    const file_history_request history_request { .path = "b[12].txt", .revision = {}, .max_count = 3 };
+    const operation_id history { test.workspace.submit(test.repository, history_request) };
+    REQUIRE(history != 0);
+    REQUIRE(test.dispatcher.pending() == 1);
+    CHECK(test.dispatcher.peek(0).interactive);
+    test.settle();
+
+    CHECK(test.status(history).state == operation_state::succeeded);
+    REQUIRE(test.session().selected_history().has_value());
+    CHECK(test.session().selected_history()->request == history_request);
+    CHECK(test.session().selected_history()->entries.size() == 3);
+    CHECK(test.session().selected_history()->truncated);
+    // 파일 이력을 읽어도 blame 결과는 그대로다.
+    CHECK(test.session().selected_blame().has_value());
+
+    // 읽기는 저장소를 바꾸지 않는다. 뒤따르는 refresh가 없다.
+    CHECK(test.process.command_names() == text_list { "blame", "log" });
+    CHECK(test.workspace.operation_order().size() == 2);
+}
+
+TEST_CASE("a new blame_file clears the shown result and cancels the queued one before it", "[workspace][blame][cancel]")
+{
+    workspace_harness test {};
+    test.process.when({ "blame", "--porcelain" }, scripted_response { 0, test::read_fixture("blame_renamed.bin") });
+    const operation_id shown { test.workspace.submit(test.repository, blame_file_request { .path = "a.txt" }) };
+    test.settle();
+    REQUIRE(test.session().selected_blame().has_value());
+    const std::uint64_t revision { test.session().revision() };
+
+    // 낡은 내용이 새 요청의 것처럼 보이지 않게, 요청하는 순간 앞 결과를 비운다.
+    const operation_id queued { test.workspace.submit(test.repository, blame_file_request { .path = "b.txt" }) };
+    CHECK_FALSE(test.session().selected_blame().has_value());
+    CHECK(test.session().revision() > revision);
+    // 이미 끝난 앞 operation은 건드리지 않는다.
+    CHECK(test.status(shown).state == operation_state::succeeded);
+    CHECK_FALSE(test.status(shown).cancel_requested);
+
+    // worker가 아직 집어 들지 않은 앞 요청은 바로 취소로 끝난다. git은 뜨지 않는다.
+    const operation_id latest { test.workspace.submit(test.repository, blame_file_request { .path = "c.txt" }) };
+    CHECK(test.status(queued).state == operation_state::cancelled);
+    CHECK(test.status(queued).cancel_requested);
+    CHECK_FALSE(test.status(queued).failure.has_value());
+    CHECK_FALSE(test.status(latest).finished());
+    test.settle();
+
+    CHECK(test.status(latest).state == operation_state::succeeded);
+    REQUIRE(test.session().selected_blame().has_value());
+    CHECK(test.session().selected_blame()->request.path == "c.txt");
+    text_list blamed {};
+    for (const test::recorded_call& call : test.process.calls())
+        blamed.push_back(call.arguments.back());
+    CHECK(blamed == text_list { "a.txt", "c.txt" });
+}
+
+TEST_CASE("a new blame_file stops the git process of the one still running", "[workspace][blame][cancel]")
+{
+    workspace_harness test {};
+    operation_id newer { 0 };
+    // 앞 요청의 git이 도는 동안 사용자가 다른 파일을 고른다. 가짜 runner는 응답 직전에 취소를 보고 git이 죽은 것처럼 끝낸다.
+    scripted_response interrupted { 0, test::read_fixture("blame_renamed.bin") };
+    interrupted.before_reply = [&test, &newer] { newer = test.workspace.submit(test.repository, blame_file_request { .path = "new.txt" }); };
+    test.process.when_once({ "blame", "--porcelain" }, interrupted);
+    test.process.when({ "blame", "--porcelain" }, scripted_response { 0, test::read_fixture("blame_two_paths.bin") });
+
+    const operation_id older { test.workspace.submit(test.repository, blame_file_request { .path = "old.txt" }) };
+    REQUIRE(test.dispatcher.run());
+    REQUIRE(newer != 0);
+    // worker가 이미 집어 든 작업은 끝 사건을 기다린다.
+    CHECK(test.status(older).cancel_requested);
+    test.settle();
+
+    // 취소는 실패가 아니다. 실패 알림을 만들 것이 없다.
+    CHECK(test.status(older).state == operation_state::cancelled);
+    CHECK_FALSE(test.status(older).failure.has_value());
+    CHECK(test.status(newer).state == operation_state::succeeded);
+    REQUIRE(test.session().selected_blame().has_value());
+    CHECK(test.session().selected_blame()->request.path == "new.txt");
+    CHECK(test.session().selected_blame()->lines.size() == 10);
+}
+
+TEST_CASE("the result of a superseded blame_file or file_history that still finishes is discarded", "[workspace][blame]")
+{
+    workspace_harness test {};
+    test.process.when_once({ "blame", "--porcelain" }, scripted_response { 0, test::read_fixture("blame_renamed.bin") });
+    test.process.when({ "blame", "--porcelain" }, scripted_response { 0, test::read_fixture("blame_two_paths.bin") });
+    test.process.when({ "--literal-pathspecs", "log", "--follow" }, scripted_response { 0, test::read_fixture("file_log_renamed.bin") });
+
+    // 앞 요청의 git이 이미 끝났고 사건만 relay에 남았다. 그 사이에 새 요청이 나간다.
+    const operation_id older { test.workspace.submit(test.repository, blame_file_request { .path = "old.txt" }) };
+    REQUIRE(test.dispatcher.run());
+    const operation_id newer { test.workspace.submit(test.repository, blame_file_request { .path = "new.txt" }) };
+    test.apply_events();
+    CHECK(test.status(older).finished());
+    // 늦게 온 앞 요청의 결과가 새 요청의 것처럼 보이면 안 된다.
+    CHECK_FALSE(test.session().selected_blame().has_value());
+    test.settle();
+    REQUIRE(test.session().selected_blame().has_value());
+    CHECK(test.session().selected_blame()->request.path == "new.txt");
+    CHECK(test.status(newer).state == operation_state::succeeded);
+
+    const operation_id older_history { test.workspace.submit(test.repository, file_history_request { .path = "old.txt" }) };
+    REQUIRE(test.dispatcher.run());
+    static_cast<void>(test.workspace.submit(test.repository, file_history_request { .path = "new.txt" }));
+    test.apply_events();
+    CHECK(test.status(older_history).finished());
+    CHECK_FALSE(test.session().selected_history().has_value());
+    test.settle();
+    REQUIRE(test.session().selected_history().has_value());
+    CHECK(test.session().selected_history()->request.path == "new.txt");
+}
+
+TEST_CASE("blame_file and file_history cancel only their own kind in their own repository", "[workspace][blame][cancel]")
+{
+    workspace_harness test {};
+    const std::string other { test.workspace.open_repository(u8"C:/work/other") };
+
+    const operation_id blame { test.workspace.submit(test.repository, blame_file_request { .path = "a.txt" }) };
+    const operation_id diff { test.workspace.submit(test.repository, diff_file_request { .path = "a.txt" }) };
+    const operation_id other_blame { test.workspace.submit(other, blame_file_request { .path = "a.txt" }) };
+    const operation_id other_history { test.workspace.submit(other, file_history_request { .path = "a.txt" }) };
+
+    const operation_id history { test.workspace.submit(test.repository, file_history_request { .path = "a.txt" }) };
+    CHECK_FALSE(test.status(blame).finished());
+    CHECK_FALSE(test.status(diff).finished());
+    CHECK_FALSE(test.status(other_blame).finished());
+    CHECK_FALSE(test.status(other_history).finished());
+
+    const operation_id next_history { test.workspace.submit(test.repository, file_history_request { .path = "b.txt" }) };
+    CHECK(test.status(history).state == operation_state::cancelled);
+    CHECK_FALSE(test.status(blame).finished());
+    CHECK_FALSE(test.status(other_history).finished());
+    CHECK_FALSE(test.status(next_history).finished());
+
+    const operation_id next_blame { test.workspace.submit(other, blame_file_request { .path = "b.txt" }) };
+    CHECK(test.status(other_blame).state == operation_state::cancelled);
+    CHECK_FALSE(test.status(blame).finished());
+    CHECK_FALSE(test.status(diff).finished());
+    CHECK_FALSE(test.status(next_blame).finished());
+}
+
+TEST_CASE("the session accepts only the blame and file history it expects", "[session][blame]")
+{
+    repository_session session { "repo", u8"C:/work/repo" };
+    file_blame_loaded blame {};
+    blame.blame.request.path = "a.txt";
+    file_history_loaded history {};
+    history.history.request.path = "a.txt";
+
+    session.expect_file_blame(7);
+    CHECK_FALSE(session.apply(6, blame));
+    CHECK_FALSE(session.selected_blame().has_value());
+    const std::uint64_t before { session.revision() };
+    CHECK(session.apply(7, blame));
+    CHECK(session.revision() > before);
+    REQUIRE(session.selected_blame().has_value());
+    CHECK(session.selected_blame()->request.path == "a.txt");
+
+    session.expect_file_history(9);
+    CHECK_FALSE(session.apply(8, history));
+    CHECK_FALSE(session.selected_history().has_value());
+    CHECK(session.apply(9, history));
+    REQUIRE(session.selected_history().has_value());
+    // blame과 파일 이력은 서로의 기대 값을 건드리지 않는다.
+    CHECK(session.selected_blame().has_value());
+
+    // 새로 기대하면 앞 결과를 비우고, 앞 요청의 늦은 결과는 버린다.
+    session.expect_file_blame(11);
+    CHECK_FALSE(session.selected_blame().has_value());
+    CHECK_FALSE(session.apply(7, blame));
+    CHECK_FALSE(session.selected_blame().has_value());
+    session.expect_file_history(12);
+    CHECK_FALSE(session.selected_history().has_value());
+    CHECK_FALSE(session.apply(9, history));
+    CHECK_FALSE(session.selected_history().has_value());
 }

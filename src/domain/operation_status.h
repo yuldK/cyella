@@ -111,6 +111,10 @@ namespace cyella {
         add_remote,
         // ssh 서버에 빈 저장소를 만든다 (`ssh <host> git init --bare`).
         create_ssh_repository,
+        // 파일의 줄마다 마지막으로 바꾼 커밋을 읽는다(읽기 lane). 결과는 `file_blame_loaded` 사건이다.
+        blame_file,
+        // 한 파일의 이력을 이름 바꾸기를 따라가며 읽는다(읽기 lane). 결과는 `file_history_loaded` 사건이다.
+        file_history,
     };
 
     enum class operation_state

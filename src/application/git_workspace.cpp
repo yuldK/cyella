@@ -226,6 +226,21 @@ namespace cyella {
             std::get<verify_signatures_request>(operation).shas = std::move(wanted);
         }
 
+        // blame은 큰 저장소에서 수십 초가 걸린다. 파일을 바꿔 가며 볼 때 낡은 git이 둘뿐인 읽기 worker를 붙잡지 않게,
+        // 새 요청이 같은 저장소의 끝나지 않은 앞 요청을 취소한다. 세션은 마지막 요청의 결과만 받으므로 앞 결과는 어차피 버려진다.
+        if (kind == operation_kind::blame_file || kind == operation_kind::file_history)
+        {
+            std::vector<operation_id> superseded {};
+            for (const operation_id earlier : order_)
+            {
+                const operation_status* const status { find_operation(earlier) };
+                if (status != nullptr && status->repository_id == repository_id && status->kind == kind && status->finished() == false)
+                    superseded.push_back(earlier);
+            }
+            for (const operation_id earlier : superseded)
+                static_cast<void>(cancel(earlier));
+        }
+
         operation_record record {};
         record.status.kind = kind;
         record.status.repository_id = repository_id;
@@ -263,6 +278,14 @@ namespace cyella {
         else if (kind == operation_kind::show_range)
         {
             session->expect_range_detail(id);
+        }
+        else if (kind == operation_kind::blame_file)
+        {
+            session->expect_file_blame(id);
+        }
+        else if (kind == operation_kind::file_history)
+        {
+            session->expect_file_history(id);
         }
         else if (kind == operation_kind::refresh_status)
         {
@@ -551,7 +574,8 @@ namespace cyella {
                 {
                     rebase_plans_[event.id] = payload.plan;
                 }
-                else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded> || std::is_same_v<payload_type, range_detail_loaded> || std::is_same_v<payload_type, remote_tags_loaded>)
+                else if constexpr (std::is_same_v<payload_type, commit_detail_loaded> || std::is_same_v<payload_type, file_diff_loaded> || std::is_same_v<payload_type, range_detail_loaded> || std::is_same_v<payload_type, remote_tags_loaded>
+                    || std::is_same_v<payload_type, file_blame_loaded> || std::is_same_v<payload_type, file_history_loaded>)
                 {
                     if (session != nullptr)
                         session->apply(event.id, payload);
