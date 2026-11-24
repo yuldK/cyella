@@ -196,7 +196,7 @@ namespace cyella {
 
             std::u8string executable { as_u8string(value->get_ref<const std::string&>()) };
             // 빈 값은 "지정하지 않음"이며 자동 탐색으로 간다.
-            if (executable.empty() == false && is_absolute_windows_path(executable) == false)
+            if (executable.empty() == false && is_absolute_path(executable) == false)
             {
                 warn(result, tr(u8"app_settings.git_executable_not_absolute"));
                 return;

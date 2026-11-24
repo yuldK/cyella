@@ -11,11 +11,13 @@
 
 namespace cyella {
     // 탐색에 필요한 호스트 정보다. 값으로 받아 두면 탐색 규칙 자체를 프로세스나
-    // 환경 변수 없이 test할 수 있다. 실제 값은 Win32 adapter가 채운다.
+    // 환경 변수 없이 test할 수 있다. 실제 값은 OS adapter(Win32·macOS)가 채운다.
     struct git_tool_environment
     {
         std::u8string path_environment {};
-        // `ProgramFiles`와 `ProgramFiles(x86)`처럼 알려진 기본 설치 위치의 부모다.
+        // 알려진 기본 설치 위치의 부모다. Windows는 `ProgramFiles`와 `ProgramFiles(x86)`이고 그 아래 `Git\cmd`·`Git\bin`을 본다.
+        // macOS는 Homebrew(`/opt/homebrew`, `/usr/local`) 같은 접두이고 그 아래 `bin`을 본다. Finder에서 띄운 앱의 `PATH`에는
+        // 이 폴더들이 없다.
         std::vector<std::u8string> program_files_directories {};
     };
 
@@ -25,7 +27,11 @@ namespace cyella {
         bool manually_configured { false };
     };
 
+#if defined(_WIN32)
     inline constexpr std::u8string_view git_executable_name { u8"git.exe" };
+#else
+    inline constexpr std::u8string_view git_executable_name { u8"git" };
+#endif
 
     // `PATH`를 분해한다. 따옴표를 벗기고, 빈 항목과 절대 경로가 아닌 항목을 버리며,
     // ASCII 대소문자를 무시하고 중복을 제거한다. 상대 경로 항목을 버리는 이유는

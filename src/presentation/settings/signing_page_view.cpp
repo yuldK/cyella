@@ -47,7 +47,7 @@ namespace cyella {
         {
             for (char& value : text)
             {
-                if (value == '\\')
+                if (value == '\\' && is_native_path_separator(u8'\\'))
                     value = '/';
                 value = static_cast<char>(std::tolower(static_cast<unsigned char>(value)));
             }
@@ -56,7 +56,9 @@ namespace cyella {
 
         std::string slashes(std::string text)
         {
+#if defined(_WIN32)
             std::ranges::replace(text, '\\', '/');
+#endif
             return text;
         }
 
@@ -95,7 +97,7 @@ namespace cyella {
             const bool dirty { text != view.stored };
             view.can_apply = dirty && view.error.empty();
             view.can_clear = view.stored.empty() == false;
-            if (view.error.empty() && text.empty() == false && is_absolute_windows_path(text) && probe != nullptr && probe->probe(text) != path_kind::file)
+            if (view.error.empty() && text.empty() == false && is_absolute_path(text) && probe != nullptr && probe->probe(text) != path_kind::file)
                 view.warning = tr(u8"signing_page.path_missing_warning");
         }
 
@@ -211,7 +213,7 @@ namespace cyella {
             return {};
         if (std::ranges::any_of(value, [](const char8_t character) { return character < 0x20; }))
             return tr(u8"signing_page.path_single_line");
-        if (is_absolute_windows_path(value) || (allow_home_prefix && value.starts_with(u8"~/")))
+        if (is_absolute_path(value) || (allow_home_prefix && value.starts_with(u8"~/")))
             return {};
         return allow_home_prefix ? tr(u8"signing_page.path_absolute_or_home") : tr(u8"signing_page.path_absolute");
     }

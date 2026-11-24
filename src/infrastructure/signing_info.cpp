@@ -56,6 +56,7 @@ namespace cyella {
 
         std::u8string parent_of(const std::u8string_view path)
         {
+#if defined(_WIN32)
             std::u8string trimmed { path };
             while (trimmed.empty() == false && (trimmed.back() == u8'\\' || trimmed.back() == u8'/'))
                 trimmed.pop_back();
@@ -63,16 +64,22 @@ namespace cyella {
             if (cut == std::u8string::npos || cut == 0)
                 return {};
             return trimmed.substr(0, cut);
+#else
+            return native_parent_path(path);
+#endif
         }
 
+#if defined(_WIN32)
+        // 기본 gpg(Git for Windows의 `usr\bin`)를 찾을 때만 쓴다.
         std::u8string join(std::u8string base, const std::u8string_view tail)
         {
-            while (base.empty() == false && (base.back() == u8'\\' || base.back() == u8'/'))
+            while (base.empty() == false && is_native_path_separator(base.back()))
                 base.pop_back();
-            base.push_back(u8'\\');
+            base.push_back(native_path_separator);
             base.append(tail);
             return base;
         }
+#endif
 
         std::string trim_line(std::string text)
         {
@@ -123,7 +130,7 @@ namespace cyella {
             const std::string configured { info.config.effective.at(signing_key_id::gpg_program).value };
             const std::u8string configured_text { to_utf8(configured) };
             // 절대 경로인 gpg.program을 먼저 쓴다. `gpg`처럼 이름만 있으면 프로세스 요청이 PATH를 찾지 않으므로 Git for Windows의 gpg를 쓴다.
-            if (configured.empty() == false && is_absolute_windows_path(configured_text))
+            if (configured.empty() == false && is_absolute_path(configured_text))
             {
                 if (sources.probe != nullptr && sources.probe->probe(configured_text) != path_kind::file)
                 {
@@ -167,6 +174,14 @@ namespace cyella {
 
     std::u8string locate_default_gpg(const std::u8string_view git_executable, const file_probe& probe)
     {
+#if !defined(_WIN32)
+        // macOS의 git은 gpg를 품지 않는다. Homebrew와 GPG Suite의 자리를 본다.
+        static_cast<void>(git_executable);
+        for (const std::u8string_view candidate : { u8"/opt/homebrew/bin/gpg", u8"/usr/local/bin/gpg", u8"/usr/local/MacGPG2/bin/gpg" })
+            if (probe.probe(candidate) == path_kind::file)
+                return std::u8string { candidate };
+        return {};
+#else
         std::u8string directory { parent_of(git_executable) };
         for (int level { 0 }; level < 4 && directory.empty() == false; ++level)
         {
@@ -176,6 +191,7 @@ namespace cyella {
             directory = parent_of(directory);
         }
         return {};
+#endif
     }
 
     signing_info_snapshot collect_signing_info(const signing_info_sources& sources) noexcept

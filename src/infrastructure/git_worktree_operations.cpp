@@ -31,7 +31,7 @@ namespace cyella {
 
     operation_outcome run_worktree_add(git_operation_context& context, const worktree_add_request& request)
     {
-        if (is_absolute_windows_path(request.path) == false)
+        if (is_absolute_path(request.path) == false)
             return operation_outcome::failed(failure_kind::invalid_request, tr(u8"worktree.path_must_be_absolute"));
         if (request.new_branch.empty() && request.detach == false && request.branch.empty())
             return operation_outcome::failed(failure_kind::invalid_request, tr(u8"worktree.branch_required"));

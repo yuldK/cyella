@@ -6,21 +6,28 @@
 
 namespace cyella {
     namespace {
+#if defined(_WIN32)
         constexpr char8_t ascii_lower(const char8_t value) noexcept
         {
             if (value >= u8'A' && value <= u8'Z')
                 return static_cast<char8_t>(value + (u8'a' - u8'A'));
             return value;
         }
+#endif
 
-        bool equal_ignoring_ascii_case(const std::u8string_view left, const std::u8string_view right) noexcept
+        // 환경 변수 이름이 같은가. Windows는 대소문자를 구분하지 않고 POSIX는 구분한다 (`Path`와 `PATH`는 다른 변수다).
+        bool same_environment_name(const std::u8string_view left, const std::u8string_view right) noexcept
         {
+#if defined(_WIN32)
             if (left.size() != right.size())
                 return false;
             for (std::size_t index = 0; index < left.size(); ++index)
                 if (ascii_lower(left[index]) != ascii_lower(right[index]))
                     return false;
             return true;
+#else
+            return left == right;
+#endif
         }
 
         bool contains_null(const std::u8string_view value) noexcept
@@ -51,7 +58,7 @@ namespace cyella {
             }
             // PATH 탐색과 확장자 추론을 하지 않으므로 상대 경로는 호출자의 현재 디렉터리에
             // 따라 다른 프로그램을 실행할 수 있다. 따라서 절대 경로만 허용한다.
-            if (is_absolute_windows_path(request.executable) == false)
+            if (is_absolute_path(request.executable) == false)
                 diagnostics.push_back(make_invalid_request(tr(u8"process.executable_not_absolute", { { u8"path", request.executable } })));
         }
 
@@ -67,7 +74,7 @@ namespace cyella {
                 diagnostics.push_back(make_invalid_request(tr(u8"process.working_directory_contains_nul")));
                 return;
             }
-            if (is_absolute_windows_path(request.working_directory) == false)
+            if (is_absolute_path(request.working_directory) == false)
                 diagnostics.push_back(make_invalid_request(tr(u8"process.working_directory_not_absolute", { { u8"path", request.working_directory } })));
         }
 
@@ -102,7 +109,7 @@ namespace cyella {
                 // Windows 환경 변수 이름은 대소문자를 구분하지 않으므로 중복 override는
                 // 적용 순서에 따라 결과가 달라진다. 모호함을 남기지 않고 오류로 본다.
                 for (std::size_t earlier = 0; earlier < index; ++earlier)
-                    if (equal_ignoring_ascii_case(request.environment_overrides[earlier].name, entry.name))
+                    if (same_environment_name(request.environment_overrides[earlier].name, entry.name))
                     {
                         diagnostics.push_back(make_invalid_request(tr(u8"process.environment_name_duplicate", { { u8"index", index }, { u8"name", entry.name } })));
                         break;

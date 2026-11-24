@@ -15,6 +15,7 @@ namespace cyella {
             return text;
         }
 
+#if defined(_WIN32)
         bool ends_with_ignoring_case(const std::u8string_view text, const std::u8string_view suffix) noexcept
         {
             if (text.size() < suffix.size())
@@ -29,6 +30,7 @@ namespace cyella {
             }
             return true;
         }
+#endif
     } // namespace
 
     suggestion_draft_check check_suggestion_draft(const std::u8string_view executable, const std::u8string_view arguments, const file_probe* const probe)
@@ -41,15 +43,17 @@ namespace cyella {
         }
 
         const std::u8string_view path { trimmed(executable) };
+#if defined(_WIN32)
         if (ends_with_ignoring_case(path, u8".cmd") || ends_with_ignoring_case(path, u8".bat"))
         {
             check.error = tr(u8"settings_view.suggestion.script_not_supported");
             return check;
         }
+#endif
         // 이름만 적었으면 실행할 때 찾는다. 구분자나 드라이브가 있으면 절대 경로여야 한다 — 상대 경로는 어느 폴더 기준인지 정할 수 없다.
         if (path.find_first_of(u8"\\/:") == std::u8string_view::npos)
             return check;
-        if (is_absolute_windows_path(path) == false)
+        if (is_absolute_path(path) == false)
         {
             check.error = tr(u8"settings_view.suggestion.relative_path");
             return check;

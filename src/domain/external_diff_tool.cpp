@@ -72,25 +72,40 @@ namespace cyella {
 
     std::vector<external_file_app> default_external_file_apps()
     {
+#if defined(_WIN32)
         return {
             { u8"Windows 탐색기", u8"explorer.exe", u8"/select,{file}" },
             { u8"Visual Studio Code", u8"Code.exe", u8"--reuse-window {file}" },
         };
+#else
+        // macOS는 `open`이 Finder와 앱을 띄운다. VS Code는 번들 식별자로 고르므로 `code` 명령을 설치하지 않아도 열린다.
+        return {
+            { u8"Finder", u8"/usr/bin/open", u8"-R {file}" },
+            { u8"Visual Studio Code", u8"/usr/bin/open", u8"-b com.microsoft.VSCode {file}" },
+        };
+#endif
     }
 
     std::u8string external_file_app_label(const external_file_app& app)
     {
-        if (app.name == u8"Windows 탐색기")
+        if (app.name == u8"Windows 탐색기" || app.name == u8"Finder")
             return tr(u8"external_diff.explorer_app");
         return app.name;
     }
 
     std::vector<external_file_app> repository_open_apps(const std::vector<external_file_app>& file_apps)
     {
+#if defined(_WIN32)
         std::vector<external_file_app> apps {
             { tr(u8"external_diff.explorer_app"), u8"explorer.exe", u8"{repository}" },
             { u8"Visual Studio Code", u8"Code.exe", u8"{repository}" },
         };
+#else
+        std::vector<external_file_app> apps {
+            { tr(u8"external_diff.explorer_app"), u8"/usr/bin/open", u8"{repository}" },
+            { u8"Visual Studio Code", u8"/usr/bin/open", u8"-b com.microsoft.VSCode {repository}" },
+        };
+#endif
         for (const external_file_app& app : file_apps)
         {
             // 경로를 빼고 이름만 본다. 사용자가 `C:\...\Code.exe`처럼 적었어도 같은 앱이다.
@@ -99,6 +114,11 @@ namespace cyella {
             const std::u8string name { lowered(slash == std::u8string_view::npos ? executable : executable.substr(slash + 1)) };
             if (name == u8"explorer.exe" || name == u8"explorer" || name == u8"code.exe" || name == u8"code")
                 continue;
+#if !defined(_WIN32)
+            // 기본 목록의 Finder·VS Code 항목(`open`)은 위의 두 항목과 같은 앱이다.
+            if (name == u8"open" && (app.arguments == u8"-R {file}" || app.arguments == u8"-b com.microsoft.VSCode {file}"))
+                continue;
+#endif
             apps.push_back(app);
         }
         return apps;

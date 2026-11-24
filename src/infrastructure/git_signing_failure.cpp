@@ -25,7 +25,8 @@ namespace cyella {
                 return tr(u8"signing.gpg_secret_key_missing");
             return tr(u8"signing.ssh_key_unreadable");
         case failure_kind::signing_failed:
-            if (contains(standard_error, "cannot spawn"))
+            // 서명 프로그램을 띄우지 못했다. Git for Windows는 `cannot spawn`, POSIX의 git은 `cannot exec`로 알린다.
+            if (contains(standard_error, "cannot spawn") || contains(standard_error, "cannot exec"))
                 return tr(u8"signing.program_start_failed");
             return tr(u8"signing.failed_check_settings");
         default:

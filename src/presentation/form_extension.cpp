@@ -89,7 +89,7 @@ namespace cyella {
         const std::string folder { field_text(inputs, 0) };
         if (folder.empty())
             return fail(tr(u8"form.worktree.folder_required"));
-        if (is_absolute_windows_path(to_u8(folder)) == false)
+        if (is_absolute_path(to_u8(folder)) == false)
             return fail(tr(u8"form.worktree.folder_absolute"));
         if (worktree_folder_used(snapshot, folder))
             return fail(tr(u8"form.worktree.folder_used"));

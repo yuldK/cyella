@@ -1,5 +1,6 @@
 #include "presentation/settings/settings_controller.h"
 
+#include "domain/path_syntax.h"
 #include "domain/ssh_connection.h"
 #include "domain/text_catalog.h"
 #include "presentation/settings/profiles_page.h"
@@ -52,10 +53,9 @@ namespace cyella {
 
         std::u8string join_path(std::u8string directory, const std::u8string_view name)
         {
-            if (directory.empty() == false && directory.back() != u8'\\' && directory.back() != u8'/')
-                directory.push_back(u8'\\');
-            directory.append(name);
-            return directory;
+            if (directory.empty())
+                return std::u8string { name };
+            return join_native_path(directory, name);
         }
 
         // 아직 끝나지 않은 작업이다 (줄을 서 있거나 돌거나 입력을 기다린다).

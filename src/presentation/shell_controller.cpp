@@ -344,7 +344,7 @@ namespace cyella {
             return;
         // 상대 경로는 앱의 현재 폴더에 따라 다른 저장소를 가리키고, 그대로 최근 목록·열린 탭에 남으면 다음 실행에서 엉뚱한 곳을 연다.
         // main은 이미 절대 경로로 바꾸지만 다른 진입점도 여기서 막는다.
-        if (is_absolute_windows_path(path) == false)
+        if (is_absolute_path(path) == false)
         {
             show_notice(tr(u8"shell.open_repository.not_absolute", { { u8"path", path } }), true);
             return;
@@ -897,7 +897,7 @@ namespace cyella {
                 std::u8string path { intent.path };
                 const std::u8string name { clone_folder_name(ui_.clone->url.text) };
                 if (name.empty() == false)
-                    path += (path.ends_with(u8"\\") ? u8"" : u8"\\") + name;
+                    path = join_native_path(path, name);
                 set_text(ui_.clone->path, std::move(path));
             }
             return;

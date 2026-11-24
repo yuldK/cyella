@@ -70,17 +70,64 @@ namespace cyella {
         return is_ascii_letter(path[0]) && path[1] == u8':' && is_path_separator(path[2]);
     }
 
+    bool is_absolute_path(const std::u8string_view path) noexcept
+    {
+#if defined(_WIN32)
+        return is_absolute_windows_path(path);
+#else
+        return path.empty() == false && path.front() == u8'/';
+#endif
+    }
+
+    std::u8string join_native_path(const std::u8string_view directory, const std::u8string_view name)
+    {
+        std::u8string result { directory };
+        if (result.empty() == false && is_native_path_separator(result.back()) == false)
+            result.push_back(native_path_separator);
+        result.append(name);
+        return result;
+    }
+
+    std::u8string native_parent_path(const std::u8string_view path)
+    {
+        std::u8string_view trimmed { path };
+        while (trimmed.size() > native_root_length && is_native_path_separator(trimmed.back()))
+            trimmed.remove_suffix(1);
+        const std::size_t separator { trimmed.find_last_of(native_path_separators) };
+        if (separator == std::u8string_view::npos)
+            return {};
+        // 뿌리 자체에는 부모가 없다.
+        if (separator + 1 == trimmed.size())
+            return {};
+#if defined(_WIN32)
+        // 뿌리 바로 아래(`C:\repo`)의 부모는 구분자를 남긴 `C:\`다.
+        if (separator == 2 && trimmed[1] == u8':')
+            return std::u8string { trimmed.substr(0, separator + 1) };
+#else
+        // 뿌리 바로 아래(`/repo`)의 부모는 `/`다.
+        if (separator == 0)
+            return std::u8string { trimmed.substr(0, 1) };
+#endif
+        return std::u8string { trimmed.substr(0, separator) };
+    }
+
     std::optional<std::u8string> resolve_workspace_child(const std::u8string_view root, const std::string_view relative_path)
     {
-        if (root.empty() || is_absolute_windows_path(root) == false || relative_path.empty())
+        if (root.empty() || is_absolute_path(root) == false || relative_path.empty())
             return std::nullopt;
         std::u8string result { root };
-        while (result.empty() == false && is_path_separator(result.back()))
+        while (result.size() > native_root_length && is_native_path_separator(result.back()))
             result.pop_back();
+        // POSIX에서 `\`는 파일 이름의 글자다. git은 구분자로 늘 `/`를 쓴다.
+#if defined(_WIN32)
+        constexpr std::string_view component_separators { "/\\" };
+#else
+        constexpr std::string_view component_separators { "/" };
+#endif
         std::size_t start { 0 };
         while (start <= relative_path.size())
         {
-            std::size_t end { relative_path.find_first_of("/\\", start) };
+            std::size_t end { relative_path.find_first_of(component_separators, start) };
             if (end == std::string_view::npos)
                 end = relative_path.size();
             const std::string_view component { relative_path.substr(start, end - start) };
@@ -95,7 +142,8 @@ namespace cyella {
             // `GIT~1`도 `.git`이다. 이런 이름이 실제로 올 일은 드물지만 되돌리기 어려운 동작의 방어선으로 막는다.
             if (component.back() == '.' || component.back() == ' ' || is_git_short_name(component))
                 return std::nullopt;
-            result.push_back(u8'\\');
+            if (is_native_path_separator(result.back()) == false)
+                result.push_back(native_path_separator);
             result.append(component.begin(), component.end());
             if (end == relative_path.size())
                 break;
@@ -109,14 +157,14 @@ namespace cyella {
         std::u8string key {};
         key.reserve(path.size());
         for (const char8_t value : path)
-            if (is_path_separator(value))
+            if (is_native_path_separator(value))
                 key.push_back(u8'/');
             else if (value >= u8'A' && value <= u8'Z')
                 key.push_back(static_cast<char8_t>(value - u8'A' + u8'a'));
             else
                 key.push_back(value);
-        // `C:/`의 구분자는 루트라서 남긴다.
-        while (key.size() > 3 && key.back() == u8'/')
+        // `C:/`·`/`의 구분자는 루트라서 남긴다.
+        while (key.size() > native_root_length && key.back() == u8'/')
             key.pop_back();
         return key;
     }

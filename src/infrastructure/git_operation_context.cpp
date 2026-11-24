@@ -496,6 +496,11 @@ namespace cyella {
         // `C:/x`의 부모는 `C:/`다. 구분자를 남겨야 드라이브 기준 상대 경로가 되지 않는다.
         if (separator == 2 && trimmed.size() > 1 && trimmed[1] == u8':')
             return std::u8string { trimmed.substr(0, 3) };
+#if !defined(_WIN32)
+        // `/x`의 부모는 뿌리 `/`다.
+        if (separator == 0)
+            return std::u8string { trimmed.substr(0, 1) };
+#endif
         return std::u8string { trimmed.substr(0, separator) };
     }
 } // namespace cyella

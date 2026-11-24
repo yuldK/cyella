@@ -14,9 +14,9 @@ namespace cyella {
 
         std::u8string join(std::u8string base, const std::u8string_view tail)
         {
-            while (base.empty() == false && (base.back() == u8'\\' || base.back() == u8'/'))
+            while (base.empty() == false && is_native_path_separator(base.back()))
                 base.pop_back();
-            base.push_back(u8'\\');
+            base.push_back(native_path_separator);
             base.append(tail);
             return base;
         }
@@ -24,6 +24,7 @@ namespace cyella {
         // 마지막 구성 요소를 뗀 부모다. 더 뗄 것이 없으면 빈 값이다.
         std::u8string parent_of(const std::u8string_view path)
         {
+#if defined(_WIN32)
             std::u8string trimmed { path };
             while (trimmed.empty() == false && (trimmed.back() == u8'\\' || trimmed.back() == u8'/'))
                 trimmed.pop_back();
@@ -31,6 +32,9 @@ namespace cyella {
             if (cut == std::u8string::npos || cut == 0)
                 return {};
             return trimmed.substr(0, cut);
+#else
+            return native_parent_path(path);
+#endif
         }
 
         bool has_file(const file_probe& probe, const std::u8string& path)
@@ -41,9 +45,14 @@ namespace cyella {
         ssh_programs programs_in(const std::u8string_view directory, const file_probe& probe, std::u8string origin)
         {
             ssh_programs programs {};
-            const std::u8string ssh { join(std::u8string { directory }, u8"ssh.exe") };
-            const std::u8string ssh_add { join(std::u8string { directory }, u8"ssh-add.exe") };
-            const std::u8string ssh_keygen { join(std::u8string { directory }, u8"ssh-keygen.exe") };
+            const auto program = [directory](const std::u8string_view name) {
+                std::u8string file { name };
+                file.append(executable_suffix);
+                return join(std::u8string { directory }, file);
+            };
+            const std::u8string ssh { program(u8"ssh") };
+            const std::u8string ssh_add { program(u8"ssh-add") };
+            const std::u8string ssh_keygen { program(u8"ssh-keygen") };
             if (has_file(probe, ssh) == false || has_file(probe, ssh_keygen) == false)
                 return programs;
             programs.ssh = ssh;
@@ -83,6 +92,12 @@ namespace cyella {
 
     ssh_programs locate_ssh_programs(const std::u8string_view git_executable, const std::u8string_view windows_directory, const file_probe& probe)
     {
+#if !defined(_WIN32)
+        // macOS에서는 git과 ssh-agent(launchd가 띄운다)가 모두 시스템 OpenSSH를 쓴다.
+        static_cast<void>(git_executable);
+        static_cast<void>(windows_directory);
+        return programs_in(u8"/usr/bin", probe, u8"macOS OpenSSH");
+#else
         // `...\Git\cmd\git.exe`와 `...\Git\mingw64\bin\git.exe`가 모두 Git 루트의 아래다. 위로 올라가며 `usr\bin`을 찾는다.
         ssh_programs from_git {};
         std::u8string directory { parent_of(git_executable) };
@@ -101,6 +116,7 @@ namespace cyella {
         if (from_system.ssh_add.empty() == false)
             chosen.ssh_add = from_system.ssh_add;
         return chosen;
+#endif
     }
 
     ssh_info_snapshot collect_ssh_info(const ssh_info_sources& sources) noexcept

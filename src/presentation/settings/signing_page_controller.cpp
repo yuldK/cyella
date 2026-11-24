@@ -36,9 +36,12 @@ namespace cyella {
         }
 
         // 설정 파일에는 슬래시 경로가 읽기 쉽고 이스케이프도 필요 없다.
+        // POSIX에서 `\\`는 파일 이름의 글자라 그대로 둔다.
         std::string with_slashes(std::string text)
         {
+#if defined(_WIN32)
             std::ranges::replace(text, '\\', '/');
+#endif
             return text;
         }
 

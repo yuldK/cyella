@@ -32,7 +32,7 @@ namespace cyella {
 
         bool is_separator(const char8_t value) noexcept
         {
-            return value == u8'\\' || value == u8'/';
+            return is_native_path_separator(value);
         }
 
         std::u8string_view trim_ascii_spaces(std::u8string_view value) noexcept
@@ -59,8 +59,10 @@ namespace cyella {
             // 드라이브 루트(`C:\`)는 마지막 구분자를 남겨야 경로가 유효하다.
             while (value.size() > 1 && is_separator(value.back()))
             {
+#if defined(_WIN32)
                 if (value.size() == 3 && value[1] == u8':')
                     return;
+#endif
                 value.pop_back();
             }
         }
@@ -69,7 +71,7 @@ namespace cyella {
         {
             std::u8string result { directory };
             if (result.empty() == false && is_separator(result.back()) == false)
-                result.push_back(u8'\\');
+                result.push_back(native_path_separator);
             result.append(file);
             return result;
         }
@@ -88,10 +90,16 @@ namespace cyella {
         // 순서로만 확인한다.
         std::vector<std::u8string> default_relative_directories()
         {
+#if defined(_WIN32)
             return {
                 std::u8string { u8"Git\\cmd" },
                 std::u8string { u8"Git\\bin" },
             };
+#else
+            return {
+                std::u8string { u8"bin" },
+            };
+#endif
         }
 
         diagnostic make_tool_diagnostic(const diagnostic_code code, const diagnostic_severity severity, const std::u8string_view message)
@@ -174,7 +182,7 @@ namespace cyella {
             const std::u8string_view configured_executable, const git_tool_environment& environment, process_runner& runner, const file_probe& probe, const process_cancellation_token& token)
         {
             const bool manually_configured { configured_executable.empty() == false };
-            if (manually_configured && is_absolute_windows_path(configured_executable) == false)
+            if (manually_configured && is_absolute_path(configured_executable) == false)
                 return make_unavailable_tool(git_tool_availability::path_invalid, diagnostic_code::git_tool_path_invalid, true, std::u8string { configured_executable });
 
             const std::vector<git_tool_candidate> candidates { git_tool_candidates(configured_executable, environment) };
@@ -196,12 +204,12 @@ namespace cyella {
         std::size_t begin { 0 };
         while (begin <= path_environment.size())
         {
-            const std::size_t end { std::min(path_environment.find(u8';', begin), path_environment.size()) };
+            const std::size_t end { std::min(path_environment.find(path_list_separator, begin), path_environment.size()) };
             std::u8string entry { strip_quotes(trim_ascii_spaces(path_environment.substr(begin, end - begin))) };
             begin = end + 1;
 
             remove_trailing_separators(entry);
-            if (entry.empty() || is_absolute_windows_path(entry) == false)
+            if (entry.empty() || is_absolute_path(entry) == false)
                 continue;
             const auto duplicate {
                 std::ranges::find_if(directories, [&entry](const std::u8string& value) { return ascii_equal_ignoring_case(value, entry); }),
@@ -228,7 +236,7 @@ namespace cyella {
 
         for (const std::u8string& program_files : environment.program_files_directories)
         {
-            if (program_files.empty() || is_absolute_windows_path(program_files) == false)
+            if (program_files.empty() || is_absolute_path(program_files) == false)
                 continue;
             for (const std::u8string& relative : default_relative_directories())
                 add_unique_candidate(candidates, join_path(join_path(program_files, relative), git_executable_name));
@@ -240,14 +248,23 @@ namespace cyella {
     {
         std::u8string value { executable };
         remove_trailing_separators(value);
-        const std::size_t separator { value.find_last_of(u8"/\\") };
+        const std::size_t separator { value.find_last_of(native_path_separators) };
         if (separator == std::u8string::npos)
             return value;
+#if defined(_WIN32)
         if (separator == 2 && value.size() >= 3 && value[1] == u8':')
         {
             value.resize(3);
             return value;
         }
+#else
+        // `/git`처럼 뿌리 바로 아래면 뿌리(`/`)다.
+        if (separator == 0)
+        {
+            value.resize(1);
+            return value;
+        }
+#endif
         value.resize(separator);
         return value;
     }

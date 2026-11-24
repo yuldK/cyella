@@ -10,9 +10,10 @@
 
 namespace cyella {
     namespace {
+        // 이 OS의 경로 구분자다 (Windows `\`·`/`, POSIX `/`).
         constexpr bool is_separator(const char8_t value) noexcept
         {
-            return value == u8'\\' || value == u8'/';
+            return is_native_path_separator(value);
         }
 
         constexpr char8_t ascii_lower(const char8_t value) noexcept
@@ -117,7 +118,7 @@ namespace cyella {
         {
             if (target.empty())
                 return std::nullopt;
-            if (is_absolute_windows_path(target))
+            if (is_absolute_path(target))
                 return normalize_repository_path(target);
             // `/c/Users/..` 같은 MSYS 경로와 `\rooted`는 어느 드라이브인지 알 수 없어 거부한다.
             if (is_separator(target.front()))
@@ -125,7 +126,7 @@ namespace cyella {
 
             std::u8string joined { base };
             if (joined.empty() == false && is_separator(joined.back()) == false)
-                joined.push_back(u8'\\');
+                joined.push_back(native_path_separator);
             joined.append(target);
             return normalize_repository_path(joined);
         }

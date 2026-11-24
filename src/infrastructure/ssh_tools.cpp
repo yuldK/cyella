@@ -108,9 +108,12 @@ namespace cyella {
             return quoted;
         }
 
+        // Windows 경로를 ssh가 읽는 `/` 꼴로 바꾼다. POSIX에서 `\\`는 파일 이름의 글자라 그대로 둔다.
         std::u8string forward_slashes(std::u8string value)
         {
+#if defined(_WIN32)
             std::ranges::replace(value, u8'\\', u8'/');
+#endif
             return value;
         }
     } // namespace

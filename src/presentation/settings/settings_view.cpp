@@ -205,10 +205,7 @@ namespace cyella {
         {
             if (directory.empty())
                 return std::u8string { name };
-            if (directory.back() != u8'\\' && directory.back() != u8'/')
-                directory.push_back(u8'\\');
-            directory.append(name);
-            return directory;
+            return join_native_path(directory, name);
         }
 
         void fill_ssh(ssh_view& view, const settings_view_inputs& inputs)
@@ -409,7 +406,7 @@ namespace cyella {
 
         if (check.error.empty())
         {
-            if (is_absolute_windows_path(program) && probe != nullptr && probe->probe(program) != path_kind::file)
+            if (is_absolute_path(program) && probe != nullptr && probe->probe(program) != path_kind::file)
                 check.warning = tr(u8"settings_view.tool.executable_not_found");
             else if (contains(argument_template, u8"{left}") == false && contains(argument_template, u8"{right}") == false)
                 check.warning = tr(u8"settings_view.tool.arguments_missing_files");
@@ -437,7 +434,7 @@ namespace cyella {
             check.error = tr(u8"settings_view.file_app.name_required");
         else if (program.empty())
             check.error = tr(u8"settings_view.tool.executable_required");
-        else if (is_absolute_windows_path(program) && probe != nullptr && probe->probe(program) != path_kind::file)
+        else if (is_absolute_path(program) && probe != nullptr && probe->probe(program) != path_kind::file)
             check.warning = tr(u8"settings_view.tool.executable_not_found");
         else if (contains(arguments, u8"{file}") == false && contains(arguments, u8"{repository}") == false)
             check.warning = tr(u8"settings_view.file_app.arguments_missing_target");
@@ -467,7 +464,7 @@ namespace cyella {
         const std::u8string path { trimmed(text) };
         if (path.empty())
             return {};
-        if (is_absolute_windows_path(path) == false)
+        if (is_absolute_path(path) == false)
             return tr(u8"settings_view.git.path_not_absolute");
         if (probe != nullptr && probe->probe(path) != path_kind::file)
             return tr(u8"settings_view.git.path_missing");

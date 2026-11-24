@@ -1,5 +1,6 @@
 #include "application/diff_view_protocol.h"
 
+#include "domain/path_syntax.h"
 #include "domain/text_catalog.h"
 
 #include <nlohmann/json.hpp>
@@ -337,7 +338,7 @@ namespace cyella {
         std::string normalized {};
         normalized.reserve(absolute_path.size());
         for (const char8_t letter : absolute_path)
-            normalized.push_back(letter == u8'\\' ? '/' : static_cast<char>(letter));
+            normalized.push_back(letter != u8'/' && is_native_path_separator(letter) ? '/' : static_cast<char>(letter));
 
         // 드라이브 경로(`C:/dir`)는 `file:///C:/dir`, 서버 경로(`//server/share`)는 `file://server/share`다.
         std::string url { "file://" };

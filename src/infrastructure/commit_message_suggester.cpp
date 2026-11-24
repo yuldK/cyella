@@ -135,7 +135,13 @@ namespace cyella {
                 }
                 return true;
             };
+            // CreateProcess가 띄우지 못하는 것은 Windows의 배치 파일뿐이다. POSIX의 스크립트(`#!`)는 그대로 띄운다.
+#if defined(_WIN32)
             return ends_with_ignoring_case(u8".cmd") || ends_with_ignoring_case(u8".bat");
+#else
+            static_cast<void>(ends_with_ignoring_case);
+            return false;
+#endif
         }
 
         std::vector<std::u8string> split_lines(const std::u8string_view text)
@@ -267,7 +273,7 @@ namespace cyella {
             if (is_script_path(job.executable))
                 return fail(tr(u8"commit_suggestion.script_not_supported", { { u8"command", job.executable } }));
             const std::optional<std::u8string> executable { options_.resolve_executable != nullptr ? options_.resolve_executable(job.executable) : std::optional<std::u8string> {} };
-            if (executable.has_value() == false || is_absolute_windows_path(*executable) == false)
+            if (executable.has_value() == false || is_absolute_path(*executable) == false)
                 return fail(tr(u8"commit_suggestion.command_not_found", { { u8"command", job.executable } }));
             if (is_script_path(*executable))
                 return fail(tr(u8"commit_suggestion.script_not_supported", { { u8"command", job.executable } }));

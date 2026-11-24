@@ -4,12 +4,12 @@
 #include <string_view>
 
 namespace cyella {
-    // 저장소 경로를 저장하는 모양으로 맞춘다. `/`를 `\`로 바꾸고 끝 구분자를 지운다.
+    // 저장소 경로를 저장하는 모양으로 맞춘다. 구분자를 이 OS의 것(Windows `\`, macOS `/`)으로 바꾸고 끝 구분자를 지운다.
     // 대소문자는 건드리지 않는다. 사용자가 고른 표기를 목록에 그대로 보여 주기 위해서다.
     [[nodiscard]] std::u8string normalize_repository_path(std::u8string_view path);
 
     // 같은 저장소인지 판정하는 열쇠다. `normalize_repository_path` 결과의 ASCII 대문자를
-    // 소문자로 내린다. Windows 파일 이름이 대소문자를 구분하지 않기 때문이다. ASCII 밖의
+    // 소문자로 내린다. Windows(NTFS)와 macOS 기본 볼륨(APFS)의 파일 이름이 대소문자를 구분하지 않기 때문이다. ASCII 밖의
     // 글자는 그대로 둔다. 한글처럼 대소문자가 없는 글자가 대부분이고, 잘못 접어서 다른
     // 저장소를 같다고 보는 쪽이 더 나쁘다.
     [[nodiscard]] std::u8string repository_path_key(std::u8string_view path);

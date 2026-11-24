@@ -1,3 +1,4 @@
+#include "domain/path_syntax.h"
 #include "domain/text_catalog.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/extension_intents.h"
@@ -24,10 +25,10 @@ namespace cyella {
         std::u8string join_repository_path(const std::u8string& repository, const std::string& relative)
         {
             std::u8string path { repository };
-            if (path.empty() == false && path.back() != u8'/' && path.back() != u8'\\')
-                path.push_back(u8'\\');
+            if (path.empty() == false && is_native_path_separator(path.back()) == false)
+                path.push_back(native_path_separator);
             for (const char value : relative)
-                path.push_back(value == '/' ? u8'\\' : static_cast<char8_t>(value));
+                path.push_back(value == '/' ? native_path_separator : static_cast<char8_t>(value));
             return path;
         }
 

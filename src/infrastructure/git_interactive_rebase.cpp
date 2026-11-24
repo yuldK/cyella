@@ -192,7 +192,10 @@ namespace cyella {
     std::u8string make_editor_command(const std::u8string_view helper_path)
     {
         std::u8string path { helper_path };
+        // Windows 경로는 git의 sh가 읽는 `/` 꼴로 바꾼다. POSIX에서 `\\`는 파일 이름의 글자라 아래의 따옴표가 지킨다.
+#if defined(_WIN32)
         std::replace(path.begin(), path.end(), u8'\\', u8'/');
+#endif
         if (path.find_first_of(shell_meta) == std::u8string::npos)
             return path;
         std::u8string quoted { u8"'" };

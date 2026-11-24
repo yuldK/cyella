@@ -1,6 +1,7 @@
 #include "domain/user_profile.h"
 
 #include "domain/app_settings.h"
+#include "domain/path_syntax.h"
 #include "domain/repository_path.h"
 #include "domain/text_catalog.h"
 
@@ -91,9 +92,9 @@ namespace cyella {
         const std::u8string base { prefix_key(prefix) };
         if (base.empty() || key.size() < base.size() || key.compare(0, base.size(), base) != 0)
             return false;
-        if (key.size() == base.size() || base.back() == u8'\\')
+        if (key.size() == base.size() || base.back() == native_path_separator)
             return true;
-        return key[base.size()] == u8'\\';
+        return key[base.size()] == native_path_separator;
     }
 
     std::optional<std::size_t> match_profile_rule(const std::vector<profile_rule>& rules, const std::vector<user_profile>& profiles, const std::u8string_view repository_path)

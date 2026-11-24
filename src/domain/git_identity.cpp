@@ -12,10 +12,13 @@ namespace cyella {
         constexpr std::u8string_view file_prefix { u8"file:" };
         constexpr std::u8string_view ssh_identities_only_suffix { u8" -o IdentitiesOnly=yes" };
 
+        // Windows 경로를 `/` 꼴로 바꾼다 (git이 `core.sshCommand`를 sh로 돌린다). POSIX에서 `\\`는 파일 이름의 글자라 그대로 둔다.
         std::u8string forward_slashes(const std::u8string_view path)
         {
             std::u8string result { path };
+#if defined(_WIN32)
             std::ranges::replace(result, u8'\\', u8'/');
+#endif
             return result;
         }
 
@@ -101,7 +104,11 @@ namespace cyella {
 
         bool is_absolute(const std::u8string_view file) noexcept
         {
+#if defined(_WIN32)
             return file.size() >= 3 && file[1] == u8':' && (file[2] == u8'/' || file[2] == u8'\\');
+#else
+            return file.empty() == false && file.front() == u8'/';
+#endif
         }
 
         identity_origin classify(const std::u8string_view scope, const std::u8string_view origin, const identity_origin_hints& hints, std::u8string& file)

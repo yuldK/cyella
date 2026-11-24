@@ -726,7 +726,7 @@ namespace cyella {
                 {
                     path_inspected result {};
                     result.path = request.path;
-                    if (is_absolute_windows_path(request.path) == false)
+                    if (is_absolute_path(request.path) == false)
                         return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.absolute_path_required"));
                     if (context.owner().files().probe(request.path) != path_kind::directory)
                     {
@@ -749,7 +749,7 @@ namespace cyella {
                 }
                 else if constexpr (std::is_same_v<request_type, clone_request>)
                 {
-                    if (is_absolute_windows_path(request.target_path) == false)
+                    if (is_absolute_path(request.target_path) == false)
                         return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.absolute_path_required"));
                     if (context.owner().files().probe(request.target_path) == path_kind::file)
                         return operation_outcome::failed(failure_kind::refused, tr(u8"git.file_exists"));
@@ -769,7 +769,7 @@ namespace cyella {
                 }
                 else if constexpr (std::is_same_v<request_type, init_request>)
                 {
-                    if (is_absolute_windows_path(request.target_path) == false)
+                    if (is_absolute_path(request.target_path) == false)
                         return operation_outcome::failed(failure_kind::invalid_request, tr(u8"git.absolute_path_required"));
                     git_command_spec spec {};
                     spec.arguments = make_git_init_args(to_bytes(request.target_path), request.initial_branch);
