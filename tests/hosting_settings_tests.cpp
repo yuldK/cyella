@@ -64,7 +64,7 @@ namespace {
         hosting_controller::dependencies make_hosting_dependencies()
         {
             hosting_controller::dependencies result {};
-            result.target_of = [this](const std::string&) -> std::optional<hosting_target> {
+            result.target_of = [](const std::string&) -> std::optional<hosting_target> {
                 hosting_target target {};
                 target.repository_id = "repo";
                 target.repository = resolve_hosting_repository("git@github.com:octo/hello.git", "origin", {});

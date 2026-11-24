@@ -26,11 +26,6 @@ namespace cyella {
             return to_u8(std::to_string(value));
         }
 
-        std::u8string short_sha(const std::string_view sha)
-        {
-            return to_u8(sha.substr(0, std::min<std::size_t>(sha.size(), 7)));
-        }
-
         std::u8string problem_text(const ref_name_problem problem)
         {
             switch (problem)

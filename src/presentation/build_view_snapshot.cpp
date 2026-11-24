@@ -15,7 +15,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <ctime>
 #include <format>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -70,6 +72,25 @@ namespace cyella {
             return static_cast<std::size_t>(std::count_if(text.begin(), text.end(), [](const char8_t value) { return (value & 0xC0u) != 0x80u; }));
         }
 
+#if defined(__APPLE__)
+        // macOS의 libc++에는 tzdb(`std::chrono::current_zone`)가 없고, 최소 판(11)에서는 chrono 서식이 부르는 실수 `to_chars`도
+        // 쓸 수 없다. 그래서 시간대 변환은 C 라이브러리의 `localtime_r`(시스템 시간대 설정을 따른다)로 하고 서식은 손으로 짓는다.
+        // Windows 갈래와 같은 값을 낸다.
+
+        // 유닉스 초 하나를 이 컴퓨터의 시간대로 나눈 달력 값이다. 실패하면 UTC로 나눈다. 그것도 실패하면 값이 없다.
+        std::optional<std::tm> local_calendar(const std::int64_t seconds, bool& utc) noexcept
+        {
+            const std::time_t value { static_cast<std::time_t>(seconds) };
+            std::tm parts {};
+            utc = false;
+            if (localtime_r(&value, &parts) != nullptr)
+                return parts;
+            utc = true;
+            if (gmtime_r(&value, &parts) != nullptr)
+                return parts;
+            return std::nullopt;
+        }
+#else
         // 이 컴퓨터의 시간대다. tzdb를 읽지 못하면 null이다.
         const std::chrono::time_zone* local_time_zone() noexcept
         {
@@ -82,6 +103,7 @@ namespace cyella {
                 return nullptr;
             }
         }
+#endif
 
         // 시각 서식이 안전한 유닉스 초의 범위다 (0001-01-01 ~ 9999-12-31). git의 작성 시각은 범위 검사 없이 받은 값이라
         // 위조된 큰 값이 chrono 서식의 연도 범위를 넘고, 뺄셈은 부호 있는 정수를 넘칠 수 있다.
@@ -102,11 +124,6 @@ namespace cyella {
         bool is_user_operation(const operation_status& status) noexcept
         {
             return is_user_operation_status(status);
-        }
-
-        bool is_active(const operation_status& status) noexcept
-        {
-            return status.state == operation_state::queued || status.state == operation_state::running;
         }
 
         std::u8string command_line_text(const operation_command& command)
@@ -1392,6 +1409,19 @@ namespace cyella {
 
     std::u8string absolute_time_text(const std::int64_t seconds)
     {
+#if defined(__APPLE__)
+        bool utc { false };
+        const std::optional<std::tm> parts { local_calendar(clamp_format_seconds(seconds), utc) };
+        if (parts.has_value() == false)
+            return {};
+        char text[48] {};
+        const int written {
+            std::snprintf(text, sizeof(text), "%04d-%02d-%02d %02d:%02d%s", parts->tm_year + 1900, parts->tm_mon + 1, parts->tm_mday, parts->tm_hour, parts->tm_min, utc ? " UTC" : ""),
+        };
+        if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(text))
+            return {};
+        return std::u8string { reinterpret_cast<const char8_t*>(text), static_cast<std::size_t>(written) };
+#else
         // 시간대 조회는 한 번만 한다. 실패를 매 frame 예외로 되풀이하지 않는다.
         static const std::chrono::time_zone* const zone { local_time_zone() };
         const std::chrono::sys_seconds point { std::chrono::seconds { clamp_format_seconds(seconds) } };
@@ -1406,10 +1436,21 @@ namespace cyella {
             // 서식이 실패해도 화면 구성이 죽지 않게 툴팁 글만 비운다.
             return {};
         }
+#endif
     }
 
     std::u8string day_text(const std::int64_t now_seconds, const std::int64_t then_seconds)
     {
+#if defined(__APPLE__)
+        const auto local_day = [](const std::int64_t seconds) {
+            bool utc { false };
+            const std::int64_t clamped { clamp_format_seconds(seconds) };
+            if (const std::optional<std::tm> parts { local_calendar(clamped, utc) }; parts.has_value())
+                return std::chrono::local_days { std::chrono::year { parts->tm_year + 1900 } / static_cast<unsigned>(parts->tm_mon + 1) / static_cast<unsigned>(parts->tm_mday) };
+            const std::chrono::sys_seconds point { std::chrono::seconds { clamped } };
+            return std::chrono::local_days { std::chrono::floor<std::chrono::days>(point).time_since_epoch() };
+        };
+#else
         static const std::chrono::time_zone* const zone { local_time_zone() };
         const auto local_day = [](const std::int64_t seconds) {
             const std::chrono::sys_seconds point { std::chrono::seconds { clamp_format_seconds(seconds) } };
@@ -1426,6 +1467,7 @@ namespace cyella {
             }
             return std::chrono::local_days { std::chrono::floor<std::chrono::days>(point).time_since_epoch() };
         };
+#endif
         const std::chrono::local_days today { local_day(now_seconds) };
         const std::chrono::local_days then { local_day(then_seconds) };
         if (then >= today)

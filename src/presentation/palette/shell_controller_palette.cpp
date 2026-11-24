@@ -23,11 +23,6 @@ namespace cyella {
             return std::string { text.begin(), text.end() };
         }
 
-        std::u8string to_u8(const std::string_view text)
-        {
-            return std::u8string { text.begin(), text.end() };
-        }
-
         std::optional<std::u8string> key_argument(const std::u8string& key, const std::u8string_view prefix)
         {
             if (key.starts_with(prefix) == false || key.size() == prefix.size())

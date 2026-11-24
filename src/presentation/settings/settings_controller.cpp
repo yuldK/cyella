@@ -182,6 +182,14 @@ namespace cyella {
         case text_target::commit_body:
         case text_target::clone_url:
         case text_target::clone_path:
+        case text_target::form_field_0:
+        case text_target::form_field_1:
+        case text_target::form_field_2:
+        case text_target::rebase_message_subject:
+        case text_target::rebase_message_body:
+        case text_target::selector_filter:
+        case text_target::graph_search:
+        case text_target::palette_filter:
             break;
         }
         return nullptr;

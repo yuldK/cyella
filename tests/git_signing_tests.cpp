@@ -293,7 +293,7 @@ TEST_CASE("signing command builders reject values that could change the command"
 {
     const std::vector<std::string> good { std::string(40, 'a'), std::string(64, 'B') };
     CHECK(make_git_verify_signatures_input(good) == std::string(40, 'a') + "\n" + std::string(64, 'B') + "\n");
-    for (const std::string bad : { std::string { "HEAD" }, std::string { "--all" }, std::string(40, 'g'), std::string(39, 'a'), std::string(40, 'a') + "\nHEAD" })
+    for (const std::string& bad : { std::string { "HEAD" }, std::string { "--all" }, std::string(40, 'g'), std::string(39, 'a'), std::string(40, 'a') + "\nHEAD" })
     {
         const std::vector<std::string> shas { bad };
         CHECK_THROWS_AS(make_git_verify_signatures_input(shas), std::invalid_argument);

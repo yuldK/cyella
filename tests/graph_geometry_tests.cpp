@@ -208,7 +208,8 @@ TEST_CASE("graph item keys stay inside the short string buffer", "[presentation]
 {
     const std::u8string key { graph_item_key("0123456789abcdef0123456789abcdef01234567") };
     CHECK(key == u8"0123456789abcde");
-    CHECK(key.capacity() <= 15);
+    // 짧은 문자열 버퍼 안이다 (MSVC는 15, libc++는 22 byte).
+    CHECK(key.capacity() <= std::u8string {}.capacity());
     CHECK(graph_item_key("WIP") == u8"WIP");
 }
 

@@ -61,11 +61,6 @@ namespace {
         return shas;
     }
 
-    std::u8string u8(const std::string_view text)
-    {
-        return std::u8string { text.begin(), text.end() };
-    }
-
     void set_text(luil::text::text_edit_state& state, const std::u8string_view text)
     {
         state.text = std::u8string { text };

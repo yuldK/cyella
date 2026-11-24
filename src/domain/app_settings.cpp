@@ -225,8 +225,13 @@ namespace cyella {
     {
         const std::time_t seconds { std::chrono::system_clock::to_time_t(time) };
         std::tm parts {};
+#if defined(_WIN32)
         if (gmtime_s(&parts, &seconds) != 0)
             return {};
+#else
+        if (gmtime_r(&seconds, &parts) == nullptr)
+            return {};
+#endif
 
         char text[32] {};
         const int written {

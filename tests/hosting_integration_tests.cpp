@@ -134,16 +134,6 @@ namespace {
         return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     }
 
-    // 파일의 줄 수다 (끝의 빈 줄은 세지 않는다).
-    std::size_t line_count(const std::filesystem::path& path)
-    {
-        const std::string text = read_file(path);
-        std::size_t lines { 0 };
-        for (const char value : text)
-            lines += value == '\n' ? 1 : 0;
-        return lines;
-    }
-
     // `get`을 부를 때마다 tokens 파일의 다음 줄을 비밀번호로 주고, `erase`로 지워 달라는 자격 증명을 erased 파일에 쌓는다.
     void write_rotating_helper(const std::filesystem::path& directory, const std::string& tokens)
     {
