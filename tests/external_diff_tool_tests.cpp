@@ -1,10 +1,13 @@
 #include "domain/external_diff_tool.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
 #include <utility>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -14,9 +17,9 @@ namespace {
     external_diff_values sample_values()
     {
         external_diff_values values {};
-        values.left = u8"C:\\Temp\\old file.png";
-        values.right = u8"C:\\Temp\\new file.png";
-        values.base = u8"C:\\Temp\\base.png";
+        values.left = native_path(u8"C:\\Temp\\old file.png");
+        values.right = native_path(u8"C:\\Temp\\new file.png");
+        values.base = native_path(u8"C:\\Temp\\base.png");
         values.path = u8"assets/한글 이미지.png";
         return values;
     }
@@ -35,21 +38,21 @@ TEST_CASE("template tokens are replaced inside single arguments", "[external_dif
     const auto result { expand_external_diff_arguments(u8"{left} {right}", sample_values()) };
     REQUIRE(result.has_value());
     // 공백이 든 경로도 한 인자로 남는다.
-    CHECK(*result == arguments { u8"C:\\Temp\\old file.png", u8"C:\\Temp\\new file.png" });
+    CHECK(*result == arguments { native_path(u8"C:\\Temp\\old file.png"), native_path(u8"C:\\Temp\\new file.png") });
 }
 
 TEST_CASE("quotes group template words and are removed", "[external_diff]")
 {
     const auto result { expand_external_diff_arguments(u8"--title \"compare images\" --left=\"{left}\" /r:{right}", sample_values()) };
     REQUIRE(result.has_value());
-    CHECK(*result == arguments { u8"--title", u8"compare images", u8"--left=C:\\Temp\\old file.png", u8"/r:C:\\Temp\\new file.png" });
+    CHECK(*result == arguments { u8"--title", u8"compare images", u8"--left=" + native_path(u8"C:\\Temp\\old file.png"), u8"/r:" + native_path(u8"C:\\Temp\\new file.png") });
 }
 
 TEST_CASE("all four tokens are supported including Korean values", "[external_diff]")
 {
     const auto result { expand_external_diff_arguments(u8"-b {base} -p {path}", sample_values()) };
     REQUIRE(result.has_value());
-    CHECK(*result == arguments { u8"-b", u8"C:\\Temp\\base.png", u8"-p", u8"assets/한글 이미지.png" });
+    CHECK(*result == arguments { u8"-b", native_path(u8"C:\\Temp\\base.png"), u8"-p", u8"assets/한글 이미지.png" });
 }
 
 TEST_CASE("values are never reinterpreted as quotes spaces or tokens", "[external_diff]")
@@ -118,17 +121,17 @@ TEST_CASE("extensions are normalized for comparison", "[external_diff]")
 TEST_CASE("a tool is picked by case insensitive extension", "[external_diff]")
 {
     const std::vector<external_diff_tool> tools {
-        make_tool({ u8".png", u8".jpg" }, u8"C:\\tools\\imgdiff.exe"),
-        make_tool({ u8"psd" }, u8"C:\\tools\\psddiff.exe"),
+        make_tool({ u8".png", u8".jpg" }, native_path(u8"C:\\tools\\imgdiff.exe")),
+        make_tool({ u8"psd" }, native_path(u8"C:\\tools\\psddiff.exe")),
     };
 
     const external_diff_tool* png { select_external_diff_tool(tools, u8"assets/Logo.PNG") };
     REQUIRE(png != nullptr);
-    CHECK(png->executable == u8"C:\\tools\\imgdiff.exe");
+    CHECK(png->executable == native_path(u8"C:\\tools\\imgdiff.exe"));
 
-    const external_diff_tool* psd { select_external_diff_tool(tools, u8"C:\\art\\한글.Psd") };
+    const external_diff_tool* psd { select_external_diff_tool(tools, native_path(u8"C:\\art\\한글.Psd")) };
     REQUIRE(psd != nullptr);
-    CHECK(psd->executable == u8"C:\\tools\\psddiff.exe");
+    CHECK(psd->executable == native_path(u8"C:\\tools\\psddiff.exe"));
 
     CHECK(select_external_diff_tool(tools, u8"src/main.cpp") == nullptr);
     CHECK(select_external_diff_tool(tools, u8"png") == nullptr);
@@ -170,6 +173,8 @@ TEST_CASE("multi dot extensions win over shorter ones regardless of order", "[ex
     CHECK(select_external_diff_tool(tied, u8"a.dat")->executable == u8"first.exe");
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("repository open apps put Explorer and VS Code first and keep the user's other apps", "[external_diff]")
 {
     const std::vector<external_file_app> defaults { repository_open_apps(default_external_file_apps()) };
@@ -189,3 +194,4 @@ TEST_CASE("repository open apps put Explorer and VS Code first and keep the user
     CHECK(apps[1].executable == u8"Code.exe");
     CHECK(apps[2] == custom[2]);
 }
+#endif

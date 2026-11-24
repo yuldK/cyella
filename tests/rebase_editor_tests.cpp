@@ -1,6 +1,7 @@
 // 인터랙티브 rebase 편집기의 화면 규칙과 controller다. 상태를 직접 만들거나, 가짜 실행기를 꽂은 workspace로 범위 읽기와
 // 실행 요청의 흐름을 본다. git과 디스크가 필요 없다.
 #include "application/git_workspace.h"
+#include "native_path_support.h"
 #include "presentation/rebase/rebase_editor_controller.h"
 #include "presentation/rebase/rebase_editor_model.h"
 #include "presentation/rebase/rebase_editor_view.h"
@@ -12,6 +13,8 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -97,7 +100,7 @@ namespace {
             git_workspace_options options {};
             options.refresh_on_open = false;
             workspace = std::make_unique<git_workspace>(executor, dispatcher.dispatcher(), events.sink(), nullptr, options);
-            repository = workspace->open_repository(u8"C:/repo");
+            repository = workspace->open_repository(native_path(u8"C:/repo"));
             controller = std::make_unique<rebase_editor_controller>(rebase_editor_controller::dependencies { workspace.get() });
         }
 

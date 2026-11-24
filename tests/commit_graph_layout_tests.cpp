@@ -548,10 +548,14 @@ namespace cyella {
     // 환경 변수 CYELLA_GRAPH_LOG에 파일 경로를 주면 돌고 없으면 건너뛴다.
     TEST_CASE("commit_graph_layout lays out a real git log file", "[.][perf][real]")
     {
+#if defined(_WIN32)
         char* path = nullptr;
         std::size_t path_length { 0 };
         _dupenv_s(&path, &path_length, "CYELLA_GRAPH_LOG");
         const std::unique_ptr<char, decltype(&std::free)> path_owner { path, &std::free };
+#else
+        const char* const path { std::getenv("CYELLA_GRAPH_LOG") };
+#endif
         if (path == nullptr)
             SKIP("CYELLA_GRAPH_LOG is not set");
 

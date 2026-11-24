@@ -2,6 +2,7 @@
 // workspace·scheduler·relay·클립보드는 낸 것을 세는 가짜로 바꾼다.
 #include "application/diff_view_coordinator.h"
 #include "infrastructure/git_diff_parser.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -11,6 +12,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -46,7 +49,7 @@ namespace {
 
     diff_target target_of(const file_diff& diff, std::string repository = "repo-1")
     {
-        return diff_target { std::move(repository), u8"C:\\repo", diff.request };
+        return diff_target { std::move(repository), native_path(u8"C:\\repo"), diff.request };
     }
 
     class fake_gateway final : public diff_git_gateway
@@ -103,8 +106,8 @@ namespace {
             , coordinator { make_ports() }
         {
             gateway.result.ok = true;
-            gateway.result.left = { true, u8"C:\\tmp\\left\\logo.png", 10 };
-            gateway.result.right = { true, u8"C:\\tmp\\right\\logo.png", 20 };
+            gateway.result.left = { true, native_path(u8"C:\\tmp\\left\\logo.png"), 10 };
+            gateway.result.right = { true, native_path(u8"C:\\tmp\\right\\logo.png"), 20 };
         }
 
         diff_view_ports make_ports()
@@ -126,7 +129,7 @@ namespace {
             ports.open_blame = [this](const std::string& repository, blame_file_request request) { opened_blames.emplace_back(repository, std::move(request)); };
             ports.gateway = &gateway;
             ports.opener = &opener;
-            ports.git_executable = u8"C:\\Git\\cmd\\git.exe";
+            ports.git_executable = native_path(u8"C:\\Git\\cmd\\git.exe");
             return ports;
         }
 
@@ -399,12 +402,12 @@ TEST_CASE("preparing the next image preview releases the folder of the previous 
     test.coordinator.sides_prepared(test.sides.at(0));
 
     const file_diff second { binary_file_diff("b.png") };
-    test.gateway.result.left.file = u8"C:\\tmp\\2\\left\\b.png";
+    test.gateway.result.left.file = native_path(u8"C:\\tmp\\2\\left\\b.png");
     test.coordinator.sync(target_of(second), &second, 2);
     test.run_next_job();
     // 앞 미리보기의 사본만 놓아준다. 세션 동안 훑은 이미지마다 폴더가 쌓이지 않는다.
     REQUIRE(test.gateway.released.size() == 1);
-    CHECK(test.gateway.released[0] == u8"C:\\tmp\\left\\logo.png");
+    CHECK(test.gateway.released[0] == native_path(u8"C:\\tmp\\left\\logo.png"));
 }
 
 TEST_CASE("a plain binary file shows the binary card when the sides could not be written", "[diff][coordinator]")
@@ -447,7 +450,7 @@ TEST_CASE("open external runs on the scheduler with the configured tools and rep
     harness test {};
     external_diff_tool tool {};
     tool.extensions = { u8".png" };
-    tool.executable = u8"C:\\tools\\imgdiff.exe";
+    tool.executable = native_path(u8"C:\\tools\\imgdiff.exe");
     tool.arguments = u8"{left} {right}";
     test.tools.push_back(tool);
     const file_diff diff { binary_file_diff("art/logo.png") };
@@ -462,9 +465,9 @@ TEST_CASE("open external runs on the scheduler with the configured tools and rep
     test.run_next_job();
 
     REQUIRE(test.launcher.requests.size() == 1);
-    CHECK(test.launcher.requests[0].executable == u8"C:\\tools\\imgdiff.exe");
+    CHECK(test.launcher.requests[0].executable == native_path(u8"C:\\tools\\imgdiff.exe"));
     REQUIRE(test.launcher.requests[0].arguments.size() == 2);
-    CHECK(test.launcher.requests[0].arguments[0] == u8"C:\\tmp\\left\\logo.png");
+    CHECK(test.launcher.requests[0].arguments[0] == native_path(u8"C:\\tmp\\left\\logo.png"));
     REQUIRE(test.externals.size() == 1);
     CHECK(test.externals[0].result.status == external_open_status::launched_tool);
 
@@ -485,9 +488,9 @@ TEST_CASE("external open results become notices", "[diff][coordinator]")
 
     SECTION("launch failed names the tool and the reason")
     {
-        const diff_notice notice { describe_external_open({ external_open_status::launch_failed, u8"C:\\tools\\x.exe", "access denied" }) };
+        const diff_notice notice { describe_external_open({ external_open_status::launch_failed, native_path(u8"C:\\tools\\x.exe"), "access denied" }) };
         CHECK(notice.warning);
-        CHECK(notice.text.find(u8"C:\\tools\\x.exe") != std::u8string::npos);
+        CHECK(notice.text.find(native_path(u8"C:\\tools\\x.exe")) != std::u8string::npos);
         CHECK(notice.text.find(u8"access denied") != std::u8string::npos);
     }
 

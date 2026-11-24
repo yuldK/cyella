@@ -3,6 +3,7 @@
 #include "git_test_support.h"
 #include "infrastructure/commit_message_suggester.h"
 #include "infrastructure/git_tool_discovery.h"
+#include "native_path_support.h"
 #include "platform/win32/win32_file_probe.h"
 #include "platform/win32/win32_process_runner.h"
 #include "process_test_support.h"
@@ -16,6 +17,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -66,7 +69,7 @@ namespace {
                 if (name == u8"child")
                     return test::to_u8string(std::filesystem::absolute(test::test_child_path()).string());
                 if (name == u8"script")
-                    return std::u8string { u8"C:\\Tools\\shim.CMD" };
+                    return std::u8string { native_path(u8"C:\\Tools\\shim.CMD") };
                 return std::nullopt;
             };
             options.working_directory = test::to_u8string(std::filesystem::absolute(test::test_child_path()).parent_path().string());
@@ -181,6 +184,8 @@ TEST_CASE("nothing staged fails before any command starts", "[commit_suggestion]
     CHECK(result.error == tr(u8"commit_suggestion.nothing_staged"));
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a command that cannot be started is reported by name", "[commit_suggestion][integration]")
 {
     if (test::git_is_available() == false)
@@ -204,6 +209,7 @@ TEST_CASE("a command that cannot be started is reported by name", "[commit_sugge
     const commit_suggestion_result_intent unclosed { suggester.suggest(fixture.job(u8"child", u8"echo_stdin \"open"), process_cancellation_token {}) };
     CHECK(unclosed.error == tr(u8"commit_suggestion.arguments_invalid"));
 }
+#endif
 
 TEST_CASE("a failing command reports its exit code and its first error line", "[commit_suggestion][integration]")
 {

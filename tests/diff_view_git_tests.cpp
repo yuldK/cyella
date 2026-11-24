@@ -8,6 +8,7 @@
 #include "infrastructure/git_diff_gateway.h"
 #include "infrastructure/git_operation_runner.h"
 #include "infrastructure/git_tool_discovery.h"
+#include "native_path_support.h"
 #include "platform/win32/win32_diff_tool_launcher.h"
 #include "platform/win32/win32_file_probe.h"
 #include "platform/win32/win32_process_runner.h"
@@ -27,6 +28,8 @@
 #include <thread>
 #include <variant>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -232,7 +235,7 @@ TEST_CASE("temporary file names keep a plain leaf that Windows cannot read as a 
 
     // 다른 OS에서 만든 커밋의 이름은 `\`와 드라이브를 담을 수 있다. 마지막 이름만 남고 `:`는 바뀐다.
     CHECK(safe_temp_file_name("..\\..\\x.png") == "x.png");
-    CHECK(safe_temp_file_name("C:\\Users\\Public\\x.png") == "x.png");
+    CHECK(safe_temp_file_name(native_path("C:\\Users\\Public\\x.png")) == "x.png");
     CHECK(safe_temp_file_name("\\\\server\\share\\x.png") == "x.png");
     CHECK(safe_temp_file_name("dir/C:x.png") == "C_x.png");
     CHECK(safe_temp_file_name("a.txt:stream") == "a.txt_stream");
@@ -253,6 +256,8 @@ TEST_CASE("temporary file names keep a plain leaf that Windows cannot read as a 
     CHECK(safe_temp_file_name("a\tb\n.png") == "a_b_.png");
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("integration: names in a commit that climb up or name a drive are extracted inside the operation folder", "[diff][integration][gateway]")
 {
     if (test::git_is_available() == false)
@@ -300,6 +305,7 @@ TEST_CASE("integration: names in a commit that climb up or name a drive are extr
     CHECK_FALSE(std::filesystem::exists(temp.process_directory() / "x.png"));
     CHECK_FALSE(std::filesystem::exists(escaped));
 }
+#endif
 
 TEST_CASE("integration: diff.tool is read from git config", "[diff][integration][gateway]")
 {
@@ -351,6 +357,8 @@ TEST_CASE("integration: temporary directories live until the app ends and stale 
     CHECK(std::filesystem::exists(root / "pfresh"));
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("integration: sweeping keeps the old folder of a live instance and survives names outside the ANSI code page", "[diff][integration][temp]")
 {
     const test::temp_directory scratch {};
@@ -395,6 +403,7 @@ TEST_CASE("integration: sweeping keeps the old folder of a live instance and sur
     diff_temp_directory::sweep_stale(root, std::chrono::hours { 24 });
     CHECK(std::filesystem::is_directory(again));
 }
+#endif
 
 TEST_CASE("integration: remove_all deletes everything the directory made", "[diff][integration][temp]")
 {
@@ -423,6 +432,8 @@ TEST_CASE("integration: temporary revision copies can be cleaned up while read o
     CHECK(removed);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("integration: the Win32 launcher starts a detached process with arguments and a working directory", "[diff][integration][launcher]")
 {
     const test::temp_directory scratch {};
@@ -459,7 +470,10 @@ TEST_CASE("integration: the Win32 launcher starts a detached process with argume
         CHECK_FALSE(launcher->launch(request).launched);
     }
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("integration: opening an external tool extracts files and launches it", "[diff][integration][opener]")
 {
     if (test::git_is_available() == false)
@@ -496,6 +510,7 @@ TEST_CASE("integration: opening an external tool extracts files and launches it"
     // left(index)와 right(작업 트리)를 이어 붙인 결과다.
     CHECK(test::read_file(report) == binary_bytes('x') + binary_bytes('y'));
 }
+#endif
 
 namespace {
     // 실제 git과 git_workspace를 수동 dispatcher로 돌리는 최소 환경이다.

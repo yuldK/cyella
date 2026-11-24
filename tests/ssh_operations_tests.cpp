@@ -5,6 +5,7 @@
 #include "infrastructure/ssh_info.h"
 
 #include "fake_git_runner.h"
+#include "native_path_support.h"
 #include "temporary_directory_support.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -16,6 +17,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -38,7 +41,7 @@ namespace {
     struct ssh_harness
     {
         explicit ssh_harness(const bool with_tools = true)
-            : runner { process, u8"C:/Git/cmd/git.exe", files, make_options(with_tools) }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, make_options(with_tools) }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, git_workspace_options { .refresh_on_open = false } }
         {}
 
@@ -47,10 +50,10 @@ namespace {
             git_operation_runner_options options {};
             if (with_tools)
             {
-                options.ssh_executable = u8"C:/Git/usr/bin/ssh.exe";
-                options.ssh_keygen_executable = u8"C:/Git/usr/bin/ssh-keygen.exe";
+                options.ssh_executable = native_path(u8"C:/Git/usr/bin/ssh.exe");
+                options.ssh_keygen_executable = native_path(u8"C:/Git/usr/bin/ssh-keygen.exe");
             }
-            options.askpass_helper = u8"C:/Git/cyella-askpass.exe";
+            options.askpass_helper = native_path(u8"C:/Git/cyella-askpass.exe");
             options.askpass = askpass_endpoint { u8"\\\\.\\pipe\\cyella-test", u8"secret" };
             return options;
         }
@@ -103,7 +106,7 @@ TEST_CASE("an authenticated ssh -T is a successful test even though GitHub exits
     const std::vector<test::recorded_call> calls { test.process.calls() };
     REQUIRE(calls.size() == 1);
     CHECK(calls[0].arguments == test::text_list { "-T", "-o", "StrictHostKeyChecking=ask", "git@github.com" });
-    CHECK(calls[0].variable(u8"SSH_ASKPASS") == std::optional<std::string> { "C:/Git/cyella-askpass.exe" });
+    CHECK(calls[0].variable(u8"SSH_ASKPASS") == std::optional<std::string> { native_path("C:/Git/cyella-askpass.exe") });
     CHECK(calls[0].variable(u8"SSH_ASKPASS_REQUIRE") == std::optional<std::string> { "force" });
     CHECK(calls[0].variable(u8"CYELLA_ASKPASS_OPERATION") == std::optional<std::string> { std::to_string(id) });
     CHECK(calls[0].variable(u8"CYELLA_ASKPASS_TOKEN") == std::optional<std::string> { "secret" });
@@ -171,7 +174,7 @@ TEST_CASE("an unusable target or missing ssh fails without running anything", "[
     SECTION("ssh-keygen is not installed")
     {
         ssh_harness test { false };
-        const operation_id id { test.run(ssh_keygen_request { .key_path = u8"C:\\Users\\me\\.ssh\\id_new", .comment = u8"me@pc" }) };
+        const operation_id id { test.run(ssh_keygen_request { .key_path = native_path(u8"C:\\Users\\me\\.ssh\\id_new"), .comment = u8"me@pc" }) };
         CHECK(test.status(id).state == operation_state::failed);
         CHECK(test.process.calls().empty());
     }
@@ -236,6 +239,8 @@ TEST_CASE("ssh-keygen failures say why and an existing key is refused before run
 
 // ---------------------------------------------------------------------------------------------- 읽기 도구
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("ssh tools are taken from Git for Windows and the agent from the system OpenSSH", "[ssh][info]")
 {
     fake_probe probe {};
@@ -282,6 +287,7 @@ TEST_CASE("ssh tools are taken from Git for Windows and the agent from the syste
         CHECK(programs.ssh_add.empty());
     }
 }
+#endif
 
 namespace {
     // `ssh-add -l`처럼 stdout 줄을 레코드로 내는 가짜 프로세스다.
@@ -321,7 +327,7 @@ namespace {
         ssh_info_sources sources {};
         sources.service_status = [] { return ssh_agent_service_status::running; };
         sources.runner = &runner;
-        sources.ssh_add_executable = u8"C:\\Windows\\System32\\OpenSSH\\ssh-add.exe";
+        sources.ssh_add_executable = native_path(u8"C:\\Windows\\System32\\OpenSSH\\ssh-add.exe");
         sources.ssh_directory = directory;
         return sources;
     }
@@ -353,7 +359,7 @@ TEST_CASE("collecting ssh info reads the service, the agent's keys and the key p
 
     // 프로세스 요청은 절대 경로의 작업 디렉터리를 요구한다.
     REQUIRE(runner.requests.size() == 1);
-    CHECK(runner.requests[0].working_directory == u8"C:\\Windows\\System32\\OpenSSH");
+    CHECK(runner.requests[0].working_directory == native_path(u8"C:\\Windows\\System32\\OpenSSH"));
     CHECK(runner.requests[0].arguments == std::vector<std::u8string> { u8"-l" });
 }
 
@@ -405,7 +411,7 @@ namespace {
     struct repository_ssh_harness
     {
         repository_ssh_harness()
-            : runner { process, u8"C:/Git/cmd/git.exe", files, ssh_harness::make_options(true) }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, ssh_harness::make_options(true) }
         {}
 
         operation_finished execute(create_ssh_repository_request request, std::shared_ptr<std::atomic<bool>> prompt_cancelled = {})
@@ -413,7 +419,7 @@ namespace {
             git_operation_job job {};
             job.id = 9;
             job.repository_id = "repo";
-            job.repository_path = u8"C:/work/repo";
+            job.repository_path = native_path(u8"C:/work/repo");
             job.operation = std::move(request);
             job.generation = 1;
             job.prompt_cancelled = std::move(prompt_cancelled);
@@ -447,7 +453,7 @@ TEST_CASE("creating the repository on an ssh server runs one ssh command and rep
         CHECK(calls[0].arguments[2] == "2222");
         CHECK(calls[0].arguments[3] == "me@git.example.org");
         CHECK(calls[0].arguments[4].find("p='/srv/git/app.git'") != std::string::npos);
-        CHECK(calls[0].working_directory == "C:/work/repo");
+        CHECK(calls[0].working_directory == native_path("C:/work/repo"));
         CHECK(calls[0].variable(u8"CYELLA_ASKPASS_OPERATION") == std::optional<std::string> { "9" });
     }
 
@@ -503,6 +509,8 @@ TEST_CASE("creating the repository on an ssh server runs one ssh command and rep
     }
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("repository creation trusts a host once through a temporary known_hosts and deletes it afterwards", "[ssh][operation][repository]")
 {
     repository_ssh_harness test {};
@@ -517,6 +525,7 @@ TEST_CASE("repository creation trusts a host once through a temporary known_host
     CHECK(calls[0].arguments[2] == "UserKnownHostsFile=\"C:/Temp/kh.tmp\"");
     CHECK_FALSE(test.files.content(u8"C:/Temp/kh.tmp").has_value());
 }
+#endif
 
 TEST_CASE("repository creation signs in with the profile key the request carries", "[ssh][operation][repository]")
 {
@@ -524,7 +533,7 @@ TEST_CASE("repository creation signs in with the profile key the request carries
     repository_ssh_harness test {};
     test.process.when({ "-T" }, test::scripted_response { .exit_code = 0, .standard_output = "cyella:created\n" });
     create_ssh_repository_request request { .url = "me@host:app.git" };
-    request.identity_file = u8"C:\\Users\\me\\.ssh\\work_key";
+    request.identity_file = native_path(u8"C:\\Users\\me\\.ssh\\work_key");
     CHECK(test.execute(std::move(request)).state == operation_state::succeeded);
     const std::vector<test::recorded_call> calls { test.process.calls() };
     REQUIRE(calls.size() == 1);
@@ -532,7 +541,7 @@ TEST_CASE("repository creation signs in with the profile key the request carries
     const auto key { std::ranges::find(arguments, std::string { "-i" }) };
     REQUIRE(key != arguments.end());
     REQUIRE(std::next(key) != arguments.end());
-    CHECK(*std::next(key) == "C:/Users/me/.ssh/work_key");
+    CHECK(*std::next(key) == native_path("C:/Users/me/.ssh/work_key"));
     CHECK(std::ranges::find(arguments, std::string { "IdentitiesOnly=yes" }) != arguments.end());
 }
 

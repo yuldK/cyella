@@ -1,10 +1,21 @@
 // process runner test가 띄우는 도우미 실행 파일이다. 인자를 앞에서부터 명령으로 읽어
 // 차례로 수행하므로 `echo_stdin write_text done exit 3`처럼 이어 붙일 수 있다.
 //
-// 출력은 CRT가 아니라 Win32 handle에 직접 쓴다. CRT의 text 모드는 `\n`을 `\r\n`으로
+// 출력은 CRT가 아니라 Win32 handle(POSIX는 파일 기술자)에 직접 쓴다. CRT의 text 모드는 `\n`을 `\r\n`으로
 // 바꾸고 NUL 이후를 자르는 경우가 있어, 원시 byte를 검증하는 test가 깨진다.
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include <cerrno>
+#include <spawn.h>
+#include <unistd.h>
+
+#include <chrono>
+#include <thread>
+
+extern char** environ;
+#endif
 
 #include <algorithm>
 #include <cstddef>
@@ -15,6 +26,25 @@
 #include <vector>
 
 namespace {
+#if !defined(_WIN32)
+    // POSIX에서 같은 이름으로 쓰는 표준 기술자 번호다.
+    constexpr int STD_OUTPUT_HANDLE { STDOUT_FILENO };
+    constexpr int STD_ERROR_HANDLE { STDERR_FILENO };
+
+    void write_all(const int fd, const char* const data, const std::size_t size)
+    {
+        std::size_t offset { 0 };
+        while (offset < size)
+        {
+            const ssize_t written { ::write(fd, data + offset, std::min<std::size_t>(size - offset, 64u * 1024u)) };
+            if (written < 0 && errno == EINTR)
+                continue;
+            if (written <= 0)
+                return;
+            offset += static_cast<std::size_t>(written);
+        }
+    }
+#else
     void write_all(const DWORD standard_handle, const char* const data, const std::size_t size)
     {
         const HANDLE handle { GetStdHandle(standard_handle) };
@@ -28,6 +58,7 @@ namespace {
             offset += written;
         }
     }
+#endif
 
     // `\n`, `\r`, `\0`, `\\`만 해석한다. NUL을 명령줄로 직접 넘길 수 없어서 필요하다.
     std::string unescape(const std::string_view text)
@@ -62,6 +93,18 @@ namespace {
 
     void echo_standard_input()
     {
+#if !defined(_WIN32)
+        std::vector<char> buffer(64u * 1024u);
+        while (true)
+        {
+            const ssize_t read_count { ::read(STDIN_FILENO, buffer.data(), buffer.size()) };
+            if (read_count < 0 && errno == EINTR)
+                continue;
+            if (read_count <= 0)
+                return;
+            write_all(STD_OUTPUT_HANDLE, buffer.data(), static_cast<std::size_t>(read_count));
+        }
+#else
         const HANDLE input { GetStdHandle(STD_INPUT_HANDLE) };
         std::vector<char> buffer(64u * 1024u);
         while (true)
@@ -71,6 +114,7 @@ namespace {
                 return;
             write_all(STD_OUTPUT_HANDLE, buffer.data(), read_count);
         }
+#endif
     }
 
     // byte i의 값이 `i % 256`이다. NUL(0)과 `\r`(13), `\n`(10)이 주기적으로 들어간다.
@@ -99,6 +143,19 @@ namespace {
 
     // 자기 자신을 `sleep`으로 다시 띄우고 기다리지 않는다. 상속 가능한 handle을 그대로
     // 물려주므로 손자가 부모의 stdout·stderr pipe를 계속 잡고 있게 된다.
+#if !defined(_WIN32)
+    // POSIX 판이다. 열린 기술자(stdout·stderr pipe)를 그대로 물려주고 기다리지 않는다.
+    void spawn_grandchild(const char* const self, const std::uint32_t milliseconds)
+    {
+        std::string program { self };
+        std::string command { "sleep" };
+        std::string duration { std::to_string(milliseconds) };
+        char* const argv[] { program.data(), command.data(), duration.data(), nullptr };
+        pid_t child { 0 };
+        if (::posix_spawn(&child, program.c_str(), nullptr, nullptr, argv, environ) != 0)
+            std::exit(97);
+    }
+#else
     void spawn_grandchild(const std::uint32_t milliseconds)
     {
         wchar_t module_path[MAX_PATH] {};
@@ -116,8 +173,10 @@ namespace {
         CloseHandle(created.hThread);
         CloseHandle(created.hProcess);
     }
+#endif
 } // namespace
 
+#if defined(_WIN32)
 int wmain(const int argument_count, wchar_t** const wide_arguments)
 {
     std::vector<std::string> arguments {};
@@ -129,6 +188,13 @@ int wmain(const int argument_count, wchar_t** const wide_arguments)
         converted.resize(converted.size() - 1);
         arguments.push_back(std::move(converted));
     }
+#else
+int main(const int argument_count, char** const narrow_arguments)
+{
+    std::vector<std::string> arguments {};
+    for (int index = 1; index < argument_count; ++index)
+        arguments.emplace_back(narrow_arguments[index]);
+#endif
 
     std::size_t position { 0 };
     const auto next_value = [&arguments, &position]() -> std::string {
@@ -156,10 +222,17 @@ int wmain(const int argument_count, wchar_t** const wide_arguments)
         }
         else if (command == "error_lines")
             write_numbered_lines(static_cast<std::size_t>(std::stoull(next_value())));
+#if defined(_WIN32)
         else if (command == "sleep")
             Sleep(static_cast<DWORD>(std::stoul(next_value())));
         else if (command == "grandchild")
             spawn_grandchild(static_cast<std::uint32_t>(std::stoul(next_value())));
+#else
+        else if (command == "sleep")
+            std::this_thread::sleep_for(std::chrono::milliseconds { std::stoul(next_value()) });
+        else if (command == "grandchild")
+            spawn_grandchild(narrow_arguments[0], static_cast<std::uint32_t>(std::stoul(next_value())));
+#endif
         else if (command == "exit")
             return std::stoi(next_value());
         else

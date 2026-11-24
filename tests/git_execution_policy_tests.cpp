@@ -1,4 +1,5 @@
 #include "infrastructure/git_execution_policy.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -6,6 +7,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -20,7 +23,7 @@ namespace {
 
     process_request make_request(const git_command_class command_class, const git_request_options& options = {})
     {
-        return make_git_process_request(u8"C:/Git/cmd/git.exe", u8"C:/work/repo", { u8"status", u8"--porcelain=v2" }, command_class, options);
+        return make_git_process_request(native_path(u8"C:/Git/cmd/git.exe"), native_path(u8"C:/work/repo"), { u8"status", u8"--porcelain=v2" }, command_class, options);
     }
 } // namespace
 
@@ -30,8 +33,8 @@ TEST_CASE("git requests start with the common arguments", "[policy]")
 
     const std::vector<std::u8string> expected { u8"-c", u8"core.quotepath=false", u8"-c", u8"gc.auto=0", u8"-c", u8"color.ui=false", u8"-c", u8"log.showSignature=false", u8"--no-pager", u8"status", u8"--porcelain=v2" };
     CHECK(request.arguments == expected);
-    CHECK(request.executable == u8"C:/Git/cmd/git.exe");
-    CHECK(request.working_directory == u8"C:/work/repo");
+    CHECK(request.executable == native_path(u8"C:/Git/cmd/git.exe"));
+    CHECK(request.working_directory == native_path(u8"C:/work/repo"));
 }
 
 TEST_CASE("git requests turn off signature output so log and show records stay parseable", "[policy]")
@@ -61,11 +64,11 @@ TEST_CASE("git requests remove inherited variables that point git at another rep
 
     // 요청이 같은 이름을 주면 지우는 대신 그 값을 쓴다.
     git_request_options options {};
-    options.environment.push_back({ u8"GIT_INDEX_FILE", std::u8string { u8"C:/work/repo/.git/index.tmp" } });
+    options.environment.push_back({ u8"GIT_INDEX_FILE", std::u8string { native_path(u8"C:/work/repo/.git/index.tmp") } });
     const process_request custom { make_request(git_command_class::local_write, options) };
     const process_environment_override* const index { find_override(custom.environment_overrides, u8"GIT_INDEX_FILE") };
     REQUIRE(index != nullptr);
-    CHECK(index->value == std::optional<std::u8string> { u8"C:/work/repo/.git/index.tmp" });
+    CHECK(index->value == std::optional<std::u8string> { native_path(u8"C:/work/repo/.git/index.tmp") });
     CHECK(validate_process_request(custom).empty());
 }
 
@@ -86,7 +89,7 @@ TEST_CASE("git read queries skip optional locks so they can run beside writes", 
 
 TEST_CASE("git requests run in the C locale without an editor", "[policy]")
 {
-    for (const std::u8string_view helper : { std::u8string_view {}, std::u8string_view { u8"C:/cyella/askpass.exe" } })
+    for (const std::u8string& helper : { std::u8string {}, native_path(u8"C:/cyella/askpass.exe") })
     {
         git_request_options options {};
         options.askpass_helper = helper;
@@ -136,7 +139,7 @@ TEST_CASE("git requests without a helper remove inherited askpass variables", "[
 TEST_CASE("git requests with a helper route askpass to it", "[policy][askpass]")
 {
     git_request_options options {};
-    options.askpass_helper = u8"C:/cyella/cyella_askpass.exe";
+    options.askpass_helper = native_path(u8"C:/cyella/cyella_askpass.exe");
 
     const process_request request { make_request(git_command_class::network, options) };
 
@@ -145,7 +148,7 @@ TEST_CASE("git requests with a helper route askpass to it", "[policy][askpass]")
         const process_environment_override* const entry { find_override(request.environment_overrides, name) };
         REQUIRE(entry != nullptr);
         REQUIRE(entry->value.has_value());
-        CHECK(*entry->value == u8"C:/cyella/cyella_askpass.exe");
+        CHECK(*entry->value == native_path(u8"C:/cyella/cyella_askpass.exe"));
     }
     const process_environment_override* const require { find_override(request.environment_overrides, u8"SSH_ASKPASS_REQUIRE") };
     REQUIRE(require != nullptr);
@@ -211,7 +214,7 @@ TEST_CASE("git requests carry the askpass session only together with the helper"
         CHECK_FALSE(entry->value.has_value());
     }
 
-    options.askpass_helper = u8"C:/cyella/bin/cyella-askpass.exe";
+    options.askpass_helper = native_path(u8"C:/cyella/bin/cyella-askpass.exe");
     const process_request with_helper { make_request(git_command_class::network, options) };
     const process_environment_override* const pipe { find_override(with_helper.environment_overrides, u8"CYELLA_ASKPASS_PIPE") };
     const process_environment_override* const token { find_override(with_helper.environment_overrides, u8"CYELLA_ASKPASS_TOKEN") };

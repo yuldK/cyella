@@ -5,6 +5,7 @@
 
 #include "fake_git_runner.h"
 #include "git_test_support.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -12,6 +13,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -21,11 +24,11 @@ namespace {
     struct workspace_harness
     {
         explicit workspace_harness(const std::size_t log_page_size = 10000, const std::size_t finished_history_limit = 256)
-            : runner { process, u8"C:/Git/cmd/git.exe", files, make_options(log_page_size) }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, make_options(log_page_size) }
             , workspace { runner, make_dispatcher(), events.sink(), nullptr, make_workspace_options(finished_history_limit) }
         {
-            process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, "C:/work/repo/.git\nC:/work/repo\n" });
-            repository = workspace.open_repository(u8"C:/work/repo");
+            process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, native_path("C:/work/repo/.git\nC:/work/repo\n") });
+            repository = workspace.open_repository(native_path(u8"C:/work/repo"));
         }
 
         static git_operation_runner_options make_options(const std::size_t log_page_size)
@@ -369,7 +372,7 @@ TEST_CASE("a conflict waits for a decision and can only be left through abort", 
     workspace_harness test {};
     test.process.when({ "rebase", "--", "main", "feature" }, scripted_response { 1, "CONFLICT (content): Merge conflict in a.txt\n", { "error: could not apply 1234567... feat" } });
     test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(1), "(detached)") + test::status_conflict("a.txt") });
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/msgnum", "1\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/msgnum"), "1\n");
 
     const operation_id rebase { test.workspace.submit(test.repository, rebase_request { "feature", "main" }) };
     REQUIRE(test.dispatcher.run());
@@ -440,24 +443,25 @@ TEST_CASE("fetch refreshes the remote tag state after it succeeds", "[workspace]
 TEST_CASE("setup operations are keyed by the target path", "[workspace][setup]")
 {
     workspace_harness test {};
-    const operation_id clone { test.workspace.submit_setup(clone_request { "C:/remote.git", u8"C:/work/new" }) };
+    const operation_id clone { test.workspace.submit_setup(clone_request { native_path("C:/remote.git"), native_path(u8"C:/work/new") }) };
     REQUIRE(clone != 0);
     CHECK(test.status(clone).repository_id.empty());
-    CHECK(test.status(clone).target_path == u8"C:/work/new");
-    CHECK(test.dispatcher.peek(0).repository_key == "setup:c:/work/new");
+    CHECK(test.status(clone).target_path == native_path(u8"C:/work/new"));
+    // 열쇠는 경로의 비교 열쇠(`/` 구분, 소문자)다.
+    CHECK(test.dispatcher.peek(0).repository_key == "setup:" + native_path("c:/work/new"));
     CHECK(test.workspace.submit(test.repository, clone_request {}) == 0);
     CHECK(test.workspace.submit_setup(fetch_request {}) == 0);
 
     test.settle();
     CHECK(test.status(clone).state == operation_state::succeeded);
     REQUIRE(test.process.calls().size() == 1);
-    CHECK(test.process.calls()[0].working_directory == "C:/work");
+    CHECK(test.process.calls()[0].working_directory == native_path("C:/work"));
 }
 
 TEST_CASE("the same path opens the same repository", "[workspace]")
 {
     workspace_harness test {};
-    CHECK(test.workspace.open_repository(u8"c:\\WORK\\repo\\") == test.repository);
+    CHECK(test.workspace.open_repository(native_path(u8"c:\\WORK\\repo\\")) == test.repository);
     CHECK(test.workspace.repository_ids().size() == 1);
 }
 
@@ -732,7 +736,7 @@ TEST_CASE("a reopened repository does not receive events of operations from befo
     CHECK(test.status(old_refresh).state == operation_state::cancelled);
 
     // 같은 경로로 다시 연 세션은 id가 같고 generation도 1부터 다시 센다.
-    REQUIRE(test.workspace.open_repository(u8"C:/work/repo") == test.repository);
+    REQUIRE(test.workspace.open_repository(native_path(u8"C:/work/repo")) == test.repository);
     const operation_id fresh { test.workspace.submit(test.repository, refresh_request {}) };
     REQUIRE(fresh != 0);
     REQUIRE(test.session().requested_generation() == 1);
@@ -752,7 +756,7 @@ TEST_CASE("cancelling while walking the operation order keeps the order and trim
     workspace_harness test { 10000, 0 };
     test.process.when({ "rebase", "--", "main", "feature" }, scripted_response { 1, "CONFLICT (content): Merge conflict in a.txt\n", { "error: could not apply 1234567... feat" } });
     test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(1), "(detached)") + test::status_conflict("a.txt") });
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/msgnum", "1\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/msgnum"), "1\n");
     const operation_id rebase { test.workspace.submit(test.repository, rebase_request { "feature", "main" }) };
     REQUIRE(test.dispatcher.run());
     test.apply_events();
@@ -1019,7 +1023,7 @@ TEST_CASE("the result of a superseded blame_file or file_history that still fini
 TEST_CASE("blame_file and file_history cancel only their own kind in their own repository", "[workspace][blame][cancel]")
 {
     workspace_harness test {};
-    const std::string other { test.workspace.open_repository(u8"C:/work/other") };
+    const std::string other { test.workspace.open_repository(native_path(u8"C:/work/other")) };
 
     const operation_id blame { test.workspace.submit(test.repository, blame_file_request { .path = "a.txt" }) };
     const operation_id diff { test.workspace.submit(test.repository, diff_file_request { .path = "a.txt" }) };
@@ -1047,7 +1051,7 @@ TEST_CASE("blame_file and file_history cancel only their own kind in their own r
 
 TEST_CASE("the session accepts only the blame and file history it expects", "[session][blame]")
 {
-    repository_session session { "repo", u8"C:/work/repo" };
+    repository_session session { "repo", native_path(u8"C:/work/repo") };
     file_blame_loaded blame {};
     blame.blame.request.path = "a.txt";
     file_history_loaded history {};
@@ -1222,7 +1226,7 @@ TEST_CASE("the result of a superseded search_commits that still finishes is disc
 TEST_CASE("search_commits cancels only its own kind in its own repository", "[workspace][commit_search][cancel]")
 {
     workspace_harness test {};
-    const std::string other { test.workspace.open_repository(u8"C:/work/other") };
+    const std::string other { test.workspace.open_repository(native_path(u8"C:/work/other")) };
 
     const operation_id search { test.workspace.submit(test.repository, search_commits_request { .query = "a" }) };
     const operation_id history { test.workspace.submit(test.repository, file_history_request { .path = "a.txt" }) };
@@ -1246,7 +1250,7 @@ TEST_CASE("search_commits cancels only its own kind in its own repository", "[wo
 
 TEST_CASE("the session accepts only the commit search it expects", "[session][commit_search]")
 {
-    repository_session session { "repo", u8"C:/work/repo" };
+    repository_session session { "repo", native_path(u8"C:/work/repo") };
     commit_search_loaded found {};
     found.search.request.query = "fix";
     found.search.commits.push_back(commit_info { .sha = test::sha_of(1), .subject = "fix one" });

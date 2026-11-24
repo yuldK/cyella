@@ -1,5 +1,6 @@
 // 툴팁 글을 한 줄 툴팁과 카드 중 어디에 그릴지, 카드가 폭 안에서 접히는지를 본다. 보조 기술이 읽는 글(`tooltip()`)은
 // 카드를 달아도 원문 그대로여야 한다.
+#include "native_path_support.h"
 #include "presentation/ui/tooltip_card.h"
 
 #include "luil/ui/ui_tree.h"
@@ -7,6 +8,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -66,7 +69,7 @@ TEST_CASE("multi-line tooltips become a card no wider than the card width", "[pr
 
 TEST_CASE("a long single line wraps inside a card instead of running off the window", "[presentation][tooltip]")
 {
-    const std::u8string path { u8"C:/Users/tester/work/worktrees/branch-overflow-refresh/cyella/src/presentation/ui/repository_tabs_element.cpp" };
+    const std::u8string path { native_path(u8"C:/Users/tester/work/worktrees/branch-overflow-refresh/cyella/src/presentation/ui/repository_tabs_element.cpp") };
     const auto card { ui::make_tooltip_card(path) };
     REQUIRE(card.has_value());
     const luil::rect_f bounds { content_bounds(*card) };

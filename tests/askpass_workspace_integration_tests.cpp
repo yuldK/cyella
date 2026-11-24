@@ -2,8 +2,6 @@
 // 127.0.0.1에 여는 작은 HTTP 서버다. 모든 요청에 401(Basic)로 답하고, 맞는 Authorization 헤더가 오면
 // 빈 저장소의 smart-HTTP `info/refs`를 돌려준다. 모두 `[integration]` 태그를 가지며 git이 없으면
 // 건너뛴다.
-#include <winsock2.h>
-#include <ws2tcpip.h>
 
 #include "application/git_workspace.h"
 #include "application/task_scheduler.h"
@@ -17,6 +15,7 @@
 #include "askpass_test_support.h"
 #include "fake_git_runner.h"
 #include "git_test_support.h"
+#include "socket_compat.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -35,6 +34,7 @@
 
 namespace {
     using namespace cyella;
+    using namespace cyella::test;
     using namespace std::chrono_literals;
 
     // base64("alice:pw")다. git이 Basic 인증으로 보내는 값이다.
@@ -61,8 +61,7 @@ namespace {
     public:
         basic_auth_http_server()
         {
-            WSADATA data {};
-            REQUIRE(WSAStartup(MAKEWORD(2, 2), &data) == 0);
+            REQUIRE(start_sockets());
             listener_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
             REQUIRE(listener_ != INVALID_SOCKET);
             sockaddr_in address {};
@@ -71,7 +70,7 @@ namespace {
             REQUIRE(inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) == 1);
             REQUIRE(bind(listener_, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
             REQUIRE(listen(listener_, 8) == 0);
-            int length { sizeof(address) };
+            socket_length length { sizeof(address) };
             REQUIRE(getsockname(listener_, reinterpret_cast<sockaddr*>(&address), &length) == 0);
             port_ = ntohs(address.sin_port);
             thread_ = std::thread { [this] { serve(); } };
@@ -86,7 +85,7 @@ namespace {
             if (thread_.joinable())
                 thread_.join();
             closesocket(listener_);
-            WSACleanup();
+            stop_sockets();
         }
 
         [[nodiscard]] std::uint16_t port() const noexcept
@@ -130,7 +129,7 @@ namespace {
                 FD_ZERO(&readable);
                 FD_SET(listener_, &readable);
                 timeval wait { 0, 50 * 1000 };
-                if (select(0, &readable, nullptr, nullptr, &wait) <= 0)
+                if (select(select_width(listener_), &readable, nullptr, nullptr, &wait) <= 0)
                     continue;
                 SOCKET connection { accept(listener_, nullptr, nullptr) };
                 if (connection == INVALID_SOCKET)
@@ -142,14 +141,13 @@ namespace {
 
         void handle(const SOCKET connection)
         {
-            const DWORD receive_timeout { 3000 };
-            setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&receive_timeout), sizeof(receive_timeout));
+            set_receive_timeout(connection, 3000);
 
             std::string head {};
             char buffer[2048] {};
             while (head.find("\r\n\r\n") == std::string::npos)
             {
-                const int received { recv(connection, buffer, sizeof(buffer), 0) };
+                const int received { static_cast<int>(recv(connection, buffer, sizeof(buffer), 0)) };
                 if (received <= 0)
                     return;
                 head.append(buffer, static_cast<std::size_t>(received));

@@ -2,12 +2,15 @@
 #include "infrastructure/git_operation_runner.h"
 
 #include "fake_git_runner.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -19,9 +22,9 @@ namespace {
     struct harness
     {
         harness()
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
         {
-            process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, "C:/work/repo/.git\nC:/work/repo\n" });
+            process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, native_path("C:/work/repo/.git\nC:/work/repo\n") });
         }
 
         std::vector<operation_event> execute(git_operation operation)
@@ -29,7 +32,7 @@ namespace {
             git_operation_job job {};
             job.id = 3;
             job.repository_id = "repo";
-            job.repository_path = u8"C:/work/repo";
+            job.repository_path = native_path(u8"C:/work/repo");
             job.operation = std::move(operation);
             job.generation = 1;
             std::vector<operation_event> events {};
@@ -139,9 +142,11 @@ TEST_CASE("a checkout refused because the branch lives in another worktree is cl
     REQUIRE(finished.state == operation_state::failed);
     REQUIRE(finished.failure.has_value());
     CHECK(finished.failure->kind == failure_kind::branch_checked_out_elsewhere);
-    CHECK(finished.failure->summary.find(u8"C:/work/repo-feat") != std::u8string::npos);
+    CHECK(finished.failure->summary.find(native_path(u8"C:/work/repo-feat")) != std::u8string::npos);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("worktree_remove refuses the main and current worktrees and locked ones without force", "[operation][extension][worktree]")
 {
     const std::string head { "HEAD 1111111111111111111111111111111111111111\n" };
@@ -173,6 +178,7 @@ TEST_CASE("worktree_remove refuses the main and current worktrees and locked one
     CHECK(finished_of(test.execute(worktree_remove_request { u8"C:/work/locked", true })).state == operation_state::succeeded);
     CHECK(test.process.calls().back().arguments == text_list { "worktree", "remove", "--force", "--force", "--", "C:/work/locked" });
 }
+#endif
 
 TEST_CASE("worktree_add needs an absolute folder and something to check out", "[operation][extension][worktree]")
 {
@@ -180,13 +186,13 @@ TEST_CASE("worktree_add needs an absolute folder and something to check out", "[
     const operation_finished relative { finished_of(test.execute(worktree_add_request { .path = u8"relative\\dir", .branch = "feat" })) };
     REQUIRE(relative.failure.has_value());
     CHECK(relative.failure->kind == failure_kind::invalid_request);
-    const operation_finished nothing { finished_of(test.execute(worktree_add_request { .path = u8"C:/work/new" })) };
+    const operation_finished nothing { finished_of(test.execute(worktree_add_request { .path = native_path(u8"C:/work/new") })) };
     REQUIRE(nothing.failure.has_value());
     CHECK(nothing.failure->kind == failure_kind::invalid_request);
     CHECK(std::ranges::none_of(test.process.calls(), [](const test::recorded_call& call) { return call.arguments.size() > 1 && call.arguments[1] == "add"; }));
 
-    CHECK(finished_of(test.execute(worktree_add_request { .path = u8"C:/work/new", .new_branch = "topic", .start_point = "abc1234" })).state == operation_state::succeeded);
-    CHECK(test.process.calls().back().arguments == text_list { "worktree", "add", "-b", "topic", "--", "C:/work/new", "abc1234" });
+    CHECK(finished_of(test.execute(worktree_add_request { .path = native_path(u8"C:/work/new"), .new_branch = "topic", .start_point = "abc1234" })).state == operation_state::succeeded);
+    CHECK(test.process.calls().back().arguments == text_list { "worktree", "add", "-b", "topic", "--", native_path("C:/work/new"), "abc1234" });
 }
 
 TEST_CASE("submodule update and sync run the matching commands", "[operation][extension][submodule]")
@@ -216,8 +222,8 @@ TEST_CASE("refresh reads submodules, worktrees and LFS state only when the repos
     SECTION("a .gitmodules file and LFS attributes turn on the other reads")
     {
         harness test {};
-        test.files.put(u8"C:/work/repo/.gitmodules", "[submodule \"libs/a\"]\n\tpath = libs/a\n\turl = ../a\n");
-        test.files.put(u8"C:/work/repo/.gitattributes", "*.bin filter=lfs diff=lfs merge=lfs -text\n");
+        test.files.put(native_path(u8"C:/work/repo/.gitmodules"), "[submodule \"libs/a\"]\n\tpath = libs/a\n\turl = ../a\n");
+        test.files.put(native_path(u8"C:/work/repo/.gitattributes"), "*.bin filter=lfs diff=lfs merge=lfs -text\n");
         test.process.when({ "status" }, scripted_response { 0, "# branch.oid 1111111111111111111111111111111111111111\n# branch.head main\n" });
         test.process.when({ "submodule", "status" }, scripted_response { 0, "-1ecfd40f48933961e1d368341744a076db579db3 libs/a\n" });
         test.process.when({ "lfs", "version" }, scripted_response { 0, lfs_version });

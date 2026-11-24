@@ -35,6 +35,8 @@ TEST_CASE("integration: a gitignore literal ignores only that one file", "[domai
     CHECK(status.standard_output.find("?? a1.txt") != std::string::npos);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("workspace children join the root with backslashes", "[domain][path]")
 {
     CHECK(resolve_workspace_child(u8"C:\\work\\repo", "a.txt") == std::u8string { u8"C:\\work\\repo\\a.txt" });
@@ -43,7 +45,10 @@ TEST_CASE("workspace children join the root with backslashes", "[domain][path]")
     // 이름이 `.git`으로 시작해도 `.git` 자체가 아니면 허용한다.
     CHECK(resolve_workspace_child(u8"C:\\work\\repo", ".gitignore").has_value());
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("workspace children refuse paths that leave the repository or touch .git", "[domain][path]")
 {
     const std::u8string root { u8"C:\\work\\repo" };
@@ -80,6 +85,7 @@ TEST_CASE("workspace children refuse paths that leave the repository or touch .g
     CHECK_FALSE(resolve_workspace_child(u8"relative", "a.txt").has_value());
     CHECK_FALSE(resolve_workspace_child(u8"", "a.txt").has_value());
 }
+#endif
 
 TEST_CASE("absolute windows paths need a drive, a share or an extended drive prefix", "[domain][path]")
 {

@@ -1,10 +1,13 @@
 #include "domain/hosting_remote.h"
 #include "infrastructure/json_app_settings_store.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -61,7 +64,7 @@ TEST_CASE("the secret in a remote URL's user info is masked for display", "[host
     CHECK(mask_remote_url_userinfo("ssh://git@h/r.git") == "ssh://git@h/r.git");
     CHECK(mask_remote_url_userinfo("ssh://git:secret@h/r.git") == "ssh://git:***@h/r.git");
     CHECK(mask_remote_url_userinfo("git@github.com:me/r.git") == "git@github.com:me/r.git");
-    CHECK(mask_remote_url_userinfo("C:/repo") == "C:/repo");
+    CHECK(mask_remote_url_userinfo(native_path("C:/repo")) == native_path("C:/repo"));
     CHECK(mask_remote_url_userinfo("https://h/r.git") == "https://h/r.git");
     CHECK(mask_remote_url_userinfo("https://h/path@x") == "https://h/path@x");
 }

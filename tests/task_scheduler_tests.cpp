@@ -1,4 +1,5 @@
 #include "application/task_scheduler.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -10,6 +11,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -259,7 +262,7 @@ TEST_CASE("a job receives its id and repository key", "[scheduler]")
     operation_id seen_id { 0 };
     std::string seen_key {};
 
-    REQUIRE(scheduler.submit(make_request(42, "C:/work/repo", [&](const operation_context& context) {
+    REQUIRE(scheduler.submit(make_request(42, native_path("C:/work/repo"), [&](const operation_context& context) {
         seen_id = context.id;
         seen_key = std::string { context.repository_key };
         done.add();
@@ -267,7 +270,7 @@ TEST_CASE("a job receives its id and repository key", "[scheduler]")
 
     REQUIRE(done.wait_for_count(1, 10s));
     CHECK(seen_id == 42);
-    CHECK(seen_key == "C:/work/repo");
+    CHECK(seen_key == native_path("C:/work/repo"));
 }
 
 TEST_CASE("an empty job is rejected and a throwing job does not stop its lane", "[scheduler]")

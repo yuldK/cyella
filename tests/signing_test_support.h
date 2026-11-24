@@ -11,7 +11,11 @@
 #include "process_test_support.h"
 #include "temporary_directory_support.h"
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include <cstdlib>
+#endif
 
 #include <cctype>
 #include <chrono>
@@ -29,6 +33,35 @@
 //  - 키는 모두 임시 폴더에 새로 만든다.
 // test마다 새 프로세스로 도므로(ctest) 환경 변수를 바꿔도 다른 test에 새지 않는다. 그래도 소멸자가 되돌린다.
 namespace cyella::test {
+#if !defined(_WIN32)
+    // POSIX 판이다. 이름과 값은 Windows 판과 같은 넓은 글자로 받아 UTF-8로 옮긴다 (경로는 `std::filesystem::path`가 옮긴다).
+    class environment_variable_guard
+    {
+    public:
+        environment_variable_guard(const wchar_t* name, const std::wstring& value)
+            : name_ { std::filesystem::path { name }.string() }
+        {
+            if (const char* const old { std::getenv(name_.c_str()) }; old != nullptr)
+                previous_ = std::string { old };
+            ::setenv(name_.c_str(), std::filesystem::path { value }.string().c_str(), 1);
+        }
+
+        environment_variable_guard(const environment_variable_guard&) = delete;
+        environment_variable_guard& operator=(const environment_variable_guard&) = delete;
+
+        ~environment_variable_guard()
+        {
+            if (previous_.has_value())
+                ::setenv(name_.c_str(), previous_->c_str(), 1);
+            else
+                ::unsetenv(name_.c_str());
+        }
+
+    private:
+        std::string name_ {};
+        std::optional<std::string> previous_ {};
+    };
+#else
     class environment_variable_guard
     {
     public:
@@ -58,6 +91,7 @@ namespace cyella::test {
         const wchar_t* name_;
         std::optional<std::wstring> previous_ {};
     };
+#endif
 
     struct program_result
     {
@@ -103,6 +137,14 @@ namespace cyella::test {
     // Git for Windows의 gpg를 찾는다: git 실행 파일(`<루트>\cmd\git.exe`, `<루트>\mingw64\bin\git.exe`)의 위쪽 `usr\bin\gpg.exe`.
     inline std::optional<std::filesystem::path> find_gpg(const std::u8string_view git_executable)
     {
+#if !defined(_WIN32)
+        // macOS의 git은 gpg를 품지 않는다. Homebrew와 GPG Suite의 자리를 본다 (앱의 `locate_default_gpg`와 같다).
+        static_cast<void>(git_executable);
+        for (const char* const candidate : { "/opt/homebrew/bin/gpg", "/usr/local/bin/gpg", "/usr/local/MacGPG2/bin/gpg" })
+            if (std::filesystem::is_regular_file(candidate))
+                return std::filesystem::path { candidate };
+        return std::nullopt;
+#else
         std::filesystem::path directory { std::filesystem::path { git_executable }.parent_path() };
         for (int level { 0 }; level < 4 && directory.has_parent_path(); ++level, directory = directory.parent_path())
         {
@@ -111,6 +153,7 @@ namespace cyella::test {
                 return candidate;
         }
         return std::nullopt;
+#endif
     }
 
     // 임시 전역 설정과 GNUPGHOME을 만든다. 소멸할 때 이 폴더의 gpg-agent를 끈다.

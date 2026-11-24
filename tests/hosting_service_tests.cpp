@@ -3,6 +3,7 @@
 #include "infrastructure/git_credential_source.h"
 #include "infrastructure/hosting_service.h"
 #include "infrastructure/secret_masking.h"
+#include "native_path_support.h"
 #include "temporary_directory_support.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -12,6 +13,8 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -93,7 +96,7 @@ namespace {
         fixture()
         {
             context.repository = *resolve_hosting_repository("http://127.0.0.1:8123/octo/hello.git", "origin", { { "127.0.0.1:8123", hosting_provider::github, "http://127.0.0.1:8123" } });
-            context.working_directory = "C:\\work\\hello";
+            context.working_directory = native_path("C:\\work\\hello");
         }
     };
 
@@ -133,7 +136,7 @@ TEST_CASE("sign-in takes a token from the helper and verifies the account", "[ho
     REQUIRE(f.credentials.queries.size() == 1);
     CHECK(f.credentials.queries[0].protocol == "http");
     CHECK(f.credentials.queries[0].host == "127.0.0.1:8123");
-    CHECK(f.credentials.queries[0].working_directory == "C:\\work\\hello");
+    CHECK(f.credentials.queries[0].working_directory == native_path("C:\\work\\hello"));
     REQUIRE(f.transport.requests.size() == 1);
     CHECK(f.transport.requests[0].request.url == "http://127.0.0.1:8123/user");
     CHECK(f.transport.requests[0].bearer == "tok-1");
@@ -431,10 +434,10 @@ TEST_CASE("fill neither leaks to the terminal nor puts the token on the command 
 {
     scripted_runner runner {};
     runner.standard_output = "username=alice\npassword=SECRET-TOKEN-VALUE\n";
-    git_credential_source source { runner, { .git_executable = u8"C:\\git\\git.exe", .environment = { { u8"GIT_CONFIG_GLOBAL", u8"C:\\temp\\gitconfig" } } } };
+    git_credential_source source { runner, { .git_executable = native_path(u8"C:\\git\\git.exe"), .environment = { { u8"GIT_CONFIG_GLOBAL", native_path(u8"C:\\temp\\gitconfig") } } } };
     credential_query query {};
     query.host = "github.com";
-    query.working_directory = "C:\\work\\repo";
+    query.working_directory = native_path("C:\\work\\repo");
     credential_fill_result result { source.fill(query, {}) };
     REQUIRE(result.ok);
     CHECK(result.username == "alice");
@@ -442,8 +445,8 @@ TEST_CASE("fill neither leaks to the terminal nor puts the token on the command 
 
     REQUIRE(runner.requests.size() == 1);
     const process_request& request { runner.requests[0] };
-    CHECK(request.executable == u8"C:\\git\\git.exe");
-    CHECK(request.working_directory == u8"C:\\work\\repo");
+    CHECK(request.executable == native_path(u8"C:\\git\\git.exe"));
+    CHECK(request.working_directory == native_path(u8"C:\\work\\repo"));
     REQUIRE(request.arguments.size() >= 2);
     CHECK(request.arguments[request.arguments.size() - 2] == u8"credential");
     CHECK(request.arguments.back() == u8"fill");
@@ -465,7 +468,7 @@ TEST_CASE("fill neither leaks to the terminal nor puts the token on the command 
 TEST_CASE("fill failures come back with a reason", "[hosting][secrets]")
 {
     scripted_runner runner {};
-    git_credential_source source { runner, { .git_executable = u8"C:\\git\\git.exe" } };
+    git_credential_source source { runner, { .git_executable = native_path(u8"C:\\git\\git.exe") } };
     credential_query query {};
     query.host = "github.com";
 
@@ -487,7 +490,7 @@ TEST_CASE("fill failures come back with a reason", "[hosting][secrets]")
 TEST_CASE("reject passes the refused credential through standard input only", "[hosting][secrets]")
 {
     scripted_runner runner {};
-    git_credential_source source { runner, { .git_executable = u8"C:\\git\\git.exe" } };
+    git_credential_source source { runner, { .git_executable = native_path(u8"C:\\git\\git.exe") } };
     credential_query query {};
     query.host = "github.com";
     const secret_text token { "SECRET-TOKEN-VALUE" };

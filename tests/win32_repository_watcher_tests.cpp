@@ -480,6 +480,9 @@ TEST_CASE("stop may be requested from inside the callback", "[integration][watch
     watcher.reset();
 }
 
+// ReadDirectoryChangesW의 버퍼 넘침을 일으켜 본다. macOS의 FSEvents는 사건을 합칠 뿐 이렇게 넘치지 않는다 (놓쳤다고 알릴 때의
+// 처리는 macOS 감시도 같은 `note_overflow`다).
+#if defined(_WIN32)
 TEST_CASE("a buffer overflow while the consumer is busy reports both kinds", "[integration][watcher]")
 {
     test::temporary_directory directory { "watch-overflow" };
@@ -532,6 +535,7 @@ TEST_CASE("a buffer overflow while the consumer is busy reports both kinds", "[i
     CHECK(collector.wait_for(repository_state_changed, 3s));
     CHECK(collector.wait_for(working_tree_changed, 3s));
 }
+#endif
 
 TEST_CASE("a watched folder that disappears is reported once as watch_lost", "[integration][watcher]")
 {

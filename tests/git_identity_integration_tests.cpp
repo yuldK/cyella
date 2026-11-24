@@ -212,6 +212,8 @@ TEST_CASE("identity gateway commands are built without a shell", "[profiles][ide
     REQUIRE(make_identity_unset_arguments(u8"credential.username") == std::vector<std::u8string> { u8"config", u8"--local", u8"--unset-all", u8"--", u8"credential.username" });
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("applying a profile's sign-in account writes credential.username and an ssh command, and clearing removes them", "[profiles][identity][integration]")
 {
     if (test::git_is_available() == false)
@@ -261,6 +263,7 @@ TEST_CASE("applying a profile's sign-in account writes credential.username and a
     REQUIRE(after.identity.name.has_value());
     CHECK(after.identity.name->origin == identity_origin::global);
 }
+#endif
 
 TEST_CASE("git hands the repository's credential.username to the credential helper", "[profiles][identity][integration]")
 {

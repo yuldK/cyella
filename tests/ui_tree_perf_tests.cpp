@@ -1,5 +1,6 @@
 // snapshot에서 tree를 짓고 배치하는 데 드는 시간이다 (10만 행). 숨김 태그 `[perf]`라 ctest에는 없다:
 // cyella_tests.exe "[perf]"
+#include "native_path_support.h"
 #include "presentation/graph_index.h"
 #include "presentation/ui/build_ui_tree.h"
 
@@ -12,13 +13,15 @@
 #include <memory>
 #include <vector>
 
+using cyella::test::native_path;
+
 using namespace cyella;
 using namespace cyella::test::snapshot;
 
 TEST_CASE("building and arranging the tree for 100k graph rows", "[.][perf]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\big", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\big"), "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(100000), 2);
     harness.ui.tabs[tab].graph_scroll = 50000.0f * 28.0f;
     const repository_session& session { *harness.sessions["repo-1"] };

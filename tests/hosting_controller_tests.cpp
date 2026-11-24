@@ -1,4 +1,5 @@
 // GitHub·GitLab 화면의 controller·사이드바·대화 상자 규칙이다. 네트워크도 git도 없이 가짜 일감 수신기와 가짜 operation 표로 돈다.
+#include "native_path_support.h"
 #include "presentation/form_hosting.h"
 #include "presentation/hosting_controller.h"
 #include "presentation/hosting_sidebar.h"
@@ -9,6 +10,8 @@
 #include <map>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -35,7 +38,7 @@ namespace {
             hosting_target target {};
             target.repository_id = "repo-1";
             target.repository = resolve_hosting_repository("git@github.com:octo/hello.git", "origin", {});
-            target.working_directory = "C:\\work\\hello";
+            target.working_directory = native_path("C:\\work\\hello");
             target.current_branch = "feature/x";
             target.has_upstream = false;
             target.head_sha = std::string(40, 'a');
@@ -190,7 +193,7 @@ TEST_CASE("signing in submits one job and then loads the pull request list", "[h
     REQUIRE(test.jobs.size() == 1);
     CHECK(std::holds_alternative<hosting_sign_in_job>(test.jobs[0].work));
     CHECK(test.jobs[0].context.repository.host_key == "github.com");
-    CHECK(test.jobs[0].context.working_directory == "C:\\work\\hello");
+    CHECK(test.jobs[0].context.working_directory == native_path("C:\\work\\hello"));
     CHECK(test.controller.view_of("repo-1").signing_in);
     // 로그인 중에 또 눌러도 겹치지 않는다.
     test.controller.request_sign_in("repo-1");
@@ -784,7 +787,7 @@ TEST_CASE("publishing to a host signs in first, creates the repository and then 
     CHECK(test.notices.back().second);
     REQUIRE(std::holds_alternative<hosting_sign_in_job>(test.jobs[0].work));
     CHECK(test.jobs[0].context.repository.host_key == "github.com");
-    CHECK(test.jobs[0].context.working_directory == "C:\\work\\hello");
+    CHECK(test.jobs[0].context.working_directory == native_path("C:\\work\\hello"));
 
     test.deliver(test.jobs[0], hosting_result<std::string> { .value = std::string { "octocat" } });
     REQUIRE(test.jobs.size() == 2);

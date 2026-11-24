@@ -5,6 +5,7 @@
 #include "infrastructure/git_operation_runner.h"
 
 #include "fake_git_runner.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -12,6 +13,8 @@
 #include <functional>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -64,17 +67,17 @@ namespace {
     struct auth_harness
     {
         auth_harness()
-            : runner { process, u8"C:/Git/cmd/git.exe", files, make_runner_options() }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, make_runner_options() }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, make_workspace_options(&service) }
         {
-            process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, "C:/work/repo/.git\nC:/work/repo\n" });
-            repository = workspace.open_repository(u8"C:/work/repo");
+            process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, native_path("C:/work/repo/.git\nC:/work/repo\n") });
+            repository = workspace.open_repository(native_path(u8"C:/work/repo"));
         }
 
         static git_operation_runner_options make_runner_options()
         {
             git_operation_runner_options options {};
-            options.askpass_helper = u8"C:/app/bin/cyella-askpass.exe";
+            options.askpass_helper = native_path(u8"C:/app/bin/cyella-askpass.exe");
             options.askpass = askpass_endpoint { u8"\\\\.\\pipe\\cyella-askpass-test", u8"test-token" };
             return options;
         }
@@ -609,7 +612,7 @@ TEST_CASE("every git command of an operation gets the askpass session with the o
         CHECK(call.variable(u8"CYELLA_ASKPASS_OPERATION") == digits);
         CHECK(call.variable(u8"CYELLA_ASKPASS_PIPE") == std::string { "\\\\.\\pipe\\cyella-askpass-test" });
         CHECK(call.variable(u8"CYELLA_ASKPASS_TOKEN") == std::string { "test-token" });
-        CHECK(call.variable(u8"GIT_ASKPASS") == std::string { "C:/app/bin/cyella-askpass.exe" });
+        CHECK(call.variable(u8"GIT_ASKPASS") == std::string { native_path("C:/app/bin/cyella-askpass.exe") });
         CHECK(call.variable(u8"SSH_ASKPASS_REQUIRE") == std::string { "force" });
         CHECK_FALSE(call.variable(u8"GIT_SSH_COMMAND").has_value());
     }
@@ -621,12 +624,12 @@ TEST_CASE("without a helper the askpass variables are cleared and no session is 
     test::fake_workspace_files files {};
     test::manual_dispatcher dispatcher {};
     test::event_queue events {};
-    git_operation_runner runner { process, u8"C:/Git/cmd/git.exe", files };
+    git_operation_runner runner { process, native_path(u8"C:/Git/cmd/git.exe"), files };
     git_workspace_options options {};
     options.refresh_on_open = false;
     git_workspace workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, options };
-    process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, "C:/work/repo/.git\nC:/work/repo\n" });
-    const std::string repository { workspace.open_repository(u8"C:/work/repo") };
+    process.when({ "rev-parse", "--absolute-git-dir" }, scripted_response { 0, native_path("C:/work/repo/.git\nC:/work/repo\n") });
+    const std::string repository { workspace.open_repository(native_path(u8"C:/work/repo")) };
 
     static_cast<void>(workspace.submit(repository, fetch_request {}));
     REQUIRE(dispatcher.run());
@@ -642,7 +645,7 @@ TEST_CASE("without a helper the askpass variables are cleared and no session is 
 TEST_CASE("connect this time only sets GIT_SSH_COMMAND for that operation and removes the temporary file", "[workspace][auth]")
 {
     auth_harness test {};
-    const std::u8string known_hosts { u8"C:/Temp/cyella-known-hosts-1" };
+    const std::u8string known_hosts { native_path(u8"C:/Temp/cyella-known-hosts-1") };
     test.files.put(known_hosts, "");
     temporary_ssh_trust trust {};
     trust.command = u8"'C:/Git/usr/bin/ssh.exe' -o 'UserKnownHostsFile=C:/Temp/cyella-known-hosts-1' -o 'StrictHostKeyChecking=accept-new'";
@@ -705,7 +708,7 @@ TEST_CASE("closing the repository releases a pending prompt and ends the operati
 TEST_CASE("the temporary known_hosts file is removed even when the operation was cancelled before it ran", "[workspace][auth]")
 {
     auth_harness test {};
-    const std::u8string known_hosts { u8"C:/Temp/cyella-known-hosts-2" };
+    const std::u8string known_hosts { native_path(u8"C:/Temp/cyella-known-hosts-2") };
     test.files.put(known_hosts, "");
     temporary_ssh_trust trust {};
     trust.command = u8"ssh";

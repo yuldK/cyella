@@ -10,7 +10,11 @@
 // 요청은 한 줄 JSON으로 --request-log에 쌓인다: 토큰 값은 적지 않고 `auth`가 ok·bad·none 중 하나다.
 #include "fake_hosting_api.h"
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 #include <chrono>
 #include <cstdlib>
@@ -27,6 +31,45 @@
 
 namespace {
     using namespace cyella::test;
+
+    // 이 프로세스의 번호다. 임시 폴더 이름을 겹치지 않게 한다.
+    unsigned long current_process_id() noexcept
+    {
+#if defined(_WIN32)
+        return ::GetCurrentProcessId();
+#else
+        return static_cast<unsigned long>(::getpid());
+#endif
+    }
+
+    // `std::system`이 부르는 셸(Windows cmd.exe, POSIX sh)에 넘길 인자 하나다. 이름은 이미 `is_safe_repository_name`으로 거른 것이다.
+    std::string shell_quoted(const std::string& text)
+    {
+#if defined(_WIN32)
+        return "\"" + text + "\"";
+#else
+        std::string quoted { "'" };
+        for (const char letter : text)
+            quoted += letter == '\'' ? std::string { "'\\''" } : std::string { letter };
+        return quoted + "'";
+#endif
+    }
+
+    // 셸 명령 한 줄을 돌린다. cmd.exe는 바깥 따옴표 한 겹을 벗기므로 Windows에서는 한 번 더 싼다.
+    int run_shell(const std::string& command)
+    {
+#if defined(_WIN32)
+        return std::system(("\"" + command + "\"").c_str());
+#else
+        return std::system(command.c_str());
+#endif
+    }
+
+#if defined(_WIN32)
+    constexpr std::string_view null_device { "NUL" };
+#else
+    constexpr std::string_view null_device { "/dev/null" };
+#endif
 
     std::string slurp(const std::filesystem::path& path)
     {
@@ -56,7 +99,7 @@ namespace {
         git_http_backend(std::string git, std::string repository)
             : git_ { std::move(git) }
             , repository_ { std::move(repository) }
-            , scratch_ { std::filesystem::temp_directory_path() / ("cyella-fake-hosting-" + std::to_string(::GetCurrentProcessId())) }
+            , scratch_ { std::filesystem::temp_directory_path() / ("cyella-fake-hosting-" + std::to_string(current_process_id())) }
         {
         }
 
@@ -85,18 +128,25 @@ namespace {
             std::filesystem::create_directories(scratch_, ignored);
             // 요청의 Git-Protocol 헤더를 git에 환경 변수로 넘긴다 (v2 협상). 이 도구는 요청을 하나씩 처리한다.
             const std::string protocol { request.header("git-protocol") };
+#if defined(_WIN32)
             ::SetEnvironmentVariableA("GIT_PROTOCOL", protocol.empty() ? nullptr : protocol.c_str());
+#else
+            if (protocol.empty())
+                ::unsetenv("GIT_PROTOCOL");
+            else
+                ::setenv("GIT_PROTOCOL", protocol.c_str(), 1);
+#endif
             const std::filesystem::path input { scratch_ / "in.bin" };
             const std::filesystem::path output { scratch_ / "out.bin" };
             {
                 std::ofstream in { input, std::ios::binary | std::ios::trunc };
                 in << request.body;
             }
-            std::string command { "\"\"" + git_ + "\" upload-pack --stateless-rpc " };
+            std::string command { shell_quoted(git_) + " upload-pack --stateless-rpc " };
             if (advertise)
                 command += "--advertise-refs ";
-            command += "\"" + repository_ + "\" < \"" + input.string() + "\" > \"" + output.string() + "\" 2> NUL\"";
-            const int exit_code { std::system(command.c_str()) };
+            command += shell_quoted(repository_) + " < " + shell_quoted(input.string()) + " > " + shell_quoted(output.string()) + " 2> " + std::string { null_device };
+            const int exit_code { run_shell(command) };
             fake_response response {};
             if (exit_code != 0)
             {
@@ -186,8 +236,8 @@ int main(const int count, char** const arguments)
             if (is_safe_repository_name(full_name) == false)
                 return;
             const std::string target { clone_root + "/" + full_name + ".git" };
-            const std::string command { "\"\"" + git + "\" init -q --bare \"" + target + "\" > NUL 2> NUL\"" };
-            static_cast<void>(std::system(command.c_str()));
+            const std::string command { shell_quoted(git) + " init -q --bare " + shell_quoted(target) + " > " + std::string { null_device } + " 2> " + std::string { null_device } };
+            static_cast<void>(run_shell(command));
         });
     }
     git_http_backend backend { argument_value(count, arguments, "git", "git"), argument_value(count, arguments, "git-repo") };

@@ -9,7 +9,11 @@
 #include <string_view>
 #include <system_error>
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace cyella::test {
     // test마다 따로 쓰는 임시 폴더다. 소멸할 때 통째로 지운다. 실패해도 test를 깨지 않는다.
@@ -19,8 +23,16 @@ namespace cyella::test {
         explicit temporary_directory(const std::string_view label)
         {
             static std::atomic_uint64_t sequence { 0 };
-            path_ = std::filesystem::temp_directory_path()
-                / (std::string { "cyella-test-" } + std::string { label } + "-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(sequence.fetch_add(1)));
+#if defined(_WIN32)
+            const std::filesystem::path root { std::filesystem::temp_directory_path() };
+            const auto process { GetCurrentProcessId() };
+#else
+            // macOS의 임시 폴더(`/var/folders/…`)는 심볼릭 링크(`/var` → `/private/var`) 아래에 있다. git이 알려 주는 경로는 링크를
+            // 푼 것이라, 견주는 test가 같은 모양을 보도록 처음부터 푼 경로를 쓴다.
+            const std::filesystem::path root { std::filesystem::canonical(std::filesystem::temp_directory_path()) };
+            const auto process { ::getpid() };
+#endif
+            path_ = root / (std::string { "cyella-test-" } + std::string { label } + "-" + std::to_string(process) + "-" + std::to_string(sequence.fetch_add(1)));
             std::error_code ignored {};
             std::filesystem::remove_all(path_, ignored);
             std::filesystem::create_directories(path_);

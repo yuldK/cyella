@@ -2,6 +2,7 @@
 // workspace는 가짜 runner와 수동 dispatcher로 세운다 — job을 실행하지 않고 낸 것만 센다.
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/palette/palette_intents.h"
@@ -29,13 +30,15 @@
 #include <variant>
 #include <vector>
 
+using cyella::test::native_path;
+
 namespace {
     using namespace cyella;
 
     struct controller_harness
     {
         controller_harness()
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , controller { make_dependencies(workspace) }
         {
@@ -145,17 +148,17 @@ TEST_CASE("opening a repository replaces the start tab and records it as recent"
     REQUIRE(test.controller.tabs().tabs().size() == 1);
     CHECK(test.controller.tabs().selected().kind == repository_tab_kind::start);
 
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     REQUIRE(test.controller.tabs().tabs().size() == 1);
     CHECK(test.controller.tabs().selected().kind == repository_tab_kind::repository);
     CHECK_FALSE(test.controller.selected_repository_id().empty());
     REQUIRE(test.controller.settings().recent_repositories.size() == 1);
     CHECK(test.controller.settings().recent_repositories[0].opened_at == u8"2025-10-09T08:53:20Z");
-    CHECK(test.controller.settings().open_tabs == std::vector<std::u8string> { u8"C:\\work\\repo" });
-    CHECK(test.controller.settings().active_tab == u8"C:\\work\\repo");
+    CHECK(test.controller.settings().open_tabs == std::vector<std::u8string> { native_path(u8"C:\\work\\repo") });
+    CHECK(test.controller.settings().active_tab == native_path(u8"C:\\work\\repo"));
 
     // 같은 저장소(대소문자·구분자 무시)는 새 탭을 만들지 않는다.
-    test.controller.open_repository(u8"c:/work/REPO/");
+    test.controller.open_repository(native_path(u8"c:/work/REPO/"));
     CHECK(test.controller.tabs().tabs().size() == 1);
 }
 
@@ -165,7 +168,7 @@ TEST_CASE("start with a relative path leaves no tab or open_tabs entry", "[prese
     test::fake_workspace_files files {};
     test::manual_dispatcher dispatcher {};
     test::event_queue events {};
-    git_operation_runner runner { process, u8"C:/Git/cmd/git.exe", files, {} };
+    git_operation_runner runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} };
     git_workspace workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} };
     shell_controller controller { controller_harness::make_dependencies(workspace) };
 
@@ -186,29 +189,29 @@ TEST_CASE("start with a relative path leaves no tab or open_tabs entry", "[prese
 TEST_CASE("new tab, cycling and closing keep the workspace in step", "[presentation][controller]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\one");
+    test.controller.open_repository(native_path(u8"C:\\work\\one"));
     REQUIRE(test.send(new_tab_intent {}));
     CHECK(test.controller.tabs().tabs().size() == 2);
     CHECK(test.controller.tabs().selected().kind == repository_tab_kind::start);
-    test.controller.open_repository(u8"C:\\work\\two");
+    test.controller.open_repository(native_path(u8"C:\\work\\two"));
     CHECK(test.controller.tabs().tabs().size() == 2);
     CHECK(test.workspace.repository_ids().size() == 2);
 
     REQUIRE(test.send(cycle_tab_intent { true }));
-    CHECK(test.controller.tabs().selected().path == u8"C:\\work\\one");
+    CHECK(test.controller.tabs().selected().path == native_path(u8"C:\\work\\one"));
     REQUIRE(test.send(close_selected_tab_intent {}));
     CHECK(test.controller.tabs().tabs().size() == 1);
     CHECK(test.workspace.repository_ids().size() == 1);
-    CHECK(test.controller.settings().open_tabs == std::vector<std::u8string> { u8"C:\\work\\two" });
+    CHECK(test.controller.settings().open_tabs == std::vector<std::u8string> { native_path(u8"C:\\work\\two") });
 }
 
 TEST_CASE("recent list pin and remove go to settings", "[presentation][controller]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
-    REQUIRE(test.send(pin_recent_intent { u8"C:\\work\\repo", true }));
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
+    REQUIRE(test.send(pin_recent_intent { native_path(u8"C:\\work\\repo"), true }));
     CHECK(test.controller.settings().recent_repositories[0].pinned);
-    REQUIRE(test.send(remove_recent_intent { u8"C:\\work\\repo" }));
+    REQUIRE(test.send(remove_recent_intent { native_path(u8"C:\\work\\repo") }));
     CHECK(test.controller.settings().recent_repositories.empty());
 }
 
@@ -227,7 +230,7 @@ TEST_CASE("workspace navigation works for a clean repository and preserves the c
 {
     controller_harness test {};
     REQUIRE(test.send(set_repository_layout_intent { false }));
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     REQUIRE(test.send(select_workspace_intent { true }));
     const auto id { test.controller.tabs().selected().id };
     CHECK(test.controller.state().tabs.at(id).selected_sha == "WIP");
@@ -246,7 +249,7 @@ TEST_CASE("workspace navigation works for a clean repository and preserves the c
 TEST_CASE("selecting a commit submits show_commit and WIP does not", "[presentation][controller]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     const std::uint64_t generation { session->begin_refresh() };
@@ -279,7 +282,7 @@ TEST_CASE("selecting a commit submits show_commit and WIP does not", "[presentat
 TEST_CASE("choosing a changed file in the drawer closes it so the diff is not covered", "[presentation][controller]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     const std::uint64_t generation { session->begin_refresh() };
@@ -303,7 +306,7 @@ TEST_CASE("choosing a changed file in the drawer closes it so the diff is not co
 TEST_CASE("the commit file menu opens the diff and copies the path forms", "[presentation][controller]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     const menu_target target { .kind = menu_target_kind::commit_file, .name = "src/app/a.cpp", .sha = sha_of(1) };
 
     REQUIRE(test.send(open_context_menu_intent { target, 0.0f, 0.0f }));
@@ -328,7 +331,7 @@ TEST_CASE("the commit file menu opens the diff and copies the path forms", "[pre
 TEST_CASE("ctrl+click compares the anchor with the clicked commit, older on the left", "[presentation][controller][compare]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, branching_history());
@@ -384,7 +387,7 @@ TEST_CASE("ctrl+click compares the anchor with the clicked commit, older on the 
 TEST_CASE("shift+click takes the range between an ancestor and its descendant", "[presentation][controller][compare]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, branching_history());
@@ -427,7 +430,7 @@ TEST_CASE("shift+click takes the range between an ancestor and its descendant", 
 TEST_CASE("dragging over graph rows selects from the pressed commit to the row under the pointer", "[presentation][controller][compare]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, branching_history());
@@ -468,7 +471,7 @@ TEST_CASE("dragging over graph rows selects from the pressed commit to the row u
 TEST_CASE("a plain click, Esc, WIP and a refresh that drops a commit end the comparison", "[presentation][controller][compare]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, branching_history(), true);
@@ -534,7 +537,7 @@ TEST_CASE("a plain click, Esc, WIP and a refresh that drops a commit end the com
 TEST_CASE("the commit file menu of a comparison opens the range diff", "[presentation][controller][compare]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     const menu_target target { .kind = menu_target_kind::commit_file, .name = "a.txt", .sha = sha_of(5), .base = sha_of(3) };
     REQUIRE(test.send(open_context_menu_intent { target, 0.0f, 0.0f }));
     REQUIRE(test.send(menu_select_intent { u8"open_diff" }));
@@ -548,7 +551,7 @@ TEST_CASE("the commit file menu of a comparison opens the range diff", "[present
 TEST_CASE("scroll is clamped to the last arranged maximum", "[presentation][controller]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     test.controller.apply_feedback({ .graph_maximum = 100.0f, .graph_viewport = 400.0f });
     REQUIRE(test.send(scroll_intent { .target = scroll_target::graph, .value = 80.0f }));
     REQUIRE(test.send(scroll_intent { .target = scroll_target::graph, .value = 80.0f }));
@@ -584,7 +587,7 @@ TEST_CASE("text edits land in the targeted draft and stay on one line", "[presen
 TEST_CASE("the commit body preserves line breaks and Ctrl+Home and Ctrl+End reach the ends of the text", "[presentation][controller][working]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     luil::text_edit_request request {};
     request.target = to_luil_target(text_target::commit_body);
     request.command = luil::text::text_edit_command::insert;
@@ -610,7 +613,7 @@ TEST_CASE("the commit body preserves line breaks and Ctrl+Home and Ctrl+End reac
 TEST_CASE("text pasted into the commit body turns CRLF and CR into line breaks", "[presentation][controller][working]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     luil::text_edit_request request {};
     request.target = to_luil_target(text_target::commit_body);
     request.command = luil::text::text_edit_command::insert;
@@ -622,7 +625,7 @@ TEST_CASE("text pasted into the commit body turns CRLF and CR into line breaks",
 TEST_CASE("toolbar actions without a dialog submit operations and push without a remote opens the add remote dialog", "[presentation][controller]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     const std::size_t before { test.dispatcher.pending() };
     REQUIRE(test.send(toolbar_intent { toolbar_action::fetch }));
     CHECK(test.dispatcher.pending() == before + 1);
@@ -766,7 +769,7 @@ TEST_CASE("closing a toast lets it leave first and then removes it, and Esc send
 TEST_CASE("toasts float above the body as rounded cards and the status bar bell shows unread notifications", "[presentation][controller][notifications]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     ui::built_tree built { ui::build_ui_tree(test.controller.make_view(1440.0f, 900.0f, 1.0f)) };
     const luil::ui_element* bell { built.tree->find({ ui::kind_button, u8"status-notifications" }) };
     REQUIRE(bell != nullptr);
@@ -1152,7 +1155,7 @@ TEST_CASE("the open diff of the selected tab is the webview's wanted target", "[
     controller_harness test {};
     CHECK_FALSE(test.controller.current_diff_target().has_value());
 
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     CHECK_FALSE(test.controller.current_diff_target().has_value());
 
     const diff_file_request request { .path = "src/a.cpp", .view = diff_view::staged };
@@ -1160,7 +1163,7 @@ TEST_CASE("the open diff of the selected tab is the webview's wanted target", "[
     const std::optional<diff_target> target { test.controller.current_diff_target() };
     REQUIRE(target.has_value());
     CHECK(target->repository_id == test.controller.selected_repository_id());
-    CHECK(target->repository_path == u8"C:\\work\\repo");
+    CHECK(target->repository_path == native_path(u8"C:\\work\\repo"));
     CHECK(target->request == request);
 
     // 다른 탭(시작 탭)으로 가면 그 탭에는 열린 diff가 없다. 돌아오면 다시 있다.
@@ -1185,7 +1188,7 @@ TEST_CASE("the diff surface is stored for the header bar", "[presentation][contr
 TEST_CASE("changing repository layout preserves the draft and exact diff request without submitting Git work", "[presentation][controller][layout]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:/work/repo");
+    test.controller.open_repository(native_path(u8"C:/work/repo"));
     REQUIRE(test.send(select_workspace_intent { true }));
     luil::text_edit_request insert {};
     insert.target = to_luil_target(text_target::commit_subject);
@@ -1213,8 +1216,8 @@ TEST_CASE("a run without git keeps the saved open tabs when tabs are touched", "
 {
     using namespace cyella;
     memory_settings_store store {};
-    store.initial.open_tabs = { u8"C:\\work\\one", u8"C:\\work\\two" };
-    store.initial.active_tab = u8"C:\\work\\two";
+    store.initial.open_tabs = { native_path(u8"C:\\work\\one"), native_path(u8"C:\\work\\two") };
+    store.initial.active_tab = native_path(u8"C:\\work\\two");
     app_settings_service service { store, u8"memory" };
     static_cast<void>(service.load());
 
@@ -1225,8 +1228,8 @@ TEST_CASE("a run without git keeps the saved open tabs when tabs are touched", "
     controller.start({});
     REQUIRE(controller.handle(luil::app_message { new_tab_intent {} }));
     REQUIRE(controller.handle(luil::app_message { cycle_tab_intent { true } }));
-    CHECK(controller.settings().open_tabs == std::vector<std::u8string> { u8"C:\\work\\one", u8"C:\\work\\two" });
-    CHECK(controller.settings().active_tab == u8"C:\\work\\two");
+    CHECK(controller.settings().open_tabs == std::vector<std::u8string> { native_path(u8"C:\\work\\one"), native_path(u8"C:\\work\\two") });
+    CHECK(controller.settings().active_tab == native_path(u8"C:\\work\\two"));
 }
 
 TEST_CASE("a bell press right after an outside close uses the injected clock", "[presentation][controller][notifications]")
@@ -1249,7 +1252,7 @@ TEST_CASE("Enter in the clone fields does not submit the same clone again while 
 {
     controller_harness test {};
     REQUIRE(test.send(open_clone_dialog_intent {}));
-    for (const auto& [target, text] : { std::pair { text_target::clone_url, u8"https://example.com/r.git" }, std::pair { text_target::clone_path, u8"C:\\work\\r" } })
+    for (const auto& [target, text] : { std::pair { text_target::clone_url, std::u8string { u8"https://example.com/r.git" } }, std::pair { text_target::clone_path, native_path(u8"C:\\work\\r") } })
     {
         luil::text_edit_request insert {};
         insert.target = to_luil_target(target);
@@ -1280,14 +1283,14 @@ TEST_CASE("the clone folder name drops queries and refuses names that leave the 
         insert.command = luil::text::text_edit_command::insert;
         insert.text = url;
         REQUIRE(test.send(edit_text_intent { insert }));
-        REQUIRE(test.send(folder_chosen_intent { .purpose = folder_purpose::clone_target, .path = u8"C:\\work", .origin = {} }));
+        REQUIRE(test.send(folder_chosen_intent { .purpose = folder_purpose::clone_target, .path = native_path(u8"C:\\work"), .origin = {} }));
         return test.controller.state().clone->path.text;
     };
-    CHECK(chosen_path(u8"git@example.com:a/b.git") == u8"C:\\work\\b");
-    CHECK(chosen_path(u8"https://example.com/r.git?x=1#top") == u8"C:\\work\\r");
-    CHECK(chosen_path(u8"https://example.com/..") == u8"C:\\work");
-    CHECK(chosen_path(u8"https://example.com/a/.") == u8"C:\\work");
-    CHECK(chosen_path(u8"https://example.com/a|b") == u8"C:\\work");
+    CHECK(chosen_path(u8"git@example.com:a/b.git") == native_path(u8"C:\\work\\b"));
+    CHECK(chosen_path(u8"https://example.com/r.git?x=1#top") == native_path(u8"C:\\work\\r"));
+    CHECK(chosen_path(u8"https://example.com/..") == native_path(u8"C:\\work"));
+    CHECK(chosen_path(u8"https://example.com/a/.") == native_path(u8"C:\\work"));
+    CHECK(chosen_path(u8"https://example.com/a|b") == native_path(u8"C:\\work"));
 }
 
 TEST_CASE("closing a tab cancels every queued operation even when trimming the history shifts the order", "[presentation][controller][tabs]")
@@ -1296,7 +1299,7 @@ TEST_CASE("closing a tab cancels every queued operation even when trimming the h
     test::fake_workspace_files files {};
     test::manual_dispatcher dispatcher {};
     test::event_queue events {};
-    git_operation_runner runner { process, u8"C:/Git/cmd/git.exe", files, {} };
+    git_operation_runner runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} };
     git_workspace_options options {};
     options.finished_history_limit = 2;
     git_workspace workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, options };
@@ -1304,7 +1307,7 @@ TEST_CASE("closing a tab cancels every queued operation even when trimming the h
     dependencies.workspace = &workspace;
     shell_controller controller { std::move(dependencies) };
     controller.start({});
-    controller.open_repository(u8"C:\\work\\repo");
+    controller.open_repository(native_path(u8"C:\\work\\repo"));
     const std::string repository { controller.selected_repository_id() };
 
     // 앞에는 지워지지 않는 결정 대기(needs_input)가 서고, 끝난 작업이 상한까지 찬다. 대기 작업을 취소해 끝내면 그 사이의 끝난 작업이 지워진다.
@@ -1333,9 +1336,9 @@ TEST_CASE("closing a tab cancels every queued operation even when trimming the h
 TEST_CASE("switching tabs closes a confirmation opened on another repository", "[presentation][controller][tabs][dialogs]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\one");
+    test.controller.open_repository(native_path(u8"C:\\work\\one"));
     REQUIRE(test.send(new_tab_intent {}));
-    test.controller.open_repository(u8"C:\\work\\two");
+    test.controller.open_repository(native_path(u8"C:\\work\\two"));
     REQUIRE(test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::local_branch, .name = "topic" }, 0.0f, 0.0f }));
     REQUIRE(test.send(menu_select_intent { u8"delete" }));
     REQUIRE(test.controller.state().dialog.has_value());
@@ -1352,7 +1355,7 @@ TEST_CASE("switching tabs closes a confirmation opened on another repository", "
 TEST_CASE("a dialog field keeps Enter and the palette closes with its own shortcut", "[presentation][controller][policy]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     ui::cyella_policy policy {};
     luil::interaction_snapshot snapshot {};
     const auto ctrl = [](const luil::key_code key, const bool shift = false) {
@@ -1397,7 +1400,7 @@ namespace {
     // 저장소를 열고 이력을 채운 뒤 커밋 3의 파일 하나를 판에 연다.
     repository_session& open_commit_file(controller_harness& test, const std::string& path = "a.txt")
     {
-        test.controller.open_repository(u8"C:\\work\\repo");
+        test.controller.open_repository(native_path(u8"C:\\work\\repo"));
         repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
         REQUIRE(session != nullptr);
         load_history(*session, branching_history());
@@ -1562,7 +1565,7 @@ TEST_CASE("a failed blame says why in the panel and an untracked file has no bla
 TEST_CASE("show in graph selects a loaded commit and keeps reading history for one that is not loaded yet", "[presentation][controller][file_view]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     // 첫 쪽에는 커밋 5와 4만 있다. 이력은 더 있다.
@@ -1614,7 +1617,7 @@ TEST_CASE("show in graph selects a loaded commit and keeps reading history for o
 TEST_CASE("the file menus open the blame and the history of that file", "[presentation][controller][file_view]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, branching_history(), true);
@@ -1642,7 +1645,7 @@ TEST_CASE("the file menus open the blame and the history of that file", "[presen
 TEST_CASE("show in graph gives up once when reading more history fails", "[presentation][controller][file_view]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     const std::uint64_t generation { session->begin_refresh() };
@@ -1711,7 +1714,7 @@ namespace {
 TEST_CASE("the graph search opens over the graph, takes focus and closes with Esc after the file panel", "[presentation][controller][search]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, searchable_history());
@@ -1755,7 +1758,7 @@ TEST_CASE("the graph search opens over the graph, takes focus and closes with Es
 TEST_CASE("loaded commits are matched at once by subject, author, sha prefix and initial consonants", "[presentation][controller][search]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, searchable_history());
@@ -1794,7 +1797,7 @@ TEST_CASE("loaded commits are matched at once by subject, author, sha prefix and
 TEST_CASE("git is asked once typing pauses and its hits join the loaded ones, unloaded hits last", "[presentation][controller][search]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, searchable_history());
@@ -1877,7 +1880,7 @@ TEST_CASE("git is asked once typing pauses and its hits join the loaded ones, un
 TEST_CASE("stepping starts from the selected commit when it is a hit", "[presentation][controller][search]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_history(*session, searchable_history());
@@ -1961,7 +1964,7 @@ namespace {
 TEST_CASE("branch and tag menus show refs alone or hide them in the graph, and picking again undoes it", "[presentation][controller][graph_filter]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_branches(*session);
@@ -2053,7 +2056,7 @@ TEST_CASE("branch and tag menus show refs alone or hide them in the graph, and p
 TEST_CASE("the band over the graph and the palette command clear the filter", "[presentation][controller][graph_filter]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_branches(*session);
@@ -2113,7 +2116,7 @@ TEST_CASE("the band over the graph and the palette command clear the filter", "[
 TEST_CASE("the selected sidebar branch's filter entries run from the palette like the context menu", "[presentation][controller][graph_filter][palette]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_branches(*session);
@@ -2138,7 +2141,7 @@ TEST_CASE("the selected sidebar branch's filter entries run from the palette lik
 TEST_CASE("show in graph says a filter is on when the commit is not in the filtered graph", "[presentation][controller][graph_filter][file_view]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_branches(*session);
@@ -2161,7 +2164,7 @@ TEST_CASE("show in graph says a filter is on when the commit is not in the filte
 TEST_CASE("selecting a ref whose commit is not loaded does not claim it is unloaded while a filter may have removed it", "[presentation][controller][graph_filter]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     // 이력을 끝까지 읽지 않은 저장소다.
@@ -2183,7 +2186,7 @@ TEST_CASE("selecting a ref whose commit is not loaded does not claim it is unloa
 TEST_CASE("an open search is asked again over the new refs when the filter changes", "[presentation][controller][graph_filter][search]")
 {
     controller_harness test {};
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     repository_session* const session { test.workspace.find_session(test.controller.selected_repository_id()) };
     REQUIRE(session != nullptr);
     load_branches(*session);

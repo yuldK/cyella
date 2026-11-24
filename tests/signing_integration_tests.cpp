@@ -725,6 +725,8 @@ TEST_CASE("collect_signing_info explains a missing gpg and an unreadable program
     CHECK(info.gpg_problem.find(u8"gpg.program") != std::u8string::npos);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("write_signing_config changes local and global settings and unsets them", "[signing][info][integration]")
 {
     if (tools_available() == false)
@@ -774,3 +776,4 @@ TEST_CASE("write_signing_config changes local and global settings and unsets the
     const signing_write_result invalid { write_signing_config(sources, false, { { signing_key_id::user_signingkey, "a\nb" } }) };
     CHECK(invalid.ok == false);
 }
+#endif

@@ -3,6 +3,7 @@
 #include "application/app_messages.h"
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/dialog_intents.h"
 #include "presentation/shell_controller.h"
 #include "presentation/signing_intents.h"
@@ -16,6 +17,8 @@
 #include <string>
 #include <vector>
 
+using cyella::test::native_path;
+
 namespace {
     using namespace cyella;
     namespace snap = cyella::test::snapshot;
@@ -23,12 +26,12 @@ namespace {
     struct harness
     {
         harness()
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , controller { make_dependencies(workspace) }
         {
             controller.start({});
-            controller.open_repository(u8"C:\\work\\repo");
+            controller.open_repository(native_path(u8"C:\\work\\repo"));
             repository = controller.selected_repository_id();
         }
 
@@ -37,7 +40,7 @@ namespace {
             shell_controller::dependencies dependencies {};
             dependencies.workspace = &workspace;
             dependencies.clock = [] { return std::chrono::system_clock::time_point { std::chrono::seconds { 1700000000 + 3600 } }; };
-            dependencies.temporary_directory = u8"C:\\temp\\cyella-test";
+            dependencies.temporary_directory = native_path(u8"C:\\temp\\cyella-test");
             return dependencies;
         }
 
@@ -190,7 +193,7 @@ TEST_CASE("the commit box warns when ssh signing has no key", "[signing][present
     // 서명을 끄면 알릴 것이 없다. 키를 정하면 사라진다.
     test.send(toggle_sign_intent {});
     CHECK(test.view().repository->working->sign_hint.empty());
-    config.at(signing_key_id::user_signingkey) = signing_entry { .value = "C:/k/id.pub", .origin = config_origin::local };
+    config.at(signing_key_id::user_signingkey) = signing_entry { .value = native_path("C:/k/id.pub"), .origin = config_origin::local };
     test.load(5, 2, config);
     CHECK(test.view().repository->working->sign_hint.empty());
 }

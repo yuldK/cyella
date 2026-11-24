@@ -4,6 +4,7 @@
 #include "application/app_settings_service.h"
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/settings/settings_controller.h"
 #include "presentation/settings/settings_intents.h"
@@ -18,6 +19,8 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -75,9 +78,9 @@ namespace {
     // controller와 그 의존물을 한곳에 둔 harness다.
     struct controller_harness
     {
-        explicit controller_harness(std::u8string ssh_directory = u8"C:\\Users\\me\\.ssh")
+        explicit controller_harness(std::u8string ssh_directory = native_path(u8"C:\\Users\\me\\.ssh"))
             : ssh_directory { std::move(ssh_directory) }
-            , runner { process, u8"C:/Git/cmd/git.exe", files, make_runner_options() }
+            , runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, make_runner_options() }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, git_workspace_options { .refresh_on_open = false } }
             , service { store, u8"memory" }
         {
@@ -88,9 +91,9 @@ namespace {
         static git_operation_runner_options make_runner_options()
         {
             git_operation_runner_options options {};
-            options.ssh_executable = u8"C:/Git/usr/bin/ssh.exe";
-            options.ssh_keygen_executable = u8"C:/Git/usr/bin/ssh-keygen.exe";
-            options.askpass_helper = u8"C:/Git/cyella-askpass.exe";
+            options.ssh_executable = native_path(u8"C:/Git/usr/bin/ssh.exe");
+            options.ssh_keygen_executable = native_path(u8"C:/Git/usr/bin/ssh-keygen.exe");
+            options.askpass_helper = native_path(u8"C:/Git/cyella-askpass.exe");
             options.askpass = askpass_endpoint { u8"\\\\.\\pipe\\cyella-test", u8"token" };
             return options;
         }
@@ -104,7 +107,7 @@ namespace {
             dependencies.unsaved = [this] { return service.has_unsaved_changes(); };
             dependencies.probe = &probe;
             dependencies.git_tool.availability = git_tool_availability::available;
-            dependencies.git_tool.executable = u8"C:\\Git\\cmd\\git.exe";
+            dependencies.git_tool.executable = native_path(u8"C:\\Git\\cmd\\git.exe");
             dependencies.git_tool.reported_version = u8"git version 2.52.0";
             dependencies.workspace = &workspace;
             dependencies.request_ssh_info = [this] { ++ssh_info_requests; };
@@ -173,8 +176,8 @@ namespace {
         info.agent_list_available = true;
         info.agent.state = ssh_agent_list_state::identities;
         info.agent.identities.push_back({ 256, u8"SHA256:abc", u8"me@PC", u8"ED25519" });
-        info.keys.push_back({ u8"id_ed25519", u8"ssh-ed25519", u8"me@PC", u8"ssh-ed25519 AAAA me@PC", u8"C:\\Users\\me\\.ssh\\id_ed25519" });
-        info.ssh_directory = u8"C:\\Users\\me\\.ssh";
+        info.keys.push_back({ u8"id_ed25519", u8"ssh-ed25519", u8"me@PC", u8"ssh-ed25519 AAAA me@PC", native_path(u8"C:\\Users\\me\\.ssh\\id_ed25519") });
+        info.ssh_directory = native_path(u8"C:\\Users\\me\\.ssh");
         return info;
     }
 } // namespace
@@ -210,6 +213,8 @@ TEST_CASE("file apps can be added edited cancelled and removed without affecting
     CHECK(test.service.settings().external_file_apps == default_external_file_apps());
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a quoted executable typed into the tool form is saved without its quotes", "[settings][file_app]")
 {
     controller_harness test {};
@@ -230,6 +235,7 @@ TEST_CASE("a quoted executable typed into the tool form is saved without its quo
     REQUIRE(test.service.settings().external_diff_tools.empty() == false);
     CHECK(test.service.settings().external_diff_tools.back().executable == u8"C:\\Tools\\diff.exe");
 }
+#endif
 
 TEST_CASE("extension lists are normalised, de-duplicated and may use commas or spaces", "[settings][tools]")
 {
@@ -240,6 +246,8 @@ TEST_CASE("extension lists are normalised, de-duplicated and may use commas or s
     CHECK(format_extension_list({ u8".png", u8".psd" }) == u8".png, .psd");
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("the argv preview expands the sample paths and keeps spaces inside one argument", "[settings][tools]")
 {
     const tool_draft_check check { check_tool_draft(u8".png", u8"C:\\Tools\\img diff.exe", u8"--left \"{left}\" --right {right} {path} {base}", nullptr) };
@@ -258,12 +266,13 @@ TEST_CASE("the argv preview expands the sample paths and keeps spaces inside one
     REQUIRE(psd.preview_arguments.size() == 1);
     CHECK(psd.preview_arguments[0] == u8"art/sample.psd");
 }
+#endif
 
 TEST_CASE("tool drafts report what blocks saving and what is only worth a warning", "[settings][tools]")
 {
     SECTION("no extension")
     {
-        const tool_draft_check check { check_tool_draft(u8"", u8"C:\\a.exe", u8"{left}", nullptr) };
+        const tool_draft_check check { check_tool_draft(u8"", native_path(u8"C:\\a.exe"), u8"{left}", nullptr) };
         CHECK_FALSE(check.ok);
         CHECK(check.error.find(u8"확장자") != std::u8string::npos);
     }
@@ -277,7 +286,7 @@ TEST_CASE("tool drafts report what blocks saving and what is only worth a warnin
 
     SECTION("an unclosed quote in the template")
     {
-        const tool_draft_check check { check_tool_draft(u8".png", u8"C:\\a.exe", u8"\"{left}", nullptr) };
+        const tool_draft_check check { check_tool_draft(u8".png", native_path(u8"C:\\a.exe"), u8"\"{left}", nullptr) };
         CHECK_FALSE(check.ok);
         CHECK(check.error.find(u8"큰따옴표") != std::u8string::npos);
         CHECK(check.preview.empty());
@@ -286,11 +295,11 @@ TEST_CASE("tool drafts report what blocks saving and what is only worth a warnin
     SECTION("a missing absolute executable saves with a warning")
     {
         fake_probe probe {};
-        const tool_draft_check check { check_tool_draft(u8".png", u8"C:\\missing.exe", u8"{left}", &probe) };
+        const tool_draft_check check { check_tool_draft(u8".png", native_path(u8"C:\\missing.exe"), u8"{left}", &probe) };
         CHECK(check.ok);
         CHECK(check.warning.find(u8"찾지 못했") != std::u8string::npos);
-        probe.files.push_back(u8"C:\\missing.exe");
-        CHECK(check_tool_draft(u8".png", u8"C:\\missing.exe", u8"{left}", &probe).warning.empty());
+        probe.files.push_back(native_path(u8"C:\\missing.exe"));
+        CHECK(check_tool_draft(u8".png", native_path(u8"C:\\missing.exe"), u8"{left}", &probe).warning.empty());
     }
 
     SECTION("a template without {left} or {right} warns")
@@ -301,6 +310,8 @@ TEST_CASE("tool drafts report what blocks saving and what is only worth a warnin
     }
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("the made tool matches what the form shows", "[settings][tools]")
 {
     const external_diff_tool tool { make_external_tool(u8" .PSD, bin ", u8"  C:\\x.exe ", u8"  {left} {right}  ") };
@@ -308,7 +319,10 @@ TEST_CASE("the made tool matches what the form shows", "[settings][tools]")
     CHECK(tool.executable == u8"C:\\x.exe");
     CHECK(tool.arguments == u8"{left} {right}");
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a path copied with its quotes is taken without them", "[settings][tools]")
 {
     // 탐색기의 "경로로 복사"는 따옴표로 감싼 경로를 준다. 그대로 저장하면 실행할 때 명령줄이 `""C:\...""`가 된다.
@@ -331,16 +345,17 @@ TEST_CASE("a path copied with its quotes is taken without them", "[settings][too
     CHECK(check_tool_draft(u8".psd", u8"\"C:\\Tools\\x.exe\"", u8"{left}", &probe).warning.empty());
     CHECK(check_file_app_draft(u8"편집기", u8"\"C:\\Tools\\x.exe\"", u8"{file}", &probe).warning.empty());
 }
+#endif
 
 TEST_CASE("git paths must be absolute files or empty", "[settings][general]")
 {
     fake_probe probe {};
-    probe.files.push_back(u8"C:\\Git\\cmd\\git.exe");
+    probe.files.push_back(native_path(u8"C:\\Git\\cmd\\git.exe"));
     CHECK(check_git_path(u8"", &probe).empty());
     CHECK(check_git_path(u8"   ", &probe).empty());
-    CHECK(check_git_path(u8"C:\\Git\\cmd\\git.exe", &probe).empty());
+    CHECK(check_git_path(native_path(u8"C:\\Git\\cmd\\git.exe"), &probe).empty());
     CHECK_FALSE(check_git_path(u8"git", &probe).empty());
-    CHECK_FALSE(check_git_path(u8"C:\\nowhere\\git.exe", &probe).empty());
+    CHECK_FALSE(check_git_path(native_path(u8"C:\\nowhere\\git.exe"), &probe).empty());
 }
 
 TEST_CASE("ssh targets accept user, host and port and refuse option injection", "[settings][ssh]")
@@ -379,7 +394,7 @@ TEST_CASE("the general page reports the running git and a draft that differs fro
     test.send(open_settings_intent {});
     settings_view view { test.view() };
     CHECK(view.page == settings_page::general);
-    CHECK(view.git.executable == u8"C:\\Git\\cmd\\git.exe");
+    CHECK(view.git.executable == native_path(u8"C:\\Git\\cmd\\git.exe"));
     CHECK(view.git.origin == u8"자동 탐색");
     CHECK(view.git.problem.empty());
     CHECK_FALSE(view.git.dirty);
@@ -392,8 +407,8 @@ TEST_CASE("the general page reports the running git and a draft that differs fro
     CHECK_FALSE(view.git.validation.empty());
     CHECK_FALSE(view.git.can_apply);
 
-    test.probe.files.push_back(u8"C:\\Other\\git.exe");
-    test.type(text_target::settings_git_path, u8"C:\\Other\\git.exe");
+    test.probe.files.push_back(native_path(u8"C:\\Other\\git.exe"));
+    test.type(text_target::settings_git_path, native_path(u8"C:\\Other\\git.exe"));
     view = test.view();
     CHECK(view.git.validation.empty());
     CHECK(view.git.can_apply);
@@ -524,6 +539,8 @@ TEST_CASE("choosing a key color is saved through the settings service", "[settin
     CHECK(test.store.saved.appearance.accent == u8"amber");
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("applying a git path saves it and resetting goes back to auto detection", "[settings][controller]")
 {
     controller_harness test {};
@@ -547,22 +564,23 @@ TEST_CASE("applying a git path saves it and resetting goes back to auto detectio
     CHECK(test.store.saved.git_executable.empty());
     CHECK(test.view().git.path.text.empty());
 }
+#endif
 
 TEST_CASE("a chosen file fills the git path draft or the tool executable draft", "[settings][controller]")
 {
     controller_harness test {};
     test.send(open_settings_intent {});
-    test.send(settings_file_chosen_intent { file_purpose::git_executable, u8"C:\\Picked\\git.exe" });
-    CHECK(test.view().git.path.text == u8"C:\\Picked\\git.exe");
+    test.send(settings_file_chosen_intent { file_purpose::git_executable, native_path(u8"C:\\Picked\\git.exe") });
+    CHECK(test.view().git.path.text == native_path(u8"C:\\Picked\\git.exe"));
     // 저장은 [적용]을 눌러야 한다.
     CHECK(test.store.saves == 0);
 
     // 도구 편집 중이 아니면 도구 실행 파일 선택은 무시한다.
-    test.send(settings_file_chosen_intent { file_purpose::tool_executable, u8"C:\\ignored.exe" });
+    test.send(settings_file_chosen_intent { file_purpose::tool_executable, native_path(u8"C:\\ignored.exe") });
     test.send(add_tool_intent {});
-    test.send(settings_file_chosen_intent { file_purpose::tool_executable, u8"C:\\tool.exe" });
+    test.send(settings_file_chosen_intent { file_purpose::tool_executable, native_path(u8"C:\\tool.exe") });
     REQUIRE(test.view().edit.has_value());
-    CHECK(test.view().edit->executable.text == u8"C:\\tool.exe");
+    CHECK(test.view().edit->executable.text == native_path(u8"C:\\tool.exe"));
 }
 
 TEST_CASE("the external tool table supports add, edit and remove and saves every change", "[settings][controller][tools]")
@@ -579,7 +597,7 @@ TEST_CASE("the external tool table supports add, edit and remove and saves every
     CHECK_FALSE(test.view().edit->can_save);
 
     test.type(text_target::settings_tool_extensions, u8".psd, .png");
-    test.type(text_target::settings_tool_executable, u8"C:\\Tools\\view.exe");
+    test.type(text_target::settings_tool_executable, native_path(u8"C:\\Tools\\view.exe"));
     test.send(insert_tool_token_intent { u8"{path}" });
     CHECK(test.view().edit->arguments.text == u8"{left} {right} {path}");
     REQUIRE(test.view().edit->can_save);
@@ -596,11 +614,11 @@ TEST_CASE("the external tool table supports add, edit and remove and saves every
     test.send(edit_tool_intent { 0 });
     REQUIRE(test.view().edit.has_value());
     CHECK_FALSE(test.view().edit->is_new);
-    CHECK(test.view().edit->executable.text == u8"C:\\Tools\\view.exe");
-    test.type(text_target::settings_tool_executable, u8"C:\\Tools\\other.exe");
+    CHECK(test.view().edit->executable.text == native_path(u8"C:\\Tools\\view.exe"));
+    test.type(text_target::settings_tool_executable, native_path(u8"C:\\Tools\\other.exe"));
     test.send(save_tool_intent {});
     REQUIRE(test.store.saved.external_diff_tools.size() == 1);
-    CHECK(test.store.saved.external_diff_tools[0].executable == u8"C:\\Tools\\other.exe");
+    CHECK(test.store.saved.external_diff_tools[0].executable == native_path(u8"C:\\Tools\\other.exe"));
 
     // 저장을 막는 입력은 표를 바꾸지 않는다.
     test.send(add_tool_intent {});
@@ -620,13 +638,13 @@ TEST_CASE("the external tool table supports add, edit and remove and saves every
 TEST_CASE("existing tools are listed in the order of the settings file", "[settings][controller][tools]")
 {
     controller_harness test {};
-    test.store.initial.external_diff_tools = { make_tool(u8".png", u8"C:\\a.exe", u8"{left} {right}"), make_tool(u8".bin", u8"C:\\b.exe", u8"{path}") };
+    test.store.initial.external_diff_tools = { make_tool(u8".png", native_path(u8"C:\\a.exe"), u8"{left} {right}"), make_tool(u8".bin", native_path(u8"C:\\b.exe"), u8"{path}") };
     test.service.load();
     test.send(open_settings_intent { settings_page::diff_tools });
     const settings_view view { test.view() };
     REQUIRE(view.tools.size() == 2);
     CHECK(view.tools[0].index == 0);
-    CHECK(view.tools[0].executable == u8"C:\\a.exe");
+    CHECK(view.tools[0].executable == native_path(u8"C:\\a.exe"));
     CHECK(view.tools[1].extensions == u8".bin");
 }
 
@@ -694,6 +712,8 @@ TEST_CASE("copying a public key goes to the clipboard and says so", "[settings][
     CHECK(test.copied.size() == 1);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("creating a key submits an ssh_keygen setup operation and refreshes the list when it ends", "[settings][controller][ssh]")
 {
     // 작업이 실제로 돌면 키 폴더를 만들므로 임시 폴더를 쓴다.
@@ -733,6 +753,7 @@ TEST_CASE("creating a key submits an ssh_keygen setup operation and refreshes th
     test.controller->after_events();
     CHECK(test.ssh_info_requests == before + 1);
 }
+#endif
 
 TEST_CASE("an ssh_keygen operation waiting for the passphrase shows as waiting for input", "[settings][view][ssh]")
 {
@@ -741,7 +762,7 @@ TEST_CASE("an ssh_keygen operation waiting for the passphrase shows as waiting f
     settings_view_inputs inputs {};
     inputs.state = &state;
     inputs.settings = &settings;
-    inputs.ssh_directory = u8"C:\\Users\\me\\.ssh";
+    inputs.ssh_directory = native_path(u8"C:\\Users\\me\\.ssh");
     inputs.ssh_tools_found = true;
     inputs.keygen.id = 4;
     inputs.keygen.state = operation_state::needs_input;
@@ -955,6 +976,8 @@ TEST_CASE("a preset fills the command and saving stores the trimmed drafts", "[s
     CHECK(test.view().suggestion.executable.text == u8"claude");
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a command that cannot run is not saved", "[settings][controller][commit_suggestion]")
 {
     controller_harness test {};
@@ -993,3 +1016,4 @@ TEST_CASE("a command that cannot run is not saved", "[settings][controller][comm
     test.send(save_commit_suggestion_intent {});
     CHECK(saved_executable() == u8"C:\\Tools\\claude.exe");
 }
+#endif

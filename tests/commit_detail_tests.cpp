@@ -1,6 +1,7 @@
 // 커밋 상세 판의 규칙이다: 변경 파일 트리, 제목·본문 줄 나누기, 작성자 사진 받기, snapshot과 luil tree.
 #include "domain/text_catalog.h"
 #include "infrastructure/avatar_fetcher.h"
+#include "native_path_support.h"
 #include "presentation/file_tree.h"
 #include "presentation/text_wrap.h"
 #include "presentation/ui/build_ui_tree.h"
@@ -25,6 +26,8 @@
 #include <set>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 using namespace cyella::test::snapshot;
@@ -192,7 +195,7 @@ TEST_CASE("combining marks and joiners add no estimated width", "[presentation][
 TEST_CASE("commit detail snapshot splits author fields and builds the file tree on request", "[presentation][snapshot][file_tree]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(3), 0);
     harness.ui.tabs[tab].selected_sha = sha_of(1);
     load_detail(*harness.sessions["repo-1"], sha_of(1), sample_files());
@@ -221,7 +224,7 @@ TEST_CASE("commit detail snapshot splits author fields and builds the file tree 
 TEST_CASE("commit diff navigation preserves its commit and never enters working changes", "[presentation][diff]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(3), 2);
     const std::string sha { sha_of(1) };
     harness.ui.tabs[tab].selected_sha = sha;
@@ -242,7 +245,7 @@ TEST_CASE("commit diff navigation preserves its commit and never enters working 
 TEST_CASE("commit detail tree shows wrapped text, label columns, folder rows and the view toggle", "[presentation][ui][file_tree]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(3), 0);
     harness.ui.tabs[tab].selected_sha = sha_of(1);
     load_detail(*harness.sessions["repo-1"], sha_of(1), sample_files());
@@ -295,7 +298,7 @@ TEST_CASE("commit detail tree shows wrapped text, label columns, folder rows and
 TEST_CASE("a handle divides the commit message and changed files and holds the dragged height", "[presentation][ui]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(3), 0);
     harness.ui.tabs[tab].selected_sha = sha_of(1);
     load_detail(*harness.sessions["repo-1"], sha_of(1), sample_files());
@@ -499,7 +502,7 @@ TEST_CASE("the rebase button counts the current branch commits and words a commi
     commits[2] = { .sha = sha_of(0), .author_name = "Morgan", .author_time = 1700000000, .subject = "root" };
 
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     load(*harness.sessions["repo-1"], commits, 0);
     const auto button_name = [&harness, tab](const std::string& sha) {
         harness.ui.tabs[tab].selected_sha = sha;

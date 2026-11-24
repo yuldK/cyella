@@ -2,11 +2,14 @@
 #include "domain/git_identity.h"
 #include "domain/user_profile.h"
 #include "infrastructure/json_app_settings_store.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -24,29 +27,29 @@ namespace {
 
 TEST_CASE("a rule matches paths under its folder at a folder boundary", "[profiles]")
 {
-    REQUIRE(path_is_under_prefix(u8"C:\\work\\repo", u8"C:\\work"));
-    REQUIRE(path_is_under_prefix(u8"C:\\work", u8"C:\\work"));
+    REQUIRE(path_is_under_prefix(native_path(u8"C:\\work\\repo"), native_path(u8"C:\\work")));
+    REQUIRE(path_is_under_prefix(native_path(u8"C:\\work"), native_path(u8"C:\\work")));
     // 대소문자·구분자·끝 구분자는 무시한다.
-    REQUIRE(path_is_under_prefix(u8"c:/Work/Repo", u8"C:\\WORK\\"));
+    REQUIRE(path_is_under_prefix(native_path(u8"c:/Work/Repo"), native_path(u8"C:\\WORK\\")));
     // 폴더 이름의 앞부분만 같은 다른 폴더에는 맞지 않는다.
-    REQUIRE(path_is_under_prefix(u8"C:\\workshop\\repo", u8"C:\\work") == false);
-    REQUIRE(path_is_under_prefix(u8"C:\\other\\repo", u8"C:\\work") == false);
-    REQUIRE(path_is_under_prefix(u8"C:\\work\\repo", u8"") == false);
+    REQUIRE(path_is_under_prefix(native_path(u8"C:\\workshop\\repo"), native_path(u8"C:\\work")) == false);
+    REQUIRE(path_is_under_prefix(native_path(u8"C:\\other\\repo"), native_path(u8"C:\\work")) == false);
+    REQUIRE(path_is_under_prefix(native_path(u8"C:\\work\\repo"), u8"") == false);
     // 뿌리 규칙은 그 드라이브 전체다.
-    REQUIRE(path_is_under_prefix(u8"C:\\anything\\repo", u8"C:\\"));
+    REQUIRE(path_is_under_prefix(native_path(u8"C:\\anything\\repo"), native_path(u8"C:\\")));
 }
 
 TEST_CASE("the rule with the longest folder wins and unknown profiles are skipped", "[profiles]")
 {
     const std::vector<user_profile> profiles { two_profiles() };
-    const std::vector<profile_rule> rules { profile_rule { u8"C:\\work", u8"개인" }, profile_rule { u8"C:\\work\\corp", u8"회사" }, profile_rule { u8"C:\\ghost", u8"없는 프로필" } };
-    REQUIRE(match_profile_rule(rules, profiles, u8"C:\\work\\corp\\repo") == std::size_t { 1 });
-    REQUIRE(match_profile_rule(rules, profiles, u8"C:\\work\\hobby") == std::size_t { 0 });
-    REQUIRE(match_profile_rule(rules, profiles, u8"C:\\elsewhere").has_value() == false);
-    REQUIRE(match_profile_rule(rules, profiles, u8"C:\\ghost\\repo").has_value() == false);
+    const std::vector<profile_rule> rules { profile_rule { native_path(u8"C:\\work"), u8"개인" }, profile_rule { native_path(u8"C:\\work\\corp"), u8"회사" }, profile_rule { native_path(u8"C:\\ghost"), u8"없는 프로필" } };
+    REQUIRE(match_profile_rule(rules, profiles, native_path(u8"C:\\work\\corp\\repo")) == std::size_t { 1 });
+    REQUIRE(match_profile_rule(rules, profiles, native_path(u8"C:\\work\\hobby")) == std::size_t { 0 });
+    REQUIRE(match_profile_rule(rules, profiles, native_path(u8"C:\\elsewhere")).has_value() == false);
+    REQUIRE(match_profile_rule(rules, profiles, native_path(u8"C:\\ghost\\repo")).has_value() == false);
     // 같은 길이면 앞의 규칙이 이긴다.
-    const std::vector<profile_rule> tie { profile_rule { u8"C:\\work", u8"회사" }, profile_rule { u8"c:/WORK", u8"개인" } };
-    REQUIRE(match_profile_rule(tie, profiles, u8"C:\\work\\repo") == std::size_t { 0 });
+    const std::vector<profile_rule> tie { profile_rule { native_path(u8"C:\\work"), u8"회사" }, profile_rule { native_path(u8"c:/WORK"), u8"개인" } };
+    REQUIRE(match_profile_rule(tie, profiles, native_path(u8"C:\\work\\repo")) == std::size_t { 0 });
 }
 
 TEST_CASE("a profile needs a unique name, a user name and an email", "[profiles]")
@@ -75,10 +78,10 @@ TEST_CASE("a profile needs a unique name, a user name and an email", "[profiles]
 TEST_CASE("a rule needs a folder path and a known profile", "[profiles]")
 {
     const std::vector<user_profile> profiles { two_profiles() };
-    REQUIRE(check_profile_rule(profile_rule { u8"C:\\work", u8"회사" }, profiles).empty());
+    REQUIRE(check_profile_rule(profile_rule { native_path(u8"C:\\work"), u8"회사" }, profiles).empty());
     REQUIRE(check_profile_rule(profile_rule { u8"", u8"회사" }, profiles).empty() == false);
     REQUIRE(check_profile_rule(profile_rule { u8"work", u8"회사" }, profiles).empty() == false);
-    REQUIRE(check_profile_rule(profile_rule { u8"C:\\work", u8"없음" }, profiles).empty() == false);
+    REQUIRE(check_profile_rule(profile_rule { native_path(u8"C:\\work"), u8"없음" }, profiles).empty() == false);
 }
 
 TEST_CASE("a quote left inside a key path or rule prefix is refused", "[profiles]")
@@ -86,14 +89,14 @@ TEST_CASE("a quote left inside a key path or rule prefix is refused", "[profiles
     // 양 끝의 따옴표는 입력이 벗긴다. 안쪽에 남은 것은 깨진 core.sshCommand나 어떤 저장소에도 맞지 않는 규칙이 된다.
     const std::vector<user_profile> existing { two_profiles() };
     user_profile keyed { make_profile(u8"키", u8"홍", u8"a@b.c") };
-    keyed.ssh_key = u8"C:\\Users\\me\\.ssh\\id_corp";
+    keyed.ssh_key = native_path(u8"C:\\Users\\me\\.ssh\\id_corp");
     REQUIRE(check_user_profile(keyed, existing, std::nullopt).empty());
-    keyed.ssh_key = u8"C:\\a\" \"b";
+    keyed.ssh_key = native_path(u8"C:\\a\" \"b");
     CHECK(check_user_profile(keyed, existing, std::nullopt).empty() == false);
 
     const std::vector<user_profile> profiles { two_profiles() };
-    CHECK(check_profile_rule(profile_rule { u8"C:\\a\" \"b", u8"회사" }, profiles).empty() == false);
-    CHECK(check_profile_rule(profile_rule { u8"C:\\work\"", u8"회사" }, profiles).empty() == false);
+    CHECK(check_profile_rule(profile_rule { native_path(u8"C:\\a\" \"b"), u8"회사" }, profiles).empty() == false);
+    CHECK(check_profile_rule(profile_rule { native_path(u8"C:\\work\""), u8"회사" }, profiles).empty() == false);
 }
 
 TEST_CASE("renaming and removing a profile keeps rules and assignments consistent", "[profiles]")
@@ -101,31 +104,31 @@ TEST_CASE("renaming and removing a profile keeps rules and assignments consisten
     app_settings settings {};
     upsert_user_profile(settings, std::nullopt, make_profile(u8"회사", u8"홍길동", u8"hong@corp.example"));
     upsert_user_profile(settings, std::nullopt, make_profile(u8"개인", u8"길동", u8"me@example.com"));
-    upsert_profile_rule(settings, profile_rule { u8"C:/work/", u8"회사" });
-    assign_profile(settings, u8"C:\\work\\repo", u8"회사");
-    assign_profile(settings, u8"C:\\play\\game", u8"개인");
-    REQUIRE(settings.profile_rules.front().path_prefix == u8"C:\\work");
+    upsert_profile_rule(settings, profile_rule { native_path(u8"C:/work/"), u8"회사" });
+    assign_profile(settings, native_path(u8"C:\\work\\repo"), u8"회사");
+    assign_profile(settings, native_path(u8"C:\\play\\game"), u8"개인");
+    REQUIRE(settings.profile_rules.front().path_prefix == native_path(u8"C:\\work"));
 
     // 같은 접두의 규칙은 프로필만 바뀐다.
-    upsert_profile_rule(settings, profile_rule { u8"c:\\WORK", u8"개인" });
+    upsert_profile_rule(settings, profile_rule { native_path(u8"c:\\WORK"), u8"개인" });
     REQUIRE(settings.profile_rules.size() == 1);
     REQUIRE(settings.profile_rules.front().profile == u8"개인");
-    upsert_profile_rule(settings, profile_rule { u8"C:\\work", u8"회사" });
+    upsert_profile_rule(settings, profile_rule { native_path(u8"C:\\work"), u8"회사" });
 
     upsert_user_profile(settings, 0, make_profile(u8"직장", u8"홍길동", u8"hong@corp.example"));
     REQUIRE(settings.profiles.front().name == u8"직장");
     REQUIRE(settings.profile_rules.front().profile == u8"직장");
-    REQUIRE(assigned_profile(settings, u8"c:/work/REPO") == u8"직장");
+    REQUIRE(assigned_profile(settings, native_path(u8"c:/work/REPO")) == u8"직장");
 
     // 같은 저장소에 다시 적용하면 기록을 바꾼다.
-    assign_profile(settings, u8"C:\\work\\repo\\", u8"개인");
+    assign_profile(settings, native_path(u8"C:\\work\\repo\\"), u8"개인");
     REQUIRE(settings.profile_assignments.size() == 2);
-    REQUIRE(assigned_profile(settings, u8"C:\\work\\repo") == u8"개인");
+    REQUIRE(assigned_profile(settings, native_path(u8"C:\\work\\repo")) == u8"개인");
 
     REQUIRE(remove_user_profile(settings, 1));
     REQUIRE(settings.profiles.size() == 1);
-    REQUIRE(assigned_profile(settings, u8"C:\\work\\repo").has_value() == false);
-    REQUIRE(assigned_profile(settings, u8"C:\\play\\game").has_value() == false);
+    REQUIRE(assigned_profile(settings, native_path(u8"C:\\work\\repo")).has_value() == false);
+    REQUIRE(assigned_profile(settings, native_path(u8"C:\\play\\game")).has_value() == false);
     REQUIRE(settings.profile_rules.size() == 1);
     REQUIRE(remove_user_profile(settings, 0));
     REQUIRE(settings.profile_rules.empty());
@@ -137,9 +140,9 @@ TEST_CASE("renaming and removing a profile also follow rules and records written
     // 손으로 고친 settings.json은 규칙과 적용 기록의 프로필 이름 대소문자가 프로필과 다를 수 있다 (조회는 대소문자를 가리지 않는다).
     app_settings settings {};
     upsert_user_profile(settings, std::nullopt, make_profile(u8"work", u8"홍길동", u8"hong@corp.example"));
-    settings.profile_rules.push_back(profile_rule { u8"C:\\work", u8"Work" });
-    settings.profile_assignments.push_back(profile_assignment { u8"C:\\work\\repo", u8"WORK" });
-    REQUIRE(match_profile_rule(settings.profile_rules, settings.profiles, u8"C:\\work\\repo") == std::size_t { 0 });
+    settings.profile_rules.push_back(profile_rule { native_path(u8"C:\\work"), u8"Work" });
+    settings.profile_assignments.push_back(profile_assignment { native_path(u8"C:\\work\\repo"), u8"WORK" });
+    REQUIRE(match_profile_rule(settings.profile_rules, settings.profiles, native_path(u8"C:\\work\\repo")) == std::size_t { 0 });
 
     upsert_user_profile(settings, 0, make_profile(u8"job", u8"홍길동", u8"hong@corp.example"));
     REQUIRE(settings.profile_rules.front().profile == u8"job");
@@ -151,8 +154,8 @@ TEST_CASE("renaming and removing a profile also follow rules and records written
     REQUIRE(settings.profile_assignments.front().profile == u8"Job");
 
     // 지울 때도 대소문자가 다른 규칙과 기록이 남지 않는다.
-    settings.profile_rules.push_back(profile_rule { u8"C:\\play", u8"jOB" });
-    settings.profile_assignments.push_back(profile_assignment { u8"C:\\play\\game", u8"jOB" });
+    settings.profile_rules.push_back(profile_rule { native_path(u8"C:\\play"), u8"jOB" });
+    settings.profile_assignments.push_back(profile_assignment { native_path(u8"C:\\play\\game"), u8"jOB" });
     REQUIRE(remove_user_profile(settings, 0));
     REQUIRE(settings.profile_rules.empty());
     REQUIRE(settings.profile_assignments.empty());
@@ -180,11 +183,11 @@ TEST_CASE("profiles, rules and assignments survive a settings round trip and kee
     user_profile company { make_profile(u8"회사", u8"홍길동", u8"hong@corp.example") };
     company.signing_key = u8"ABCD1234";
     company.https_username = u8"hong-corp";
-    company.ssh_key = u8"C:/Users/me/.ssh/id_corp";
+    company.ssh_key = native_path(u8"C:/Users/me/.ssh/id_corp");
     upsert_user_profile(settings, std::nullopt, company);
     upsert_user_profile(settings, std::nullopt, make_profile(u8"개인", u8"길동", u8"me@example.com"));
-    upsert_profile_rule(settings, profile_rule { u8"C:\\work", u8"회사" });
-    assign_profile(settings, u8"C:\\work\\repo", u8"회사");
+    upsert_profile_rule(settings, profile_rule { native_path(u8"C:\\work"), u8"회사" });
+    assign_profile(settings, native_path(u8"C:\\work\\repo"), u8"회사");
 
     const std::u8string json { serialize_app_settings_json(settings, u8"{\"future_key\": [1, 2]}") };
     REQUIRE(json.find(u8"future_key") != std::u8string::npos);
@@ -195,7 +198,7 @@ TEST_CASE("profiles, rules and assignments survive a settings round trip and kee
     REQUIRE(loaded.settings.profile_assignments == settings.profile_assignments);
     REQUIRE(loaded.settings.profiles.front().signing_key == u8"ABCD1234");
     REQUIRE(loaded.settings.profiles.front().https_username == u8"hong-corp");
-    REQUIRE(loaded.settings.profiles.front().ssh_key == u8"C:/Users/me/.ssh/id_corp");
+    REQUIRE(loaded.settings.profiles.front().ssh_key == native_path(u8"C:/Users/me/.ssh/id_corp"));
     // 접속 계정이 없는 프로필은 그 키를 쓰지 않는다.
     REQUIRE(json.find(u8"\"ssh_key\"") == json.rfind(u8"\"ssh_key\""));
 
@@ -205,6 +208,8 @@ TEST_CASE("profiles, rules and assignments survive a settings round trip and kee
     REQUIRE(plain.find(u8"shortcuts") == std::u8string::npos);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("broken profile entries are dropped with a warning", "[profiles]")
 {
     const std::u8string json = u8R"({
@@ -238,6 +243,7 @@ TEST_CASE("broken profile entries are dropped with a warning", "[profiles]")
     REQUIRE(loaded.diagnostics.size() >= 3);
     REQUIRE(loaded.corrupt == false);
 }
+#endif
 
 TEST_CASE("git identity is read from --show-scope --show-origin output", "[profiles][identity]")
 {
@@ -248,7 +254,7 @@ TEST_CASE("git identity is read from --show-scope --show-origin output", "[profi
                                  u8"global\tfile:C:/Users/me/.gitconfig-work\tuser.signingkey ABCD\n"
                                  u8"local\tfile:.git/config\tuser.name Local Lou\n";
     identity_origin_hints hints {};
-    hints.global_files = { u8"C:\\Users\\me\\.gitconfig" };
+    hints.global_files = { native_path(u8"C:\\Users\\me\\.gitconfig") };
     const git_identity identity { parse_git_identity(output, hints) };
     REQUIRE(identity.name.has_value());
     REQUIRE(identity.name->value == u8"Local Lou");
@@ -269,6 +275,8 @@ TEST_CASE("git identity is read from --show-scope --show-origin output", "[profi
     REQUIRE(unknown_hints.email->origin == identity_origin::global);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("git identity classifies the scopes", "[profiles][identity]")
 {
     const std::u8string output = u8"system\tfile:C:/Git/etc/gitconfig\tuser.name Sys\n"
@@ -286,6 +294,7 @@ TEST_CASE("git identity classifies the scopes", "[profiles][identity]")
     REQUIRE(plain.name->origin == identity_origin::global);
     REQUIRE(plain.email->origin == identity_origin::local);
 }
+#endif
 
 TEST_CASE("an empty or foreign output is no identity", "[profiles][identity]")
 {
@@ -310,6 +319,8 @@ TEST_CASE("an identity matches a profile by name and email", "[profiles][identit
     REQUIRE(identity_matches_profile(git_identity {}, make_profile(u8"회사", u8"홍길동", u8"hong@corp.example")) == false);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a profile's sign-in account must also match when the profile names one", "[profiles][identity]")
 {
     git_identity identity { parse_git_identity(u8"local\tfile:.git/config\tuser.name 홍길동\nlocal\tfile:.git/config\tuser.email hong@corp.example\n") };
@@ -332,7 +343,10 @@ TEST_CASE("a profile's sign-in account must also match when the profile names on
     CHECK(describe_access(identity) == u8"접속 hong-corp · 키 id_corp");
     CHECK(describe_identity_with_access(identity) == u8"홍길동 <hong@corp.example> · 로컬 · 접속 hong-corp · 키 id_corp");
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("the profile ssh command round-trips its key and leaves hand-written commands alone", "[profiles][identity]")
 {
     const std::u8string command { make_profile_ssh_command(u8"C:\\Windows\\System32\\OpenSSH\\ssh.exe", u8"C:\\Users\\me\\.ssh\\id work") };
@@ -344,7 +358,10 @@ TEST_CASE("the profile ssh command round-trips its key and leaves hand-written c
     CHECK(profile_ssh_key_of(u8"-i '' -o IdentitiesOnly=yes").has_value() == false);
     CHECK(describe_access(git_identity {}).empty());
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("the profile ssh command escapes a single quote in the ssh executable path", "[profiles][identity]")
 {
     // sh가 풀 때 따옴표가 깨지면 push·fetch가 셸 구문 오류로 실패한다. `'`는 `'\''`로 닫고 다시 연다.
@@ -353,6 +370,7 @@ TEST_CASE("the profile ssh command escapes a single quote in the ssh executable 
     // 꼬리부터 읽으므로 실행 파일 쪽의 이스케이프가 키 경로 읽기를 흩뜨리지 않는다.
     CHECK(profile_ssh_key_of(command) == std::optional<std::u8string> { u8"C:/k" });
 }
+#endif
 
 TEST_CASE("a profile's sign-in account rejects text that git or sh would misread", "[profiles]")
 {
@@ -361,23 +379,25 @@ TEST_CASE("a profile's sign-in account rejects text that git or sh would misread
     CHECK(check_user_profile(profile, {}, std::nullopt).empty() == false);
     profile.https_username = u8"hong@corp.example";
     CHECK(check_user_profile(profile, {}, std::nullopt).empty());
-    profile.ssh_key = u8"C:/it's/key";
+    profile.ssh_key = native_path(u8"C:/it's/key");
     CHECK(check_user_profile(profile, {}, std::nullopt).empty() == false);
-    profile.ssh_key = u8"C:/keys/id_corp";
+    profile.ssh_key = native_path(u8"C:/keys/id_corp");
     CHECK(check_user_profile(profile, {}, std::nullopt).empty());
 }
 
 TEST_CASE("unassigning a repository forgets only that repository's profile", "[profiles]")
 {
     app_settings settings {};
-    assign_profile(settings, u8"C:\\work\\repo", u8"회사");
-    assign_profile(settings, u8"C:\\play\\repo", u8"개인");
-    CHECK(unassign_profile(settings, u8"c:/work/repo/"));
-    CHECK(assigned_profile(settings, u8"C:\\work\\repo").has_value() == false);
-    CHECK(assigned_profile(settings, u8"C:\\play\\repo") == std::optional<std::u8string> { u8"개인" });
-    CHECK(unassign_profile(settings, u8"C:\\work\\repo") == false);
+    assign_profile(settings, native_path(u8"C:\\work\\repo"), u8"회사");
+    assign_profile(settings, native_path(u8"C:\\play\\repo"), u8"개인");
+    CHECK(unassign_profile(settings, native_path(u8"c:/work/repo/")));
+    CHECK(assigned_profile(settings, native_path(u8"C:\\work\\repo")).has_value() == false);
+    CHECK(assigned_profile(settings, native_path(u8"C:\\play\\repo")) == std::optional<std::u8string> { u8"개인" });
+    CHECK(unassign_profile(settings, native_path(u8"C:\\work\\repo")) == false);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("git's quoted origin paths are unquoted before they are compared", "[profiles][identity]")
 {
     identity_origin_hints hints {};
@@ -394,3 +414,4 @@ TEST_CASE("git's quoted origin paths are unquoted before they are compared", "[p
     REQUIRE(quoted.email->origin == identity_origin::include);
     REQUIRE(quoted.email->file == u8"C:/Users/홍/.gitconfig-work");
 }
+#endif

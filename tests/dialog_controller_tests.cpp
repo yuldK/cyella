@@ -1,9 +1,11 @@
 // 대화 상자·메뉴·끌어 놓기·충돌 해결의 화면 상태 흐름이다. workspace는 가짜 runner와 수동 dispatcher로 세우고, job은
 // 실행하지 않고 낸 operation 요청만 읽는다. operation 사건은 test가 직접 넣는다.
 #include "application/app_messages.h"
+#include "domain/external_diff_tool.h"
 #include "application/git_workspace.h"
 #include "domain/credential_prompt.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/palette/palette_intents.h"
@@ -29,6 +31,8 @@
 #include <variant>
 #include <vector>
 
+using cyella::test::native_path;
+
 namespace {
     using namespace cyella;
     namespace snap = cyella::test::snapshot;
@@ -48,12 +52,12 @@ namespace {
         // `hook`을 주면 인증 대화 상자가 내는 백엔드 메시지(`answer_input_intent`·`cancel_input_intent`)를 workspace 대신 그리로
         // 넘긴다 (driver가 꽂는 처리기의 자리).
         explicit harness(std::function<void(const luil::app_message&)> hook = {})
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , controller { make_dependencies(workspace, std::move(hook), opened_folders, steady_now) }
         {
             controller.start({});
-            controller.open_repository(u8"C:\\work\\repo");
+            controller.open_repository(native_path(u8"C:\\work\\repo"));
             repository = controller.selected_repository_id();
         }
 
@@ -68,8 +72,8 @@ namespace {
             dependencies.clock = [] { return std::chrono::system_clock::time_point { std::chrono::seconds { 1700000000 + 3600 } }; };
             // 호버 시계를 정하는 test만 `steady_now`를 채운다. 비어 있으면 실제 시각이다 (토스트 test는 실제 시계를 쓴다).
             dependencies.steady_clock = [&steady_now] { return steady_now.value_or(std::chrono::steady_clock::now()); };
-            dependencies.temporary_directory = u8"C:\\temp\\cyella-test";
-            dependencies.ssh_executable = u8"C:/Git/usr/bin/ssh.exe";
+            dependencies.temporary_directory = native_path(u8"C:\\temp\\cyella-test");
+            dependencies.ssh_executable = native_path(u8"C:/Git/usr/bin/ssh.exe");
             return dependencies;
         }
 
@@ -1652,7 +1656,7 @@ TEST_CASE("prompts from setup operations without a repository open the same dial
     harness test {};
     test.load();
     // clone·init·ssh-keygen 같은 저장소 없는 작업도 인증을 묻는다. 이 탭의 저장소 operation이 아니어도 상자가 뜬다.
-    const operation_id cloning { test.workspace.submit_setup(clone_request { .url = "https://example.com/r.git", .target_path = u8"C:\\work\\clone" }) };
+    const operation_id cloning { test.workspace.submit_setup(clone_request { .url = "https://example.com/r.git", .target_path = native_path(u8"C:\\work\\clone") }) };
     REQUIRE(cloning != 0);
     test.workspace.apply(operation_event { cloning, {}, operation_started {} });
     askpass_recorder recorder {};
@@ -2268,7 +2272,7 @@ TEST_CASE("Esc, a context menu, a tab change and a chosen folder all close the s
 
     test.send(close_menu_intent {});
     test.send(open_selector_intent { selector_kind::repository, 0.0f, 0.0f, 100.0f });
-    test.send(folder_chosen_intent { folder_purpose::open, u8"C:\\work\\nowhere" });
+    test.send(folder_chosen_intent { folder_purpose::open, native_path(u8"C:\\work\\nowhere") });
     CHECK_FALSE(test.view().selector.has_value());
 }
 
@@ -2628,7 +2632,7 @@ TEST_CASE("the repository selector switches between open tabs and reopens recent
     harness test {};
     test.load();
     const repository_tab_id first { test.controller.tabs().selected().id };
-    test.controller.open_repository(u8"C:\\work\\other");
+    test.controller.open_repository(native_path(u8"C:\\work\\other"));
     const repository_tab_id second { test.controller.tabs().selected().id };
     REQUIRE(first != second);
 
@@ -2650,10 +2654,10 @@ TEST_CASE("the repository selector switches between open tabs and reopens recent
     test.send(close_tab_intent { second });
     test.send(open_selector_intent { selector_kind::repository, 0.0f, 0.0f, 150.0f });
     view = test.view();
-    CHECK(selector_keys(view) == std::vector<std::u8string> { tab_key(first), u8"recent:C:\\work\\other", u8"open_folder" });
-    test.send(selector_select_intent { u8"recent:C:\\work\\other" });
+    CHECK(selector_keys(view) == std::vector<std::u8string> { tab_key(first), u8"recent:" + native_path(u8"C:\\work\\other"), u8"open_folder" });
+    test.send(selector_select_intent { u8"recent:" + native_path(u8"C:\\work\\other") });
     CHECK(test.controller.tabs().tabs().size() == 2);
-    CHECK(test.controller.tabs().selected().path == u8"C:\\work\\other");
+    CHECK(test.controller.tabs().selected().path == native_path(u8"C:\\work\\other"));
 }
 
 TEST_CASE("the branch selector is not offered on the start page", "[presentation][selector]")
@@ -2682,17 +2686,17 @@ TEST_CASE("locating a missing recent repository replaces its path once the chose
 {
     harness test {};
     // 열어 둔 저장소(C:\work\repo)의 최근 항목을 옮긴 폴더로 바꾼다.
-    const std::u8string old_path { u8"C:\\work\\repo" };
+    const std::u8string old_path { native_path(u8"C:\\work\\repo") };
     REQUIRE(test.controller.settings().recent_repositories.empty() == false);
     REQUIRE(test.controller.settings().recent_repositories.front().path == old_path);
 
-    test.files.add_directory(u8"C:/moved/place");
-    test.process.when({ "rev-parse" }, test::scripted_response { 0, "C:/moved/place/.git\nC:/moved/place\n" });
-    test.send(folder_chosen_intent { folder_purpose::locate, u8"C:\\moved\\place", old_path });
+    test.files.add_directory(native_path(u8"C:/moved/place"));
+    test.process.when({ "rev-parse" }, test::scripted_response { 0, native_path("C:/moved/place/.git\n" + native_path("C:/moved/place\n")) });
+    test.send(folder_chosen_intent { folder_purpose::locate, native_path(u8"C:\\moved\\place"), old_path });
     settle_inspection(test);
 
     REQUIRE(test.controller.settings().recent_repositories.empty() == false);
-    CHECK(test.controller.settings().recent_repositories.front().path == u8"C:\\moved\\place");
+    CHECK(test.controller.settings().recent_repositories.front().path == native_path(u8"C:\\moved\\place"));
     CHECK(test.controller.settings().recent_repositories.front().display_name == u8"place");
     REQUIRE(test.controller.state().latest_notification() != nullptr);
     CHECK_FALSE(test.controller.state().latest_notification()->severity == notification_severity::warning);
@@ -2702,11 +2706,11 @@ TEST_CASE("locating a missing recent repository replaces its path once the chose
 TEST_CASE("locating to a folder that is not a repository changes nothing and says so", "[presentation][locate]")
 {
     harness test {};
-    const std::u8string old_path { u8"C:\\work\\repo" };
-    test.files.add_directory(u8"C:/plain/folder");
+    const std::u8string old_path { native_path(u8"C:\\work\\repo") };
+    test.files.add_directory(native_path(u8"C:/plain/folder"));
     // rev-parse가 실패하면(저장소가 아님) 그냥 폴더다.
     test.process.when({ "rev-parse" }, test::scripted_response { 128, "" });
-    test.send(folder_chosen_intent { folder_purpose::locate, u8"C:\\plain\\folder", old_path });
+    test.send(folder_chosen_intent { folder_purpose::locate, native_path(u8"C:\\plain\\folder"), old_path });
     settle_inspection(test);
 
     REQUIRE(test.controller.settings().recent_repositories.empty() == false);
@@ -2726,16 +2730,18 @@ TEST_CASE("the open button lists apps for the repository folder and opens the pi
     CHECK(view.selector->kind == selector_kind::repository_app);
     // 원격(https://example.com/repo.git)의 웹 페이지 링크가 앱 목록 뒤에 선다.
     CHECK(selector_keys(view) == std::vector<std::u8string> { u8"repository-app:0", u8"repository-app:1", u8"web-link:origin", u8"file-app-settings" });
-    CHECK(view.selector->entries[0].label == u8"Windows 탐색기");
+    // 앞의 두 앱은 이 OS의 기본 앱이다 (Windows: 탐색기·Code.exe, macOS: Finder·`open -b`로 띄우는 VS Code).
+    const std::vector<external_file_app> defaults { repository_open_apps({}) };
+    CHECK(view.selector->entries[0].label == defaults[0].name);
     CHECK(view.selector->entries[1].label == u8"Visual Studio Code");
     CHECK(view.selector->entries[2].label == u8"example.com에서 열기 (origin)");
 
     test.send(selector_select_intent { u8"repository-app:1" });
     CHECK_FALSE(test.view().selector.has_value());
     REQUIRE(test.opened_folders.size() == 1);
-    CHECK(test.opened_folders[0].first.executable == u8"Code.exe");
-    CHECK(test.opened_folders[0].first.arguments == u8"{repository}");
-    CHECK(test.opened_folders[0].second == u8"C:\\work\\repo");
+    CHECK(test.opened_folders[0].first.executable == defaults[1].executable);
+    CHECK(test.opened_folders[0].first.arguments == defaults[1].arguments);
+    CHECK(test.opened_folders[0].second == native_path(u8"C:\\work\\repo"));
     // 저장소를 열지 않으므로 git operation도 없다.
     CHECK(test.operation_count() == 0);
 }
@@ -2747,9 +2753,10 @@ TEST_CASE("palette commands open the repository folder in Explorer or VS Code", 
     test.send(run_command_intent { "repo.reveal" });
     test.send(run_command_intent { "repo.open_vscode" });
     REQUIRE(test.opened_folders.size() == 2);
-    CHECK(test.opened_folders[0].first.executable == u8"explorer.exe");
-    CHECK(test.opened_folders[1].first.executable == u8"Code.exe");
-    CHECK(test.opened_folders[1].second == u8"C:\\work\\repo");
+    const std::vector<external_file_app> defaults { repository_open_apps({}) };
+    CHECK(test.opened_folders[0].first.executable == defaults[0].executable);
+    CHECK(test.opened_folders[1].first.executable == defaults[1].executable);
+    CHECK(test.opened_folders[1].second == native_path(u8"C:\\work\\repo"));
 
     // 시작 탭에서는 열 저장소가 없다.
     test.send(new_tab_intent {});
@@ -2761,7 +2768,7 @@ TEST_CASE("right-clicking a tab opens its menu even on the start page and runs t
 {
     harness test {};
     test.load();
-    test.controller.open_repository(u8"C:\\work\\other");
+    test.controller.open_repository(native_path(u8"C:\\work\\other"));
     test.send(new_tab_intent {});
     REQUIRE(test.controller.tabs().tabs().size() == 3);
     const repository_tab_id first { test.controller.tabs().tabs()[0].id };
@@ -2773,13 +2780,13 @@ TEST_CASE("right-clicking a tab opens its menu even on the start page and runs t
     CHECK(view.menu->title == u8"repo");
 
     test.send(menu_select_intent { u8"copy_path" });
-    CHECK(test.controller.take_clipboard_text() == std::optional<std::u8string> { u8"C:\\work\\repo" });
+    CHECK(test.controller.take_clipboard_text() == std::optional<std::u8string> { native_path(u8"C:\\work\\repo") });
 
     test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::tab, .tab = first }, 40.0f, 30.0f });
     test.send(menu_select_intent { u8"open_vscode" });
     REQUIRE(test.opened_folders.size() == 1);
-    CHECK(test.opened_folders[0].first.executable == u8"Code.exe");
-    CHECK(test.opened_folders[0].second == u8"C:\\work\\repo");
+    CHECK(test.opened_folders[0].first.executable == repository_open_apps({})[1].executable);
+    CHECK(test.opened_folders[0].second == native_path(u8"C:\\work\\repo"));
 
     // 오른쪽 탭을 닫으면 첫 탭만 남는다.
     test.send(open_context_menu_intent { menu_target { .kind = menu_target_kind::tab, .tab = first }, 40.0f, 30.0f });
@@ -3002,7 +3009,7 @@ TEST_CASE("a branch deletion confirmed on one tab is not sent after switching ta
     harness test {};
     test.load();
     const repository_tab_id first_tab { test.controller.tabs().selected().id };
-    test.controller.open_repository(u8"C:\\work\\other");
+    test.controller.open_repository(native_path(u8"C:\\work\\other"));
     const std::string other { test.controller.selected_repository_id() };
     REQUIRE(other != test.repository);
     // 첫 저장소로 돌아가 브랜치 삭제를 묻고, 확인하기 전에 탭을 바꾼다.
@@ -3118,7 +3125,7 @@ TEST_CASE("the external diff entry of a working file hands its diff to the injec
     dependencies.open_external_diff = [&opened](const std::string& repository_id, const diff_file_request& request) { opened.emplace_back(repository_id, request); };
     shell_controller controller { std::move(dependencies) };
     controller.start({});
-    controller.open_repository(u8"C:\\work\\repo");
+    controller.open_repository(native_path(u8"C:\\work\\repo"));
     REQUIRE(controller.selected_repository_id() == test.repository);
     controller.handle(luil::app_message { open_context_menu_intent { menu_target { .kind = menu_target_kind::file, .name = "README.md", .side = change_side::staged }, 0.0f, 0.0f } });
     controller.handle(luil::app_message { menu_select_intent { u8"open_external_diff" } });
@@ -3195,7 +3202,7 @@ TEST_CASE("the same failure in two repositories stays as two notifications", "[p
 {
     harness test {};
     test.load();
-    test.controller.open_repository(u8"C:\\work\\other");
+    test.controller.open_repository(native_path(u8"C:\\work\\other"));
     const std::string other { test.controller.selected_repository_id() };
     const operation_failure offline { failure_kind::other, u8"원격에 연결할 수 없습니다.", {} };
     const operation_id first { test.workspace.submit(test.repository, fetch_request {}) };

@@ -1,6 +1,7 @@
 #include "infrastructure/git_tool_discovery.h"
 
 #include "infrastructure/git_version.h"
+#include "native_path_support.h"
 #include "platform/win32/win32_file_probe.h"
 #include "platform/win32/win32_process_runner.h"
 
@@ -12,6 +13,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -67,8 +70,8 @@ namespace {
     };
 
     const git_tool_environment environment {
-        u8"C:\\Windows\\System32;\"C:\\Tools\\Git\\cmd\";relative\\bin;;c:\\windows\\system32\\;C:\\Tools\\Git\\cmd",
-        { u8"C:\\Program Files", u8"C:\\Program Files (x86)" },
+        native_path(u8"C:\\Windows\\System32;\"C:\\Tools\\Git\\cmd\";relative\\bin;;c:\\windows\\system32\\;C:\\Tools\\Git\\cmd"),
+        { native_path(u8"C:\\Program Files"), native_path(u8"C:\\Program Files (x86)") },
     };
 } // namespace
 
@@ -109,6 +112,8 @@ TEST_CASE("git minimum version is 2.43", "[git_tool]")
     CHECK_FALSE(meets_minimum_git_version({ 1, 99, 0 }));
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("search path splitting drops relative duplicates and quotes", "[git_tool]")
 {
     const std::vector<std::u8string> directories { split_search_path(environment.path_environment) };
@@ -117,7 +122,10 @@ TEST_CASE("search path splitting drops relative duplicates and quotes", "[git_to
     CHECK(directories[0] == u8"C:\\Windows\\System32");
     CHECK(directories[1] == u8"C:\\Tools\\Git\\cmd");
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("candidates follow PATH first and the default install locations last", "[git_tool]")
 {
     const std::vector<git_tool_candidate> candidates { git_tool_candidates(u8"", environment) };
@@ -130,16 +138,19 @@ TEST_CASE("candidates follow PATH first and the default install locations last",
     for (const git_tool_candidate& candidate : candidates)
         CHECK_FALSE(candidate.manually_configured);
 }
+#endif
 
 TEST_CASE("a configured path is the only candidate", "[git_tool]")
 {
-    const std::vector<git_tool_candidate> candidates { git_tool_candidates(u8"D:\\git\\git.exe", environment) };
+    const std::vector<git_tool_candidate> candidates { git_tool_candidates(native_path(u8"D:\\git\\git.exe"), environment) };
 
     REQUIRE(candidates.size() == 1);
-    CHECK(candidates[0].executable == u8"D:\\git\\git.exe");
+    CHECK(candidates[0].executable == native_path(u8"D:\\git\\git.exe"));
     CHECK(candidates[0].manually_configured);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("resolving finds the first existing candidate and reads its version", "[git_tool]")
 {
     const fake_probe probe { { u8"C:\\Tools\\Git\\cmd\\git.exe", u8"C:\\Program Files\\Git\\cmd\\git.exe" } };
@@ -156,6 +167,7 @@ TEST_CASE("resolving finds the first existing candidate and reads its version", 
     CHECK(runner.last_request.working_directory == u8"C:\\Tools\\Git\\cmd");
     CHECK(runner.last_request.timeout.has_value());
 }
+#endif
 
 TEST_CASE("resolving reports a missing tool without running anything", "[git_tool]")
 {
@@ -171,6 +183,8 @@ TEST_CASE("resolving reports a missing tool without running anything", "[git_too
     CHECK(info.diagnostics[0].code == diagnostic_code::git_tool_not_found);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("resolving reports a git older than 2.43", "[git_tool]")
 {
     const fake_probe probe { { u8"C:\\Tools\\Git\\cmd\\git.exe" } };
@@ -182,21 +196,24 @@ TEST_CASE("resolving reports a git older than 2.43", "[git_tool]")
     CHECK_FALSE(info.usable());
     CHECK(info.version == git_tool_version { 2, 42, 0 });
 }
+#endif
 
 TEST_CASE("resolving does not fall back from a broken configured path", "[git_tool]")
 {
-    const fake_probe probe { { u8"C:\\Tools\\Git\\cmd\\git.exe" } };
+    const fake_probe probe { { native_path(u8"C:\\Tools\\Git\\cmd\\git.exe") } };
     fake_runner runner { u8"git version 2.52.0", 0 };
 
     const git_tool_info relative { resolve_git_tool(u8"git.exe", environment, runner, probe, {}) };
     CHECK(relative.availability == git_tool_availability::path_invalid);
 
-    const git_tool_info missing { resolve_git_tool(u8"D:\\nowhere\\git.exe", environment, runner, probe, {}) };
+    const git_tool_info missing { resolve_git_tool(native_path(u8"D:\\nowhere\\git.exe"), environment, runner, probe, {}) };
     CHECK(missing.availability == git_tool_availability::path_invalid);
     CHECK(missing.manually_configured);
     CHECK(runner.run_count == 0);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("resolving reports unreadable output and failing commands", "[git_tool]")
 {
     const fake_probe probe { { u8"C:\\Tools\\Git\\cmd\\git.exe" } };
@@ -207,6 +224,7 @@ TEST_CASE("resolving reports unreadable output and failing commands", "[git_tool
     fake_runner failing { u8"", 1 };
     CHECK(resolve_git_tool(u8"", environment, failing, probe, {}).availability == git_tool_availability::version_unreadable);
 }
+#endif
 
 TEST_CASE("the installed git is found with the real runner", "[git_tool][integration]")
 {

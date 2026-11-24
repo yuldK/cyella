@@ -1,9 +1,12 @@
 #include "infrastructure/json_window_placement.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <map>
 #include <string>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -39,20 +42,20 @@ namespace {
 
 TEST_CASE("the window placement file sits next to the settings file", "[settings][window]")
 {
-    CHECK(window_placement_path(u8"C:\\Users\\me\\AppData\\Roaming\\cyella\\settings.json") == u8"C:\\Users\\me\\AppData\\Roaming\\cyella\\window-placement.json");
-    CHECK(window_placement_path(u8"D:/scratch/settings.json") == u8"D:/scratch/window-placement.json");
+    CHECK(window_placement_path(native_path(u8"C:\\Users\\me\\AppData\\Roaming\\cyella\\settings.json")) == native_path(u8"C:\\Users\\me\\AppData\\Roaming\\cyella\\window-placement.json"));
+    CHECK(window_placement_path(native_path(u8"D:/scratch/settings.json")) == native_path(u8"D:/scratch/window-placement.json"));
     CHECK(window_placement_path(u8"settings.json") == u8"window-placement.json");
 }
 
 TEST_CASE("a saved window placement round-trips including negative coordinates and maximized", "[settings][window]")
 {
     memory_file_system files {};
-    const std::u8string settings { u8"C:\\cyella\\settings.json" };
+    const std::u8string settings { native_path(u8"C:\\cyella\\settings.json") };
     CHECK_FALSE(load_window_placement(files, settings).has_value());
 
     const saved_window_placement placement { .x = -1600, .y = 40, .width = 1400, .height = 900, .maximized = true };
     REQUIRE(save_window_placement(files, settings, placement));
-    CHECK(files.files.contains(u8"C:\\cyella\\window-placement.json"));
+    CHECK(files.files.contains(native_path(u8"C:\\cyella\\window-placement.json")));
     const std::optional<saved_window_placement> loaded { load_window_placement(files, settings) };
     REQUIRE(loaded.has_value());
     CHECK(*loaded == placement);

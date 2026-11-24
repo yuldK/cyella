@@ -1,4 +1,5 @@
 #include "domain/remote_web_link.h"
+#include "native_path_support.h"
 #include "presentation/codicon_names.h"
 
 #include "luil/generated/codicons.h"
@@ -7,6 +8,8 @@
 
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -36,7 +39,7 @@ TEST_CASE("known public services turn https, ssh and scp remotes into the reposi
     CHECK(resolve_remote_web_link("git@gitea.com:me/tool.git", {}, {})->service == web_link_service::gitea);
 
     // 로컬 경로는 링크가 없다.
-    CHECK(url_of("C:\\repos\\shared.git") == "(none)");
+    CHECK(url_of(native_path("C:\\repos\\shared.git")) == "(none)");
     CHECK(url_of("../other") == "(none)");
 }
 

@@ -1,6 +1,7 @@
 // 환경 설정 "서명" 쪽의 규칙이다: snapshot builder, controller의 읽기·쓰기 흐름과 전역 변경의 확인, 화면 tree의 이름.
 // worker는 가짜(호출을 기록하는 함수)로 바꾸고 결과 메시지를 test가 직접 넣는다.
 #include "application/app_messages.h"
+#include "native_path_support.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/settings/signing_intents.h"
 #include "presentation/settings/signing_page_controller.h"
@@ -16,6 +17,8 @@
 #include <utility>
 #include <vector>
 
+using cyella::test::native_path;
+
 using namespace cyella;
 
 namespace {
@@ -28,7 +31,7 @@ namespace {
 
     struct signing_harness
     {
-        explicit signing_harness(std::u8string repository = u8"C:/work/repo")
+        explicit signing_harness(std::u8string repository = native_path(u8"C:/work/repo"))
             : repository_path { std::move(repository) }
             , controller { make_dependencies() }
         {}
@@ -73,13 +76,13 @@ namespace {
         info.repository = true;
         info.config_read = true;
         info.config.global.at(signing_key_id::commit_gpgsign) = entry("true", config_origin::global);
-        info.config.global.at(signing_key_id::gpg_program) = entry("C:/Program Files/Git/usr/bin/gpg.exe", config_origin::global);
+        info.config.global.at(signing_key_id::gpg_program) = entry(native_path("C:/Program Files/Git/usr/bin/gpg.exe"), config_origin::global);
         info.config.local.at(signing_key_id::gpg_format) = entry("ssh", config_origin::local);
-        info.config.local.at(signing_key_id::user_signingkey) = entry("C:/Users/me/.ssh/id_ed25519.pub", config_origin::local);
+        info.config.local.at(signing_key_id::user_signingkey) = entry(native_path("C:/Users/me/.ssh/id_ed25519.pub"), config_origin::local);
         info.config.effective = info.config.global;
         info.config.effective.at(signing_key_id::gpg_format) = info.config.local.at(signing_key_id::gpg_format);
         info.config.effective.at(signing_key_id::user_signingkey) = info.config.local.at(signing_key_id::user_signingkey);
-        info.default_gpg = u8"C:\\Program Files\\Git\\usr\\bin\\gpg.exe";
+        info.default_gpg = native_path(u8"C:\\Program Files\\Git\\usr\\bin\\gpg.exe");
         info.gpg_executable = info.default_gpg;
         info.gpg_keys_read = true;
         gpg_secret_key ed {};
@@ -96,7 +99,7 @@ namespace {
         old.expired = true;
         old.user_ids = { u8"Old Key <old@example.com>" };
         info.gpg_keys = { ed, old };
-        info.allowed_signers_path = u8"C:/Users/me/.ssh/allowed_signers";
+        info.allowed_signers_path = native_path(u8"C:/Users/me/.ssh/allowed_signers");
         info.allowed_signers_exists = true;
         info.config.effective.at(signing_key_id::gpg_ssh_allowed_signers) = entry("~/.ssh/allowed_signers", config_origin::global);
         return info;
@@ -105,8 +108,8 @@ namespace {
     ssh_info_snapshot sample_ssh()
     {
         ssh_info_snapshot info {};
-        info.keys.push_back({ u8"id_ed25519", u8"ssh-ed25519", u8"me@PC", u8"ssh-ed25519 AAAA me@PC", u8"C:\\Users\\me\\.ssh\\id_ed25519" });
-        info.keys.push_back({ u8"work", u8"ssh-rsa", u8"", u8"ssh-rsa BBBB", u8"C:\\Users\\me\\.ssh\\work" });
+        info.keys.push_back({ u8"id_ed25519", u8"ssh-ed25519", u8"me@PC", u8"ssh-ed25519 AAAA me@PC", native_path(u8"C:\\Users\\me\\.ssh\\id_ed25519") });
+        info.keys.push_back({ u8"work", u8"ssh-rsa", u8"", u8"ssh-rsa BBBB", native_path(u8"C:\\Users\\me\\.ssh\\work") });
         return info;
     }
 } // namespace
@@ -116,7 +119,7 @@ TEST_CASE("the signing page reads the settings when it opens and shows them per 
     signing_harness test {};
     test.controller.on_page_opened();
     REQUIRE(test.info_requests.size() == 1);
-    CHECK(test.info_requests[0] == u8"C:/work/repo");
+    CHECK(test.info_requests[0] == native_path(u8"C:/work/repo"));
     CHECK(test.view().loaded == false);
     CHECK(test.view().loading);
 
@@ -143,8 +146,8 @@ TEST_CASE("the signing page reads the settings when it opens and shows them per 
     CHECK(view.rows[1].origin == u8"설정 없음");
     CHECK(view.rows[2].effective == u8"ssh");
     CHECK(view.rows[2].origin == u8"이 저장소");
-    CHECK(view.rows[3].effective == u8"C:/Users/me/.ssh/id_ed25519.pub");
-    CHECK(view.rows[4].effective == u8"C:/Program Files/Git/usr/bin/gpg.exe");
+    CHECK(view.rows[3].effective == native_path(u8"C:/Users/me/.ssh/id_ed25519.pub"));
+    CHECK(view.rows[4].effective == native_path(u8"C:/Program Files/Git/usr/bin/gpg.exe"));
     CHECK(view.rows[5].effective == u8"ssh-keygen (기본)");
     CHECK(view.rows[6].name == u8"gpg.ssh.allowedSignersFile");
 
@@ -154,10 +157,10 @@ TEST_CASE("the signing page reads the settings when it opens and shows them per 
     // ssh 형식이므로 ~/.ssh의 키가 후보이고, 정해 둔 키에 "사용 중" 표지가 선다.
     CHECK(view.key_format == signing_format::ssh);
     REQUIRE(view.keys.size() == 2);
-    CHECK(view.keys[0].value == u8"C:/Users/me/.ssh/id_ed25519.pub");
+    CHECK(view.keys[0].value == native_path(u8"C:/Users/me/.ssh/id_ed25519.pub"));
     CHECK(view.keys[0].selected);
     CHECK_FALSE(view.keys[1].selected);
-    CHECK(view.keys[1].value == u8"C:/Users/me/.ssh/work.pub");
+    CHECK(view.keys[1].value == native_path(u8"C:/Users/me/.ssh/work.pub"));
     CHECK(view.allowed_signers_ok);
     CHECK(view.gpg_ok);
 
@@ -226,7 +229,7 @@ TEST_CASE("changes in the repository scope are written at once with --local", "[
     REQUIRE(test.send(set_signing_toggle_intent { signing_key_id::commit_gpgsign, signing_toggle_choice::enabled }));
     REQUIRE(test.writes.size() == 1);
     CHECK_FALSE(test.writes[0].global);
-    CHECK(test.writes[0].repository_path == u8"C:/work/repo");
+    CHECK(test.writes[0].repository_path == native_path(u8"C:/work/repo"));
     REQUIRE(test.writes[0].changes.size() == 1);
     CHECK(test.writes[0].changes[0].key == signing_key_id::commit_gpgsign);
     CHECK(test.writes[0].changes[0].value == std::optional<std::string> { "true" });
@@ -252,13 +255,13 @@ TEST_CASE("changes in the repository scope are written at once with --local", "[
     REQUIRE(test.send(signing_write_done_intent { .ok = true }));
     REQUIRE(test.send(set_signing_format_intent { std::nullopt }));
     REQUIRE(test.send(signing_write_done_intent { .ok = true }));
-    REQUIRE(test.send(choose_signing_key_intent { u8"C:/Users/me/.ssh/work.pub" }));
+    REQUIRE(test.send(choose_signing_key_intent { native_path(u8"C:/Users/me/.ssh/work.pub") }));
     REQUIRE(test.writes.size() == 4);
     CHECK_FALSE(test.writes[1].changes[0].value.has_value());
     CHECK(test.writes[1].changes[0].key == signing_key_id::tag_gpgsign);
     CHECK(test.writes[2].changes[0].key == signing_key_id::gpg_format);
     CHECK_FALSE(test.writes[2].changes[0].value.has_value());
-    CHECK(test.writes[3].changes[0].value == std::optional<std::string> { "C:/Users/me/.ssh/work.pub" });
+    CHECK(test.writes[3].changes[0].value == std::optional<std::string> { native_path("C:/Users/me/.ssh/work.pub") });
 }
 
 TEST_CASE("global changes wait for a confirmation and can be cancelled", "[signing][settings]")
@@ -356,7 +359,7 @@ TEST_CASE("program paths are validated, applied with forward slashes and can be 
     REQUIRE(test.send(apply_signing_text_intent { signing_key_id::gpg_ssh_program, false }));
     CHECK(test.writes.empty());
 
-    input->text = u8"C:\\Windows\\System32\\OpenSSH\\ssh-keygen.exe";
+    input->text = native_path(u8"C:\\Windows\\System32\\OpenSSH\\ssh-keygen.exe");
     input->caret = input->anchor = input->text.size();
     view = test.view();
     CHECK(view.ssh_program.error.empty());
@@ -364,7 +367,7 @@ TEST_CASE("program paths are validated, applied with forward slashes and can be 
     REQUIRE(test.send(apply_signing_text_intent { signing_key_id::gpg_ssh_program, false }));
     REQUIRE(test.writes.size() == 1);
     CHECK(test.writes[0].changes[0].key == signing_key_id::gpg_ssh_program);
-    CHECK(test.writes[0].changes[0].value == std::optional<std::string> { "C:/Windows/System32/OpenSSH/ssh-keygen.exe" });
+    CHECK(test.writes[0].changes[0].value == std::optional<std::string> { native_path("C:/Windows/System32/OpenSSH/ssh-keygen.exe") });
     REQUIRE(test.send(signing_write_done_intent { .ok = true }));
 
     // allowed signers는 ~/로 시작해도 된다.
@@ -377,10 +380,10 @@ TEST_CASE("program paths are validated, applied with forward slashes and can be 
 
     // 지우기는 이 범위의 설정을 지운다.
     signing_info_snapshot info { sample_info() };
-    info.config.local.at(signing_key_id::gpg_ssh_program) = entry("C:/x/ssh-keygen.exe", config_origin::local);
+    info.config.local.at(signing_key_id::gpg_ssh_program) = entry(native_path("C:/x/ssh-keygen.exe"), config_origin::local);
     REQUIRE(test.send(signing_info_loaded_intent { std::move(info) }));
     CHECK(test.view().ssh_program.can_clear);
-    CHECK(test.view().ssh_program.stored == u8"C:/x/ssh-keygen.exe");
+    CHECK(test.view().ssh_program.stored == native_path(u8"C:/x/ssh-keygen.exe"));
     REQUIRE(test.send(apply_signing_text_intent { signing_key_id::gpg_ssh_program, true }));
     REQUIRE(test.writes.size() == 2);
     CHECK_FALSE(test.writes[1].changes[0].value.has_value());
@@ -394,7 +397,7 @@ TEST_CASE("use_default_gpg_intent sets gpg.program to the gpg of Git for Windows
     REQUIRE(test.send(use_default_gpg_intent {}));
     REQUIRE(test.writes.size() == 1);
     CHECK(test.writes[0].changes[0].key == signing_key_id::gpg_program);
-    CHECK(test.writes[0].changes[0].value == std::optional<std::string> { "C:/Program Files/Git/usr/bin/gpg.exe" });
+    CHECK(test.writes[0].changes[0].value == std::optional<std::string> { native_path("C:/Program Files/Git/usr/bin/gpg.exe") });
 
     // 못 찾았으면 아무것도 하지 않는다.
     signing_harness none {};
@@ -485,7 +488,7 @@ TEST_CASE("a write of another setting does not overwrite a program path that is 
     REQUIRE(test.send(signing_info_loaded_intent { sample_info() }));
     luil::text::text_edit_state* const gpg { test.controller.draft(text_target::settings_signing_gpg_program) };
     REQUIRE(gpg != nullptr);
-    gpg->text = u8"C:\\Tools\\gnupg\\bin\\gpg.exe";
+    gpg->text = native_path(u8"C:\\Tools\\gnupg\\bin\\gpg.exe");
     gpg->caret = gpg->anchor = gpg->text.size();
     CHECK(test.view().gpg_program.can_apply);
 
@@ -493,7 +496,7 @@ TEST_CASE("a write of another setting does not overwrite a program path that is 
     signing_info_snapshot toggled { sample_info() };
     toggled.config.local.at(signing_key_id::commit_gpgsign) = entry("true", config_origin::local);
     REQUIRE(test.send(signing_info_loaded_intent { std::move(toggled) }));
-    CHECK(gpg->text == u8"C:\\Tools\\gnupg\\bin\\gpg.exe");
+    CHECK(gpg->text == native_path(u8"C:\\Tools\\gnupg\\bin\\gpg.exe"));
     CHECK(test.view().gpg_program.can_apply);
 
     // 방금 적용한 칸은 저장값이 바뀌므로 새 저장값(슬래시 경로)으로 돌아오고 [적용]이 꺼진다.
@@ -501,17 +504,19 @@ TEST_CASE("a write of another setting does not overwrite a program path that is 
     REQUIRE(test.writes.size() == 1);
     REQUIRE(test.send(signing_write_done_intent { .ok = true }));
     signing_info_snapshot applied { sample_info() };
-    applied.config.local.at(signing_key_id::gpg_program) = entry("C:/Tools/gnupg/bin/gpg.exe", config_origin::local);
+    applied.config.local.at(signing_key_id::gpg_program) = entry(native_path("C:/Tools/gnupg/bin/gpg.exe"), config_origin::local);
     REQUIRE(test.send(signing_info_loaded_intent { std::move(applied) }));
-    CHECK(gpg->text == u8"C:/Tools/gnupg/bin/gpg.exe");
+    CHECK(gpg->text == native_path(u8"C:/Tools/gnupg/bin/gpg.exe"));
     CHECK_FALSE(test.view().gpg_program.can_apply);
 
     // 범위를 바꾸면 지금처럼 모든 초안을 그 범위의 저장값으로 채운다.
-    gpg->text = u8"C:\\typed\\again.exe";
+    gpg->text = native_path(u8"C:\\typed\\again.exe");
     REQUIRE(test.send(select_signing_scope_intent { true }));
-    CHECK(gpg->text == u8"C:/Program Files/Git/usr/bin/gpg.exe");
+    CHECK(gpg->text == native_path(u8"C:/Program Files/Git/usr/bin/gpg.exe"));
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("check_signing_path accepts absolute paths and the home prefix only where it is allowed", "[signing][settings]")
 {
     CHECK(check_signing_path(u8"", false).empty());
@@ -526,6 +531,7 @@ TEST_CASE("check_signing_path accepts absolute paths and the home prefix only wh
     CHECK(describe_signing_value(signing_key_id::gpg_format, signing_entry {}).empty());
     CHECK(describe_effective_signing_value(signing_key_id::gpg_format, signing_entry {}) == u8"openpgp (기본)");
 }
+#endif
 
 // ---------------------------------------------------------------------- 화면 tree
 
@@ -537,7 +543,7 @@ namespace {
         state.page = settings_page::signing;
         git_tool_info tool {};
         tool.availability = git_tool_availability::available;
-        tool.executable = u8"C:\\Git\\cmd\\git.exe";
+        tool.executable = native_path(u8"C:\\Git\\cmd\\git.exe");
         tool.reported_version = u8"git version 2.52.0";
         settings_view_inputs inputs {};
         inputs.state = &state;
@@ -558,7 +564,7 @@ namespace {
 TEST_CASE("the signing page builds a tree with stable names for its controls", "[signing][settings][ui]")
 {
     test::snapshot::snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
     signing_harness test {};
     test.controller.on_page_opened();
     REQUIRE(test.send(signing_info_loaded_intent { sample_info() }));
@@ -603,7 +609,7 @@ TEST_CASE("the signing page builds a tree with stable names for its controls", "
 TEST_CASE("the confirmation box appears for global changes and offers apply and cancel", "[signing][settings][ui]")
 {
     test::snapshot::snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
     signing_harness test {};
     test.controller.on_page_opened();
     REQUIRE(test.send(signing_info_loaded_intent { sample_info() }));

@@ -5,6 +5,7 @@
 
 #include "fake_git_runner.h"
 #include "git_test_support.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -18,6 +19,8 @@
 #include <type_traits>
 #include <vector>
 
+using cyella::test::native_path;
+
 namespace {
     using namespace cyella;
     using cyella::test::fake_git_runner;
@@ -25,13 +28,13 @@ namespace {
     using cyella::test::scripted_response;
     using cyella::test::text_list;
 
-    constexpr std::u8string_view repository_path { u8"C:/work/repo" };
-    constexpr std::string_view git_dir { "C:/work/repo/.git" };
+    const std::u8string repository_path { native_path(u8"C:/work/repo") };
+    const std::string git_dir { native_path("C:/work/repo/.git") };
 
     struct harness
     {
         explicit harness(git_operation_runner_options options = {}, const bool answer_git_dir = true)
-            : runner { process, u8"C:/Git/cmd/git.exe", files, options }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, options }
         {
             // 대부분의 작업이 먼저 git 디렉터리를 묻는다.
             if (answer_git_dir)
@@ -439,11 +442,11 @@ TEST_CASE("a dropped log record still counts toward a full page", "[operation][l
 TEST_CASE("refresh reports rebase progress from the git directory", "[operation][refresh][conflict]")
 {
     harness test {};
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/msgnum", "2\n");
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/end", "3\n");
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/onto", "85bed87523af002c3c36633ebeb6295417ca6006\n");
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/head-name", "refs/heads/feature\n");
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/message", "feat two\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/msgnum"), "2\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/end"), "3\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/onto"), "85bed87523af002c3c36633ebeb6295417ca6006\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/head-name"), "refs/heads/feature\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/message"), "feat two\n");
     test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(1), "(detached)") + test::status_conflict("a.txt") });
 
     const std::vector<snapshot_loaded> snapshots { payloads<snapshot_loaded>(test.execute(refresh_request {})) };
@@ -551,7 +554,7 @@ TEST_CASE("a rebase conflict finishes as needs_input and is detected from the re
     test.process.when(
         { "rebase", "--", "main", "feature" }, scripted_response { 1, "Auto-merging a.txt\nCONFLICT (content): Merge conflict in a.txt\n", { "error: could not apply b39aec2... feat two" } });
     test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(1), "(detached)") + test::status_conflict("a.txt") });
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/msgnum", "2\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/msgnum"), "2\n");
 
     const operation_finished& finished { finished_of(test.execute(rebase_request { "feature", "main" })) };
 
@@ -569,7 +572,7 @@ TEST_CASE("continue that still has unresolved files stays in needs_input", "[ope
     test.process.when(
         { "-c", "core.editor=true", "rebase", "--continue" }, scripted_response { 1, {}, { "error: you must edit all merge conflicts and then", "mark them as resolved using git add" } });
     test.process.when({ "status" }, scripted_response { 0, test::status_header(test::sha_of(1), "(detached)") + test::status_conflict("a.txt") });
-    test.files.put(u8"C:/work/repo/.git/rebase-merge/msgnum", "2\n");
+    test.files.put(native_path(u8"C:/work/repo/.git/rebase-merge/msgnum"), "2\n");
 
     const operation_finished& finished { finished_of(test.execute(sequence_control_request { operation_kind::rebase_continue })) };
     CHECK(finished.state == operation_state::needs_input);
@@ -742,15 +745,15 @@ TEST_CASE("tags are explicit about annotation and patches go through git apply",
 TEST_CASE("ignore_path appends a line without joining the last one", "[operation][worktree]")
 {
     harness test {};
-    test.files.put(u8"C:/work/repo/.gitignore", "build/");
+    test.files.put(native_path(u8"C:/work/repo/.gitignore"), "build/");
     CHECK(finished_of(test.execute(ignore_path_request { "*.log" })).state == operation_state::succeeded);
-    CHECK(test.files.content(u8"C:/work/repo/.gitignore") == std::optional<std::string> { "build/\n*.log\n" });
+    CHECK(test.files.content(native_path(u8"C:/work/repo/.gitignore")) == std::optional<std::string> { "build/\n*.log\n" });
 }
 
 TEST_CASE("remove_stale_index_lock refuses while git runs on the repository", "[operation][index_lock]")
 {
     harness test {};
-    test.files.put(u8"C:/work/repo/.git/index.lock", "");
+    test.files.put(native_path(u8"C:/work/repo/.git/index.lock"), "");
 
     // 다른 job의 status가 도는 동안이다.
     std::mutex mutex {};
@@ -770,7 +773,7 @@ TEST_CASE("remove_stale_index_lock refuses while git runs on the repository", "[
         std::unique_lock<std::mutex> lock { mutex };
         REQUIRE(condition.wait_for(lock, std::chrono::seconds { 10 }, [&]() { return entered; }));
     }
-    CHECK(test.runner.active_process_count(u8"c:\\work\\repo\\") == 1);
+    CHECK(test.runner.active_process_count(native_path(u8"c:\\work\\repo\\")) == 1);
 
     const operation_finished refused { finished_of(test.execute(remove_stale_index_lock_request {})) };
     {
@@ -782,12 +785,12 @@ TEST_CASE("remove_stale_index_lock refuses while git runs on the repository", "[
 
     REQUIRE(refused.failure.has_value());
     CHECK(refused.failure->kind == failure_kind::refused);
-    CHECK(test.files.content(u8"C:/work/repo/.git/index.lock").has_value());
+    CHECK(test.files.content(native_path(u8"C:/work/repo/.git/index.lock")).has_value());
 
     // 아무것도 돌지 않으면 지운다.
     CHECK(test.runner.active_process_count(repository_path) == 0);
     CHECK(finished_of(test.execute(remove_stale_index_lock_request {})).state == operation_state::succeeded);
-    CHECK_FALSE(test.files.content(u8"C:/work/repo/.git/index.lock").has_value());
+    CHECK_FALSE(test.files.content(native_path(u8"C:/work/repo/.git/index.lock")).has_value());
 }
 
 TEST_CASE("read queries answer ancestry and commit counts", "[operation][query]")
@@ -807,6 +810,8 @@ TEST_CASE("read queries answer ancestry and commit counts", "[operation][query]"
         CHECK(call.no_optional_locks);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("inspect_path tells a repository root from a folder inside it", "[operation][setup]")
 {
     harness test { {}, false };
@@ -833,6 +838,7 @@ TEST_CASE("inspect_path tells a repository root from a folder inside it", "[oper
     CHECK(inspect(u8"C:/work/missing").kind == path_inspection_kind::missing);
     CHECK(test.process.calls()[0].working_directory == "C:/work/repo/src");
 }
+#endif
 
 TEST_CASE("refresh_status reads only the working tree: no git dir, refs, stash, remotes or log", "[operation][refresh]")
 {
@@ -910,23 +916,23 @@ TEST_CASE("a file diff over the capture limit still loads the part that fits", "
 TEST_CASE("trash_files sends only existing in-repository files to the recycle bin and runs no git", "[operation][trash]")
 {
     harness test {};
-    test.files.put(u8"C:/work/repo/new.txt", "x");
-    test.files.put(u8"C:/work/repo/sub/other.txt", "y");
-    test.files.put(u8"C:/work/repo/keep.txt", "z");
+    test.files.put(native_path(u8"C:/work/repo/new.txt"), "x");
+    test.files.put(native_path(u8"C:/work/repo/sub/other.txt"), "y");
+    test.files.put(native_path(u8"C:/work/repo/keep.txt"), "z");
 
     const operation_finished done { finished_of(test.execute(trash_files_request { { "new.txt", "sub/other.txt", "already-gone.txt" } })) };
     CHECK(done.state == operation_state::succeeded);
     CHECK(done.summary == u8"휴지통으로 보냈습니다.");
-    CHECK(test.files.recycled() == std::vector<std::u8string> { u8"C:/work/repo\\new.txt", u8"C:/work/repo\\sub\\other.txt" });
-    CHECK_FALSE(test.files.content(u8"C:/work/repo/new.txt").has_value());
-    CHECK(test.files.content(u8"C:/work/repo/keep.txt").has_value());
+    CHECK(test.files.recycled() == std::vector<std::u8string> { native_path(u8"C:/work/repo\\new.txt"), native_path(u8"C:/work/repo\\sub\\other.txt") });
+    CHECK_FALSE(test.files.content(native_path(u8"C:/work/repo/new.txt")).has_value());
+    CHECK(test.files.content(native_path(u8"C:/work/repo/keep.txt")).has_value());
     CHECK(test.process.calls().empty());
 }
 
 TEST_CASE("trash_files refuses paths outside the repository and does not touch anything", "[operation][trash]")
 {
     harness test {};
-    test.files.put(u8"C:/work/repo/new.txt", "x");
+    test.files.put(native_path(u8"C:/work/repo/new.txt"), "x");
 
     for (const char* const path : { "../outside.txt", ".git/config", "/abs.txt", "C:/Windows/x.txt", "a/../../b" })
     {
@@ -937,17 +943,17 @@ TEST_CASE("trash_files refuses paths outside the repository and does not touch a
     }
     CHECK(finished_of(test.execute(trash_files_request {})).state == operation_state::failed);
     CHECK(test.files.recycled().empty());
-    CHECK(test.files.content(u8"C:/work/repo/new.txt").has_value());
+    CHECK(test.files.content(native_path(u8"C:/work/repo/new.txt")).has_value());
 }
 
 TEST_CASE("trash_files fails when the recycle bin refuses", "[operation][trash]")
 {
     harness test {};
-    test.files.put(u8"C:/work/repo/new.txt", "x");
+    test.files.put(native_path(u8"C:/work/repo/new.txt"), "x");
     test.files.refuse_recycling();
     const operation_finished done { finished_of(test.execute(trash_files_request { { "new.txt" } })) };
     CHECK(done.state == operation_state::failed);
-    CHECK(test.files.content(u8"C:/work/repo/new.txt").has_value());
+    CHECK(test.files.content(native_path(u8"C:/work/repo/new.txt")).has_value());
 }
 
 TEST_CASE("a diff reads with the requested context and flags a textconv driver from the attributes", "[operation][diff]")

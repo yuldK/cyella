@@ -1,5 +1,6 @@
 #include "application/app_settings_service.h"
 #include "infrastructure/json_app_settings_store.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -10,6 +11,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -67,7 +70,7 @@ namespace {
         bool fail_renames { false };
     };
 
-    const std::u8string settings_path { u8"C:\\Users\\tester\\AppData\\Roaming\\cyella\\settings.json" };
+    const std::u8string settings_path { native_path(u8"C:\\Users\\tester\\AppData\\Roaming\\cyella\\settings.json") };
 
     // 2026-10-20 09:30:12 UTC
     json_app_settings_store::clock_function fixed_clock()
@@ -78,15 +81,15 @@ namespace {
     app_settings filled_settings()
     {
         app_settings settings {};
-        settings.recent_repositories.push_back({ u8"C:\\work\\고정 저장소", u8"고정 저장소", u8"2026-10-19T10:00:00Z", true });
-        settings.recent_repositories.push_back({ u8"C:\\work\\alpha", u8"alpha", u8"2026-10-20T08:00:00Z", false });
-        settings.recent_repositories.push_back({ u8"D:\\beta", u8"beta", u8"2026-10-18T08:00:00Z", false });
-        settings.open_tabs = { u8"C:\\work\\alpha", u8"D:\\beta" };
-        settings.active_tab = u8"D:\\beta";
-        settings.git_executable = u8"C:\\Program Files\\Git\\cmd\\git.exe";
+        settings.recent_repositories.push_back({ native_path(u8"C:\\work\\고정 저장소"), u8"고정 저장소", u8"2026-10-19T10:00:00Z", true });
+        settings.recent_repositories.push_back({ native_path(u8"C:\\work\\alpha"), u8"alpha", u8"2026-10-20T08:00:00Z", false });
+        settings.recent_repositories.push_back({ native_path(u8"D:\\beta"), u8"beta", u8"2026-10-18T08:00:00Z", false });
+        settings.open_tabs = { native_path(u8"C:\\work\\alpha"), native_path(u8"D:\\beta") };
+        settings.active_tab = native_path(u8"D:\\beta");
+        settings.git_executable = native_path(u8"C:\\Program Files\\Git\\cmd\\git.exe");
         external_diff_tool tool {};
         tool.extensions = { u8".png", u8".tar.gz" };
-        tool.executable = u8"C:\\tools\\imgdiff.exe";
+        tool.executable = native_path(u8"C:\\tools\\imgdiff.exe");
         tool.arguments = u8"--left \"{left}\" --right \"{right}\"";
         settings.external_diff_tools.push_back(tool);
         settings.appearance.theme = theme_preference::dark;
@@ -180,14 +183,14 @@ TEST_CASE("unknown keys survive through the store on disk", "[json_app_settings]
 
     app_settings_load_result loaded { store.load(settings_path) };
     REQUIRE(loaded.settings.open_tabs.size() == 1);
-    loaded.settings.git_executable = u8"C:\\git\\git.exe";
+    loaded.settings.git_executable = native_path(u8"C:\\git\\git.exe");
 
     const app_settings_save_result saved { store.save(settings_path, loaded.settings, loaded.shadow_source_json) };
     REQUIRE(saved.succeeded);
 
     const json document = json::parse(text_of(file_system.files[settings_path]));
     CHECK(document.at("keep_me") == "yes");
-    CHECK(document.at("git_executable") == "C:\\git\\git.exe");
+    CHECK(document.at("git_executable") == native_path("C:\\git\\git.exe"));
 }
 
 TEST_CASE("a shadow that is not an object is ignored", "[json_app_settings]")
@@ -306,6 +309,8 @@ TEST_CASE("a failed backup is reported but loading still gives defaults", "[json
     CHECK(loaded.read_failed);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a UTF-8 BOM before the JSON is accepted", "[json_app_settings]")
 {
     const std::u8string source { std::u8string { 0xEF, 0xBB, 0xBF } + u8"{\"git_executable\":\"C:\\\\git\\\\git.exe\"}" };
@@ -313,7 +318,10 @@ TEST_CASE("a UTF-8 BOM before the JSON is accepted", "[json_app_settings]")
     CHECK_FALSE(loaded.corrupt);
     CHECK(loaded.settings.git_executable == u8"C:\\git\\git.exe");
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("schema version handling", "[json_app_settings]")
 {
     SECTION("버전이 없으면 현재 버전이고 경고가 없다")
@@ -360,6 +368,7 @@ TEST_CASE("schema version handling", "[json_app_settings]")
         CHECK(saved.at("schema_version") == current_app_settings_schema_version);
     }
 }
+#endif
 
 TEST_CASE("wrong field types fall back per field with warnings", "[json_app_settings]")
 {
@@ -385,6 +394,8 @@ TEST_CASE("wrong field types fall back per field with warnings", "[json_app_sett
         CHECK(value.code == diagnostic_code::app_settings_invalid);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("valid entries are kept next to broken ones", "[json_app_settings]")
 {
     const std::u8string source {
@@ -406,6 +417,7 @@ TEST_CASE("valid entries are kept next to broken ones", "[json_app_settings]")
     CHECK(loaded.settings.external_diff_tools[0].arguments == u8"{left} {right}");
     CHECK(loaded.diagnostics.empty());
 }
+#endif
 
 TEST_CASE("loading keeps pinned entries even beyond the cap and restores the invariants", "[json_app_settings]")
 {
@@ -413,16 +425,16 @@ TEST_CASE("loading keeps pinned entries even beyond the cap and restores the inv
     json recent = json::array();
     // 비고정 25개 뒤에 고정 하나가 있는 손으로 고친 파일이다.
     for (int number = 0; number < 25; ++number)
-        recent.push_back({ { "path", "C:\\work\\repo" + std::to_string(number) } });
-    recent.push_back({ { "path", "C:\\work\\pinned" }, { "pinned", true } });
+        recent.push_back({ { "path", native_path("C:\\work\\repo") + std::to_string(number) } });
+    recent.push_back({ { "path", native_path("C:\\work\\pinned") }, { "pinned", true } });
     document["recent_repositories"] = recent;
 
     const app_settings_load_result loaded { parse_app_settings_json(u8_of(document.dump())) };
 
     REQUIRE(loaded.settings.recent_repositories.size() == recent_repository_capacity + 1);
-    CHECK(loaded.settings.recent_repositories.front().path == u8"C:\\work\\pinned");
+    CHECK(loaded.settings.recent_repositories.front().path == native_path(u8"C:\\work\\pinned"));
     CHECK(loaded.settings.recent_repositories.front().pinned);
-    CHECK(loaded.settings.recent_repositories[1].path == u8"C:\\work\\repo0");
+    CHECK(loaded.settings.recent_repositories[1].path == native_path(u8"C:\\work\\repo0"));
 }
 
 TEST_CASE("a failed save reports exactly one diagnostic", "[json_app_settings]")
@@ -448,14 +460,14 @@ TEST_CASE("the service keeps memory state when saving fails and retries later", 
     CHECK(service.load().empty());
 
     file_system.fail_commits = true;
-    const std::vector<diagnostic> failed { service.update([](app_settings& settings) { touch_recent_repository(settings, u8"C:\\work\\alpha", u8"2026-10-20T00:00:00Z"); }) };
+    const std::vector<diagnostic> failed { service.update([](app_settings& settings) { touch_recent_repository(settings, native_path(u8"C:\\work\\alpha"), u8"2026-10-20T00:00:00Z"); }) };
 
     REQUIRE(failed.size() == 1);
     CHECK(failed[0].code == diagnostic_code::app_settings_write_failed);
     CHECK(service.has_unsaved_changes());
     // 저장이 실패해도 방금 한 일은 메모리에 남아 있다.
     REQUIRE(service.settings().recent_repositories.size() == 1);
-    CHECK(service.settings().recent_repositories[0].path == u8"C:\\work\\alpha");
+    CHECK(service.settings().recent_repositories[0].path == native_path(u8"C:\\work\\alpha"));
     CHECK(file_system.files.empty());
 
     file_system.fail_commits = false;
@@ -479,12 +491,12 @@ TEST_CASE("the service round trips through a store and keeps unknown keys across
         app_settings_service service { store, settings_path };
         static_cast<void>(service.load());
         static_cast<void>(service.update([](app_settings& settings) { settings = filled_settings(); }));
-        static_cast<void>(service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }));
+        static_cast<void>(service.update([](app_settings& settings) { settings.active_tab = native_path(u8"C:\\work\\alpha"); }));
     }
 
     app_settings_service restarted { store, settings_path };
     CHECK(restarted.load().empty());
-    CHECK(restarted.settings().active_tab == u8"C:\\work\\alpha");
+    CHECK(restarted.settings().active_tab == native_path(u8"C:\\work\\alpha"));
     CHECK(restarted.settings().recent_repositories == filled_settings().recent_repositories);
     CHECK(json::parse(text_of(file_system.files.at(settings_path))).at("from_future") == 42);
 }
@@ -506,7 +518,7 @@ TEST_CASE("the service never overwrites a file it could not read", "[json_app_se
 
     // 잠금이 풀려도 이번 실행에서는 이미 기본값으로 시작했으니 저장하지 않는다.
     file_system.fail_reads = false;
-    const std::vector<diagnostic> first { service.update([](app_settings& settings) { touch_recent_repository(settings, u8"C:\\work\\alpha", u8"2026-10-20T00:00:00Z"); }) };
+    const std::vector<diagnostic> first { service.update([](app_settings& settings) { touch_recent_repository(settings, native_path(u8"C:\\work\\alpha"), u8"2026-10-20T00:00:00Z"); }) };
     const std::vector<diagnostic> second { service.save() };
 
     REQUIRE(first.size() == 1);
@@ -519,7 +531,7 @@ TEST_CASE("the service never overwrites a file it could not read", "[json_app_se
     CHECK(service.has_unsaved_changes());
     // 메모리 상태는 평소처럼 바뀐다.
     REQUIRE(service.settings().recent_repositories.size() == 1);
-    CHECK(service.settings().recent_repositories[0].path == u8"C:\\work\\alpha");
+    CHECK(service.settings().recent_repositories[0].path == native_path(u8"C:\\work\\alpha"));
 }
 
 TEST_CASE("loading again after a read failure lifts the read only state", "[json_app_settings]")
@@ -537,7 +549,7 @@ TEST_CASE("loading again after a read failure lifts the read only state", "[json
     CHECK_FALSE(service.is_read_only());
     CHECK(service.settings().appearance.theme == theme_preference::dark);
 
-    CHECK(service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }).empty());
+    CHECK(service.update([](app_settings& settings) { settings.active_tab = native_path(u8"C:\\work\\alpha"); }).empty());
     CHECK(file_system.commit_count == 1);
     CHECK_FALSE(service.has_unsaved_changes());
 }
@@ -552,7 +564,7 @@ TEST_CASE("a missing or corrupt file does not make the service read only", "[jso
 
         CHECK(service.load().empty());
         CHECK_FALSE(service.is_read_only());
-        CHECK(service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }).empty());
+        CHECK(service.update([](app_settings& settings) { settings.active_tab = native_path(u8"C:\\work\\alpha"); }).empty());
         CHECK(file_system.commit_count == 1);
         CHECK(file_system.files.contains(settings_path));
     }
@@ -567,7 +579,7 @@ TEST_CASE("a missing or corrupt file does not make the service read only", "[jso
         // 깨진 파일은 `.bad-<시각>`으로 옮겨 두었으니 새로 쓰는 것이 안전하다.
         REQUIRE(service.load().size() == 1);
         CHECK_FALSE(service.is_read_only());
-        CHECK(service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }).empty());
+        CHECK(service.update([](app_settings& settings) { settings.active_tab = native_path(u8"C:\\work\\alpha"); }).empty());
         CHECK(file_system.commit_count == 1);
         CHECK(file_system.files.contains(settings_path + u8".bad-20261020T093012Z"));
     }
@@ -586,7 +598,7 @@ TEST_CASE("a corrupt file that could not be backed up is not overwritten by the 
     REQUIRE(service.load().size() == 1);
     CHECK(service.is_read_only());
 
-    const std::vector<diagnostic> skipped { service.update([](app_settings& settings) { settings.active_tab = u8"C:\\work\\alpha"; }) };
+    const std::vector<diagnostic> skipped { service.update([](app_settings& settings) { settings.active_tab = native_path(u8"C:\\work\\alpha"); }) };
 
     REQUIRE(skipped.size() == 1);
     CHECK(skipped[0].code == diagnostic_code::app_settings_write_failed);
@@ -801,7 +813,7 @@ TEST_CASE("external file apps have defaults and persist custom entries and expli
     CHECK(parse_app_settings_json(u8"{}").settings.external_file_apps == default_external_file_apps());
     CHECK(parse_app_settings_json(u8R"({"external_file_apps":[]})").settings.external_file_apps.empty());
     app_settings settings {};
-    settings.external_file_apps = { { u8"내 편집기", u8"C:\\Tools\\editor.exe", u8"--open {file} --cwd {repository}" } };
+    settings.external_file_apps = { { u8"내 편집기", native_path(u8"C:\\Tools\\editor.exe"), u8"--open {file} --cwd {repository}" } };
     const auto loaded { parse_app_settings_json(serialize_app_settings_json(settings, u8"")) };
     CHECK(loaded.settings.external_file_apps == settings.external_file_apps);
     const auto invalid { parse_app_settings_json(u8R"({"external_file_apps":[{},3,{"name":"Test","executable":"test.exe","arguments":"{file}"}]})") };
@@ -881,7 +893,7 @@ TEST_CASE("commit suggestion settings round trip", "[json_app_settings][commit_s
 {
     app_settings settings {};
     settings.commit_suggestion.enabled = true;
-    settings.commit_suggestion.executable = u8"C:\\Tools\\ai cli\\claude.exe";
+    settings.commit_suggestion.executable = native_path(u8"C:\\Tools\\ai cli\\claude.exe");
     settings.commit_suggestion.arguments = u8"-p --tools \"\" --model haiku";
     settings.commit_suggestion.instruction = u8"제목은 한국어로 쓴다";
     const app_settings_load_result loaded { parse_app_settings_json(serialize_app_settings_json(settings, u8"")) };

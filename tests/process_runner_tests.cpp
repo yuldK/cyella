@@ -1,4 +1,5 @@
 #include "infrastructure/ssh_tools.h"
+#include "native_path_support.h"
 #include "platform/win32/win32_diff_tool_launcher.h"
 #include "platform/win32/win32_process_runner.h"
 
@@ -15,6 +16,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -115,7 +118,7 @@ TEST_CASE("runner rejects a relative executable and a missing one", "[process]")
     CHECK(runner->run(relative, nullptr, {}).completion == process_completion::invalid_request);
 
     process_request missing { make_child_request({}) };
-    missing.executable = u8"C:/cyella-does-not-exist/none.exe";
+    missing.executable = native_path(u8"C:/cyella-does-not-exist/none.exe");
     CHECK(runner->run(missing, nullptr, {}).completion == process_completion::start_failed);
 }
 
@@ -499,6 +502,8 @@ TEST_CASE("a bare tool name is not found in the current folder", "[process][diff
     CHECK_FALSE(win32::resolve_tool_executable(u8"meld.exe", directories, probe).has_value());
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a bare tool name resolves to the first listed folder that has it", "[process][diff_tool][search]")
 {
     const listed_file_probe probe { { u8"C:\\Windows\\explorer.exe", u8"C:\\Tools\\Meld\\explorer.exe", u8"C:\\Tools\\Meld\\meld.exe" } };
@@ -507,7 +512,10 @@ TEST_CASE("a bare tool name resolves to the first listed folder that has it", "[
     CHECK(win32::resolve_tool_executable(u8"explorer.exe", directories, probe) == std::optional<std::u8string> { u8"C:\\Windows\\explorer.exe" });
     CHECK(win32::resolve_tool_executable(u8"meld.exe", directories, probe) == std::optional<std::u8string> { u8"C:\\Tools\\Meld\\meld.exe" });
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a bare tool name without an extension gets .exe like CreateProcess", "[process][diff_tool][search]")
 {
     const listed_file_probe probe { { u8"C:\\Windows\\System32\\cmd.exe", u8"C:\\Windows\\System32\\cmd" } };
@@ -517,7 +525,10 @@ TEST_CASE("a bare tool name without an extension gets .exe like CreateProcess", 
     // 확장자가 있으면 PATHEXT처럼 다른 확장자를 덧대지 않는다.
     CHECK_FALSE(win32::resolve_tool_executable(u8"code.cmd", directories, probe).has_value());
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a tool name with a separator or a drive is passed through unchanged", "[process][diff_tool][search]")
 {
     // 상대 경로도 설정 화면이 받는 값이라 여기서 거절하거나 고치지 않는다.
@@ -527,7 +538,10 @@ TEST_CASE("a tool name with a separator or a drive is passed through unchanged",
     for (const std::u8string_view executable : { u8"tools\\diff.exe", u8"tools/diff", u8"C:tool.exe", u8"C:\\Program Files\\Meld\\meld.exe" })
         CHECK(win32::resolve_tool_executable(executable, directories, probe) == std::optional<std::u8string> { std::u8string { executable } });
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("the suggestion command resolves like a tool and claude falls back to its install places", "[process][commit_suggestion][search]")
 {
     const std::vector<std::u8string> directories { win32::tool_search_directories(u8"C:\\apps\\cyella", u8"C:\\Windows\\System32", u8"C:\\Windows", u8"C:\\Users\\tester\\AppData\\Roaming\\npm;C:\\Tools") };
@@ -556,7 +570,10 @@ TEST_CASE("the suggestion command resolves like a tool and claude falls back to 
     // 경로를 적었으면 그대로다.
     CHECK(win32::resolve_suggestion_executable(u8"D:\\ai\\claude.exe", directories, profile, shim_only) == std::optional<std::u8string> { u8"D:\\ai\\claude.exe" });
 }
+#endif
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("the tool search skips relative PATH entries and empty folders", "[process][diff_tool][search]")
 {
     const std::vector<std::u8string> directories {
@@ -565,3 +582,4 @@ TEST_CASE("the tool search skips relative PATH entries and empty folders", "[pro
 
     CHECK(directories == std::vector<std::u8string> { u8"C:\\Windows\\System32", u8"C:\\Program Files\\Git\\cmd", u8"D:\\bin" });
 }
+#endif

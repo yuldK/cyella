@@ -8,7 +8,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#if defined(_WIN32)
 #include <windows.h>
+#endif
 
 #include <filesystem>
 #include <memory>
@@ -30,6 +32,7 @@ namespace {
         return info.usable() ? info.executable : std::u8string {};
     }
 
+#if defined(_WIN32)
     // 실행 파일에 실린 manifest 글이다. 없거나 읽지 못하면 빈 문자열이다.
     std::string embedded_manifest(const std::filesystem::path& executable)
     {
@@ -49,6 +52,7 @@ namespace {
         ::FreeLibrary(library);
         return text;
     }
+#endif
 
     // 질문을 모두 기록하고 종류별로 정해진 답을 준다.
     class scripted_answers
@@ -181,6 +185,8 @@ TEST_CASE("git without the helper cannot prompt and fails at once", "[askpass][i
     CHECK(*result.exit_code != 0);
 }
 
+// Windows의 manifest(longPathAware) 검사다. macOS 실행 파일에는 manifest가 없고 경로 길이 제한도 다르다.
+#if defined(_WIN32)
 TEST_CASE("the helper executables declare long path support in their manifest", "[askpass]")
 {
     // 도우미는 git이 넘긴 경로(깊은 저장소의 `.git/rebase-merge/git-rebase-todo` 등)를 연다. 앱처럼 longPathAware를 선언하지 않으면
@@ -193,3 +199,4 @@ TEST_CASE("the helper executables declare long path support in their manifest", 
         CHECK(embedded_manifest(helper).find("longPathAware") != std::string::npos);
     }
 }
+#endif

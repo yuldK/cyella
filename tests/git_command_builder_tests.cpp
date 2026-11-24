@@ -1,6 +1,7 @@
 #include "infrastructure/git_command_builder.h"
 
 #include "git_test_support.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -8,6 +9,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using cyella::test::to_text;
@@ -110,7 +113,7 @@ TEST_CASE("branch builders put the names after double dash", "[git][builder]")
     CHECK(to_text(make_git_branch_set_upstream_args("feature/x", "origin", "release/1.0")) == text_list { "branch", "--set-upstream-to=origin/release/1.0", "--", "feature/x" });
     CHECK(to_text(make_git_branch_unset_upstream_args("feature/x")) == text_list { "branch", "--unset-upstream", "--", "feature/x" });
     CHECK(to_text(make_git_remote_add_args("origin", "git@github.com:me/repo.git")) == text_list { "remote", "add", "--", "origin", "git@github.com:me/repo.git" });
-    CHECK(to_text(make_git_remote_add_args("upstream", "C:\\My Repos\\shared.git")) == text_list { "remote", "add", "--", "upstream", "C:\\My Repos\\shared.git" });
+    CHECK(to_text(make_git_remote_add_args("upstream", native_path("C:\\My Repos\\shared.git"))) == text_list { "remote", "add", "--", "upstream", native_path("C:\\My Repos\\shared.git") });
 }
 
 TEST_CASE("commit builders read the message from stdin", "[git][builder]")
@@ -262,18 +265,18 @@ TEST_CASE("clone and init builders", "[git][builder]")
 {
     git_clone_options clone {};
     clone.url = "git@example.com:team/repo.git";
-    clone.directory = "C:/work/repo";
-    CHECK(to_text(make_git_clone_args(clone)) == text_list { "clone", "--progress", "--", "git@example.com:team/repo.git", "C:/work/repo" });
+    clone.directory = native_path("C:/work/repo");
+    CHECK(to_text(make_git_clone_args(clone)) == text_list { "clone", "--progress", "--", "git@example.com:team/repo.git", native_path("C:/work/repo") });
 
     clone.branch = "dev";
     clone.depth = 1;
-    CHECK(to_text(make_git_clone_args(clone)) == text_list { "clone", "--progress", "--branch", "dev", "--depth", "1", "--", "git@example.com:team/repo.git", "C:/work/repo" });
+    CHECK(to_text(make_git_clone_args(clone)) == text_list { "clone", "--progress", "--branch", "dev", "--depth", "1", "--", "git@example.com:team/repo.git", native_path("C:/work/repo") });
 
     clone.url = "--upload-pack=calc";
     CHECK_THROWS_AS(make_git_clone_args(clone), std::invalid_argument);
 
-    CHECK(to_text(make_git_init_args("C:/work/new")) == text_list { "init", "--", "C:/work/new" });
-    CHECK(to_text(make_git_init_args("C:/work/new", "trunk")) == text_list { "init", "--initial-branch=trunk", "--", "C:/work/new" });
+    CHECK(to_text(make_git_init_args(native_path("C:/work/new"))) == text_list { "init", "--", native_path("C:/work/new") });
+    CHECK(to_text(make_git_init_args(native_path("C:/work/new"), "trunk")) == text_list { "init", "--initial-branch=trunk", "--", native_path("C:/work/new") });
 }
 
 TEST_CASE("builders reject names that git would read as options", "[git][builder]")
@@ -314,7 +317,7 @@ TEST_CASE("builders apply the check-ref-format rules to new names", "[git][build
     CHECK_THROWS_AS(make_git_annotated_tag_args("v1~", "HEAD"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_push_tag_args("origin", "bad name"), std::invalid_argument);
     CHECK_THROWS_AS(make_git_delete_remote_tag_args("origin", "a//b"), std::invalid_argument);
-    CHECK_THROWS_AS(make_git_init_args("C:/x", "-b"), std::invalid_argument);
+    CHECK_THROWS_AS(make_git_init_args(native_path("C:/x"), "-b"), std::invalid_argument);
 
     // 이유를 담은 메시지를 던진다.
     CHECK_THROWS_WITH(make_git_switch_create_args("a..b"), Catch::Matchers::ContainsSubstring("branch name"));

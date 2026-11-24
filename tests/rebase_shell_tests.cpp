@@ -2,6 +2,7 @@
 // p·r·s·f·d 글자, Alt+↑↓)은 실제 입력 대신 그 몸짓이 내는 intent·element 콜백·정책을 직접 불러 확인한다.
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/rebase/rebase_editor_model.h"
 #include "presentation/shell_controller.h"
@@ -21,6 +22,8 @@
 #include <string>
 #include <vector>
 
+using cyella::test::native_path;
+
 namespace {
     using namespace cyella;
     namespace snap = cyella::test::snapshot;
@@ -28,12 +31,12 @@ namespace {
     struct shell_harness
     {
         shell_harness()
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , controller { make_dependencies(workspace) }
         {
             controller.start({});
-            controller.open_repository(u8"C:\\work\\repo");
+            controller.open_repository(native_path(u8"C:\\work\\repo"));
             repository = controller.selected_repository_id();
             repository_session* const session { workspace.find_session(repository) };
             REQUIRE(session != nullptr);

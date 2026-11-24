@@ -1,4 +1,5 @@
 #include "infrastructure/ssh_tools.h"
+#include "native_path_support.h"
 #include "platform/win32/win32_ssh_environment.h"
 #include "temporary_directory_support.h"
 
@@ -7,6 +8,8 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -129,10 +132,10 @@ TEST_CASE("keygen request routes the passphrase through askpass and never throug
 {
     const test::temporary_directory directory { "ssh-tools-keygen" };
     ssh_keygen_options options {};
-    options.ssh_keygen_executable = u8"C:/Program Files/Git/usr/bin/ssh-keygen.exe";
+    options.ssh_keygen_executable = native_path(u8"C:/Program Files/Git/usr/bin/ssh-keygen.exe");
     options.key_path = directory.path() / "id_ed25519";
     options.comment = u8"alice@laptop";
-    options.askpass_helper = u8"C:/cyella/bin/cyella-askpass.exe";
+    options.askpass_helper = native_path(u8"C:/cyella/bin/cyella-askpass.exe");
     options.askpass = sample_session();
 
     const ssh_keygen_request_result result { make_ssh_keygen_request(options) };
@@ -145,7 +148,7 @@ TEST_CASE("keygen request routes the passphrase through askpass and never throug
 
     const process_environment_override* const askpass { find_override(result.request.environment_overrides, u8"SSH_ASKPASS") };
     REQUIRE(askpass != nullptr);
-    CHECK(askpass->value == std::u8string { u8"C:/cyella/bin/cyella-askpass.exe" });
+    CHECK(askpass->value == std::u8string { native_path(u8"C:/cyella/bin/cyella-askpass.exe") });
     const process_environment_override* const force { find_override(result.request.environment_overrides, u8"SSH_ASKPASS_REQUIRE") };
     REQUIRE(force != nullptr);
     CHECK(force->value == std::u8string { u8"force" });
@@ -159,9 +162,9 @@ TEST_CASE("keygen request refuses unsafe or unusable targets", "[ssh][keygen]")
 {
     const test::temporary_directory directory { "ssh-tools-keygen-refuse" };
     ssh_keygen_options options {};
-    options.ssh_keygen_executable = u8"C:/Git/usr/bin/ssh-keygen.exe";
+    options.ssh_keygen_executable = native_path(u8"C:/Git/usr/bin/ssh-keygen.exe");
     options.key_path = directory.path() / "id_ed25519";
-    options.askpass_helper = u8"C:/cyella/bin/cyella-askpass.exe";
+    options.askpass_helper = native_path(u8"C:/cyella/bin/cyella-askpass.exe");
     options.askpass = sample_session();
 
     // 이미 있는 파일은 ssh-keygen이 덮어쓰기를 askpass가 아닌 곳으로 묻는다.
@@ -193,10 +196,10 @@ TEST_CASE("keygen request refuses unsafe or unusable targets", "[ssh][keygen]")
 TEST_CASE("connection test request is ssh -T with host key confirmation", "[ssh][connection]")
 {
     ssh_connection_test_options options {};
-    options.ssh_executable = u8"C:/Git/usr/bin/ssh.exe";
+    options.ssh_executable = native_path(u8"C:/Git/usr/bin/ssh.exe");
     options.host = u8"github.com";
-    options.working_directory = u8"C:/work";
-    options.askpass_helper = u8"C:/cyella/bin/cyella-askpass.exe";
+    options.working_directory = native_path(u8"C:/work");
+    options.askpass_helper = native_path(u8"C:/cyella/bin/cyella-askpass.exe");
     options.askpass = sample_session();
 
     const std::optional<process_request> request { make_ssh_connection_test_request(options) };
@@ -216,9 +219,9 @@ TEST_CASE("connection test request is ssh -T with host key confirmation", "[ssh]
 TEST_CASE("connection test request rejects option injection", "[ssh][connection]")
 {
     ssh_connection_test_options options {};
-    options.ssh_executable = u8"C:/Git/usr/bin/ssh.exe";
-    options.working_directory = u8"C:/work";
-    options.askpass_helper = u8"C:/cyella/bin/cyella-askpass.exe";
+    options.ssh_executable = native_path(u8"C:/Git/usr/bin/ssh.exe");
+    options.working_directory = native_path(u8"C:/work");
+    options.askpass_helper = native_path(u8"C:/cyella/bin/cyella-askpass.exe");
     options.askpass = sample_session();
 
     for (const std::u8string_view host :
@@ -270,6 +273,8 @@ TEST_CASE("connection test classifies the real failure texts", "[ssh][connection
     CHECK(classify_ssh_connection_test(255, u8"", changed).result == ssh_connection_result::host_key_changed);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("temporary known hosts options keep the user's file untouched", "[ssh][known-hosts]")
 {
     // ssh는 이 값을 공백으로 나눠 여러 파일로 읽으므로 경로를 큰따옴표로 묶는다 (사용자 이름에 공백이 있는 %TEMP%).
@@ -288,6 +293,7 @@ TEST_CASE("temporary known hosts options keep the user's file untouched", "[ssh]
     CHECK(make_temporary_known_hosts_ssh_command(u8"ssh", "C:/kh", u8"C:\\Users\\me\\.ssh\\id_work")
         == u8"'ssh' '-o' 'UserKnownHostsFile=\"C:/kh\"' '-o' 'StrictHostKeyChecking=accept-new' '-i' 'C:/Users/me/.ssh/id_work' '-o' 'IdentitiesOnly=yes'");
 }
+#endif
 
 TEST_CASE("the server command quotes the path but leaves the home prefix for the shell to expand", "[ssh][repository]")
 {
@@ -305,6 +311,8 @@ TEST_CASE("the server command quotes the path but leaves the home prefix for the
     CHECK(make_create_bare_repository_command("it's $(here)`x`.git").find(u8"p='it'\\''s $(here)`x`.git';") != std::u8string::npos);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("the repository creation request runs the command over ssh -T with the URL's port and askpass", "[ssh][repository]")
 {
     ssh_repository_options options {};
@@ -356,6 +364,7 @@ TEST_CASE("the repository creation request runs the command over ssh -T with the
     options.target.path = "-bad";
     CHECK_FALSE(make_create_ssh_repository_request(options).has_value());
 }
+#endif
 
 TEST_CASE("repository creation results are read from the markers even after a login banner", "[ssh][repository]")
 {

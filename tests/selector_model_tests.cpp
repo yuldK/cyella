@@ -1,3 +1,4 @@
+#include "native_path_support.h"
 #include "presentation/selector_model.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -5,6 +6,8 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -48,7 +51,7 @@ TEST_CASE("selector matching ignores ASCII case and slash direction and treats e
 {
     CHECK(selector_matches(u8"Feature/Login", u8"feature"));
     CHECK(selector_matches(u8"Feature/Login", u8"  LOGIN "));
-    CHECK(selector_matches(u8"C:\\work\\repo", u8"work/repo"));
+    CHECK(selector_matches(native_path(u8"C:\\work\\repo"), u8"work/repo"));
     CHECK(selector_matches(u8"저장소 한글", u8"한글"));
     CHECK(selector_matches(u8"anything", u8""));
     CHECK(selector_matches(u8"anything", u8"   "));
@@ -99,7 +102,7 @@ TEST_CASE("the branch selector filters by name and says when nothing matches", "
 TEST_CASE("a branch another worktree has checked out is listed but cannot be picked", "[presentation][selector]")
 {
     ref busy { local_branch("busy", false, 1) };
-    busy.worktree_path = "C:/work/busy";
+    busy.worktree_path = native_path("C:/work/busy");
     const std::vector<ref> refs { busy, local_branch("main", true), local_branch("dev") };
     const selector_list list { build_branch_selector(refs, u8"", false) };
 
@@ -144,14 +147,14 @@ TEST_CASE("long branch lists are cut to the visible limit with a hint to narrow 
 TEST_CASE("repository choices put open tabs first and skip recent entries that are already open", "[presentation][selector]")
 {
     repository_tabs tabs {};
-    const repository_tab_id alpha { tabs.open_repository(u8"C:\\work\\alpha").id };
-    const repository_tab_id beta { tabs.open_repository(u8"C:\\work\\beta").id };
+    const repository_tab_id alpha { tabs.open_repository(native_path(u8"C:\\work\\alpha")).id };
+    const repository_tab_id beta { tabs.open_repository(native_path(u8"C:\\work\\beta")).id };
     app_settings settings {};
-    settings.recent_repositories.push_back({ u8"C:\\work\\beta", u8"beta", u8"2026-10-20T10:00:00Z", false });
-    settings.recent_repositories.push_back({ u8"C:\\old\\gamma", u8"gamma", u8"2026-10-19T10:00:00Z", false });
-    settings.recent_repositories.push_back({ u8"D:\\gone\\delta", u8"delta", u8"2026-10-18T10:00:00Z", false });
+    settings.recent_repositories.push_back({ native_path(u8"C:\\work\\beta"), u8"beta", u8"2026-10-20T10:00:00Z", false });
+    settings.recent_repositories.push_back({ native_path(u8"C:\\old\\gamma"), u8"gamma", u8"2026-10-19T10:00:00Z", false });
+    settings.recent_repositories.push_back({ native_path(u8"D:\\gone\\delta"), u8"delta", u8"2026-10-18T10:00:00Z", false });
 
-    const auto exists = [](const std::u8string_view path) { return path != u8"D:\\gone\\delta"; };
+    const auto exists = [](const std::u8string_view path) { return path != native_path(u8"D:\\gone\\delta"); };
     const std::vector<repository_choice> choices { make_repository_choices(tabs, settings, exists, beta) };
     REQUIRE(choices.size() == 4);
     CHECK(choices[0].tab == alpha);
@@ -168,12 +171,12 @@ TEST_CASE("repository choices put open tabs first and skip recent entries that a
 TEST_CASE("the repository selector groups tabs and recent entries, disables the current tab and missing paths and always offers the folder picker", "[presentation][selector]")
 {
     repository_tabs tabs {};
-    const repository_tab_id alpha { tabs.open_repository(u8"C:\\work\\alpha").id };
-    const repository_tab_id beta { tabs.open_repository(u8"C:\\work\\beta").id };
+    const repository_tab_id alpha { tabs.open_repository(native_path(u8"C:\\work\\alpha")).id };
+    const repository_tab_id beta { tabs.open_repository(native_path(u8"C:\\work\\beta")).id };
     app_settings settings {};
-    settings.recent_repositories.push_back({ u8"C:\\old\\gamma", u8"gamma", u8"2026-10-19T10:00:00Z", false });
-    settings.recent_repositories.push_back({ u8"D:\\gone\\delta", u8"delta", u8"2026-10-18T10:00:00Z", false });
-    const auto exists = [](const std::u8string_view path) { return path != u8"D:\\gone\\delta"; };
+    settings.recent_repositories.push_back({ native_path(u8"C:\\old\\gamma"), u8"gamma", u8"2026-10-19T10:00:00Z", false });
+    settings.recent_repositories.push_back({ native_path(u8"D:\\gone\\delta"), u8"delta", u8"2026-10-18T10:00:00Z", false });
+    const auto exists = [](const std::u8string_view path) { return path != native_path(u8"D:\\gone\\delta"); };
 
     const selector_list list { build_repository_selector(make_repository_choices(tabs, settings, exists, beta), u8"") };
     const auto tab_key = [](const repository_tab_id id) {
@@ -182,20 +185,20 @@ TEST_CASE("the repository selector groups tabs and recent entries, disables the 
     };
     const std::u8string alpha_key { tab_key(alpha) };
     const std::u8string beta_key { tab_key(beta) };
-    CHECK(keys_of(list) == std::vector<std::u8string> { alpha_key, beta_key, u8"recent:C:\\old\\gamma", u8"recent:D:\\gone\\delta", u8"open_folder" });
+    CHECK(keys_of(list) == std::vector<std::u8string> { alpha_key, beta_key, u8"recent:" + native_path(u8"C:\\old\\gamma"), u8"recent:" + native_path(u8"D:\\gone\\delta"), u8"open_folder" });
 
     const menu_entry* const alpha_entry { find_entry(list, alpha_key) };
     REQUIRE(alpha_entry != nullptr);
     CHECK(alpha_entry->enabled);
-    CHECK(alpha_entry->label == u8"alpha   C:\\work");
+    CHECK(alpha_entry->label == u8"alpha   " + native_path(u8"C:\\work"));
     CHECK_FALSE(alpha_entry->separator_above);
     CHECK_FALSE(find_entry(list, beta_key)->enabled);
     // 최근 목록의 첫 항목 앞에 구분선이 선다.
-    const menu_entry* const gamma { find_entry(list, u8"recent:C:\\old\\gamma") };
+    const menu_entry* const gamma { find_entry(list, u8"recent:" + native_path(u8"C:\\old\\gamma")) };
     REQUIRE(gamma != nullptr);
     CHECK(gamma->enabled);
     CHECK(gamma->separator_above);
-    const menu_entry* const gone { find_entry(list, u8"recent:D:\\gone\\delta") };
+    const menu_entry* const gone { find_entry(list, u8"recent:" + native_path(u8"D:\\gone\\delta")) };
     REQUIRE(gone != nullptr);
     CHECK_FALSE(gone->enabled);
     CHECK(gone->label.find(u8"사용할 수 없음") != std::u8string::npos);
@@ -208,17 +211,17 @@ TEST_CASE("the repository selector groups tabs and recent entries, disables the 
 TEST_CASE("the repository selector filters by name or path and keeps the folder picker", "[presentation][selector]")
 {
     repository_tabs tabs {};
-    static_cast<void>(tabs.open_repository(u8"C:\\work\\alpha"));
+    static_cast<void>(tabs.open_repository(native_path(u8"C:\\work\\alpha")));
     app_settings settings {};
-    settings.recent_repositories.push_back({ u8"C:\\old\\gamma", u8"gamma", u8"2026-10-19T10:00:00Z", false });
+    settings.recent_repositories.push_back({ native_path(u8"C:\\old\\gamma"), u8"gamma", u8"2026-10-19T10:00:00Z", false });
 
     const std::vector<repository_choice> choices { make_repository_choices(tabs, settings, nullptr, tabs.selected().id) };
     const selector_list by_name { build_repository_selector(choices, u8"GAM") };
-    CHECK(keys_of(by_name) == std::vector<std::u8string> { u8"recent:C:\\old\\gamma", u8"open_folder" });
+    CHECK(keys_of(by_name) == std::vector<std::u8string> { u8"recent:" + native_path(u8"C:\\old\\gamma"), u8"open_folder" });
     // 최근 목록만 남으면 앞에 열린 탭이 없어 구분선을 긋지 않는다.
     CHECK_FALSE(by_name.entries.front().separator_above);
 
-    const selector_list by_path { build_repository_selector(choices, u8"c:/work") };
+    const selector_list by_path { build_repository_selector(choices, native_path(u8"c:/work")) };
     CHECK(by_path.entries.front().label.find(u8"alpha") != std::u8string::npos);
 
     const selector_list none { build_repository_selector(choices, u8"nothing-like-this") };

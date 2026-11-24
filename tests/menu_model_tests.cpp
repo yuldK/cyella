@@ -1,4 +1,5 @@
 // 우클릭 메뉴와 끌어 놓기 메뉴의 항목 규칙, 끄는 동안의 문구, 읽어 둔 이력의 조상 판정을 검증한다 (UI 없이).
+#include "native_path_support.h"
 #include "presentation/drop_hints.h"
 #include "presentation/graph_index.h"
 #include "presentation/menu_model.h"
@@ -8,6 +9,8 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -242,7 +245,7 @@ TEST_CASE("a local branch menu fast-forwards that branch to the current one only
         { .kind = ref_kind::local, .name = "main", .target_sha = sha_of(7) },
         { .kind = ref_kind::local, .name = "base", .target_sha = sha_of(5) },
         { .kind = ref_kind::local, .name = "twin", .target_sha = sha_of(9) },
-        { .kind = ref_kind::local, .name = "busy", .target_sha = sha_of(5), .worktree_path = "C:/work/busy" },
+        { .kind = ref_kind::local, .name = "busy", .target_sha = sha_of(5), .worktree_path = native_path("C:/work/busy") },
     };
     // 메뉴를 연 controller가 채우는 값과 같다: 끈 쪽이 현재 브랜치, 놓은 쪽이 우클릭한 브랜치다.
     const auto menu_for = [&index, &context](const std::string& name, const int sha) {
@@ -305,8 +308,8 @@ TEST_CASE("branches checked out in another worktree are disabled in the delete a
 {
     const graph_index index { history() };
     menu_context context { main_context() };
-    context.refs.push_back({ .kind = ref_kind::local, .name = "busy", .target_sha = sha_of(5), .worktree_path = "C:/work/busy" });
-    context.refs.push_back({ .kind = ref_kind::local, .name = "wt", .target_sha = sha_of(9), .worktree_path = "C:/work/wt" });
+    context.refs.push_back({ .kind = ref_kind::local, .name = "busy", .target_sha = sha_of(5), .worktree_path = native_path("C:/work/busy") });
+    context.refs.push_back({ .kind = ref_kind::local, .name = "wt", .target_sha = sha_of(9), .worktree_path = native_path("C:/work/wt") });
     const auto facts_for = [&index](const drop_party& source, const drop_party& destination) {
         drop_facts facts {};
         facts.destination_is_ancestor = index.is_ancestor(destination.sha, source.sha);
@@ -622,8 +625,8 @@ TEST_CASE("the tab menu closes tabs in groups and opens repository folders elsew
     CHECK_FALSE(enabled(only, u8"close_others"));
     CHECK_FALSE(enabled(only, u8"close_right"));
 
-    const repository_tab_id first { tabs.open_repository(u8"C:\\work\\first").id };
-    const repository_tab_id second { tabs.open_repository(u8"C:\\work\\second").id };
+    const repository_tab_id first { tabs.open_repository(native_path(u8"C:\\work\\first")).id };
+    const repository_tab_id second { tabs.open_repository(native_path(u8"C:\\work\\second")).id };
     const menu_model middle { build_tab_menu(tabs, first) };
     CHECK(middle.title == u8"first");
     CHECK(keys(middle) == std::vector<std::u8string> { u8"close", u8"close_others", u8"close_right", u8"copy_path", u8"reveal", u8"open_vscode" });

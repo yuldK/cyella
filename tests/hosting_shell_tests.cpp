@@ -4,6 +4,7 @@
 #include "application/app_messages.h"
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/codicon_names.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/commands/command_registry.h"
@@ -26,6 +27,8 @@
 #include <string>
 #include <vector>
 
+using cyella::test::native_path;
+
 namespace {
     using namespace cyella;
     namespace snap = cyella::test::snapshot;
@@ -47,12 +50,12 @@ namespace {
     struct harness
     {
         explicit harness(const std::string& remote_url = "git@github.com:octo/hello.git")
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , controller { make_dependencies() }
         {
             controller.start({});
-            controller.open_repository(u8"C:\\work\\repo");
+            controller.open_repository(native_path(u8"C:\\work\\repo"));
             repository = controller.selected_repository_id();
             repository_session* const session { workspace.find_session(repository) };
             REQUIRE(session != nullptr);
@@ -217,7 +220,7 @@ TEST_CASE("the PULL REQUESTS section shows a login row and no job is submitted u
     REQUIRE(test.jobs.size() == 1);
     CHECK(std::holds_alternative<hosting_sign_in_job>(test.jobs[0].work));
     CHECK(test.jobs[0].context.repository.owner == "octo");
-    CHECK(test.jobs[0].context.working_directory == "C:\\work\\repo");
+    CHECK(test.jobs[0].context.working_directory == native_path("C:\\work\\repo"));
     CHECK(test.row(u8"pr:login")->label == u8"로그인 중…");
 }
 

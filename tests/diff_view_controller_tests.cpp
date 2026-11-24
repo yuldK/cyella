@@ -1,6 +1,7 @@
 #include "application/diff_view_controller.h"
 #include "domain/patch_builder.h"
 #include "infrastructure/git_diff_parser.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -11,6 +12,8 @@
 #include <string_view>
 #include <variant>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -104,7 +107,7 @@ TEST_CASE("nothing is posted until the page says it is ready", "[diff][controlle
 {
     diff_view_controller controller {};
     CHECK_FALSE(controller.poll());
-    static_cast<void>(controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(controller.show(modified_diff(), native_path(u8"C:\\repo")));
     CHECK_FALSE(controller.poll());
     CHECK(controller.post_revision() == 0);
 
@@ -134,7 +137,7 @@ TEST_CASE("every message has a larger seq than the one before", "[diff][controll
     page ui {};
     std::uint64_t previous { ui.latest().at("seq").get<std::uint64_t>() };
 
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     CHECK(ui.latest().at("seq").get<std::uint64_t>() > previous);
     previous = ui.latest().at("seq").get<std::uint64_t>();
@@ -157,7 +160,7 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
         theme.mode = diff_theme_mode::light;
         ui.controller.set_theme(theme);
         ui.controller.set_layout(diff_layout::split);
-        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         const json message = ui.latest();
         CHECK(message.at("type") == "show_diff");
@@ -168,7 +171,7 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
 
     SECTION("a single layout change is a small message")
     {
-        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         ui.controller.set_layout(diff_layout::split);
         REQUIRE(ui.controller.poll());
@@ -177,7 +180,7 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
 
     SECTION("a small message names the content it follows so a page that missed it can ask again")
     {
-        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         const std::uint64_t shown { ui.controller.content_seq() };
         // 내용 메시지가 페이지에 닿기 전에 다음 frame의 set_theme이 그 자리를 덮었다고 본다.
@@ -198,7 +201,7 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
 
     SECTION("a single theme change is a small message")
     {
-        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         diff_theme theme {};
         theme.mode = diff_theme_mode::light;
@@ -209,7 +212,7 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
 
     SECTION("two state changes at once resend the content so neither is lost")
     {
-        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         const std::uint64_t before { ui.controller.content_seq() };
         diff_theme theme {};
@@ -236,7 +239,7 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
 TEST_CASE("a page that reloads gets the whole state again", "[diff][controller]")
 {
     page ui {};
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     const std::uint64_t old_seq { ui.controller.content_seq() };
 
@@ -263,7 +266,7 @@ TEST_CASE("ready with a different protocol version is refused", "[diff][controll
 TEST_CASE("staging a hunk produces the apply request exactly once", "[diff][controller]")
 {
     page ui {};
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     CHECK(ui.latest().at("can_stage") == true);
     CHECK(ui.latest().at("can_unstage") == false);
@@ -291,7 +294,7 @@ TEST_CASE("staging a hunk produces the apply request exactly once", "[diff][cont
     CHECK(ui.controller.handle_web_message(ui.action({ { "type", "stage_hunk" }, { "hunk", 0 } })).accepted);
 
     // 새 diff를 읽으면 새 seq로 다시 받는다.
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     CHECK(ui.controller.handle_web_message(ui.action({ { "type", "stage_hunk" }, { "hunk", 0 } })).accepted);
 }
@@ -301,7 +304,7 @@ TEST_CASE("line selections become a partial patch for the matching git apply mod
     SECTION("stage lines")
     {
         page ui {};
-        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         // 구간 [1,2]는 -b, +B이고, 구간 [4,6]의 context는 건너뛰고 -e만 고른다.
         const web_message_result result
@@ -317,7 +320,7 @@ TEST_CASE("line selections become a partial patch for the matching git apply mod
     SECTION("unstage lines uses --cached -R")
     {
         page ui {};
-        static_cast<void>(ui.controller.show(modified_diff(diff_view::staged), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(diff_view::staged), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         CHECK(ui.latest().at("can_unstage") == true);
         CHECK(ui.latest().at("can_stage") == false);
@@ -332,7 +335,7 @@ TEST_CASE("line selections become a partial patch for the matching git apply mod
     SECTION("discard lines uses -R on the worktree")
     {
         page ui {};
-        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         const web_message_result result = ui.controller.handle_web_message(ui.action({ { "type", "discard_hunk" }, { "hunk", 0 } }));
         REQUIRE(result.accepted);
@@ -352,7 +355,7 @@ TEST_CASE("actions the current view does not allow are refused", "[diff][control
     SECTION("unstaged: stage and discard only")
     {
         page ui {};
-        static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         CHECK_FALSE(accepted(ui.controller, "unstage_hunk"));
         CHECK(accepted(ui.controller, "discard_hunk"));
@@ -361,7 +364,7 @@ TEST_CASE("actions the current view does not allow are refused", "[diff][control
     SECTION("staged: unstage only")
     {
         page ui {};
-        static_cast<void>(ui.controller.show(modified_diff(diff_view::staged), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(diff_view::staged), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         CHECK_FALSE(accepted(ui.controller, "stage_hunk"));
         CHECK_FALSE(accepted(ui.controller, "discard_hunk"));
@@ -371,7 +374,7 @@ TEST_CASE("actions the current view does not allow are refused", "[diff][control
     SECTION("commit: nothing")
     {
         page ui {};
-        static_cast<void>(ui.controller.show(modified_diff(diff_view::commit), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(modified_diff(diff_view::commit), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         CHECK(ui.latest().at("can_stage") == false);
         CHECK(ui.latest().at("can_unstage") == false);
@@ -392,7 +395,7 @@ TEST_CASE("actions the current view does not allow are refused", "[diff][control
             "+one",
             "+two",
         });
-        static_cast<void>(ui.controller.show(make_diff(text, "n.txt", diff_view::unstaged, true), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(make_diff(text, "n.txt", diff_view::unstaged, true), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         CHECK(ui.latest().at("can_stage") == true);
         CHECK(ui.latest().at("can_discard") == false);
@@ -414,7 +417,7 @@ TEST_CASE("actions the current view does not allow are refused", "[diff][control
             "+one",
             "+two",
         });
-        static_cast<void>(ui.controller.show(make_diff(text, "n.txt", diff_view::unstaged, false), u8"C:\\repo"));
+        static_cast<void>(ui.controller.show(make_diff(text, "n.txt", diff_view::unstaged, false), native_path(u8"C:\\repo")));
         REQUIRE(ui.controller.poll());
         REQUIRE(ui.latest().at("file").at("status") == "A");
         CHECK(ui.latest().at("can_stage") == true);
@@ -430,7 +433,7 @@ TEST_CASE("actions the current view does not allow are refused", "[diff][control
 TEST_CASE("stale or invalid actions never produce work", "[diff][controller]")
 {
     page ui {};
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     const std::uint64_t seq { ui.controller.content_seq() };
 
@@ -460,7 +463,7 @@ TEST_CASE("a diff over the line limit is cut and offers the full view", "[diff][
     diff_view_options options {};
     options.line_limit = 5;
     page ui { options };
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
 
     json cut = ui.latest();
@@ -480,16 +483,16 @@ TEST_CASE("a diff over the line limit is cut and offers the full view", "[diff][
     CHECK(full.at("can_stage") == true);
 
     // 같은 파일을 다시 읽어도 전체 보기가 유지되고, 다른 파일로 가면 풀린다.
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     CHECK_FALSE(ui.controller.truncated());
-    static_cast<void>(ui.controller.show(make_diff(modified_text("other.txt"), "other.txt"), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(make_diff(modified_text("other.txt"), "other.txt"), native_path(u8"C:\\repo")));
     CHECK(ui.controller.truncated());
 }
 
 TEST_CASE("show_full is refused when nothing was cut", "[diff][controller]")
 {
     page ui {};
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     CHECK_FALSE(ui.controller.handle_web_message(ui.action({ { "type", "show_full" } })).accepted);
 }
@@ -497,7 +500,7 @@ TEST_CASE("show_full is refused when nothing was cut", "[diff][controller]")
 TEST_CASE("the page's own layout choice is remembered without a reply", "[diff][controller]")
 {
     page ui {};
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     REQUIRE(ui.controller.handle_web_message(R"({"type":"layout_changed","layout":"split"})").accepted);
     CHECK(ui.controller.state().layout == diff_layout::split);
@@ -512,13 +515,13 @@ TEST_CASE("the page's own layout choice is remembered without a reply", "[diff][
 TEST_CASE("open external and copy become effects for the caller", "[diff][controller]")
 {
     page ui {};
-    static_cast<void>(ui.controller.show(modified_diff(diff_view::staged), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(diff_view::staged), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
 
     const web_message_result opened = ui.controller.handle_web_message(ui.action({ { "type", "open_external" } }));
     REQUIRE(opened.accepted);
     const open_external_effect& open { effect_of<open_external_effect>(opened) };
-    CHECK(open.plan.repository_path == u8"C:\\repo");
+    CHECK(open.plan.repository_path == native_path(u8"C:\\repo"));
     CHECK(open.plan.view == diff_view::staged);
     CHECK(open.plan.old_path == "f.txt");
     CHECK(open.plan.new_path == "f.txt");
@@ -537,7 +540,7 @@ TEST_CASE("a diff with no changes shows an empty file", "[diff][controller]")
     page ui {};
     file_diff diff {};
     diff.request.path = "same.txt";
-    static_cast<void>(ui.controller.show(diff, u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(diff, native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     CHECK(ui.latest().at("type") == "show_diff");
     CHECK(ui.latest().at("file").at("new_path") == "same.txt");
@@ -547,7 +550,7 @@ TEST_CASE("a diff with no changes shows an empty file", "[diff][controller]")
 TEST_CASE("clear empties the viewer", "[diff][controller]")
 {
     page ui {};
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     const std::uint64_t seq { ui.controller.content_seq() };
     ui.controller.clear();
@@ -575,13 +578,13 @@ namespace {
 TEST_CASE("a binary file asks for the sizes of its two sides and then shows a card", "[diff][controller]")
 {
     page ui {};
-    const std::vector<diff_view_effect> effects { ui.controller.show(binary_diff("data/model.bin"), u8"C:\\repo") };
+    const std::vector<diff_view_effect> effects { ui.controller.show(binary_diff("data/model.bin"), native_path(u8"C:\\repo")) };
     REQUIRE(effects.size() == 1);
     REQUIRE(std::holds_alternative<prepare_sides_effect>(effects.front()));
     const prepare_sides_effect& prepare { std::get<prepare_sides_effect>(effects.front()) };
     CHECK_FALSE(prepare.write_files);
     CHECK(prepare.plan.new_path == "data/model.bin");
-    CHECK(prepare.plan.repository_path == u8"C:\\repo");
+    CHECK(prepare.plan.repository_path == native_path(u8"C:\\repo"));
 
     // 기다리는 동안 뷰어는 비워 둔다.
     REQUIRE(ui.controller.poll());
@@ -603,6 +606,8 @@ TEST_CASE("a binary file asks for the sizes of its two sides and then shows a ca
     CHECK(ui.controller.handle_web_message(ui.action({ { "type", "open_external" } })).accepted);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("an image shows both sides from temporary files", "[diff][controller]")
 {
     page ui {};
@@ -624,13 +629,14 @@ TEST_CASE("an image shows both sides from temporary files", "[diff][controller]"
     CHECK(image.at("right_url").is_null());
     CHECK(image.at("left_size") == 10);
 }
+#endif
 
 TEST_CASE("results for a file the user already left are dropped", "[diff][controller]")
 {
     page ui {};
-    const std::vector<diff_view_effect> effects { ui.controller.show(binary_diff("img/logo.png"), u8"C:\\repo") };
+    const std::vector<diff_view_effect> effects { ui.controller.show(binary_diff("img/logo.png"), native_path(u8"C:\\repo")) };
     const std::uint64_t old_ticket { std::get<prepare_sides_effect>(effects.front()).ticket };
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
 
     extracted_sides sides {};
@@ -643,7 +649,7 @@ TEST_CASE("results for a file the user already left are dropped", "[diff][contro
 TEST_CASE("an image whose sides could not be extracted falls back to the card", "[diff][controller]")
 {
     page ui {};
-    const std::vector<diff_view_effect> effects { ui.controller.show(binary_diff("img/logo.png"), u8"C:\\repo") };
+    const std::vector<diff_view_effect> effects { ui.controller.show(binary_diff("img/logo.png"), native_path(u8"C:\\repo")) };
     extracted_sides failed {};
     failed.ok = false;
     failed.error = "git failed";
@@ -655,7 +661,7 @@ TEST_CASE("a textconv file shows no stage or discard buttons because its hunks d
 {
     page ui {};
     file_diff plain { modified_diff() };
-    static_cast<void>(ui.controller.show(plain, u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(plain, native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     CHECK(ui.controller.can_stage());
     CHECK(ui.controller.textconv_driver().empty());
@@ -663,7 +669,7 @@ TEST_CASE("a textconv file shows no stage or discard buttons because its hunks d
 
     file_diff converted { modified_diff() };
     converted.textconv_driver = "word";
-    static_cast<void>(ui.controller.show(converted, u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(converted, native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     CHECK(ui.controller.textconv_driver() == "word");
     CHECK_FALSE(ui.controller.can_stage());
@@ -674,7 +680,7 @@ TEST_CASE("a textconv file shows no stage or discard buttons because its hunks d
     CHECK_FALSE(refused.accepted);
 
     // 다음 파일(textconv 없음)로 넘어가면 다시 켜진다.
-    static_cast<void>(ui.controller.show(plain, u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(plain, native_path(u8"C:\\repo")));
     CHECK(ui.controller.can_stage());
     CHECK(ui.controller.textconv_driver().empty());
 }
@@ -684,14 +690,14 @@ TEST_CASE("a diff read without context needs --unidiff-zero to be applied", "[di
     page ui {};
     file_diff diff { modified_diff() };
     diff.request.context_lines = 0;
-    static_cast<void>(ui.controller.show(diff, u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(diff, native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     const web_message_result zero { ui.controller.handle_web_message(ui.action({ { "type", "stage_hunk" }, { "hunk", 0 } })) };
     REQUIRE(zero.accepted);
     CHECK(effect_of<apply_patch_effect>(zero).request.unidiff_zero);
 
     page normal {};
-    static_cast<void>(normal.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(normal.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(normal.controller.poll());
     const web_message_result with_context { normal.controller.handle_web_message(normal.action({ { "type", "stage_hunk" }, { "hunk", 0 } })) };
     REQUIRE(with_context.accepted);
@@ -799,7 +805,7 @@ TEST_CASE("a long blame is cut at the line limit until the page asks for all of 
     CHECK(ui.latest()["lines"].size() == 2);
 
     // diff로 돌아가면 blame은 남지 않는다.
-    static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
+    static_cast<void>(ui.controller.show(modified_diff(), native_path(u8"C:\\repo")));
     REQUIRE(ui.controller.poll());
     CHECK(ui.latest()["type"] == "show_diff");
     CHECK(ui.controller.content() == diff_content::text);

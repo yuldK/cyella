@@ -1,6 +1,9 @@
 #include "application/watch_refresh_policy.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 using namespace std::chrono_literals;
@@ -11,8 +14,8 @@ namespace {
     constexpr repository_activity refreshing { .write_pending = false, .refresh_pending = true };
     constexpr repository_activity writing_and_refreshing { .write_pending = true, .refresh_pending = true };
 
-    const std::string repo { "c:/work/repo" };
-    const std::string other { "c:/work/other" };
+    const std::string repo { native_path("c:/work/repo") };
+    const std::string other { native_path("c:/work/other") };
     const watch_refresh_policy::clock::time_point start { watch_refresh_policy::clock::time_point {} + 1h };
 
     // optional을 Catch가 풀어 쓰지 않도록 글로 바꿔 견준다.

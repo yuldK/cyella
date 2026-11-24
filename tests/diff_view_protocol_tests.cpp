@@ -423,6 +423,8 @@ TEST_CASE("image and binary messages carry urls and sizes", "[diff][protocol]")
     CHECK(parsed_binary.at("can_open_external") == false);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("make_file_url percent-encodes the path the way a browser reads it", "[diff][protocol]")
 {
     CHECK(make_file_url(u8"") == "");
@@ -431,6 +433,7 @@ TEST_CASE("make_file_url percent-encodes the path the way a browser reads it", "
     CHECK(make_file_url(u8"C:\\\uD55C\uAE00\\\uADF8\uB9BC.png") == "file:///C:/%ED%95%9C%EA%B8%80/%EA%B7%B8%EB%A6%BC.png");
     CHECK(make_file_url(u8"\\\\server\\share\\x.png") == "file://server/share/x.png");
 }
+#endif
 
 TEST_CASE("every action the page can send parses", "[diff][protocol]")
 {

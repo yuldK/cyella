@@ -3,6 +3,7 @@
 #include "application/commit_suggestion_messages.h"
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/commands/command_registry.h"
 #include "presentation/graph_geometry.h"
 #include "presentation/shell_controller.h"
@@ -21,6 +22,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -59,7 +62,7 @@ namespace {
     struct harness
     {
         explicit harness(app_settings settings = enabled_settings())
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , service { store, u8"memory" }
         {
@@ -75,7 +78,7 @@ namespace {
             dependencies.cancel_commit_suggestion = [this](const std::uint64_t serial) { cancelled.push_back(serial); };
             controller.emplace(std::move(dependencies));
             controller->start({});
-            controller->open_repository(u8"C:\\work\\repo");
+            controller->open_repository(native_path(u8"C:\\work\\repo"));
             repository = controller->selected_repository_id();
             tab = controller->tabs().selected().id;
         }
@@ -151,7 +154,7 @@ TEST_CASE("the suggestion button asks the worker and the answer fills the commit
     const commit_suggestion_job& job { test.jobs.front() };
     CHECK(job.serial == 1);
     CHECK(job.repository_id == test.repository);
-    CHECK(job.repository_path == u8"C:\\work\\repo");
+    CHECK(job.repository_path == native_path(u8"C:\\work\\repo"));
     // 실행 파일 칸의 앞뒤 공백은 뗀다. 나머지는 설정 그대로 간다.
     CHECK(job.executable == u8"claude");
     CHECK(job.arguments == u8"-p --tools \"\"");
@@ -307,7 +310,7 @@ TEST_CASE("the answer goes to the tab that asked, and closing that tab stops the
     test.send(suggest_commit_message_intent {});
 
     // 도는 동안 다른 저장소 탭으로 옮겼다. 답은 낸 탭의 입력란으로 간다.
-    test.controller->open_repository(u8"C:\\work\\other");
+    test.controller->open_repository(native_path(u8"C:\\work\\other"));
     const repository_tab_id other { test.controller->tabs().selected().id };
     REQUIRE(other != test.tab);
     test.deliver(1, commit_suggestion_state::succeeded, { u8"feat: 낸 탭의 답", {} });

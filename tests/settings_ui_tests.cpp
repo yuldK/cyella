@@ -1,5 +1,6 @@
 // 환경 설정 대화 상자를 tree로 지어 보는 test다. 어느 쪽(page)이든 id가 겹치지 않고 모두 배치되며, 사용자가 누를 단추가
 // 이름으로 찾아지는지(UI 자동화가 같은 이름을 쓴다)를 본다.
+#include "native_path_support.h"
 #include "presentation/settings/settings_intents.h"
 #include "presentation/settings/settings_view.h"
 #include "presentation/ui/build_ui_tree.h"
@@ -14,6 +15,8 @@
 #include <string>
 #include <vector>
 
+using cyella::test::native_path;
+
 using namespace cyella;
 using namespace cyella::test::snapshot;
 
@@ -25,8 +28,8 @@ namespace {
         info.agent_list_available = true;
         info.agent.state = ssh_agent_list_state::identities;
         info.agent.identities.push_back({ 256, u8"SHA256:abc", u8"me@PC", u8"ED25519" });
-        info.keys.push_back({ u8"id_ed25519", u8"ssh-ed25519", u8"me@PC", u8"ssh-ed25519 AAAA me@PC", u8"C:\\.ssh\\id_ed25519" });
-        info.keys.push_back({ u8"work", u8"ssh-rsa", u8"", u8"ssh-rsa BBBB", u8"C:\\.ssh\\work" });
+        info.keys.push_back({ u8"id_ed25519", u8"ssh-ed25519", u8"me@PC", u8"ssh-ed25519 AAAA me@PC", native_path(u8"C:\\.ssh\\id_ed25519") });
+        info.keys.push_back({ u8"work", u8"ssh-rsa", u8"", u8"ssh-rsa BBBB", native_path(u8"C:\\.ssh\\work") });
         return info;
     }
 
@@ -41,10 +44,10 @@ namespace {
     ui::built_tree build_tree(const snapshot_harness& harness, settings_state state, const float width, const bool edit = false)
     {
         app_settings settings {};
-        settings.external_diff_tools.push_back({ { u8".png" }, u8"C:\\Tools\\imgdiff.exe", u8"{left} {right}" });
+        settings.external_diff_tools.push_back({ { u8".png" }, native_path(u8"C:\\Tools\\imgdiff.exe"), u8"{left} {right}" });
         git_tool_info tool {};
         tool.availability = git_tool_availability::available;
-        tool.executable = u8"C:\\Git\\cmd\\git.exe";
+        tool.executable = native_path(u8"C:\\Git\\cmd\\git.exe");
         tool.reported_version = u8"git version 2.52.0";
         if (edit)
             state.tool_edit = tool_edit_state {};
@@ -54,7 +57,7 @@ namespace {
         inputs.state = &state;
         inputs.settings = &settings;
         inputs.git_tool = &tool;
-        inputs.ssh_directory = u8"C:\\Users\\me\\.ssh";
+        inputs.ssh_directory = native_path(u8"C:\\Users\\me\\.ssh");
         inputs.ssh_tools_found = true;
         inputs.ssh_tools_origin = u8"Git for Windows";
 
@@ -76,7 +79,7 @@ namespace {
 TEST_CASE("every settings page builds a tree with unique ids and no unarranged elements", "[settings][ui]")
 {
     snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
 
     for (const settings_page page :
         { settings_page::general, settings_page::diff_tools, settings_page::ssh, settings_page::signing, settings_page::hosting, settings_page::profiles, settings_page::shortcuts, settings_page::suggestion })
@@ -100,7 +103,7 @@ TEST_CASE("every settings page builds a tree with unique ids and no unarranged e
 TEST_CASE("the page navigation and the close button are always there", "[settings][ui]")
 {
     snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
     const ui::built_tree built { build_tree(harness, settings_state {}, 1440.0f) };
     for (const std::u8string& owner : { u8"settings-page-general", u8"settings-page-diff-tools", u8"settings-page-ssh" })
     {
@@ -113,7 +116,7 @@ TEST_CASE("the page navigation and the close button are always there", "[setting
 TEST_CASE("each page offers its own controls under stable names", "[settings][ui]")
 {
     snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
 
     const std::vector<page_case> cases {
         { settings_page::general, { u8"settings-git-browse", u8"settings-git-apply", u8"settings-git-reset" }, { u8"settings-git-path" } },
@@ -149,7 +152,7 @@ TEST_CASE("each page offers its own controls under stable names", "[settings][ui
 TEST_CASE("the tool form offers the token chips and a live preview", "[settings][ui]")
 {
     snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
     settings_state state {};
     state.page = settings_page::diff_tools;
     const ui::built_tree built { build_tree(harness, state, 1440.0f, true) };
@@ -176,7 +179,7 @@ TEST_CASE("the tool form offers the token chips and a live preview", "[settings]
 TEST_CASE("a read only settings file puts a banner above the page", "[settings][ui]")
 {
     snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
     settings_state state {};
     app_settings settings {};
     settings_view_inputs inputs {};
@@ -198,7 +201,7 @@ TEST_CASE("a read only settings file puts a banner above the page", "[settings][
 TEST_CASE("a running ssh task offers a cancel button", "[settings][ui]")
 {
     snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
     settings_state state {};
     state.page = settings_page::ssh;
     app_settings settings {};
@@ -206,7 +209,7 @@ TEST_CASE("a running ssh task offers a cancel button", "[settings][ui]")
     inputs.state = &state;
     inputs.settings = &settings;
     inputs.ssh_tools_found = true;
-    inputs.ssh_directory = u8"C:\\Users\\me\\.ssh";
+    inputs.ssh_directory = native_path(u8"C:\\Users\\me\\.ssh");
     inputs.keygen.id = 9;
     inputs.keygen.state = operation_state::needs_input;
     inputs.keygen.waiting_for_prompt = true;

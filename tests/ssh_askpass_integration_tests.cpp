@@ -5,6 +5,7 @@
 #include "application/task_scheduler.h"
 #include "infrastructure/git_operation_runner.h"
 #include "infrastructure/ssh_info.h"
+#include "native_path_support.h"
 #include "platform/win32/askpass_bridge.h"
 #include "platform/win32/win32_file_probe.h"
 #include "platform/win32/win32_process_runner.h"
@@ -24,6 +25,8 @@
 #include <memory>
 #include <string>
 #include <thread>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -51,7 +54,7 @@ namespace {
             runner_options.ssh_executable = programs.ssh;
             runner_options.ssh_keygen_executable = programs.ssh_keygen;
             // git은 쓰지 않지만 실행기가 경로를 요구한다.
-            executor_ = std::make_unique<git_operation_runner>(*process_, u8"C:/Git/cmd/git.exe", *files_, runner_options);
+            executor_ = std::make_unique<git_operation_runner>(*process_, native_path(u8"C:/Git/cmd/git.exe"), *files_, runner_options);
             scheduler_ = std::make_unique<task_scheduler>();
             git_workspace_options workspace_options {};
             workspace_options.refresh_on_open = false;
@@ -133,7 +136,7 @@ namespace {
     {
         const std::unique_ptr<file_probe> probe { win32::make_file_probe() };
         // git 위치는 모르는 값이다. 시스템 OpenSSH만 있어도 test는 돈다.
-        return locate_ssh_programs(u8"C:\\nowhere\\git.exe", win32::windows_directory(), *probe);
+        return locate_ssh_programs(native_path(u8"C:\\nowhere\\git.exe"), win32::windows_directory(), *probe);
     }
 } // namespace
 

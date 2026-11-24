@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <system_error>
 
+#if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -16,6 +17,17 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include <chrono>
+#include <csignal>
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
+
+extern char** environ;
+#endif
 
 #ifndef CYELLA_TEST_DATA_DIRECTORY
 #error "CYELLA_TEST_DATA_DIRECTORY must be defined by the build."
@@ -24,6 +36,7 @@
 namespace cyella {
     namespace test {
         namespace {
+#if defined(_WIN32)
             std::wstring widen(const std::string_view text)
             {
                 if (text.empty())
@@ -59,10 +72,23 @@ namespace cyella {
                 command_line.push_back(L'"');
             }
 
+#endif
+
             void set_environment(const char* name, const char* value)
             {
+#if defined(_WIN32)
                 ::_putenv_s(name, value);
+#else
+                ::setenv(name, value, 1);
+#endif
             }
+
+            // 빈 설정 파일 자리다 (사용자의 전역 설정을 읽지 않게 한다).
+#if defined(_WIN32)
+            constexpr const char* null_device { "NUL" };
+#else
+            constexpr const char* null_device { "/dev/null" };
+#endif
 
             // 첫 호출에서 한 번만 git 환경을 정한다. 자식 프로세스가 이 환경을 상속한다.
             void configure_environment_once()
@@ -81,7 +107,7 @@ namespace cyella {
                     set_environment("GIT_AUTHOR_DATE", "2026-04-01T10:00:00 +0900");
                     set_environment("GIT_COMMITTER_DATE", "2026-04-01T10:00:00 +0900");
                     // 사용자 전역 설정을 쓰지 않고 필요한 값만 환경으로 준다.
-                    set_environment("GIT_CONFIG_GLOBAL", "NUL");
+                    set_environment("GIT_CONFIG_GLOBAL", null_device);
                     set_environment("GIT_CONFIG_COUNT", "3");
                     set_environment("GIT_CONFIG_KEY_0", "core.autocrlf");
                     set_environment("GIT_CONFIG_VALUE_0", "false");
@@ -102,7 +128,16 @@ namespace cyella {
             std::atomic<unsigned int> run_counter { 0 };
 
             // git이 이 시간 안에 끝나지 않으면 끝내고 실패로 돌려준다. 자격 증명 질문에 걸린 git이 test를 무기한 붙잡지 않게 한다.
-            constexpr DWORD git_timeout_milliseconds { 120000 };
+            constexpr unsigned long git_timeout_milliseconds { 120000 };
+
+            unsigned long current_process_id() noexcept
+            {
+#if defined(_WIN32)
+                return ::GetCurrentProcessId();
+#else
+                return static_cast<unsigned long>(::getpid());
+#endif
+            }
         } // namespace
 
         void isolate_git_environment()
@@ -123,12 +158,64 @@ namespace cyella {
         {
             configure_environment_once();
 
-            const std::filesystem::path scratch { std::filesystem::temp_directory_path() / ("cyella_run_" + std::to_string(::GetCurrentProcessId()) + "_" + std::to_string(run_counter.fetch_add(1))) };
+            const std::filesystem::path scratch { std::filesystem::temp_directory_path() / ("cyella_run_" + std::to_string(current_process_id()) + "_" + std::to_string(run_counter.fetch_add(1))) };
             const std::filesystem::path input_path { scratch.string() + ".in" };
             const std::filesystem::path output_path { scratch.string() + ".out" };
             const std::filesystem::path error_path { scratch.string() + ".err" };
             write_file(input_path, standard_input);
 
+#if !defined(_WIN32)
+            // POSIX 판이다. PATH의 git을 띄우고, 입출력은 같은 파일로 잇고, 제한 시간이 지나면 끝낸다.
+            git_run_result result {};
+            {
+                std::vector<std::string> storage { "git" };
+                for (const std::u8string& argument : arguments)
+                    storage.emplace_back(reinterpret_cast<const char*>(argument.data()), argument.size());
+                std::vector<char*> argv {};
+                for (std::string& value : storage)
+                    argv.push_back(value.data());
+                argv.push_back(nullptr);
+                posix_spawn_file_actions_t actions {};
+                ::posix_spawn_file_actions_init(&actions);
+                const std::string input_text { input_path.string() };
+                const std::string output_text { output_path.string() };
+                const std::string error_text { error_path.string() };
+                const std::string directory { working_directory.string() };
+                ::posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, input_text.c_str(), O_RDONLY, 0);
+                ::posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, output_text.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+                ::posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, error_text.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+                if (directory.empty() == false)
+                    ::posix_spawn_file_actions_addchdir_np(&actions, directory.c_str());
+                pid_t child { -1 };
+                const int spawned { ::posix_spawnp(&child, "git", &actions, nullptr, argv.data(), environ) };
+                ::posix_spawn_file_actions_destroy(&actions);
+                if (spawned == 0)
+                {
+                    const auto deadline { std::chrono::steady_clock::now() + std::chrono::milliseconds { git_timeout_milliseconds } };
+                    int status { 0 };
+                    while (true)
+                    {
+                        const pid_t waited { ::waitpid(child, &status, WNOHANG) };
+                        if (waited == child)
+                        {
+                            if (WIFEXITED(status))
+                                result.exit_code = WEXITSTATUS(status);
+                            break;
+                        }
+                        if (waited < 0)
+                            break;
+                        if (std::chrono::steady_clock::now() >= deadline)
+                        {
+                            // 시간 안에 끝나지 않은 git을 끝낸다. 종료 코드는 기본값(-1)으로 남아 실패로 읽힌다.
+                            ::kill(child, SIGKILL);
+                            ::waitpid(child, &status, 0);
+                            break;
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds { 2 });
+                    }
+                }
+            }
+#else
             SECURITY_ATTRIBUTES inheritable {};
             inheritable.nLength = sizeof(inheritable);
             inheritable.bInheritHandle = TRUE;
@@ -181,6 +268,7 @@ namespace cyella {
                 if (handle != INVALID_HANDLE_VALUE)
                     ::CloseHandle(handle);
             }
+#endif
             result.standard_output = drain_file(output_path);
             result.standard_error = drain_file(error_path);
 
@@ -223,12 +311,17 @@ namespace cyella {
             // false) 쓴다.
             static std::atomic<unsigned int> counter { 0 };
             std::random_device entropy {};
+#if defined(_WIN32)
             const std::filesystem::path root { std::filesystem::temp_directory_path() };
+#else
+            // macOS의 임시 폴더는 심볼릭 링크(`/var` → `/private/var`) 아래다. git이 알려 주는 경로와 같은 모양이 되게 푼다.
+            const std::filesystem::path root { std::filesystem::canonical(std::filesystem::temp_directory_path()) };
+#endif
             for (int attempt { 0 }; attempt < 100; ++attempt)
             {
                 char suffix[16] {};
                 std::snprintf(suffix, sizeof(suffix), "%08x", static_cast<unsigned int>(entropy()));
-                path_ = root / ("cyella_git_" + std::to_string(::GetCurrentProcessId()) + "_" + std::to_string(counter.fetch_add(1)) + "_" + suffix);
+                path_ = root / ("cyella_git_" + std::to_string(current_process_id()) + "_" + std::to_string(counter.fetch_add(1)) + "_" + suffix);
                 std::error_code error {};
                 if (std::filesystem::create_directories(path_.parent_path(), error); std::filesystem::create_directory(path_, error) && !error)
                     return;

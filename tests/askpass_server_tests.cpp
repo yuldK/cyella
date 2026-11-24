@@ -1,4 +1,5 @@
 #include "askpass_test_support.h"
+#include "native_path_support.h"
 #include "platform/win32/askpass_helper_path.h"
 #include "platform/win32/askpass_protocol.h"
 #include "platform/win32/win32_askpass_server.h"
@@ -6,10 +7,18 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#if defined(_WIN32)
 #include <windows.h>
 
 #include <aclapi.h>
 #include <sddl.h>
+#else
+#include <cstring>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <unistd.h>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -19,6 +28,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -154,12 +165,15 @@ TEST_CASE("askpass protocol rejects bad magic and oversized lengths", "[askpass]
     CHECK_FALSE(win32::decode_askpass_reply_header(std::string { "CYR1\0\x05\0\0\0", 9 }).has_value());
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("helper path is resolved beside the executable", "[askpass][path]")
 {
     // 여기서는 경로 조립만 본다. 설치 규칙이 둘을 같은 디렉터리에 둔다.
     CHECK(win32::askpass_helper_path_beside("C:/cyella/bin").filename() == "cyella-askpass.exe");
     CHECK(win32::askpass_helper_path_beside("C:/cyella/bin").parent_path() == "C:/cyella/bin");
 }
+#endif
 
 TEST_CASE("helper returns the answer on stdout and exits zero", "[askpass][server]")
 {
@@ -275,7 +289,11 @@ TEST_CASE("helper exits one when no app is listening", "[askpass][server]")
 {
     const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
     askpass_session session {};
+#if defined(_WIN32)
     session.pipe_name = u8"\\\\.\\pipe\\cyella-askpass-no-such-server";
+#else
+    session.pipe_name = u8"/tmp/cyella-askpass-no-such-server/s";
+#endif
     session.token = u8"abc";
     session.operation_id = u8"op";
 
@@ -289,7 +307,12 @@ TEST_CASE("helper refuses a pipe name that is not a pipe path", "[askpass][serve
 {
     const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
     askpass_session session {};
-    session.pipe_name = u8"C:\\Windows\\win.ini";
+#if defined(_WIN32)
+    session.pipe_name = native_path(u8"C:\\Windows\\win.ini");
+#else
+    // 앱의 소켓은 늘 절대 경로다. 상대 경로면 지금 폴더(저장소)의 엉뚱한 소켓에 토큰을 보낸다.
+    session.pipe_name = u8"relative/cyella-askpass/s";
+#endif
     session.token = u8"abc";
     session.operation_id = u8"op";
 
@@ -423,6 +446,7 @@ TEST_CASE("cancelling an operation only affects that operation", "[askpass][serv
     CHECK(recorder.count() == before);
 }
 
+#if defined(_WIN32)
 TEST_CASE("a client that sends garbage does not disturb later prompts", "[askpass][server][robustness]")
 {
     const std::unique_ptr<askpass_service> server { start(answering(u8"ok")) };
@@ -476,6 +500,62 @@ TEST_CASE("clients that connect and leave at once do not stop the listener", "[a
     CHECK(run.standard_output == "still-here\n");
 }
 
+#else
+// 앱의 Unix 소켓에 붙는다. 붙지 못하면 -1이다.
+int connect_to_endpoint(const askpass_endpoint& endpoint)
+{
+    sockaddr_un address {};
+    address.sun_family = AF_UNIX;
+    const std::string path { endpoint.pipe_name.begin(), endpoint.pipe_name.end() };
+    if (path.size() >= sizeof(address.sun_path))
+        return -1;
+    std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
+    const int connection { ::socket(AF_UNIX, SOCK_STREAM, 0) };
+    if (connection < 0)
+        return -1;
+    if (::connect(connection, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0)
+    {
+        ::close(connection);
+        return -1;
+    }
+    return connection;
+}
+
+TEST_CASE("a client that sends garbage does not disturb later prompts", "[askpass][server][robustness]")
+{
+    const std::unique_ptr<askpass_service> server { start(answering(u8"ok")) };
+    {
+        const int connection { connect_to_endpoint(server->endpoint()) };
+        REQUIRE(connection >= 0);
+        const std::string garbage(64, 'Z');
+        CHECK(::write(connection, garbage.data(), garbage.size()) == static_cast<ssize_t>(garbage.size()));
+        char reply[16] {};
+        // 서버는 형식이 틀린 연결을 답 없이 닫는다.
+        CHECK(::read(connection, reply, sizeof(reply)) <= 0);
+        ::close(connection);
+    }
+
+    const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
+    const helper_run run { run_prompt(*runner, *server, u8"Enter passphrase: ") };
+    CHECK(exit_code_of(run) == 0);
+    CHECK(run.standard_output == "ok\n");
+}
+
+TEST_CASE("clients that connect and leave at once do not stop the listener", "[askpass][server][robustness]")
+{
+    const std::unique_ptr<askpass_service> server { start(answering(u8"still-here")) };
+    for (int attempt { 0 }; attempt < 200; ++attempt)
+        if (const int connection { connect_to_endpoint(server->endpoint()) }; connection >= 0)
+            ::close(connection);
+
+    const std::unique_ptr<process_runner> runner { win32::make_process_runner() };
+    const helper_run run { run_prompt(*runner, *server, u8"Enter passphrase: ") };
+    CHECK(exit_code_of(run) == 0);
+    CHECK(run.standard_output == "still-here\n");
+}
+
+#endif
+
 TEST_CASE("answers around the string buffer boundaries arrive whole with one newline", "[askpass][server]")
 {
     // 도우미가 답 뒤에 줄 바꿈을 붙일 때 버퍼를 다시 잡지 않게 바꾼 자리다. 15·31·47 byte는 MSVC string의 용량 경계다.
@@ -492,6 +572,7 @@ TEST_CASE("answers around the string buffer boundaries arrive whole with one new
     }
 }
 
+#if defined(_WIN32)
 TEST_CASE("the pipe name is unique per server and only the current user may open it", "[askpass][server][security]")
 {
     const std::unique_ptr<askpass_service> first { start(cancelling()) };
@@ -523,3 +604,27 @@ TEST_CASE("the pipe name is unique per server and only the current user may open
             ++ace_count;
     CHECK(ace_count == 1);
 }
+#else
+TEST_CASE("the socket is unique per server and only the current user may reach it", "[askpass][server][security]")
+{
+    const std::unique_ptr<askpass_service> first { start(cancelling()) };
+    const std::unique_ptr<askpass_service> second { start(cancelling()) };
+
+    const askpass_endpoint a { first->endpoint() };
+    const askpass_endpoint b { second->endpoint() };
+    CHECK(a.pipe_name != b.pipe_name);
+    CHECK(a.token != b.token);
+    CHECK(a.token.size() == 32);
+    REQUIRE(a.pipe_name.starts_with(u8"/"));
+
+    // 소켓이 든 폴더는 이 사용자만 들어갈 수 있다 (0700).
+    const std::string socket_path { a.pipe_name.begin(), a.pipe_name.end() };
+    const std::string directory { socket_path.substr(0, socket_path.find_last_of('/')) };
+    struct stat info {};
+    REQUIRE(::stat(directory.c_str(), &info) == 0);
+    CHECK(S_ISDIR(info.st_mode));
+    CHECK((info.st_mode & 0777) == 0700);
+    CHECK(info.st_uid == ::geteuid());
+    CHECK(directory.find("cyella-askpass-") != std::string::npos);
+}
+#endif

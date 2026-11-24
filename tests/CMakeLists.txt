@@ -6,9 +6,12 @@ include(Catch)
 # 파일에도 실린다.
 set(cyella_test_files)
 
-cyella_add_source_filter(cyella_test_files "resource"
-    "${CYELLA_GENERATED_LUIL_RESOURCE}"
-    "${CYELLA_GENERATED_RESOURCE}")
+# macOS에는 .rc가 없다. 문구 파일은 cyella_lib에 바이트 배열로 실리고 codicon은 luil이 싣는다.
+if(CYELLA_PLATFORM STREQUAL "windows")
+    cyella_add_source_filter(cyella_test_files "resource"
+        "${CYELLA_GENERATED_LUIL_RESOURCE}"
+        "${CYELLA_GENERATED_RESOURCE}")
+endif()
 
 cyella_add_source_filter(cyella_test_files "domain/graph"
     commit_graph_layout_tests.cpp
@@ -22,8 +25,14 @@ cyella_add_source_filter(cyella_test_files "domain/settings"
 cyella_add_source_filter(cyella_test_files "platform/host"
     cyella_driver_tests.cpp)
 
-cyella_add_source_filter(cyella_test_files "platform/settings"
-    win32_settings_tests.cpp)
+# OS 어댑터의 test다. Windows 판은 Win32 고유의 동작(공유 위반 재시도, MAX_PATH)까지 보고, macOS 판은 같은 계약을 POSIX 위에서 본다.
+if(CYELLA_PLATFORM STREQUAL "windows")
+    cyella_add_source_filter(cyella_test_files "platform/settings"
+        win32_settings_tests.cpp)
+elseif(CYELLA_PLATFORM STREQUAL "macos")
+    cyella_add_source_filter(cyella_test_files "platform/settings"
+        macos_platform_tests.cpp)
+endif()
 
 # 실제 filesystem에서 감시 스레드를 돌리는 통합 test다. 태그는 `[integration]`이다.
 cyella_add_source_filter(cyella_test_files "platform/watching"
@@ -60,6 +69,7 @@ cyella_add_source_filter(cyella_test_files "platform/authentication"
 cyella_add_source_filter(cyella_test_files "support"
     askpass_test_support.h
     process_test_support.h
+    socket_compat.h
     temporary_directory_support.h)
 
 cyella_add_source_filter(cyella_test_files "application"
@@ -111,7 +121,9 @@ add_executable(cyella_test_child ${cyella_test_child_files})
 target_link_libraries(cyella_test_child
     PRIVATE
         cyella_project_options)
-cyella_disable_automatic_windows_manifest(cyella_test_child)
+if(CYELLA_PLATFORM STREQUAL "windows")
+    cyella_disable_automatic_windows_manifest(cyella_test_child)
+endif()
 
 # 검증용 가짜 GitHub·GitLab API 서버다 (127.0.0.1). 앱을 UI Automation으로 돌릴 때 실제 서비스 대신 붙는다. CTest에 등록하지 않는다.
 add_executable(cyella_fake_hosting_server tools/fake_hosting_server_main.cpp fake_hosting_api.h fake_hosting_server.h)
@@ -121,9 +133,11 @@ target_include_directories(cyella_fake_hosting_server
 target_link_libraries(cyella_fake_hosting_server
     PRIVATE
         cyella_project_options
-        nlohmann_json::nlohmann_json
-        ws2_32)
-cyella_disable_automatic_windows_manifest(cyella_fake_hosting_server)
+        nlohmann_json::nlohmann_json)
+if(CYELLA_PLATFORM STREQUAL "windows")
+    target_link_libraries(cyella_fake_hosting_server PRIVATE ws2_32)
+    cyella_disable_automatic_windows_manifest(cyella_fake_hosting_server)
+endif()
 
 # domain: 값 타입과 규칙의 test다. git이 필요 없다.
 cyella_add_source_filter(cyella_test_files "application/diff_view"
@@ -243,9 +257,11 @@ target_compile_definitions(cyella_tests
 target_link_libraries(cyella_tests
     PRIVATE
         cyella_lib
-        ws2_32
         Catch2::Catch2WithMain)
-cyella_disable_automatic_windows_manifest(cyella_tests)
+if(CYELLA_PLATFORM STREQUAL "windows")
+    target_link_libraries(cyella_tests PRIVATE ws2_32)
+    cyella_disable_automatic_windows_manifest(cyella_tests)
+endif()
 
 # hang 유형의 회귀가 CI에서 무기한 대기 대신 실패로 드러나도록 모든 Catch2 test에
 # timeout을 부여한다.
@@ -253,8 +269,10 @@ cyella_disable_automatic_windows_manifest(cyella_tests)
 # 직접 부른다:  cyella_tests.exe "[perf]"
 catch_discover_tests(cyella_tests TEST_SPEC "~[perf]" PROPERTIES TIMEOUT 120)
 
-# 수동 점검 프로그램(CTest에 등록하지 않는다).
-add_subdirectory(manual)
+# 수동 점검 프로그램(CTest에 등록하지 않는다). WebView2와 Win32 진입점을 쓰므로 Windows에만 있다.
+if(CYELLA_PLATFORM STREQUAL "windows")
+    add_subdirectory(manual)
+endif()
 
 # diff 뷰어의 순수 JS(단어 단위 차이, 줄별 구문 강조 조립, 행 계산)를 node로 시험한다. node가 없으면
 # 등록하지 않는다. 브라우저·DOM이 필요한 부분은 수동 점검 틀(tests/manual/diff_viewer_harness)이 맡는다.
@@ -265,26 +283,28 @@ if(CYELLA_NODE_EXECUTABLE)
     set_tests_properties(cyella_diff_viewer_js PROPERTIES TIMEOUT 120)
 endif()
 
-add_test(NAME cyella_source_style
-    COMMAND "${CMAKE_COMMAND}"
-        "-DPOWERSHELL_EXECUTABLE=${CYELLA_POWERSHELL_EXECUTABLE}"
-        "-DROOT_DIRECTORY=${PROJECT_SOURCE_DIR}"
-        -P "${CYELLA_SOURCE_STYLE_CMAKE_SCRIPT}")
+if(CYELLA_POWERSHELL_EXECUTABLE)
+    add_test(NAME cyella_source_style
+        COMMAND "${CMAKE_COMMAND}"
+            "-DPOWERSHELL_EXECUTABLE=${CYELLA_POWERSHELL_EXECUTABLE}"
+            "-DROOT_DIRECTORY=${PROJECT_SOURCE_DIR}"
+            -P "${CYELLA_SOURCE_STYLE_CMAKE_SCRIPT}")
 
-# 검사기 자신의 시험이다 (cmake/run_style_check_samples.cmake). 임시 폴더의 표본으로 위반을 잡고
-# 멀쩡한 소스를 받아들이는지 본다.
-add_test(NAME cyella_source_style_samples
-    COMMAND "${CMAKE_COMMAND}"
-        "-DPOWERSHELL_EXECUTABLE=${CYELLA_POWERSHELL_EXECUTABLE}"
-        "-DROOT_DIRECTORY=${PROJECT_SOURCE_DIR}"
-        -P "${CYELLA_CMAKE_DIRECTORY}/run_style_check_samples.cmake")
-set_tests_properties(cyella_source_style_samples PROPERTIES TIMEOUT 120)
+    # 검사기 자신의 시험이다 (cmake/run_style_check_samples.cmake). 임시 폴더의 표본으로 위반을 잡고
+    # 멀쩡한 소스를 받아들이는지 본다.
+    add_test(NAME cyella_source_style_samples
+        COMMAND "${CMAKE_COMMAND}"
+            "-DPOWERSHELL_EXECUTABLE=${CYELLA_POWERSHELL_EXECUTABLE}"
+            "-DROOT_DIRECTORY=${PROJECT_SOURCE_DIR}"
+            -P "${CYELLA_CMAKE_DIRECTORY}/run_style_check_samples.cmake")
+    set_tests_properties(cyella_source_style_samples PROPERTIES TIMEOUT 120)
+endif()
 
 # PowerShell 7(pwsh)이 있는 PC에서는 위 시험이 Windows PowerShell 5.1을 덮지 못한다. 5.1은
 # .NET Framework라 .NET Core에만 있는 메서드를 부르면 서식과 무관하게 검사가 멈춘다. 캐시에
 # 남은 경로가 낡을 수 있어 configure마다 새로 찾는다.
 find_program(CYELLA_WINDOWS_POWERSHELL_EXECUTABLE NAMES powershell NO_CACHE)
-if(CYELLA_WINDOWS_POWERSHELL_EXECUTABLE
+if(CYELLA_PLATFORM STREQUAL "windows" AND CYELLA_WINDOWS_POWERSHELL_EXECUTABLE
     AND NOT CYELLA_WINDOWS_POWERSHELL_EXECUTABLE STREQUAL CYELLA_POWERSHELL_EXECUTABLE)
     add_test(NAME cyella_source_style_samples_windows_powershell
         COMMAND "${CMAKE_COMMAND}"

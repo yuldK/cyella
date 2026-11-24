@@ -1,3 +1,4 @@
+#include "native_path_support.h"
 #include "presentation/start_page_view.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -5,6 +6,8 @@
 #include <set>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -25,11 +28,11 @@ namespace {
     {
         app_settings settings {};
         // 설정 목록 순서: 고정 둘, 그다음 비고정.
-        settings.recent_repositories.push_back({ u8"C:\\work\\pin-b", u8"pin-b", u8"2026-10-01T00:00:00Z", true });
-        settings.recent_repositories.push_back({ u8"C:\\work\\pin-a", u8"pin-a", u8"2026-10-05T00:00:00Z", true });
-        settings.recent_repositories.push_back({ u8"C:\\work\\old", u8"old", u8"2026-10-02T00:00:00Z", false });
-        settings.recent_repositories.push_back({ u8"D:\\Projects\\Newest", u8"Newest", u8"2026-10-20T00:00:00Z", false });
-        settings.recent_repositories.push_back({ u8"C:\\work\\한글 저장소", u8"한글 저장소", u8"2026-10-10T00:00:00Z", false });
+        settings.recent_repositories.push_back({ native_path(u8"C:\\work\\pin-b"), u8"pin-b", u8"2026-10-01T00:00:00Z", true });
+        settings.recent_repositories.push_back({ native_path(u8"C:\\work\\pin-a"), u8"pin-a", u8"2026-10-05T00:00:00Z", true });
+        settings.recent_repositories.push_back({ native_path(u8"C:\\work\\old"), u8"old", u8"2026-10-02T00:00:00Z", false });
+        settings.recent_repositories.push_back({ native_path(u8"D:\\Projects\\Newest"), u8"Newest", u8"2026-10-20T00:00:00Z", false });
+        settings.recent_repositories.push_back({ native_path(u8"C:\\work\\한글 저장소"), u8"한글 저장소", u8"2026-10-10T00:00:00Z", false });
         return settings;
     }
 } // namespace
@@ -49,9 +52,9 @@ TEST_CASE("start page lists pinned first then recent by opened time", "[start_pa
 TEST_CASE("equal or missing timestamps keep the settings order", "[start_page]")
 {
     app_settings settings {};
-    settings.recent_repositories.push_back({ u8"C:\\a", u8"a", u8"", false });
-    settings.recent_repositories.push_back({ u8"C:\\b", u8"b", u8"", false });
-    settings.recent_repositories.push_back({ u8"C:\\c", u8"c", u8"2026-10-20T00:00:00Z", false });
+    settings.recent_repositories.push_back({ native_path(u8"C:\\a"), u8"a", u8"", false });
+    settings.recent_repositories.push_back({ native_path(u8"C:\\b"), u8"b", u8"", false });
+    settings.recent_repositories.push_back({ native_path(u8"C:\\c"), u8"c", u8"2026-10-20T00:00:00Z", false });
 
     CHECK(names_of(build_start_page_view(settings, everything_exists)) == name_list { u8"c", u8"a", u8"b" });
 }
@@ -62,22 +65,22 @@ TEST_CASE("items carry name parent folder and full path", "[start_page]")
 
     const start_page_item& newest { view.items[2] };
     CHECK(newest.display_name == u8"Newest");
-    CHECK(newest.parent_folder == u8"D:\\Projects");
-    CHECK(newest.path == u8"D:\\Projects\\Newest");
+    CHECK(newest.parent_folder == native_path(u8"D:\\Projects"));
+    CHECK(newest.path == native_path(u8"D:\\Projects\\Newest"));
     CHECK(newest.opened_at == u8"2026-10-20T00:00:00Z");
-    CHECK(view.items[3].parent_folder == u8"C:\\work");
+    CHECK(view.items[3].parent_folder == native_path(u8"C:\\work"));
 }
 
 TEST_CASE("a missing display name is derived from the path", "[start_page]")
 {
     app_settings settings {};
-    settings.recent_repositories.push_back({ u8"C:\\work\\derived", u8"", u8"", false });
+    settings.recent_repositories.push_back({ native_path(u8"C:\\work\\derived"), u8"", u8"", false });
     CHECK(build_start_page_view(settings, everything_exists).items[0].display_name == u8"derived");
 }
 
 TEST_CASE("missing paths are marked unavailable through the injected check", "[start_page]")
 {
-    const std::set<std::u8string> present { u8"C:\\work\\pin-a", u8"D:\\Projects\\Newest" };
+    const std::set<std::u8string> present { native_path(u8"C:\\work\\pin-a"), native_path(u8"D:\\Projects\\Newest") };
     const start_page_view view { build_start_page_view(sample_settings(), [&present](const std::u8string_view path) { return present.contains(std::u8string { path }); }) };
 
     for (const start_page_item& item : view.items)
@@ -107,7 +110,7 @@ TEST_CASE("the existence check runs only for items that survive the filter", "[s
     };
 
     CHECK(names_of(view) == name_list { u8"Newest" });
-    CHECK(asked == name_list { u8"D:\\Projects\\Newest" });
+    CHECK(asked == name_list { native_path(u8"D:\\Projects\\Newest") });
     CHECK(view.total_count == 5);
 }
 
@@ -118,9 +121,9 @@ TEST_CASE("search matches name or path ignoring ASCII case", "[start_page]")
     CHECK(names_of(build_start_page_view(settings, everything_exists, u8"PIN")) == name_list { u8"pin-b", u8"pin-a" });
     // 경로의 폴더 부분으로도 찾는다.
     CHECK(names_of(build_start_page_view(settings, everything_exists, u8"projects")) == name_list { u8"Newest" });
-    CHECK(names_of(build_start_page_view(settings, everything_exists, u8"c:\\WORK\\ol")) == name_list { u8"old" });
+    CHECK(names_of(build_start_page_view(settings, everything_exists, native_path(u8"c:\\WORK\\ol"))) == name_list { u8"old" });
     // 슬래시로 쳐도 경로의 역슬래시와 맞는다.
-    CHECK(names_of(build_start_page_view(settings, everything_exists, u8"c:/work/old")) == name_list { u8"old" });
+    CHECK(names_of(build_start_page_view(settings, everything_exists, native_path(u8"c:/work/old"))) == name_list { u8"old" });
     CHECK(build_start_page_view(settings, everything_exists, u8"zzz").items.empty());
 }
 
@@ -130,8 +133,8 @@ TEST_CASE("search text with slashes matches ref names and slash paths", "[start_
     CHECK(matches_search_text(u8"origin/main", u8"origin/ma"));
     CHECK(matches_search_text(u8"feature/x", u8"feature/"));
     CHECK(matches_search_text(u8"Origin/Main", u8"origin/ma"));
-    CHECK(matches_search_text(u8"C:/work/wt1", u8"work/wt"));
-    CHECK(matches_search_text(u8"C:/work/wt1", u8"WORK\\wt"));
+    CHECK(matches_search_text(native_path(u8"C:/work/wt1"), u8"work/wt"));
+    CHECK(matches_search_text(native_path(u8"C:/work/wt1"), u8"WORK\\wt"));
     CHECK_FALSE(matches_search_text(u8"origin/main", u8"origin/dev"));
     CHECK_FALSE(matches_search_text(u8"originmain", u8"origin/ma"));
 }

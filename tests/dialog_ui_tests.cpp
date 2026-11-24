@@ -1,6 +1,7 @@
 // 대화 상자·메뉴·라벨 칩·충돌 화면의 luil tree다. snapshot에서 배치까지 지은 tree를 읽어, 눌림·끌기·놓기가 element에 서 있는지와
 // 자리가 겹치지 않는지와 탭의 삽입 방향 강조를 검증한다.
 #include "domain/text_catalog.h"
+#include "native_path_support.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/commands/command_registry.h"
 #include "presentation/dialog_intents.h"
@@ -41,6 +42,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][refs]")
 {
@@ -89,7 +92,7 @@ TEST_CASE("overflow refs expose the visible branch and every hidden ref", "[ui][
     CHECK(regions_at(4.0f, 40.0f).empty());
 
     test::snapshot::snapshot_harness harness {};
-    const auto tab { harness.open(u8"C:/work/repo", "repo-1") };
+    const auto tab { harness.open(native_path(u8"C:/work/repo"), "repo-1") };
     test::snapshot::load(*harness.sessions["repo-1"], test::snapshot::linear_history(1), 0);
     view_snapshot view { harness.build() };
     auto map { std::make_shared<ref_label_map>() };
@@ -292,7 +295,7 @@ namespace {
     {
         overflow_fixture()
         {
-            static_cast<void>(harness.open(u8"C:/work/repo", "repo-1"));
+            static_cast<void>(harness.open(native_path(u8"C:/work/repo"), "repo-1"));
             cyella::test::snapshot::load(*harness.sessions["repo-1"], cyella::test::snapshot::linear_history(3), 0);
             auto map { std::make_shared<cyella::ref_label_map>() };
             for (const std::string& sha : { first, second })
@@ -693,7 +696,7 @@ namespace {
     {
         tree_fixture()
         {
-            tab = harness.open(u8"C:\\work\\repo", "repo-1");
+            tab = harness.open(native_path(u8"C:\\work\\repo"), "repo-1");
             load(*harness.sessions["repo-1"], linear_history(6), 0);
         }
 
@@ -1182,7 +1185,7 @@ TEST_CASE("a graph row accepts a branch drop as a commit target and the hint ove
 TEST_CASE("the WIP row has no menu and refuses drops", "[presentation][ui][drag]")
 {
     snapshot_harness harness {};
-    harness.open(u8"C:\\work\\repo", "repo-1");
+    harness.open(native_path(u8"C:\\work\\repo"), "repo-1");
     load(*harness.sessions["repo-1"], linear_history(4), 3);
     const view_snapshot view { harness.build() };
     const cyella::ui::built_tree built { cyella::ui::build_ui_tree(view) };
@@ -1657,8 +1660,8 @@ TEST_CASE("tab status goes to the chosen spot and the repository icon stays", "[
 TEST_CASE("the all-tabs list checks the current tab and selects the chosen one", "[presentation][menu][tabs]")
 {
     repository_tabs tabs {};
-    const repository_tab_id first { tabs.open_repository(u8"C:\\work\\one").id };
-    const repository_tab_id second { tabs.open_repository(u8"C:\\work\\two").id };
+    const repository_tab_id first { tabs.open_repository(native_path(u8"C:\\work\\one")).id };
+    const repository_tab_id second { tabs.open_repository(native_path(u8"C:\\work\\two")).id };
     const menu_model model { build_tab_list_menu(tabs, second) };
     CHECK(model.title == tr(u8"menu.all_tabs"));
     REQUIRE(model.entries.size() == tabs.tabs().size());

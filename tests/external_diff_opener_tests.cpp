@@ -1,11 +1,14 @@
 #include "application/diff_sides.h"
 #include "application/external_diff_opener.h"
+#include "native_path_support.h"
 #include "temporary_directory_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -60,15 +63,15 @@ namespace {
     {
         extracted_sides sides {};
         sides.ok = true;
-        sides.left = { true, u8"C:\\Temp\\op\\left\\a b.psd", 10 };
-        sides.right = { true, u8"C:\\Temp\\op\\right\\a b.psd", 20 };
+        sides.left = { true, native_path(u8"C:\\Temp\\op\\left\\a b.psd"), 10 };
+        sides.right = { true, native_path(u8"C:\\Temp\\op\\right\\a b.psd"), 20 };
         return sides;
     }
 
     diff_side_plan plan_for(const std::string& path, const diff_view view = diff_view::unstaged)
     {
         diff_side_plan plan {};
-        plan.repository_path = u8"C:\\repo";
+        plan.repository_path = native_path(u8"C:\\repo");
         plan.view = view;
         plan.sha = "abc123";
         plan.old_path = path;
@@ -103,8 +106,8 @@ TEST_CASE("file apps open the selected version without running a shell", "[diff]
             request.plan.view = view;
             REQUIRE(opener.open(request).launched());
             REQUIRE(launcher.requests.back().arguments.size() == 4);
-            CHECK(launcher.requests.back().arguments[0] == u8"--file=C:\\Temp\\op\\right\\a b.psd");
-            CHECK(launcher.requests.back().arguments[2] == u8"C:\\repo");
+            CHECK(launcher.requests.back().arguments[0] == u8"--file=" + native_path(u8"C:\\Temp\\op\\right\\a b.psd"));
+            CHECK(launcher.requests.back().arguments[2] == native_path(u8"C:\\repo"));
             CHECK(gateway.extractions.back().view == view);
         }
     }
@@ -114,7 +117,7 @@ TEST_CASE("file apps open the selected version without running a shell", "[diff]
         request.plan.new_path.clear();
         gateway.result.right = {};
         REQUIRE(opener.open(request).launched());
-        CHECK(launcher.requests[0].arguments[0] == u8"--file=C:\\Temp\\op\\left\\a b.psd");
+        CHECK(launcher.requests[0].arguments[0] == u8"--file=" + native_path(u8"C:\\Temp\\op\\left\\a b.psd"));
     }
     SECTION("worktree and untracked files open the actual file")
     {
@@ -149,7 +152,7 @@ TEST_CASE("file apps open the selected version without running a shell", "[diff]
         gateway.result.ok = false;
         REQUIRE(opener.open(request).launched());
         CHECK(gateway.extractions.empty());
-        CHECK(launcher.requests[0].arguments == std::vector<std::u8string> { u8"C:\\repo" });
+        CHECK(launcher.requests[0].arguments == std::vector<std::u8string> { native_path(u8"C:\\repo") });
     }
     SECTION("a worktree directory such as a submodule can be passed to an editor")
     {
@@ -261,22 +264,22 @@ TEST_CASE("a tool from the extension table gets the two extracted files", "[diff
 
     external_open_request request {};
     request.plan = plan_for("art/a b.psd");
-    request.git_executable = u8"C:\\git\\git.exe";
+    request.git_executable = native_path(u8"C:\\git\\git.exe");
     request.tools.push_back(tool(u8".txt", u8"notepad", u8"{left}"));
-    request.tools.push_back(tool(u8".psd", u8"C:\\Tools\\diff.exe", u8"--base {base} \"{left}\" \"{right}\" --title {path}"));
+    request.tools.push_back(tool(u8".psd", native_path(u8"C:\\Tools\\diff.exe"), u8"--base {base} \"{left}\" \"{right}\" --title {path}"));
 
     const external_open_result result { opener.open(request) };
     CHECK(result.status == external_open_status::launched_tool);
     CHECK(result.launched());
-    CHECK(result.tool == u8"C:\\Tools\\diff.exe");
+    CHECK(result.tool == native_path(u8"C:\\Tools\\diff.exe"));
     REQUIRE(gateway.extractions.size() == 1);
     CHECK(gateway.last_write_files);
     REQUIRE(launcher.requests.size() == 1);
     const tool_launch_request& launched { launcher.requests.front() };
-    CHECK(launched.executable == u8"C:\\Tools\\diff.exe");
-    CHECK(launched.working_directory == u8"C:\\repo");
+    CHECK(launched.executable == native_path(u8"C:\\Tools\\diff.exe"));
+    CHECK(launched.working_directory == native_path(u8"C:\\repo"));
     // {base}는 값이 없어 인자째 빠지고, 공백이 든 경로는 한 인자로 남는다.
-    const std::vector<std::u8string> expected { u8"--base", u8"C:\\Temp\\op\\left\\a b.psd", u8"C:\\Temp\\op\\right\\a b.psd", u8"--title", u8"art/a b.psd" };
+    const std::vector<std::u8string> expected { u8"--base", native_path(u8"C:\\Temp\\op\\left\\a b.psd"), native_path(u8"C:\\Temp\\op\\right\\a b.psd"), u8"--title", u8"art/a b.psd" };
     CHECK(launched.arguments == expected);
 }
 
@@ -290,7 +293,7 @@ TEST_CASE("the table wins over diff.tool", "[diff][external]")
 
     external_open_request request {};
     request.plan = plan_for("a.psd");
-    request.git_executable = u8"C:\\git\\git.exe";
+    request.git_executable = native_path(u8"C:\\git\\git.exe");
     request.tools.push_back(tool(u8".psd", u8"viewer", u8"{left} {right}"));
     CHECK(opener.open(request).status == external_open_status::launched_tool);
     CHECK(gateway.asked_repositories.empty());
@@ -305,7 +308,7 @@ TEST_CASE("without a table entry diff.tool is handed to git difftool", "[diff][e
 
     external_open_request request {};
     request.plan = plan_for("bin/data.bin");
-    request.git_executable = u8"C:\\git\\git.exe";
+    request.git_executable = native_path(u8"C:\\git\\git.exe");
     request.tools.push_back(tool(u8".psd", u8"viewer", u8"{left} {right}"));
 
     SECTION("unstaged")
@@ -313,8 +316,8 @@ TEST_CASE("without a table entry diff.tool is handed to git difftool", "[diff][e
         const external_open_result result { opener.open(request) };
         CHECK(result.status == external_open_status::launched_difftool);
         REQUIRE(launcher.requests.size() == 1);
-        CHECK(launcher.requests.front().executable == u8"C:\\git\\git.exe");
-        CHECK(launcher.requests.front().working_directory == u8"C:\\repo");
+        CHECK(launcher.requests.front().executable == native_path(u8"C:\\git\\git.exe"));
+        CHECK(launcher.requests.front().working_directory == native_path(u8"C:\\repo"));
         const std::vector<std::u8string> expected { u8"--literal-pathspecs", u8"difftool", u8"--no-prompt", u8"--", u8"bin/data.bin" };
         CHECK(launcher.requests.front().arguments == expected);
         // 두 쪽을 따로 꺼내지 않는다. git이 한다.
@@ -399,7 +402,7 @@ TEST_CASE("no tool at all is reported, not guessed", "[diff][external]")
 
     external_open_request request {};
     request.plan = plan_for("bin/data.bin");
-    request.git_executable = u8"C:\\git\\git.exe";
+    request.git_executable = native_path(u8"C:\\git\\git.exe");
 
     SECTION("neither table nor diff.tool")
     {
@@ -434,7 +437,7 @@ TEST_CASE("failures are reported without launching", "[diff][external]")
 
     external_open_request request {};
     request.plan = plan_for("a.psd");
-    request.git_executable = u8"C:\\git\\git.exe";
+    request.git_executable = native_path(u8"C:\\git\\git.exe");
     request.tools.push_back(tool(u8".psd", u8"viewer", u8"{left} {right}"));
 
     SECTION("extraction failed")
@@ -479,7 +482,7 @@ TEST_CASE("a folder opens in an app without extracting any file", "[diff][extern
     fake_launcher launcher {};
     external_diff_opener opener { gateway, launcher };
     external_open_request request {};
-    request.folder = u8"C:\\work\\한글 저장소";
+    request.folder = native_path(u8"C:\\work\\한글 저장소");
 
     SECTION("{repository} and {file} are both the folder and it is the working directory")
     {
@@ -489,8 +492,8 @@ TEST_CASE("a folder opens in an app without extracting any file", "[diff][extern
         CHECK(result.tool == u8"Editor");
         REQUIRE(launcher.requests.size() == 1);
         CHECK(launcher.requests[0].executable == u8"editor.exe");
-        CHECK(launcher.requests[0].arguments == std::vector<std::u8string> { u8"--root", u8"C:\\work\\한글 저장소", u8"C:\\work\\한글 저장소" });
-        CHECK(launcher.requests[0].working_directory == u8"C:\\work\\한글 저장소");
+        CHECK(launcher.requests[0].arguments == std::vector<std::u8string> { u8"--root", native_path(u8"C:\\work\\한글 저장소"), native_path(u8"C:\\work\\한글 저장소") });
+        CHECK(launcher.requests[0].working_directory == native_path(u8"C:\\work\\한글 저장소"));
         CHECK(gateway.extractions.empty());
     }
     SECTION("invalid templates and launch failures are reported")

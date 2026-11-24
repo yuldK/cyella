@@ -2,8 +2,7 @@
 
 // 시험용 작은 HTTP 서버다. 127.0.0.1의 임시 포트에서 요청을 받아 핸들러가 정한 응답을 돌려준다. 실제 github.com·gitlab.com에는 절대 닿지
 // 않게, 호스팅 연동 시험은 이 서버만 API 주소로 쓴다. 요청마다 연결을 닫는다(`Connection: close`).
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include "socket_compat.h"
 
 #include <atomic>
 #include <cctype>
@@ -78,8 +77,7 @@ namespace cyella::test {
         explicit fake_http_server(handler on_request, const std::uint16_t requested_port = 0)
             : handler_ { std::move(on_request) }
         {
-            WSADATA data {};
-            if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
+            if (start_sockets() == false)
                 throw std::runtime_error { "WSAStartup failed" };
             listener_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
             if (listener_ == INVALID_SOCKET)
@@ -90,7 +88,7 @@ namespace cyella::test {
             inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
             if (bind(listener_, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0 || listen(listener_, 16) != 0)
                 throw std::runtime_error { "bind/listen failed" };
-            int length { sizeof(address) };
+            socket_length length { sizeof(address) };
             getsockname(listener_, reinterpret_cast<sockaddr*>(&address), &length);
             port_ = ntohs(address.sin_port);
             thread_ = std::thread { [this] { serve(); } };
@@ -107,7 +105,7 @@ namespace cyella::test {
             while (active_.load() > 0)
                 std::this_thread::sleep_for(std::chrono::milliseconds { 5 });
             closesocket(listener_);
-            WSACleanup();
+            stop_sockets();
         }
 
         [[nodiscard]] std::uint16_t port() const noexcept
@@ -129,7 +127,7 @@ namespace cyella::test {
                 FD_ZERO(&readable);
                 FD_SET(listener_, &readable);
                 timeval wait { 0, 50 * 1000 };
-                if (select(0, &readable, nullptr, nullptr, &wait) <= 0)
+                if (select(select_width(listener_), &readable, nullptr, nullptr, &wait) <= 0)
                     continue;
                 const SOCKET connection { accept(listener_, nullptr, nullptr) };
                 if (connection == INVALID_SOCKET)
@@ -157,14 +155,13 @@ namespace cyella::test {
 
         void answer(const SOCKET connection)
         {
-            const DWORD receive_timeout { 3000 };
-            setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&receive_timeout), sizeof(receive_timeout));
+            set_receive_timeout(connection, 3000);
             std::string received {};
             char buffer[4096] {};
             std::size_t head_end { std::string::npos };
             while ((head_end = received.find("\r\n\r\n")) == std::string::npos)
             {
-                const int count { recv(connection, buffer, sizeof(buffer), 0) };
+                const int count { static_cast<int>(recv(connection, buffer, sizeof(buffer), 0)) };
                 if (count <= 0 || received.size() > 256 * 1024)
                     return;
                 received.append(buffer, static_cast<std::size_t>(count));
@@ -195,7 +192,7 @@ namespace cyella::test {
             request.body = received.substr(head_end + 4);
             while (request.body.size() < expected)
             {
-                const int count { recv(connection, buffer, sizeof(buffer), 0) };
+                const int count { static_cast<int>(recv(connection, buffer, sizeof(buffer), 0)) };
                 if (count <= 0)
                     return;
                 request.body.append(buffer, static_cast<std::size_t>(count));
@@ -210,7 +207,7 @@ namespace cyella::test {
             std::size_t sent { 0 };
             while (sent < text.size())
             {
-                const int count { send(connection, text.data() + sent, static_cast<int>(text.size() - sent), 0) };
+                const int count { static_cast<int>(send(connection, text.data() + sent, static_cast<int>(text.size() - sent), 0)) };
                 if (count <= 0)
                     break;
                 sent += static_cast<std::size_t>(count);

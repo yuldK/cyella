@@ -2,6 +2,7 @@
 // 가짜가 부른 횟수를 센다. git 설정은 어디에서도 읽거나 쓰지 않는다.
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/build_view_snapshot.h"
 #include "presentation/commands/command_intents.h"
 #include "presentation/graph_geometry.h"
@@ -29,6 +30,8 @@
 #include <utility>
 #include <vector>
 
+using cyella::test::native_path;
+
 namespace {
     using namespace cyella;
     namespace snap = cyella::test::snapshot;
@@ -54,12 +57,12 @@ namespace {
     {
         // 커밋까지 가는 test는 `changed`를 주어 staged 파일을 싣는다. 단추처럼 staged가 없으면 커밋 명령이 서지 않기 때문이다.
         explicit p6_harness(const bool with_identity = true, const std::uint32_t changed = 0)
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , controller { make_dependencies(with_identity) }
         {
             controller.start({});
-            controller.open_repository(u8"C:\\work\\repo");
+            controller.open_repository(native_path(u8"C:\\work\\repo"));
             repository = controller.selected_repository_id();
             repository_session* const session { workspace.find_session(repository) };
             REQUIRE(session != nullptr);
@@ -155,8 +158,8 @@ namespace {
         void identity_is(const std::u8string& name, const std::u8string& email, const identity_origin origin = identity_origin::global)
         {
             git_identity identity {};
-            identity.name = identity_value { name, origin, u8"C:/Users/me/.gitconfig" };
-            identity.email = identity_value { email, origin, u8"C:/Users/me/.gitconfig" };
+            identity.name = identity_value { name, origin, native_path(u8"C:/Users/me/.gitconfig") };
+            identity.email = identity_value { email, origin, native_path(u8"C:/Users/me/.gitconfig") };
             send(identity_loaded_intent { .repository_id = repository, .identity = identity, .ok = true, .error = {} });
         }
 
@@ -384,7 +387,7 @@ TEST_CASE("repository mode lists the open tabs and recent repositories", "[palet
 {
     p6_harness test {};
     test.send(new_tab_intent {});
-    test.controller.open_repository(u8"C:\\work\\other");
+    test.controller.open_repository(native_path(u8"C:\\work\\other"));
     REQUIRE(test.controller.tabs().tabs().size() == 2);
     test.send(run_command_intent { "repo.open" });
     CHECK(test.controller.state().palette->mode == palette_mode::repositories);
@@ -399,7 +402,7 @@ TEST_CASE("repository mode lists the open tabs and recent repositories", "[palet
     REQUIRE_FALSE(tab_key.empty());
     test.send(palette_pick_intent { tab_key });
     CHECK_FALSE(test.controller.state().palette.has_value());
-    CHECK(test.controller.tabs().selected().path == u8"C:\\work\\repo");
+    CHECK(test.controller.tabs().selected().path == native_path(u8"C:\\work\\repo"));
 }
 
 TEST_CASE("the selected commit's menu entries are commands and picking one runs the menu action", "[palette][controller]")
@@ -426,7 +429,7 @@ TEST_CASE("registry commands run the same actions as the buttons", "[commands][c
     test.send(run_command_intent { "tab.new" });
     CHECK(test.controller.tabs().tabs().size() == 2);
     test.send(run_command_intent { "tab.previous" });
-    CHECK(test.controller.tabs().selected().path == u8"C:\\work\\repo");
+    CHECK(test.controller.tabs().selected().path == native_path(u8"C:\\work\\repo"));
     test.send(run_command_intent { "app.settings.shortcuts" });
     REQUIRE(test.controller.settings_screen().is_open());
     CHECK(test.controller.settings_screen().state()->page == settings_page::shortcuts);
@@ -726,7 +729,7 @@ TEST_CASE("profiles are added, edited and removed through the settings page", "[
     test.send(save_profile_intent {});
     CHECK(test.controller.settings().profiles[0].user_name == u8"길동");
 
-    test.add_rule(u8"C:\\work", u8"회사");
+    test.add_rule(native_path(u8"C:\\work"), u8"회사");
     REQUIRE(test.controller.settings().profile_rules.size() == 1);
     CHECK(test.controller.settings().profile_rules[0].profile == u8"회사");
     test.send(remove_profile_rule_intent { 0 });
@@ -740,7 +743,7 @@ TEST_CASE("the selected repository's identity is requested once and shown with i
     p6_harness test {};
     REQUIRE(test.reads.size() == 1);
     CHECK(test.reads[0].repository_id == test.repository);
-    CHECK(test.reads[0].path == u8"C:\\work\\repo");
+    CHECK(test.reads[0].path == native_path(u8"C:\\work\\repo"));
     // 결과가 오기 전에 또 청하지 않는다.
     test.send(open_palette_intent {});
     test.send(close_palette_intent {});
@@ -794,7 +797,7 @@ TEST_CASE("a matching rule only proposes a profile; nothing is written until it 
 {
     p6_harness test {};
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-    test.add_rule(u8"C:\\work", u8"회사");
+    test.add_rule(native_path(u8"C:\\work"), u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
 
@@ -823,7 +826,7 @@ TEST_CASE("a matching rule only proposes a profile; nothing is written until it 
     test.send(notification_action_intent { u8"apply_profile:회사", 0 });
     REQUIRE(test.writes.size() == 1);
     CHECK(test.writes[0].repository_id == test.repository);
-    CHECK(test.writes[0].path == u8"C:\\work\\repo");
+    CHECK(test.writes[0].path == native_path(u8"C:\\work\\repo"));
     CHECK(test.writes[0].user_name == u8"홍길동");
     CHECK(test.writes[0].user_email == u8"hong@corp.example");
     // worker가 성공을 알리면 적용 기록이 남고 신원을 다시 읽는다.
@@ -850,7 +853,7 @@ TEST_CASE("no proposal when the identity already matches the rule's profile or a
     {
         p6_harness test {};
         test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-        test.add_rule(u8"C:\\work", u8"회사");
+        test.add_rule(native_path(u8"C:\\work"), u8"회사");
         test.send(close_settings_intent {});
         test.identity_is(u8"홍길동", u8"hong@corp.example", identity_origin::local);
         CHECK_FALSE(proposed(test.controller.state()));
@@ -860,7 +863,7 @@ TEST_CASE("no proposal when the identity already matches the rule's profile or a
         p6_harness test {};
         test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
         test.add_profile(u8"개인", u8"길동", u8"me@example.com");
-        test.add_rule(u8"C:\\work", u8"회사");
+        test.add_rule(native_path(u8"C:\\work"), u8"회사");
         test.send(close_settings_intent {});
         test.send(apply_profile_intent { u8"개인" });
         test.send(identity_applied_intent { .repository_id = test.repository, .ok = true, .message = {} });
@@ -874,7 +877,7 @@ TEST_CASE("the first commit warns when the identity is missing or differs from t
 {
     p6_harness test { true, 2 };
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-    test.add_rule(u8"C:\\work", u8"회사");
+    test.add_rule(native_path(u8"C:\\work"), u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
     test.send(dismiss_notification_intent {});
@@ -900,7 +903,7 @@ TEST_CASE("the warning's apply-and-commit applies the profile first and commits 
 {
     p6_harness test { true, 2 };
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-    test.add_rule(u8"C:\\work", u8"회사");
+    test.add_rule(native_path(u8"C:\\work"), u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
     test.send(dismiss_notification_intent {});
@@ -987,6 +990,8 @@ TEST_CASE("applying with no repository or no worker says why", "[profiles][contr
     }
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a profile's sign-in account is applied with the identity and the status line names it", "[profiles][controller]")
 {
     p6_harness test {};
@@ -1023,6 +1028,7 @@ TEST_CASE("a profile's sign-in account is applied with the identity and the stat
     REQUIRE(view.settings->profiles->profiles.size() == 1);
     CHECK(view.settings->profiles->profiles[0].applied);
 }
+#endif
 
 TEST_CASE("clearing local settings asks the worker to remove them and forgets the applied profile", "[profiles][controller]")
 {
@@ -1038,7 +1044,7 @@ TEST_CASE("clearing local settings asks the worker to remove them and forgets th
     test.send(clear_local_identity_intent {});
     REQUIRE(test.writes.size() == 2);
     CHECK(test.writes[1].clear);
-    CHECK(test.writes[1].path == u8"C:\\work\\repo");
+    CHECK(test.writes[1].path == native_path(u8"C:\\work\\repo"));
     // 실패하면 적용 기록을 그대로 두고 경고한다.
     test.send(identity_applied_intent { .repository_id = test.repository, .ok = false, .message = u8"locked", .cleared = true });
     CHECK(test.controller.settings().profile_assignments.size() == 1);
@@ -1109,9 +1115,9 @@ TEST_CASE("closing the tab forgets the identity and a pending apply-and-commit o
 
     // 저장소 id가 경로 기반이라 닫았다 다시 열어도 같다. 다른 탭을 하나 두고 이 탭만 닫는다.
     const repository_tab_id first { test.controller.tabs().selected().id };
-    test.controller.open_repository(u8"C:\\work\\other");
+    test.controller.open_repository(native_path(u8"C:\\work\\other"));
     test.send(close_tab_intent { first });
-    test.controller.open_repository(u8"C:\\work\\repo");
+    test.controller.open_repository(native_path(u8"C:\\work\\repo"));
     REQUIRE(test.controller.selected_repository_id() == test.repository);
     repository_session* const session { test.workspace.find_session(test.repository) };
     REQUIRE(session != nullptr);
@@ -1132,7 +1138,7 @@ TEST_CASE("a failed apply reads the identity again and warns again before the ne
 {
     p6_harness test { true, 2 };
     test.add_profile(u8"회사", u8"홍길동", u8"hong@corp.example");
-    test.add_rule(u8"C:\\work", u8"회사");
+    test.add_rule(native_path(u8"C:\\work"), u8"회사");
     test.send(close_settings_intent {});
     test.identity_is(u8"Global Gal", u8"g@example.com");
     test.type(text_target::commit_subject, u8"작업 내용");
@@ -1173,6 +1179,8 @@ TEST_CASE("a value that lives only in the worktree config does not enable the lo
     CHECK(test.view().settings->profiles->can_clear_local);
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("a quoted key path or rule prefix is stored without its quotes", "[profiles][settings]")
 {
     p6_harness test {};
@@ -1195,6 +1203,7 @@ TEST_CASE("a quoted key path or rule prefix is stored without its quotes", "[pro
     REQUIRE(test.controller.settings().profile_rules.size() == 1);
     CHECK(test.controller.settings().profile_rules[0].path_prefix == u8"C:\\work");
 }
+#endif
 
 TEST_CASE("search keys: Ctrl+F opens, F3 steps, and Enter in the search box goes to the next or previous hit", "[commands][policy][search]")
 {

@@ -2,6 +2,7 @@
 #include "application/process_cancellation.h"
 #include "application/process_request.h"
 #include "infrastructure/process_output_pipeline.h"
+#include "native_path_support.h"
 #include "platform/win32/operation_result_relay.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -10,14 +11,16 @@
 #include <string>
 #include <vector>
 
+using cyella::test::native_path;
+
 using namespace cyella;
 
 namespace {
     process_request valid_request()
     {
         process_request request {};
-        request.executable = u8"C:/Git/cmd/git.exe";
-        request.working_directory = u8"C:/work";
+        request.executable = native_path(u8"C:/Git/cmd/git.exe");
+        request.working_directory = native_path(u8"C:/work");
         request.maximum_captured_bytes_per_stream = 1024;
         return request;
     }
@@ -98,10 +101,15 @@ TEST_CASE("process request validation rejects unusable values", "[request]")
     nul_argument.arguments.push_back(std::u8string { u8"a" } + std::u8string(1, u8'\0'));
     CHECK_FALSE(validate_process_request(nul_argument).empty());
 
+    // Windows의 환경 변수 이름은 대소문자를 가리지 않아 둘이 같은 변수다. POSIX에서는 다른 변수라 받아들인다.
     process_request duplicate_variable { valid_request() };
     duplicate_variable.environment_overrides.push_back({ u8"GIT_X", u8"1" });
     duplicate_variable.environment_overrides.push_back({ u8"git_x", u8"2" });
+#if defined(_WIN32)
     CHECK_FALSE(validate_process_request(duplicate_variable).empty());
+#else
+    CHECK(validate_process_request(duplicate_variable).empty());
+#endif
 
     process_request no_capture { valid_request() };
     no_capture.maximum_captured_bytes_per_stream = 0;

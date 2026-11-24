@@ -4,6 +4,7 @@
 #include "application/diff_view_controller.h"
 #include "application/git_workspace.h"
 #include "infrastructure/git_operation_runner.h"
+#include "native_path_support.h"
 #include "presentation/diff_special.h"
 #include "presentation/form_extension.h"
 #include "presentation/graph_geometry.h"
@@ -21,6 +22,8 @@
 #include <chrono>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 namespace {
     using namespace cyella;
@@ -61,11 +64,11 @@ namespace {
         repository_snapshot snapshot { snap::make_snapshot(snap::sha_of(4), 0) };
         snapshot.submodules = { make_submodule("libs/a", submodule_state::initialized, sha_old, sha_old), make_submodule("libs/b", submodule_state::uninitialized, sha_new, {}) };
         snapshot.worktrees
-            = { make_worktree("C:/work/repo", "main", true, true), make_worktree("C:/work/repo-feat", "feature/graph", false, false), make_worktree("C:/work/repo-old", "", false, false) };
+            = { make_worktree(native_path("C:/work/repo"), "main", true, true), make_worktree(native_path("C:/work/repo-feat"), "feature/graph", false, false), make_worktree(native_path("C:/work/repo-old"), "", false, false) };
         snapshot.worktrees[2].locked = true;
         snapshot.worktrees[2].lock_reason = "usb";
         snapshot.worktrees[2].prunable = true;
-        snapshot.refs[1].worktree_path = "C:/work/repo-feat";
+        snapshot.refs[1].worktree_path = native_path("C:/work/repo-feat");
         snapshot.lfs.in_use = true;
         snapshot.lfs.available = true;
         snapshot.lfs.installed = true;
@@ -120,12 +123,12 @@ namespace {
     struct harness
     {
         harness()
-            : runner { process, u8"C:/Git/cmd/git.exe", files, {} }
+            : runner { process, native_path(u8"C:/Git/cmd/git.exe"), files, {} }
             , workspace { runner, dispatcher.dispatcher(), events.sink(), nullptr, {} }
             , controller { make_dependencies(workspace) }
         {
             controller.start({});
-            controller.open_repository(u8"C:\\work\\repo");
+            controller.open_repository(native_path(u8"C:\\work\\repo"));
             repository = controller.selected_repository_id();
         }
 
@@ -241,7 +244,7 @@ TEST_CASE("the sidebar gains SUBMODULES, WORKTREES and GIT LFS sections with cou
     // 초기화하기 전에는 기록된 커밋을 보인다.
     CHECK(uninitialized->detail == u8"9b88958");
 
-    const sidebar_row_view* const main_tree { find_row(rows, u8"wt:C:/work/repo") };
+    const sidebar_row_view* const main_tree { find_row(rows, u8"wt:" + native_path(u8"C:/work/repo")) };
     REQUIRE(main_tree != nullptr);
     CHECK(main_tree->item == sidebar_item_kind::worktree);
     CHECK(main_tree->label == u8"repo");
@@ -249,7 +252,7 @@ TEST_CASE("the sidebar gains SUBMODULES, WORKTREES and GIT LFS sections with cou
     CHECK(main_tree->badge == u8"주 · 현재");
     CHECK(main_tree->worktree_main);
     CHECK(main_tree->worktree_current);
-    const sidebar_row_view* const stale { find_row(rows, u8"wt:C:/work/repo-old") };
+    const sidebar_row_view* const stale { find_row(rows, u8"wt:" + native_path(u8"C:/work/repo-old")) };
     REQUIRE(stale != nullptr);
     CHECK(stale->badge == u8"잠김 · 정리 가능");
     CHECK(stale->tone == badge_tone::danger);
@@ -269,10 +272,10 @@ TEST_CASE("the sidebar marks branches checked out in another worktree", "[presen
     const sidebar_rows rows { build_sidebar_rows(extension_snapshot(), {}, 0) };
     const sidebar_row_view* const branch { find_row(rows, u8"l:feature/graph") };
     REQUIRE(branch != nullptr);
-    CHECK(branch->worktree_path == "C:/work/repo-feat");
+    CHECK(branch->worktree_path == native_path("C:/work/repo-feat"));
     // 툴팁은 이름 아래로 한 줄씩 쌓는다. 경로는 문장에 끼우지 않고 제 줄에 둔다 (카드가 폭 안에서 접는다).
     CHECK(branch->tooltip.starts_with(u8"feature/graph\n"));
-    CHECK(branch->tooltip.ends_with(u8"\n다른 worktree에서 체크아웃됨\nC:/work/repo-feat"));
+    CHECK(branch->tooltip.ends_with(u8"\n다른 worktree에서 체크아웃됨\n" + native_path(u8"C:/work/repo-feat")));
     CHECK(find_row(rows, u8"l:main")->worktree_path.empty());
 }
 
@@ -301,13 +304,13 @@ TEST_CASE("collapsing and filtering apply to the new sections", "[presentation][
     CHECK(find_row(folded, u8"h:SUBMODULES")->collapsed);
     CHECK(find_row(folded, u8"h:SUBMODULES")->count == 2);
     CHECK(find_row(folded, u8"sm:libs/a") == nullptr);
-    CHECK(find_row(folded, u8"wt:C:/work/repo") != nullptr);
+    CHECK(find_row(folded, u8"wt:" + native_path(u8"C:/work/repo")) != nullptr);
 
     const sidebar_rows filtered { build_sidebar_rows(extension_snapshot(), u8"feat", 0) };
     CHECK(find_row(filtered, u8"sm:libs/a") == nullptr);
     CHECK(find_row(filtered, u8"h:SUBMODULES")->count == 0);
-    CHECK(find_row(filtered, u8"wt:C:/work/repo-feat") != nullptr);
-    CHECK(find_row(filtered, u8"wt:C:/work/repo") == nullptr);
+    CHECK(find_row(filtered, u8"wt:" + native_path(u8"C:/work/repo-feat")) != nullptr);
+    CHECK(find_row(filtered, u8"wt:" + native_path(u8"C:/work/repo")) == nullptr);
 }
 
 TEST_CASE("a large LFS list is capped with a remainder row", "[presentation][extension][sidebar]")
@@ -325,7 +328,7 @@ TEST_CASE("a large LFS list is capped with a remainder row", "[presentation][ext
 TEST_CASE("the view snapshot carries the new sections and the badges of file rows", "[presentation][extension][sidebar]")
 {
     snap::snapshot_harness harness {};
-    harness.open(u8"C:\\work\\repo", "repo");
+    harness.open(native_path(u8"C:\\work\\repo"), "repo");
     repository_session& session { *harness.sessions["repo"] };
     repository_snapshot snapshot { extension_snapshot() };
     file_change lfs_file {};
@@ -362,7 +365,7 @@ TEST_CASE("a graph label of a branch checked out elsewhere carries the worktree 
     REQUIRE(found != labels.end());
     const auto marked { std::ranges::find_if(found->second, [](const ref_label& label) { return label.ref_name == "feature/graph"; }) };
     REQUIRE(marked != found->second.end());
-    CHECK(marked->worktree_path == "C:/work/repo-feat");
+    CHECK(marked->worktree_path == native_path("C:/work/repo-feat"));
     const auto main_label { labels.find(snap::sha_of(4)) };
     REQUIRE(main_label != labels.end());
     CHECK(main_label->second.front().worktree_path.empty());
@@ -397,18 +400,18 @@ TEST_CASE("worktree menus guard the main and current worktrees", "[presentation]
 {
     const menu_context context { context_of(extension_snapshot()) };
 
-    const menu_model main_tree { build_context_menu(menu_target { .kind = menu_target_kind::worktree, .name = "C:/work/repo" }, context) };
+    const menu_model main_tree { build_context_menu(menu_target { .kind = menu_target_kind::worktree, .name = native_path("C:/work/repo") }, context) };
     CHECK_FALSE(entry_enabled(main_tree, u8"open"));
     CHECK_FALSE(entry_enabled(main_tree, u8"remove"));
     CHECK(entry_enabled(main_tree, u8"copy_path"));
 
-    const menu_model linked { build_context_menu(menu_target { .kind = menu_target_kind::worktree, .name = "C:/work/repo-feat" }, context) };
+    const menu_model linked { build_context_menu(menu_target { .kind = menu_target_kind::worktree, .name = native_path("C:/work/repo-feat") }, context) };
     CHECK(entry_enabled(linked, u8"open"));
     CHECK(entry_enabled(linked, u8"remove"));
     CHECK(linked.entries[1].danger);
 
     // 폴더가 사라진 worktree는 열 수 없지만 지울 수는 있다.
-    const menu_model stale { build_context_menu(menu_target { .kind = menu_target_kind::worktree, .name = "C:/work/repo-old" }, context) };
+    const menu_model stale { build_context_menu(menu_target { .kind = menu_target_kind::worktree, .name = native_path("C:/work/repo-old") }, context) };
     CHECK_FALSE(entry_enabled(stale, u8"open"));
     CHECK(entry_enabled(stale, u8"remove"));
 
@@ -489,10 +492,10 @@ TEST_CASE("the worktree dialog rules check folder, mode and branch", "[presentat
     set(0, u8"relative/dir");
     CHECK_FALSE(add_worktree_ready(dialog, inputs, snapshot, &reason));
     CHECK(reason.find(u8"절대 경로") != std::u8string::npos);
-    set(0, u8"C:/work/repo-feat");
+    set(0, native_path(u8"C:/work/repo-feat"));
     CHECK_FALSE(add_worktree_ready(dialog, inputs, snapshot, &reason));
     CHECK(reason.find(u8"이미 worktree가 있는 폴더") != std::u8string::npos);
-    set(0, u8"C:/work/new-tree");
+    set(0, native_path(u8"C:/work/new-tree"));
 
     // 새 브랜치: 이름이 필요하고 이미 있는 이름은 안 된다.
     CHECK_FALSE(add_worktree_ready(dialog, inputs, snapshot));
@@ -504,7 +507,7 @@ TEST_CASE("the worktree dialog rules check folder, mode and branch", "[presentat
     const worktree_add_request created { make_worktree_add_request(dialog, inputs) };
     CHECK(created.new_branch == "topic/x");
     CHECK(created.start_point == snap::sha_of(2));
-    CHECK(created.path == u8"C:/work/new-tree");
+    CHECK(created.path == native_path(u8"C:/work/new-tree"));
 
     // 기존 브랜치: 현재 브랜치나 다른 worktree가 쓰는 브랜치는 안 된다.
     dialog.choice = static_cast<std::size_t>(worktree_dialog_mode::existing_branch);
@@ -532,8 +535,8 @@ TEST_CASE("the worktree dialog rules check folder, mode and branch", "[presentat
 
 TEST_CASE("the default worktree folder sits next to the repository", "[presentation][extension][dialog]")
 {
-    CHECK(default_worktree_folder(u8"C:\\work\\repo", "feat/x") == u8"C:\\work\\repo-feat-x");
-    CHECK(default_worktree_folder(u8"C:/work/repo/", "") == u8"C:/work/repo-worktree");
+    CHECK(default_worktree_folder(native_path(u8"C:\\work\\repo"), "feat/x") == native_path(u8"C:\\work\\repo-feat-x"));
+    CHECK(default_worktree_folder(native_path(u8"C:/work/repo/"), "") == native_path(u8"C:/work/repo-worktree"));
     CHECK(default_worktree_folder(u8"repo", "x").empty());
 }
 
@@ -619,7 +622,7 @@ TEST_CASE("a gitlink diff becomes a submodule pointer card", "[presentation][ext
 TEST_CASE("the snapshot builder shows the card for a loaded LFS pointer diff", "[presentation][extension][diff]")
 {
     snap::snapshot_harness harness {};
-    harness.open(u8"C:\\work\\repo", "repo");
+    harness.open(native_path(u8"C:\\work\\repo"), "repo");
     repository_session& session { *harness.sessions["repo"] };
     snap::load(session, snap::linear_history(2), 1);
     const diff_file_request request { .path = "art/big.bin" };
@@ -646,7 +649,7 @@ TEST_CASE("the diff controller hands LFS pointers to the card or to the binary a
         file_diff diff {};
         diff.request.path = file.display_path();
         diff.files = { std::move(file) };
-        return controller.show(diff, u8"C:/work/repo");
+        return controller.show(diff, native_path(u8"C:/work/repo"));
     };
 
     diff_view_controller card_controller {};
@@ -699,7 +702,7 @@ TEST_CASE("double-clicking a submodule opens it as its own tab, and an uninitial
 
     test.send(activate_sidebar_item_intent { sidebar_item_kind::submodule, "libs/a" });
     REQUIRE(test.controller.tabs().tabs().size() == tabs_before + 1);
-    CHECK(test.controller.tabs().find_repository(u8"C:/work/repo/libs/a") == test.controller.tabs().selected_index());
+    CHECK(test.controller.tabs().find_repository(native_path(u8"C:/work/repo/libs/a")) == test.controller.tabs().selected_index());
     // 같은 submodule을 다시 열면 새 탭이 아니라 그 탭이다.
     test.send(activate_sidebar_item_intent { sidebar_item_kind::submodule, "libs/a" });
     CHECK(test.controller.tabs().tabs().size() == tabs_before + 1);
@@ -736,15 +739,15 @@ TEST_CASE("opening a worktree makes a tab of its own, and the main worktree is t
     test.load();
     const std::size_t tabs { test.controller.tabs().tabs().size() };
 
-    test.send(activate_sidebar_item_intent { sidebar_item_kind::worktree, "C:/work/repo" });
+    test.send(activate_sidebar_item_intent { sidebar_item_kind::worktree, native_path("C:/work/repo") });
     CHECK(test.controller.tabs().tabs().size() == tabs);
-    test.send(activate_sidebar_item_intent { sidebar_item_kind::worktree, "C:/work/repo-old" });
+    test.send(activate_sidebar_item_intent { sidebar_item_kind::worktree, native_path("C:/work/repo-old") });
     CHECK(test.controller.tabs().tabs().size() == tabs);
     REQUIRE(test.controller.state().latest_notification() != nullptr);
 
-    test.send(activate_sidebar_item_intent { sidebar_item_kind::worktree, "C:/work/repo-feat" });
+    test.send(activate_sidebar_item_intent { sidebar_item_kind::worktree, native_path("C:/work/repo-feat") });
     REQUIRE(test.controller.tabs().tabs().size() == tabs + 1);
-    CHECK(test.controller.tabs().find_repository(u8"C:\\work\\repo-feat") == test.controller.tabs().selected_index());
+    CHECK(test.controller.tabs().find_repository(native_path(u8"C:\\work\\repo-feat")) == test.controller.tabs().selected_index());
 }
 
 TEST_CASE("removing a worktree asks first and can be forced", "[presentation][extension][controller]")
@@ -753,7 +756,7 @@ TEST_CASE("removing a worktree asks first and can be forced", "[presentation][ex
     test.load();
     const std::size_t before { test.operation_count() };
 
-    test.menu(menu_target { .kind = menu_target_kind::worktree, .name = "C:/work/repo-old" }, u8"remove");
+    test.menu(menu_target { .kind = menu_target_kind::worktree, .name = native_path("C:/work/repo-old") }, u8"remove");
     REQUIRE(test.controller.state().dialog.has_value());
     CHECK(test.controller.state().dialog->kind == dialog_kind::confirm);
     CHECK(test.controller.state().dialog->danger);
@@ -765,17 +768,17 @@ TEST_CASE("removing a worktree asks first and can be forced", "[presentation][ex
     test.send(form_button_intent { u8"submit" });
     const auto* const plain { test.last_request<worktree_remove_request>() };
     REQUIRE(plain != nullptr);
-    CHECK(plain->path == u8"C:/work/repo-old");
+    CHECK(plain->path == native_path(u8"C:/work/repo-old"));
     CHECK_FALSE(plain->force);
 
     // 체크를 켜면 강제 제거다.
-    test.menu(menu_target { .kind = menu_target_kind::worktree, .name = "C:/work/repo-old" }, u8"remove");
+    test.menu(menu_target { .kind = menu_target_kind::worktree, .name = native_path("C:/work/repo-old") }, u8"remove");
     test.send(form_check_intent { 0 });
     test.send(form_button_intent { u8"submit" });
     CHECK(test.last_request<worktree_remove_request>()->force);
 
     // 주 작업 트리의 항목은 꺼져 있어 확인 상자도 뜨지 않는다.
-    test.menu(menu_target { .kind = menu_target_kind::worktree, .name = "C:/work/repo" }, u8"remove");
+    test.menu(menu_target { .kind = menu_target_kind::worktree, .name = native_path("C:/work/repo") }, u8"remove");
     CHECK_FALSE(test.controller.state().dialog.has_value());
 }
 
@@ -793,7 +796,7 @@ TEST_CASE("the worktree dialog creates a new branch tree and prune runs directly
     REQUIRE(opened.form.has_value());
     CHECK(opened.form->id == u8"worktree-dialog");
     REQUIRE(opened.form->fields.size() == 2);
-    CHECK(opened.form->fields[0].view.displayed_text().starts_with(u8"C:\\work\\repo-"));
+    CHECK(opened.form->fields[0].view.displayed_text().starts_with(native_path(u8"C:\\work\\repo-")));
     // 브랜치 이름이 없으면 추가할 수 없다.
     CHECK_FALSE(opened.form->buttons.back().enabled);
 
@@ -803,7 +806,7 @@ TEST_CASE("the worktree dialog creates a new branch tree and prune runs directly
     REQUIRE(request != nullptr);
     CHECK(request->new_branch == "topic");
     CHECK(request->start_point == snap::sha_of(2));
-    CHECK(request->path.starts_with(u8"C:\\work\\repo-"));
+    CHECK(request->path.starts_with(native_path(u8"C:\\work\\repo-")));
     CHECK_FALSE(test.controller.state().dialog.has_value());
 
     test.menu(menu_target { .kind = menu_target_kind::worktrees_section }, u8"prune");
@@ -821,13 +824,13 @@ TEST_CASE("a branch used by another worktree is refused with a clear message ins
     REQUIRE(test.controller.state().latest_notification() != nullptr);
     CHECK(test.controller.state().latest_notification()->severity == notification_severity::warning);
     CHECK(test.controller.state().latest_notification()->text.find(u8"다른 worktree") != std::u8string::npos);
-    CHECK(test.controller.state().latest_notification()->text.find(u8"C:/work/repo-feat") != std::u8string::npos);
+    CHECK(test.controller.state().latest_notification()->text.find(native_path(u8"C:/work/repo-feat")) != std::u8string::npos);
 
     // 메뉴의 "그 worktree 열기"는 그 폴더를 새 탭으로 연다.
     const std::size_t tabs { test.controller.tabs().tabs().size() };
     test.menu(menu_target { .kind = menu_target_kind::local_branch, .name = "feature/graph", .sha = snap::sha_of(0) }, u8"open_worktree");
     CHECK(test.controller.tabs().tabs().size() == tabs + 1);
-    CHECK(test.controller.tabs().find_repository(u8"C:\\work\\repo-feat") == test.controller.tabs().selected_index());
+    CHECK(test.controller.tabs().find_repository(native_path(u8"C:\\work\\repo-feat")) == test.controller.tabs().selected_index());
 }
 
 TEST_CASE("LFS menu items run the operations and the track dialog suggests the extension", "[presentation][extension][controller]")

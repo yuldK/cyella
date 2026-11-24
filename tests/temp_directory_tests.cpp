@@ -8,7 +8,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <filesystem>
@@ -18,7 +22,11 @@
 TEST_CASE("a fresh temp directory is empty even when a crashed process left folders with the same process id", "[git][support]")
 {
     const std::filesystem::path root { std::filesystem::temp_directory_path() };
+#if defined(_WIN32)
     const std::string prefix { "cyella_git_" + std::to_string(::GetCurrentProcessId()) + "_" };
+#else
+    const std::string prefix { "cyella_git_" + std::to_string(::getpid()) + "_" };
+#endif
 
     // 이전 프로세스가 같은 id로 남긴 잔해를 흉내 낸다: 번호가 겹칠 만한 이름마다 내용이 든 폴더를 둔다.
     std::vector<std::filesystem::path> leftovers {};

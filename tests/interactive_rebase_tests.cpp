@@ -337,6 +337,8 @@ TEST_CASE("rebase editor helper: git's todo and done lines are read the way git 
     CHECK_FALSE(is_hex_object_id("..\\x1234"));
 }
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("rebase editor helper: the editor command is passed to git without shell surprises", "[rebase][helper]")
 {
     // 특수 문자가 없으면 git이 셸 없이 바로 실행한다. 백슬래시는 셸 특수 문자라 `/`로 바꾼다.
@@ -347,6 +349,7 @@ TEST_CASE("rebase editor helper: the editor command is passed to git without she
     CHECK(make_editor_command(u8"C:\\it's $HOME `x`\\a.exe") == u8"'C:/it'\\''s $HOME `x`/a.exe'");
     CHECK(make_editor_command(u8"D:\\사용자\\cyella\\a.exe") == u8"D:/사용자/cyella/a.exe");
 }
+#endif
 
 TEST_CASE("interactive rebase commands: argument lists pin the todo-shaping options", "[rebase][commands]")
 {

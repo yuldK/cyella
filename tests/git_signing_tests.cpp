@@ -9,12 +9,15 @@
 #include "infrastructure/git_signing_parser.h"
 
 #include "git_test_support.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -131,6 +134,8 @@ TEST_CASE("parse_git_signature_records reads gpg results and skips malformed rec
 
 // ---------------------------------------------------------------------- 설정
 
+// Windows 경로 꼴(드라이브·`\\`·UNC·`.exe`, Git for Windows의 배치)을 그대로 쓰는 시험이다. macOS의 경로 규칙은 macos_platform_tests.cpp가 본다.
+#if defined(_WIN32)
 TEST_CASE("parse_git_signing_config separates the scopes and keeps the effective value", "[signing][parser]")
 {
     const signing_config_layers layers { parse_git_signing_config(fixture("signing_config_scopes.bin")) };
@@ -162,6 +167,7 @@ TEST_CASE("parse_git_signing_config separates the scopes and keeps the effective
     CHECK(empty.effective.format() == signing_format::openpgp);
     CHECK(empty.effective.at(signing_key_id::gpg_format).is_set() == false);
 }
+#endif
 
 TEST_CASE("config booleans follow git's spelling", "[signing][domain]")
 {
@@ -283,7 +289,7 @@ TEST_CASE("signing command builders produce the commands the parsers expect", "[
     CHECK(to_text(make_git_signing_config_args())[4].find("commit\\.gpgsign") != std::string::npos);
     CHECK(to_text(make_git_allowed_signers_path_args()) == text_list { "config", "--type=path", "--get", "gpg.ssh.allowedsignersfile" });
     CHECK(to_text(make_git_signing_config_set_args(signing_key_id::commit_gpgsign, "true", false)) == text_list { "config", "--local", "commit.gpgsign", "true" });
-    CHECK(to_text(make_git_signing_config_set_args(signing_key_id::user_signingkey, "C:/k/id.pub", true)) == text_list { "config", "--global", "user.signingkey", "C:/k/id.pub" });
+    CHECK(to_text(make_git_signing_config_set_args(signing_key_id::user_signingkey, native_path("C:/k/id.pub"), true)) == text_list { "config", "--global", "user.signingkey", native_path("C:/k/id.pub") });
     CHECK(to_text(make_git_signing_config_unset_args(signing_key_id::gpg_program, false)) == text_list { "config", "--local", "--unset", "gpg.program" });
     CHECK(to_text(make_gpg_list_secret_keys_args())[0] == "--list-secret-keys");
     CHECK(to_text(make_gpg_list_secret_keys_args())[1] == "--with-colons");

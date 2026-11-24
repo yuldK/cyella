@@ -1,4 +1,5 @@
 // 화면 snapshot builder다. 세션은 사건을 직접 넣어 만들고(git 없이), operation 상태는 값으로 짓는다.
+#include "native_path_support.h"
 #include "view_snapshot_support.h"
 
 #include "presentation/snapshot_dialogs.h"
@@ -9,6 +10,8 @@
 #include <cstdint>
 #include <limits>
 
+using cyella::test::native_path;
+
 using namespace cyella;
 using namespace cyella::test::snapshot;
 
@@ -17,7 +20,7 @@ namespace {
     diff_panel_view fallback_diff_of(const std::int32_t line_count)
     {
         snapshot_harness harness {};
-        const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+        const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
         repository_session& session { *harness.sessions["repo-1"] };
         load(session, linear_history(2), 0);
         const diff_file_request request { .path = "big.txt", .view = diff_view::unstaged };
@@ -43,9 +46,9 @@ TEST_CASE("start tab snapshot lists recent repositories with open and missing st
 {
     snapshot_harness harness {};
     harness.settings.recent_repositories = {
-        { .path = u8"C:\\work\\pinned", .display_name = u8"pinned", .opened_at = u8"2026-10-19T09:00:00Z", .pinned = true },
-        { .path = u8"C:\\work\\cyella", .display_name = u8"cyella", .opened_at = u8"2026-10-20T09:00:00Z" },
-        { .path = u8"C:\\work\\missing", .display_name = u8"missing", .opened_at = u8"2026-10-18T09:00:00Z" },
+        { .path = native_path(u8"C:\\work\\pinned"), .display_name = u8"pinned", .opened_at = u8"2026-10-19T09:00:00Z", .pinned = true },
+        { .path = native_path(u8"C:\\work\\cyella"), .display_name = u8"cyella", .opened_at = u8"2026-10-20T09:00:00Z" },
+        { .path = native_path(u8"C:\\work\\missing"), .display_name = u8"missing", .opened_at = u8"2026-10-18T09:00:00Z" },
     };
     const view_snapshot view { harness.build() };
     REQUIRE(view.start.has_value());
@@ -67,7 +70,7 @@ TEST_CASE("start tab snapshot lists recent repositories with open and missing st
 TEST_CASE("repository snapshot exposes toolbar state, graph model and labels", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    harness.open(u8"C:\\work\\repo", "repo-1");
+    harness.open(native_path(u8"C:\\work\\repo"), "repo-1");
     load(*harness.sessions["repo-1"], linear_history(5), 2);
 
     const view_snapshot view { harness.build() };
@@ -102,7 +105,7 @@ TEST_CASE("repository snapshot exposes toolbar state, graph model and labels", "
 TEST_CASE("remote toolbar explains unavailable synchronization actions", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    harness.open(u8"C:\\work\\repo", "repo-1");
+    harness.open(native_path(u8"C:\\work\\repo"), "repo-1");
     repository_session& session { *harness.sessions["repo-1"] };
     repository_snapshot snapshot { make_snapshot(sha_of(1), 0) };
     snapshot.summary.has_upstream = false;
@@ -150,7 +153,7 @@ TEST_CASE("git verbs keep their English names in the operation list", "[presenta
 TEST_CASE("selecting WIP builds the working area and gates the commit button", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(3), 2);
     harness.ui.tabs[tab].selected_sha = std::string { graph_wip_sha };
 
@@ -184,7 +187,7 @@ TEST_CASE("selecting WIP builds the working area and gates the commit button", "
 TEST_CASE("a commit row selection shows a loading detail until show_commit returns", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(3), 0);
     harness.ui.tabs[tab].selected_sha = sha_of(1);
 
@@ -249,7 +252,7 @@ TEST_CASE("commit searches are not user operations", "[presentation][snapshot]")
 TEST_CASE("notifications become toasts newest first until the center is opened", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     load(*harness.sessions["repo-1"], linear_history(2), 0);
     for (std::uint64_t id { 1 }; id <= 5; ++id)
         harness.ui.notifications.push_back(notification { .id = id, .text = u8"안내입니다." });
@@ -320,7 +323,7 @@ TEST_CASE("notifications become toasts newest first until the center is opened",
 TEST_CASE("reads and automatic refreshes stay out of the status bar and tab markers", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    harness.open(u8"C:\\work\\repo", "repo-1");
+    harness.open(native_path(u8"C:\\work\\repo"), "repo-1");
     load(*harness.sessions["repo-1"], linear_history(2), 0);
     harness.operations.push_back({ .id = 1, .kind = operation_kind::refresh, .state = operation_state::running, .repository_id = "repo-1", .automatic = true });
     harness.operations.push_back({ .id = 2, .kind = operation_kind::show_commit, .state = operation_state::succeeded, .repository_id = "repo-1", .result_summary = u8"읽었습니다" });
@@ -440,7 +443,7 @@ TEST_CASE("sidebar rows carry the graph filter mark and say so in the tooltip", 
 TEST_CASE("the snapshot carries the filter band only while the session has a graph filter", "[presentation][snapshot][graph_filter]")
 {
     snapshot_harness harness {};
-    static_cast<void>(harness.open(u8"C:\\work\\repo", "repo-1"));
+    static_cast<void>(harness.open(native_path(u8"C:\\work\\repo"), "repo-1"));
     repository_session& session { *harness.sessions["repo-1"] };
     load(session, linear_history(3), 0);
     CHECK_FALSE(harness.build().repository->graph.filter.has_value());
@@ -509,7 +512,7 @@ TEST_CASE("relative time and file rows read naturally", "[presentation][snapshot
 TEST_CASE("narrow width compacts graph columns and keeps the drawer closed without a selection", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    harness.open(u8"C:\\work\\repo", "repo-1");
+    harness.open(native_path(u8"C:\\work\\repo"), "repo-1");
     load(*harness.sessions["repo-1"], linear_history(2), 0);
     harness.ui.drawer_open = true;
     const view_snapshot narrow { harness.build(700.0f) };
@@ -576,7 +579,7 @@ TEST_CASE("a nested repository path with a trailing slash keeps its name and ori
 TEST_CASE("an opened conflict diff selects its row and steps through the conflict files", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    const repository_tab_id tab { harness.open(u8"C:\\work\\repo", "repo-1") };
+    const repository_tab_id tab { harness.open(native_path(u8"C:\\work\\repo"), "repo-1") };
     repository_session& session { *harness.sessions["repo-1"] };
     repository_snapshot snapshot { make_snapshot(sha_of(0), 2) };
     snapshot.conflicts = {
@@ -620,7 +623,7 @@ TEST_CASE("an opened conflict diff selects its row and steps through the conflic
 TEST_CASE("Stash stays off before the first commit and says why", "[presentation][snapshot]")
 {
     snapshot_harness harness {};
-    harness.open(u8"C:\\work\\repo", "repo-1");
+    harness.open(native_path(u8"C:\\work\\repo"), "repo-1");
     repository_session& session { *harness.sessions["repo-1"] };
     // 첫 커밋 전에는 현재 브랜치 이름은 있어도 HEAD 커밋이 없다.
     repository_snapshot snapshot { make_snapshot({}, 2) };

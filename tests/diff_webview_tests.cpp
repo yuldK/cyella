@@ -1,6 +1,7 @@
 // diff 웹뷰를 프레임에 끼우는 쪽(정책·테마·대체 보기 판단·tree 자리표)의 test다.
 #include "application/diff_view_protocol.h"
 #include "domain/commit_graph_layout.h"
+#include "native_path_support.h"
 #include "presentation/diff_view_intents.h"
 #include "presentation/ui/build_ui_tree.h"
 #include "presentation/ui/diff_webview.h"
@@ -22,6 +23,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 using namespace cyella::test::snapshot;
@@ -53,7 +56,7 @@ namespace {
 
         opened_diff()
         {
-            tab = harness.open(u8"C:\\work\\repo", "repo-1");
+            tab = harness.open(native_path(u8"C:\\work\\repo"), "repo-1");
             load(*harness.sessions["repo-1"], linear_history(3), 2);
             harness.ui.tabs[tab].selected_sha = std::string { graph_wip_sha };
             harness.ui.tabs[tab].diff = diff_file_request { .path = "src/a.cpp", .view = diff_view::unstaged };
@@ -166,9 +169,9 @@ TEST_CASE("diff font preferences survive the set_theme message to the viewer", "
 
 TEST_CASE("the diff webview policy opens only file urls, takes 8 MiB messages and keeps developer tools off", "[diff][webview]")
 {
-    const luil::ui_webview webview { ui::make_diff_webview({ u8"file:///C:/app/diff-viewer/index.html", u8"C:\\data\\webview", 3, u8"{\"type\":\"clear\"}" }) };
+    const luil::ui_webview webview { ui::make_diff_webview({ u8"file:///C:/app/diff-viewer/index.html", native_path(u8"C:\\data\\webview"), 3, u8"{\"type\":\"clear\"}" }) };
     CHECK(webview.id == u8"diff");
-    CHECK(webview.user_data_folder == u8"C:\\data\\webview");
+    CHECK(webview.user_data_folder == native_path(u8"C:\\data\\webview"));
     CHECK(webview.navigate_url == u8"file:///C:/app/diff-viewer/index.html");
     CHECK(webview.navigate_revision == 1);
     CHECK(webview.post_revision == 3);

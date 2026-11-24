@@ -1,10 +1,13 @@
 #include "application/repository_tabs.h"
+#include "native_path_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <set>
 #include <string>
 #include <vector>
+
+using cyella::test::native_path;
 
 using namespace cyella;
 
@@ -22,7 +25,7 @@ namespace {
 
     std::u8string repo(const char8_t* const name)
     {
-        return std::u8string { u8"C:\\work\\" } + name;
+        return std::u8string { native_path(u8"C:\\work\\") } + name;
     }
 
     // 저장소 탭 a b c를 열고 b를 선택한 모양이다.
@@ -52,7 +55,7 @@ TEST_CASE("opening a repository replaces the selected start tab in place", "[rep
     repository_tabs tabs {};
     const repository_tab_id start_id { tabs.selected().id };
 
-    const open_repository_result result { tabs.open_repository(u8"C:/work/alpha/") };
+    const open_repository_result result { tabs.open_repository(native_path(u8"C:/work/alpha/")) };
 
     CHECK(labels(tabs) == label_list { u8"alpha" });
     CHECK(result.created);
@@ -60,7 +63,7 @@ TEST_CASE("opening a repository replaces the selected start tab in place", "[rep
     CHECK(result.id == tabs.selected().id);
     // 시작 탭에 붙어 있던 화면 상태가 저장소 탭으로 새지 않도록 id가 바뀐다.
     CHECK(result.id != start_id);
-    CHECK(tabs.selected().path == u8"C:\\work\\alpha");
+    CHECK(tabs.selected().path == native_path(u8"C:\\work\\alpha"));
     CHECK(tabs.selected().kind == repository_tab_kind::repository);
 }
 
@@ -84,7 +87,7 @@ TEST_CASE("opening an open repository selects it without adding a tab", "[reposi
     const repository_tab_id first_id { tabs.tabs()[0].id };
 
     // 대소문자와 구분자가 달라도 같은 저장소다.
-    const open_repository_result result { tabs.open_repository(u8"c:/WORK/A/") };
+    const open_repository_result result { tabs.open_repository(native_path(u8"c:/WORK/A/")) };
 
     CHECK(labels(tabs) == label_list { u8"a", u8"b", u8"c" });
     CHECK(tabs.selected_index() == 0);
@@ -323,7 +326,7 @@ TEST_CASE("index_of and find_repository", "[repository_tabs]")
     const repository_tabs tabs { three_tabs() };
     CHECK(tabs.index_of(tabs.tabs()[2].id) == 2);
     CHECK_FALSE(tabs.index_of(999999).has_value());
-    CHECK(tabs.find_repository(u8"c:/work/C") == 2);
+    CHECK(tabs.find_repository(native_path(u8"c:/work/C")) == 2);
     CHECK_FALSE(tabs.find_repository(repo(u8"zzz")).has_value());
 }
 
@@ -367,15 +370,15 @@ TEST_CASE("session restore with nothing leaves one start tab", "[repository_tabs
 
     app_settings only_empty {};
     only_empty.open_tabs = { u8"" };
-    only_empty.active_tab = u8"C:\\gone";
+    only_empty.active_tab = native_path(u8"C:\\gone");
     CHECK(labels(restore_tabs(only_empty)) == label_list { u8"*" });
 }
 
 TEST_CASE("session restore removes duplicates and falls back to the first tab", "[repository_tabs]")
 {
     app_settings settings {};
-    settings.open_tabs = { repo(u8"a"), u8"c:/WORK/a/", repo(u8"b"), u8"" };
-    settings.active_tab = u8"C:\\work\\not-open";
+    settings.open_tabs = { repo(u8"a"), native_path(u8"c:/WORK/a/"), repo(u8"b"), u8"" };
+    settings.active_tab = native_path(u8"C:\\work\\not-open");
 
     const repository_tabs tabs { restore_tabs(settings) };
 
@@ -383,7 +386,7 @@ TEST_CASE("session restore removes duplicates and falls back to the first tab", 
     CHECK(tabs.selected_index() == 0);
 
     // 활성 경로는 인덱스가 아니라 경로로 찾으므로 중복이 걸러져도 같은 탭을 가리킨다.
-    settings.active_tab = u8"C:/Work/B";
+    settings.active_tab = native_path(u8"C:/Work/B");
     CHECK(restore_tabs(settings).selected_index() == 1);
 }
 
