@@ -17,7 +17,7 @@ $utf8 = [System.Text.UTF8Encoding]::new($false, $true)
 # worktrees는 git worktree로 만든 임시 작업 트리(체크아웃)라 원본과 같은 파일이 다시 들어 있다.
 # 원본을 검사하면 충분하므로 제외한다.
 $excluded_directories = @('.git', '.vs', 'bin', 'build', 'third_party', 'vcpkg_installed', 'worktrees')
-$checked_extensions = @('.cmake', '.cpp', '.h', '.json', '.md', '.ps1', '.rc', '.version-list', '.xml')
+$checked_extensions = @('.cmake', '.cpp', '.h', '.json', '.md', '.mm', '.ps1', '.rc', '.version-list', '.xml')
 $special_names = @('.clang-format', '.clang-tidy', '.editorconfig', '.gitattributes', '.gitignore', 'CMakeLists.txt')
 $errors = [System.Collections.Generic.List[string]]::new()
 
@@ -286,7 +286,7 @@ foreach ($file in $files) {
         $errors.Add("$relative`: Trailing whitespace found.")
     }
 
-    if ($file.Extension -in @('.cpp', '.h')) {
+    if ($file.Extension -in @('.cpp', '.h', '.mm')) {
         if ($text -match 'template[ \t]*<[^\r\n]+>[ \t]+\S') {
             $errors.Add("$relative`: A template declaration and its signature must be on separate lines.")
         }

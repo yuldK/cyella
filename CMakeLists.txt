@@ -5,7 +5,23 @@ cmake_policy(SET CMP0091 NEW)
 set(CYELLA_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(CMAKE_MSVC_RUNTIME_LIBRARY "${CYELLA_MSVC_RUNTIME_LIBRARY}")
 
-project(cyella VERSION 0.1.0 LANGUAGES CXX RC)
+project(cyella VERSION 0.1.0 LANGUAGES CXX)
+
+# 대상 플랫폼이다. luil과 같은 이름(`windows`·`macos`)으로 가르고, 나머지를 한 갈래로 받지 않는다.
+#  - Windows는 실행 파일 resource(.rc)를 쓴다.
+#  - macOS는 플랫폼 조립(AppKit·Foundation)이 Objective-C++(.mm)다. 앱 번들의 자원은 .rc 대신 번들의 Resources 폴더와
+#    실행 파일에 실은 바이트 배열이다.
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(CYELLA_PLATFORM "macos")
+    enable_language(OBJCXX)
+elseif(WIN32)
+    set(CYELLA_PLATFORM "windows")
+    enable_language(RC)
+else()
+    message(FATAL_ERROR
+        "cyella supports Windows 10/11 x64 and macOS arm64. "
+        "${CMAKE_SYSTEM_NAME} is not supported.")
+endif()
 
 set(CYELLA_CXX_STANDARD 20)
 set(CYELLA_MINIMUM_MSVC_VERSION 1940)
@@ -15,6 +31,9 @@ set(CYELLA_SUPPORTED_GENERATORS
     "Visual Studio 17 2022"
     "Visual Studio 18 2026"
 )
+# macOS의 대상이다. luil의 Skia 패키지(mac-arm64)가 정한 아키텍처·배포 하한과 같아야 한다.
+set(CYELLA_MACOS_ARCHITECTURE "arm64")
+set(CYELLA_MINIMUM_MACOS_VERSION "11.0")
 
 set(CYELLA_CMAKE_DIRECTORY "${PROJECT_SOURCE_DIR}/cmake")
 set(CYELLA_THIRD_PARTY_DIRECTORY "${PROJECT_SOURCE_DIR}/third_party")
@@ -54,26 +73,42 @@ option(CYELLA_BUILD_TOOLING "Build the clang-format and source style targets." O
 option(CYELLA_ENABLE_MSVC_ANALYZE "Enable MSVC /analyze for project sources." OFF)
 
 include("${CYELLA_CMAKE_DIRECTORY}/macro.cmake")
-include("${CYELLA_CMAKE_DIRECTORY}/compiler/msvc.cmake")
-include("${CYELLA_CMAKE_DIRECTORY}/platform/windows.cmake")
+if(CYELLA_PLATFORM STREQUAL "windows")
+    include("${CYELLA_CMAKE_DIRECTORY}/compiler/msvc.cmake")
+    include("${CYELLA_CMAKE_DIRECTORY}/platform/windows.cmake")
 
-cyella_validate_windows_platform(
-    ARCHITECTURE "${CYELLA_TARGET_ARCHITECTURE}"
-    MINIMUM_SDK_VERSION "${CYELLA_MINIMUM_WINDOWS_SDK_VERSION}"
-    SUPPORTED_GENERATORS ${CYELLA_SUPPORTED_GENERATORS}
-)
-cyella_validate_msvc(MINIMUM_VERSION "${CYELLA_MINIMUM_MSVC_VERSION}")
-cyella_configure_msvc_link_directories()
-# 의존성(luil·Catch2)을 넣기 전에 건다. 그래야 그쪽 컴파일에도 걸린다.
-cyella_trim_build_paths()
+    cyella_validate_windows_platform(
+        ARCHITECTURE "${CYELLA_TARGET_ARCHITECTURE}"
+        MINIMUM_SDK_VERSION "${CYELLA_MINIMUM_WINDOWS_SDK_VERSION}"
+        SUPPORTED_GENERATORS ${CYELLA_SUPPORTED_GENERATORS}
+    )
+    cyella_validate_msvc(MINIMUM_VERSION "${CYELLA_MINIMUM_MSVC_VERSION}")
+    cyella_configure_msvc_link_directories()
+    # 의존성(luil·Catch2)을 넣기 전에 건다. 그래야 그쪽 컴파일에도 걸린다.
+    cyella_trim_build_paths()
+elseif(CYELLA_PLATFORM STREQUAL "macos")
+    include("${CYELLA_CMAKE_DIRECTORY}/compiler/clang.cmake")
+    include("${CYELLA_CMAKE_DIRECTORY}/platform/macos.cmake")
+
+    cyella_validate_macos_platform(
+        ARCHITECTURE "${CYELLA_MACOS_ARCHITECTURE}"
+        MINIMUM_VERSION "${CYELLA_MINIMUM_MACOS_VERSION}"
+    )
+    cyella_trim_clang_build_paths()
+endif()
 
 add_library(cyella_project_options INTERFACE)
 target_compile_features(cyella_project_options INTERFACE cxx_std_${CYELLA_CXX_STANDARD})
-cyella_apply_windows_options(cyella_project_options)
-cyella_apply_msvc_options(
-    cyella_project_options
-    ENABLE_ANALYZE "${CYELLA_ENABLE_MSVC_ANALYZE}"
-)
+if(CYELLA_PLATFORM STREQUAL "windows")
+    cyella_apply_windows_options(cyella_project_options)
+    cyella_apply_msvc_options(
+        cyella_project_options
+        ENABLE_ANALYZE "${CYELLA_ENABLE_MSVC_ANALYZE}"
+    )
+elseif(CYELLA_PLATFORM STREQUAL "macos")
+    cyella_apply_clang_options(cyella_project_options)
+    cyella_apply_macos_options(cyella_project_options)
+endif()
 
 # find_program은 캐시에 남은 경로를 다시 찾지 않는다. PowerShell을 지우거나 다른 방식(예: Store 판)으로
 # 다시 깔아 그 경로가 사라졌으면 캐시를 비워 지금 PATH에서 새로 찾는다.
@@ -81,7 +116,12 @@ if(CYELLA_POWERSHELL_EXECUTABLE AND NOT EXISTS "${CYELLA_POWERSHELL_EXECUTABLE}"
     message(STATUS "PowerShell not found at cached path, searching again: ${CYELLA_POWERSHELL_EXECUTABLE}")
     unset(CYELLA_POWERSHELL_EXECUTABLE CACHE)
 endif()
-find_program(CYELLA_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+# macOS에서는 소스 스타일 검사(test·tooling)에만 쓰므로 없어도 configure를 멈추지 않는다 (그때 그 test를 등록하지 않는다).
+if(CYELLA_PLATFORM STREQUAL "windows")
+    find_program(CYELLA_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+else()
+    find_program(CYELLA_POWERSHELL_EXECUTABLE NAMES pwsh)
+endif()
 
 # 의존성은 submodule과 luil이 준비한 패키지로만 구성한다. 취득을
 # 자동화하지 않으므로 configure는 네트워크를 전혀 쓰지 않는다.
@@ -106,12 +146,20 @@ add_subdirectory(third_party/luil SYSTEM)
 set(LUIL_SOURCE_DIRECTORY "${CYELLA_THIRD_PARTY_DIRECTORY}/luil/src")
 set(LUIL_ASSET_DIRECTORY "${CYELLA_THIRD_PARTY_DIRECTORY}/luil/assets/codicons")
 set(LUIL_NLOHMANN_JSON_ROOT "${CYELLA_THIRD_PARTY_DIRECTORY}/luil/third_party/nlohmann_json")
+# luil은 Windows가 아니면 WebView2(SDK·로더)를 끈다 (macOS의 웹뷰는 시스템의 WKWebView다). 그 값은 luil 디렉터리 안의
+# 일반 변수라 여기서 보이지 않으므로 같게 정해 고지에서 WebView2 SDK를 뺀다.
+if(NOT CYELLA_PLATFORM STREQUAL "windows")
+    set(LUIL_ENABLE_WEBVIEW OFF)
+endif()
 # 제3자 고지와 .rc 조각은 src/와 tests/가 함께 쓰므로 여기서 한 번 만든다.
 luil_generate_third_party_notices("${CYELLA_THIRD_PARTY_NOTICES}")
 # luil의 목록에 없는 cyella 자신의 번들(diff 뷰어의 highlight.js)을 같은 파일에 덧붙인다.
 cyella_append_third_party_notices("${CYELLA_THIRD_PARTY_NOTICES}"
     "highlight.js (diff viewer syntax highlighting)|${CYELLA_DIFF_VIEWER_DIRECTORY}/vendor/highlight.js-LICENSE.txt")
-luil_configure_resource_script("${CYELLA_GENERATED_LUIL_RESOURCE}" "${CYELLA_THIRD_PARTY_NOTICES}")
+# luil의 .rc 조각은 Windows에만 있다. macOS의 luil은 codicon을 라이브러리에 싣고, 고지는 앱 번들의 Resources에 놓는다.
+if(CYELLA_PLATFORM STREQUAL "windows")
+    luil_configure_resource_script("${CYELLA_GENERATED_LUIL_RESOURCE}" "${CYELLA_THIRD_PARTY_NOTICES}")
+endif()
 
 # `include(CTest)`는 Continuous·Experimental·Nightly 등 dashboard target을 함께
 # 만들어 솔루션을 부풀린다. 필요한 것은 test 등록뿐이라 enable_testing만 쓴다.
@@ -124,7 +172,7 @@ if(CYELLA_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-if(CYELLA_BUILD_TOOLING)
+if(CYELLA_BUILD_TOOLING AND CYELLA_PLATFORM STREQUAL "windows")
     cyella_find_visual_studio_clang_format(CYELLA_CLANG_FORMAT_EXECUTABLE)
     cyella_add_clang_format_targets(
         CLANG_FORMAT_EXECUTABLE "${CYELLA_CLANG_FORMAT_EXECUTABLE}"

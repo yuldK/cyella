@@ -161,6 +161,7 @@ namespace cyella::win32 {
 
     cyella_driver::cyella_driver(cyella_driver_options options)
         : options_ { std::move(options) }
+        , startup_placement_ { options_.window_placement }
     {}
 
     cyella_driver::~cyella_driver()
@@ -957,6 +958,13 @@ namespace cyella::win32 {
         frame->appearance.accent_id = ui::effective_accent_id(controller_->settings().appearance.accent);
         frame->fonts.ui_family = controller_->settings().appearance.ui_font;
         frame->fonts.code_family = controller_->settings().appearance.code_font;
+        // 시작할 때 읽은 배치를 한 번 적용하게 한다. revision이 그대로인 동안 host는 다시 적용하지 않는다.
+        if (options_.apply_window_placement_in_frame && startup_placement_.has_value())
+        {
+            const saved_window_placement& saved { *startup_placement_ };
+            frame->window_placement_revision = 1;
+            frame->window_placement_request = luil::window_placement { .x = saved.x, .y = saved.y, .width = saved.width, .height = saved.height, .maximized = saved.maximized };
+        }
 
         // 웹뷰는 한 번 필요해진 뒤로 계속 싣는다. 빼면 luil이 웹뷰를 닫아 페이지 상태가 날아간다. 자리표(webview_element)가
         // tree에 없는 동안은 luil이 숨겨 둔다. 빼는 것은 웹뷰가 실패했을 때뿐이고(`webview_mounted`), 그 뒤로는 다시 싣지 않는다.

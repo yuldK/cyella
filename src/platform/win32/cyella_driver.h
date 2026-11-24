@@ -82,6 +82,9 @@ namespace cyella::win32 {
         std::u8string open_url_log {};
         // 시작할 때 `window-placement.json`에서 읽은 주 창 배치다. 창을 만들 때 쓰고, 같은 값이 다시 알려지면 파일을 쓰지 않는다.
         std::optional<saved_window_placement> window_placement {};
+        // 읽은 배치를 첫 frame의 배치 요청(`ui_frame::window_placement_request`)으로 싣는다. 창을 만들 때 배치를 받지 않는 host
+        // (macOS)가 쓴다. Windows는 창을 만들 때(`window_config::initial_placement`) 쓰므로 끈다.
+        bool apply_window_placement_in_frame { false };
         // OS 표시 설정(밝은 모드·고대비·강조색)을 읽는 길이다. 비우면 luil이 마지막으로 관찰한 값(`luil::current_system_appearance`)이다.
         //  - 시작할 때 한 번, 그 뒤로는 `system_appearance_intent`를 받을 때만 부른다. frame마다 부르지 않는다.
         //  - 창이 있으면 luil이 logic thread를 띄우기 전에 첫 값을 관찰해 둔다. 창 없이 조립한 driver(test)는 관찰 전의 luil 기본값,
@@ -297,6 +300,8 @@ namespace cyella::win32 {
         bool webview_requested_ { false };
         std::uint64_t posted_revision_ { 0 };
         std::u8string posted_message_ {};
+        // 시작할 때 읽은 배치다 (`apply_window_placement_in_frame`). `options_.window_placement`는 새 배치를 저장할 때 바뀌므로 따로 둔다.
+        std::optional<saved_window_placement> startup_placement_ {};
         // 창의 실제 크기·배율이다. 첫 frame(메시지가 오기 전)은 기본값으로 배치한다.
         window_metrics_intent metrics_ {};
         std::atomic<bool> closed_ { false };

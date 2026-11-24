@@ -15,6 +15,11 @@
             },
             "binaryDir": "${sourceDir}/build/${presetName}",
             "installDir": "${sourceDir}/bin",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
             "cacheVariables": {
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/bin",
                 "CMAKE_SYSTEM_VERSION": "10.0.22621.0",
@@ -71,6 +76,41 @@
             "cacheVariables": {
                 "CYELLA_ENABLE_MSVC_ANALYZE": "ON"
             }
+        },
+        {
+            "name": "macos-common",
+            "hidden": true,
+            "generator": "Ninja Multi-Config",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "installDir": "${sourceDir}/bin",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            },
+            "cacheVariables": {
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/bin",
+                "CMAKE_OSX_ARCHITECTURES": "arm64",
+                "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0",
+                "CMAKE_CONFIGURATION_TYPES": "Debug;Release",
+                "CYELLA_BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "macos-arm64",
+            "displayName": "macOS arm64 (Apple Silicon)",
+            "description": "Needs Xcode and Ninja.",
+            "inherits": "macos-common"
+        },
+        {
+            "name": "macos-arm64-tests",
+            "displayName": "macOS arm64 with tests",
+            "description": "Needs Xcode and Ninja.",
+            "inherits": "macos-arm64",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CYELLA_BUILD_TESTS": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -123,6 +163,26 @@
             "name": "vs2026-tests-release",
             "configurePreset": "vs2026-tests",
             "configuration": "Release"
+        },
+        {
+            "name": "macos-arm64-debug",
+            "configurePreset": "macos-arm64",
+            "configuration": "Debug"
+        },
+        {
+            "name": "macos-arm64-release",
+            "configurePreset": "macos-arm64",
+            "configuration": "Release"
+        },
+        {
+            "name": "macos-arm64-tests-debug",
+            "configurePreset": "macos-arm64-tests",
+            "configuration": "Debug"
+        },
+        {
+            "name": "macos-arm64-tests-release",
+            "configurePreset": "macos-arm64-tests",
+            "configuration": "Release"
         }
     ],
     "testPresets": [
@@ -162,6 +222,28 @@
         {
             "name": "vs2026-tests-release",
             "configurePreset": "vs2026-tests",
+            "configuration": "Release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error"
+            }
+        },
+        {
+            "name": "macos-arm64-tests-debug",
+            "configurePreset": "macos-arm64-tests",
+            "configuration": "Debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error"
+            }
+        },
+        {
+            "name": "macos-arm64-tests-release",
+            "configurePreset": "macos-arm64-tests",
             "configuration": "Release",
             "output": {
                 "outputOnFailure": true

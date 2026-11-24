@@ -2,6 +2,7 @@
 
 *.cmake text eol=crlf
 *.cpp text eol=crlf
+*.mm text eol=crlf
 *.h text eol=crlf
 *.json text eol=crlf
 *.md text eol=crlf

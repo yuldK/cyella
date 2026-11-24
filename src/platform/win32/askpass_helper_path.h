@@ -4,7 +4,12 @@
 #include <optional>
 
 namespace cyella::win32 {
+#if defined(_WIN32)
     inline constexpr const wchar_t* askpass_helper_file_name { L"cyella-askpass.exe" };
+#else
+    // macOS는 앱 번들의 `Contents/MacOS`에 앱과 함께 놓인다.
+    inline constexpr const char* askpass_helper_file_name { "cyella-askpass" };
+#endif
 
     // 앱 실행 파일이 있는 디렉터리 옆의 도우미 경로다. 설치 규칙이 둘을 같은 디렉터리(`bin`)에 둔다.
     // 파일 존재는 확인하지 않는다.
