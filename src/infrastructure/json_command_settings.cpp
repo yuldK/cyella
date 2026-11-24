@@ -198,10 +198,10 @@ namespace cyella {
 
     void serialize_command_settings(const app_settings& settings, json& root)
     {
-        json profiles { json::array() };
+        json profiles = json::array();
         for (const user_profile& profile : settings.profiles)
         {
-            json entry { json::object() };
+            json entry = json::object();
             entry["name"] = as_string(profile.name);
             entry["user_name"] = as_string(profile.user_name);
             entry["user_email"] = as_string(profile.user_email);
@@ -217,37 +217,37 @@ namespace cyella {
         }
         write_or_erase(root, "profiles", std::move(profiles), settings.profiles.empty() == false);
 
-        json rules { json::array() };
+        json rules = json::array();
         for (const profile_rule& rule : settings.profile_rules)
         {
-            json entry { json::object() };
+            json entry = json::object();
             entry["path_prefix"] = as_string(rule.path_prefix);
             entry["profile"] = as_string(rule.profile);
             rules.push_back(std::move(entry));
         }
         write_or_erase(root, "profile_rules", std::move(rules), settings.profile_rules.empty() == false);
 
-        json assignments { json::array() };
+        json assignments = json::array();
         for (const profile_assignment& assignment : settings.profile_assignments)
         {
-            json entry { json::object() };
+            json entry = json::object();
             entry["path"] = as_string(assignment.path);
             entry["profile"] = as_string(assignment.profile);
             assignments.push_back(std::move(entry));
         }
         write_or_erase(root, "profile_assignments", std::move(assignments), settings.profile_assignments.empty() == false);
 
-        json shortcuts { json::object() };
+        json shortcuts = json::object();
         for (const auto& [id, chords] : settings.shortcuts)
         {
-            json list { json::array() };
+            json list = json::array();
             for (const std::u8string& chord : chords)
                 list.push_back(as_string(chord));
             shortcuts[id] = std::move(list);
         }
         write_or_erase(root, "shortcuts", std::move(shortcuts), settings.shortcuts.empty() == false);
 
-        json history { json::array() };
+        json history = json::array();
         for (const std::string& command : settings.command_history)
             history.push_back(command);
         write_or_erase(root, "command_history", std::move(history), settings.command_history.empty() == false);

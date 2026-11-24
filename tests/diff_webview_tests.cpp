@@ -149,7 +149,7 @@ TEST_CASE("diff font preferences survive the set_theme message to the viewer", "
 {
     // 글꼴 값은 늘 따옴표를 담으므로 직렬화의 토큰 거르기를 통과하는지 메시지까지 따라가 본다.
     const diff_theme theme { ui::make_diff_theme(luil::color_palette_for(luil::color_theme::dark), u8"맑은 고딕", u8"D2Coding") };
-    const nlohmann::json message { nlohmann::json::parse(serialize_set_theme(1, 0, theme)) };
+    const nlohmann::json message = nlohmann::json::parse(serialize_set_theme(1, 0, theme));
     const nlohmann::json& tokens { message.at("theme").at("tokens") };
     REQUIRE(tokens.contains("--ui-font"));
     REQUIRE(tokens.contains("--code-font"));
@@ -158,7 +158,7 @@ TEST_CASE("diff font preferences survive the set_theme message to the viewer", "
 
     // 기본 글꼴 목록(사용자가 고르지 않은 경우)도 같다.
     const diff_theme fallback { ui::make_diff_theme(luil::color_palette_for(luil::color_theme::light)) };
-    const nlohmann::json fallback_message { nlohmann::json::parse(serialize_set_theme(1, 0, fallback)) };
+    const nlohmann::json fallback_message = nlohmann::json::parse(serialize_set_theme(1, 0, fallback));
     const nlohmann::json& fallback_tokens { fallback_message.at("theme").at("tokens") };
     CHECK(fallback_tokens.at("--ui-font") == fallback.tokens.at("--ui-font"));
     CHECK(fallback_tokens.at("--code-font") == fallback.tokens.at("--code-font"));

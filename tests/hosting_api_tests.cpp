@@ -515,14 +515,14 @@ TEST_CASE("repository creation requests go to the account or the organization wi
     const hosting_http_request project { make_create_repository_request(gitlab, { .name = "new-app", .owner = "group/sub", .is_private = true }, 42u) };
     CHECK(project.url == "https://gitlab.com/api/v4/projects");
     CHECK(nlohmann::json::parse(project.body) == nlohmann::json { { "name", "new-app" }, { "path", "new-app" }, { "visibility", "private" }, { "namespace_id", 42 } });
-    const nlohmann::json personal { nlohmann::json::parse(make_create_repository_request(gitlab, { .name = "x", .is_private = false }, std::nullopt).body) };
+    const nlohmann::json personal = nlohmann::json::parse(make_create_repository_request(gitlab, { .name = "x", .is_private = false }, std::nullopt).body);
     CHECK(personal.contains("namespace_id") == false);
     CHECK(personal["visibility"] == "public");
     // GitLab path는 영숫자와 `_-.`만 받는다. 그 꼴이 아닌 폴더 이름은 path를 비워 서버가 이름으로 만들게 한다.
     for (const char* const name : { "My Project", "프로젝트", "-dash", ".dot" })
     {
         CAPTURE(name);
-        const nlohmann::json spaced { nlohmann::json::parse(make_create_repository_request(gitlab, { .name = name, .is_private = true }, std::nullopt).body) };
+        const nlohmann::json spaced = nlohmann::json::parse(make_create_repository_request(gitlab, { .name = name, .is_private = true }, std::nullopt).body);
         CHECK(spaced["name"] == name);
         CHECK(spaced.contains("path") == false);
     }

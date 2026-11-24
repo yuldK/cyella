@@ -383,7 +383,7 @@ TEST_CASE("an image diff prepares its two sides on the scheduler and shows them 
     test.coordinator.sides_prepared(test.sides[0]);
     CHECK(test.coordinator.controller().content() == diff_content::image);
     REQUIRE(test.coordinator.controller().poll());
-    const json message { json::parse(test.coordinator.controller().latest_message()) };
+    const json message = json::parse(test.coordinator.controller().latest_message());
     CHECK(message.at("type") == "show_image");
 }
 

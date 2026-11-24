@@ -112,7 +112,7 @@ TEST_CASE("nothing is posted until the page says it is ready", "[diff][controlle
     CHECK(controller.page_ready());
     REQUIRE(controller.poll());
     CHECK(controller.post_revision() == 1);
-    const json message { json::parse(controller.latest_message()) };
+    const json message = json::parse(controller.latest_message());
     CHECK(message.at("type") == "show_diff");
     CHECK_FALSE(controller.poll());
 }
@@ -123,7 +123,7 @@ TEST_CASE("a ready page with nothing to show receives a clear carrying the view 
     controller.set_layout(diff_layout::split);
     REQUIRE(controller.handle_web_message(ready_message).accepted);
     REQUIRE(controller.poll());
-    const json message { json::parse(controller.latest_message()) };
+    const json message = json::parse(controller.latest_message());
     CHECK(message.at("type") == "clear");
     CHECK(message.at("layout") == "split");
     CHECK(message.at("seq") == 1);
@@ -159,7 +159,7 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
         ui.controller.set_layout(diff_layout::split);
         static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
         REQUIRE(ui.controller.poll());
-        const json message { ui.latest() };
+        const json message = ui.latest();
         CHECK(message.at("type") == "show_diff");
         CHECK(message.at("layout") == "split");
         CHECK(message.at("theme").at("mode") == "light");
@@ -217,7 +217,7 @@ TEST_CASE("changes in one frame are folded into the single latest message", "[di
         ui.controller.set_theme(theme);
         ui.controller.set_layout(diff_layout::split);
         REQUIRE(ui.controller.poll());
-        const json message { ui.latest() };
+        const json message = ui.latest();
         CHECK(message.at("type") == "show_diff");
         CHECK(message.at("layout") == "split");
         CHECK(message.at("theme").at("mode") == "light");
@@ -463,7 +463,7 @@ TEST_CASE("a diff over the line limit is cut and offers the full view", "[diff][
     static_cast<void>(ui.controller.show(modified_diff(), u8"C:\\repo"));
     REQUIRE(ui.controller.poll());
 
-    json cut { ui.latest() };
+    json cut = ui.latest();
     CHECK(cut.at("truncated") == true);
     CHECK(cut.at("total_lines") == 10);
     CHECK(cut.at("shown_lines") == 5);
@@ -474,7 +474,7 @@ TEST_CASE("a diff over the line limit is cut and offers the full view", "[diff][
 
     REQUIRE(ui.controller.handle_web_message(ui.action({ { "type", "show_full" } })).accepted);
     REQUIRE(ui.controller.poll());
-    const json full { ui.latest() };
+    const json full = ui.latest();
     CHECK(full.at("truncated") == false);
     CHECK(full.at("shown_lines") == 10);
     CHECK(full.at("can_stage") == true);
@@ -593,7 +593,7 @@ TEST_CASE("a binary file asks for the sizes of its two sides and then shows a ca
     sides.right = { true, {}, 250 };
     ui.controller.sides_prepared(prepare.ticket, sides);
     REQUIRE(ui.controller.poll());
-    const json card { ui.latest() };
+    const json card = ui.latest();
     CHECK(card.at("type") == "show_binary");
     CHECK(card.at("old_size") == 100);
     CHECK(card.at("new_size") == 250);
@@ -617,7 +617,7 @@ TEST_CASE("an image shows both sides from temporary files", "[diff][controller]"
     sides.right = { false, u8"C:\\Temp\\cyella-diff\\op1\\right\\logo.PNG", std::nullopt };
     ui.controller.sides_prepared(prepare.ticket, sides);
     REQUIRE(ui.controller.poll());
-    const json image { ui.latest() };
+    const json image = ui.latest();
     CHECK(image.at("type") == "show_image");
     CHECK(image.at("left_url") == "file:///C:/Temp/cyella-diff/op1/left/logo.PNG");
     // 없는 쪽(삭제된 파일의 오른쪽)은 주소가 없다.

@@ -174,7 +174,7 @@ TEST_CASE("show_diff carries the state and the file in one message", "[diff][pro
     message.can_unstage = true;
     message.file = &file;
 
-    const json parsed { json::parse(serialize_show_diff(message)) };
+    const json parsed = json::parse(serialize_show_diff(message));
     CHECK(parsed.at("type") == "show_diff");
     CHECK(parsed.at("seq") == 12);
     CHECK(parsed.at("view") == "staged");
@@ -231,7 +231,7 @@ TEST_CASE("lines that are not valid UTF-8 travel as base64 without losing a byte
         hunk.lines.push_back(make_line(diff_line_kind::add, 0, number++, content));
     file.hunks.push_back(std::move(hunk));
 
-    const json parsed { serialize_diff(file) };
+    const json parsed = serialize_diff(file);
     const json& lines { parsed.at("file").at("hunks").at(0).at("lines") };
     for (std::size_t index { 0 }; index < contents.size(); ++index)
     {
@@ -247,7 +247,7 @@ TEST_CASE("valid UTF-8 stays a plain string", "[diff][protocol]")
 {
     diff_file file {};
     file.hunks.push_back(make_hunk({ make_line(diff_line_kind::add, 0, 1, "\xED\x95\x9C\xEA\xB8\x80\xF0\x9F\x98\x80 text") }));
-    const json parsed { serialize_diff(file) };
+    const json parsed = serialize_diff(file);
     const json& entry { parsed.at("file").at("hunks").at(0).at("lines").at(0) };
     CHECK(entry.size() == 4);
     CHECK(entry.at(3) == "\xED\x95\x9C\xEA\xB8\x80\xF0\x9F\x98\x80 text");
@@ -309,7 +309,7 @@ TEST_CASE("a long diff is cut at the line limit and says so", "[diff][protocol]"
         file.hunks.push_back(make_hunk(std::move(lines)));
     }
 
-    const json limited { serialize_diff(file, 15) };
+    const json limited = serialize_diff(file, 15);
     CHECK(limited.at("truncated") == true);
     CHECK(limited.at("total_lines") == 30);
     CHECK(limited.at("shown_lines") == 15);
@@ -317,7 +317,7 @@ TEST_CASE("a long diff is cut at the line limit and says so", "[diff][protocol]"
     CHECK(limited.at("file").at("hunks").at(0).at("lines").size() == 10);
     CHECK(limited.at("file").at("hunks").at(1).at("lines").size() == 5);
 
-    const json unlimited { serialize_diff(file, 0) };
+    const json unlimited = serialize_diff(file, 0);
     CHECK(unlimited.at("truncated") == false);
     CHECK(unlimited.at("shown_lines") == 30);
 
@@ -329,7 +329,7 @@ TEST_CASE("a missing file serializes as an empty diff", "[diff][protocol]")
 {
     show_diff_message message {};
     message.seq = 1;
-    const json parsed { json::parse(serialize_show_diff(message)) };
+    const json parsed = json::parse(serialize_show_diff(message));
     CHECK(parsed.at("file").at("hunks").empty());
     CHECK(parsed.at("total_lines") == 0);
 }
@@ -345,7 +345,7 @@ TEST_CASE("theme tokens are filtered before they reach CSS", "[diff][protocol]")
     theme.tokens["--evil"] = "red; } body { display: none";
     theme.tokens["--empty"] = "";
 
-    const json parsed { json::parse(serialize_set_theme(3, 2, theme)) };
+    const json parsed = json::parse(serialize_set_theme(3, 2, theme));
     CHECK(parsed.at("type") == "set_theme");
     CHECK(parsed.at("seq") == 3);
     CHECK(parsed.at("content_seq") == 2);
@@ -361,7 +361,7 @@ TEST_CASE("font tokens keep quoted and Korean family names but drop values that 
     diff_theme theme {};
     theme.tokens["--ui-font"] = "\"맑은 고딕\", \"Segoe UI\", system-ui, sans-serif";
     theme.tokens["--code-font"] = "\"Example\\\"Mono\", monospace";
-    const json kept_message { json::parse(serialize_set_theme(1, 0, theme)) };
+    const json kept_message = json::parse(serialize_set_theme(1, 0, theme));
     const json& kept { kept_message.at("theme").at("tokens") };
     CHECK(kept.at("--ui-font") == "\"맑은 고딕\", \"Segoe UI\", system-ui, sans-serif");
     CHECK(kept.at("--code-font") == "\"Example\\\"Mono\", monospace");
@@ -370,7 +370,7 @@ TEST_CASE("font tokens keep quoted and Korean family names but drop values that 
     theme.tokens["--code-font"] = "\"<b>\", monospace";
     // 글꼴 규칙은 두 글꼴 이름에만 쓴다. 다른 토큰은 여전히 색 규칙이다.
     theme.tokens["--accent"] = "\"Segoe UI\"";
-    const json dropped_message { json::parse(serialize_set_theme(1, 0, theme)) };
+    const json dropped_message = json::parse(serialize_set_theme(1, 0, theme));
     const json& dropped { dropped_message.at("theme").at("tokens") };
     CHECK(dropped.empty());
 }
@@ -385,7 +385,7 @@ TEST_CASE("small state messages carry only their own field", "[diff][protocol]")
     diff_view_state state {};
     state.layout = diff_layout::split;
     state.toolbar = false;
-    const json cleared { json::parse(serialize_clear(6, state)) };
+    const json cleared = json::parse(serialize_clear(6, state));
     CHECK(cleared.at("type") == "clear");
     CHECK(cleared.at("seq") == 6);
     CHECK(cleared.at("layout") == "split");
@@ -402,7 +402,7 @@ TEST_CASE("image and binary messages carry urls and sizes", "[diff][protocol]")
     image.left_url = "file:///C:/tmp/left/logo.png";
     image.left_size = 1024;
     image.right_size = 2048;
-    const json parsed_image { json::parse(serialize_show_image(image)) };
+    const json parsed_image = json::parse(serialize_show_image(image));
     CHECK(parsed_image.at("type") == "show_image");
     CHECK(parsed_image.at("left_url") == "file:///C:/tmp/left/logo.png");
     CHECK(parsed_image.at("right_url").is_null());
@@ -416,7 +416,7 @@ TEST_CASE("image and binary messages carry urls and sizes", "[diff][protocol]")
     binary.status = 'A';
     binary.new_size = 4096;
     binary.can_open_external = false;
-    const json parsed_binary { json::parse(serialize_show_binary(binary)) };
+    const json parsed_binary = json::parse(serialize_show_binary(binary));
     CHECK(parsed_binary.at("type") == "show_binary");
     CHECK(parsed_binary.at("old_size").is_null());
     CHECK(parsed_binary.at("new_size") == 4096);
@@ -553,7 +553,7 @@ TEST_CASE("malformed messages from the page are rejected", "[diff][protocol]")
 
 TEST_CASE("size limits of the page messages are enforced", "[diff][protocol]")
 {
-    json ranges { json::array() };
+    json ranges = json::array();
     for (std::size_t index { 0 }; index < diff_view_maximum_ranges; ++index)
         ranges.push_back(json::array({ index, index }));
     json lines { { "type", "stage_lines" }, { "seq", 1 }, { "hunk", 0 }, { "ranges", ranges } };

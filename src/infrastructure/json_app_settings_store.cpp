@@ -80,7 +80,7 @@ namespace cyella {
                 return json::object();
 
             const std::string_view source_bytes { as_bytes(shadow_source_json) };
-            json root { json::parse(source_bytes.begin(), source_bytes.end(), nullptr, false) };
+            json root = json::parse(source_bytes.begin(), source_bytes.end(), nullptr, false);
             if (root.is_discarded() || root.is_object() == false)
                 return json::object();
             return root;
@@ -658,15 +658,15 @@ namespace cyella {
 
     std::u8string serialize_app_settings_json(const app_settings& settings, const std::u8string_view shadow_source_json)
     {
-        json root { shadow_root(shadow_source_json) };
+        json root = shadow_root(shadow_source_json);
 
         // 더 새 앱이 쓴 버전 번호는 낮추지 않는다.
         root["schema_version"] = std::max(settings.schema_version, current_app_settings_schema_version);
 
-        json recent { json::array() };
+        json recent = json::array();
         for (const recent_repository& value : settings.recent_repositories)
         {
-            json entry { json::object() };
+            json entry = json::object();
             entry["path"] = as_string(value.path);
             entry["display_name"] = as_string(value.display_name);
             entry["opened_at"] = as_string(value.opened_at);
@@ -677,7 +677,7 @@ namespace cyella {
         }
         root["recent_repositories"] = std::move(recent);
 
-        json tabs { json::array() };
+        json tabs = json::array();
         for (const std::u8string& path : settings.open_tabs)
             tabs.push_back(as_string(path));
         root["open_tabs"] = std::move(tabs);
@@ -685,11 +685,11 @@ namespace cyella {
 
         root["git_executable"] = as_string(settings.git_executable);
 
-        json tools { json::array() };
+        json tools = json::array();
         for (const external_diff_tool& tool : settings.external_diff_tools)
         {
-            json entry { json::object() };
-            json extensions { json::array() };
+            json entry = json::object();
+            json extensions = json::array();
             for (const std::u8string& extension : tool.extensions)
                 extensions.push_back(as_string(extension));
             entry["extensions"] = std::move(extensions);
@@ -698,7 +698,7 @@ namespace cyella {
             tools.push_back(std::move(entry));
         }
         root["external_diff_tools"] = std::move(tools);
-        json file_apps { json::array() };
+        json file_apps = json::array();
         for (const external_file_app& app : settings.external_file_apps)
             file_apps.push_back({ { "name", as_string(app.name) }, { "executable", as_string(app.executable) }, { "arguments", as_string(app.arguments) } });
         root["external_file_apps"] = std::move(file_apps);
@@ -706,7 +706,7 @@ namespace cyella {
 
         // 객체 안의 알 수 없는 키도 살아남도록 기존 object 위에 덮어쓴다.
         {
-            json appearance { existing_object(root, "appearance") };
+            json appearance = existing_object(root, "appearance");
             appearance["theme"] = as_string(theme_preference_name(settings.appearance.theme));
             appearance["gravatar"] = settings.appearance.gravatar;
             appearance["accent"] = as_string(settings.appearance.accent);
@@ -718,7 +718,7 @@ namespace cyella {
         }
 
         {
-            json diff { existing_object(root, "diff") };
+            json diff = existing_object(root, "diff");
             diff["layout"] = as_string(diff_layout_preference_name(settings.diff.layout));
             diff["context_lines"] = settings.diff.context_lines;
             root["diff"] = std::move(diff);
@@ -733,10 +733,10 @@ namespace cyella {
         const bool has_layout { settings.ui.graph_layout == false || existing_object(root, "ui").contains("repository_layout") };
         if (has_widths || has_view || has_working_view || has_layout)
         {
-            json ui { existing_object(root, "ui") };
+            json ui = existing_object(root, "ui");
             if (has_widths)
             {
-                json panes { existing_object(ui, "pane_widths") };
+                json panes = existing_object(ui, "pane_widths");
                 const auto write_width = [&panes](const char* const key, const std::optional<float>& width) {
                     // 끌어서 얻은 float(237.33334350585938)를 그대로 쓰면 파일이 지저분하다. 0.01 논리 픽셀로 맞춘다.
                     if (width.has_value())
@@ -761,20 +761,20 @@ namespace cyella {
         // hosting 객체는 호스트 표나 웹 링크 표가 있을 때만 쓴다. 빈 표의 키는 지우고, 알 수 없는 키는 보존한다.
         if (settings.hosting.hosts.empty() == false || settings.hosting.web_links.empty() == false)
         {
-            json hosting { existing_object(root, "hosting") };
-            json hosts { json::array() };
+            json hosting = existing_object(root, "hosting");
+            json hosts = json::array();
             for (const hosting_host_setting& host : settings.hosting.hosts)
             {
-                json entry { json::object() };
+                json entry = json::object();
                 entry["host"] = host.host;
                 entry["provider"] = std::string { hosting_provider_name(host.provider) };
                 entry["api_base"] = host.api_base;
                 hosts.push_back(std::move(entry));
             }
-            json links { json::array() };
+            json links = json::array();
             for (const web_link_setting& link : settings.hosting.web_links)
             {
-                json entry { json::object() };
+                json entry = json::object();
                 entry["host"] = link.host;
                 entry["service"] = std::string { web_link_service_name(link.service) };
                 entry["web_base"] = link.web_base;
@@ -801,7 +801,7 @@ namespace cyella {
 
         if (settings.window.has_value())
         {
-            json window { existing_object(root, "window") };
+            json window = existing_object(root, "window");
             window["x"] = settings.window->x;
             window["y"] = settings.window->y;
             window["width"] = settings.window->width;
@@ -818,7 +818,7 @@ namespace cyella {
         // commit_suggestion 객체는 기본값과 다르거나 파일에 이미 있을 때만 쓴다. 쓰지 않는 사용자의 파일을 짧게 두고, 알 수 없는 키는 보존한다.
         if (settings.commit_suggestion != commit_suggestion_settings {} || root.contains("commit_suggestion"))
         {
-            json suggestion { existing_object(root, "commit_suggestion") };
+            json suggestion = existing_object(root, "commit_suggestion");
             suggestion["enabled"] = settings.commit_suggestion.enabled;
             suggestion["executable"] = as_string(settings.commit_suggestion.executable);
             suggestion["arguments"] = as_string(settings.commit_suggestion.arguments);
@@ -834,7 +834,7 @@ namespace cyella {
     {
         app_settings_load_result result {};
         const std::string_view source_bytes { as_bytes(source_json) };
-        json root { json::parse(source_bytes.begin(), source_bytes.end(), nullptr, false) };
+        json root = json::parse(source_bytes.begin(), source_bytes.end(), nullptr, false);
         if (root.is_discarded() || root.is_object() == false)
         {
             result.corrupt = true;

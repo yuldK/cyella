@@ -351,7 +351,7 @@ namespace cyella::test {
         // GitHub는 `owner`가 URL에서 오고, GitLab은 본문의 `namespace_id`(없으면 내 계정)에서 온다. 첫 커밋을 만들지 않는 빈 저장소다.
         [[nodiscard]] fake_response create_repository(const fake_request& request, std::string owner)
         {
-            const nlohmann::json body { nlohmann::json::parse(request.body, nullptr, false) };
+            const nlohmann::json body = nlohmann::json::parse(request.body, nullptr, false);
             if (body.is_discarded() || body.is_object() == false || body.contains("name") == false)
                 return json_response({ { "message", "Problems parsing JSON" } }, 400);
             const std::string name { body.value("name", "") };
@@ -463,7 +463,7 @@ namespace cyella::test {
 
         [[nodiscard]] fake_response create(const fake_request& request)
         {
-            const nlohmann::json body { nlohmann::json::parse(request.body, nullptr, false) };
+            const nlohmann::json body = nlohmann::json::parse(request.body, nullptr, false);
             if (create_error_.empty() == false)
             {
                 if (kind_ == flavor::github)

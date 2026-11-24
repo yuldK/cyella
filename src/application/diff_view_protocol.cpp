@@ -61,7 +61,7 @@ namespace cyella {
                 kind = 'n';
                 break;
             }
-            json entry { json::array() };
+            json entry = json::array();
             entry.push_back(std::string(1, kind));
             entry.push_back(line.old_line);
             entry.push_back(line.new_line);
@@ -80,13 +80,13 @@ namespace cyella {
         // 줄 수 상한 안에서 파일을 JSON으로 옮긴다. 상한에 닿으면 그 hunk의 앞부분까지만 싣고 멈춘다.
         json file_entry(const diff_file& file, const std::size_t line_limit, std::size_t& shown)
         {
-            json hunks { json::array() };
+            json hunks = json::array();
             shown = 0;
             for (const diff_hunk& hunk : file.hunks)
             {
                 if (line_limit != 0 && shown >= line_limit)
                     break;
-                json lines { json::array() };
+                json lines = json::array();
                 for (const diff_line& line : hunk.lines)
                 {
                     if (line_limit != 0 && shown >= line_limit)
@@ -159,7 +159,7 @@ namespace cyella {
 
         json theme_entry(const diff_theme& theme)
         {
-            json tokens { json::object() };
+            json tokens = json::object();
             for (const auto& [name, value] : theme.tokens)
                 if (is_safe_token(name, value))
                     tokens[name] = value;
@@ -440,7 +440,7 @@ namespace cyella {
         result["revision"] = to_valid_utf8(message.revision);
         result["focus"] = to_valid_utf8(message.focus);
 
-        json origins { json::array() };
+        json origins = json::array();
         if (message.origins != nullptr)
         {
             for (const blame_origin& origin : *message.origins)
@@ -459,7 +459,7 @@ namespace cyella {
         }
         result["origins"] = std::move(origins);
 
-        json lines { json::array() };
+        json lines = json::array();
         const std::size_t total { message.lines != nullptr ? message.lines->size() : 0 };
         const std::size_t shown { message.line_limit != 0 ? std::min(total, message.line_limit) : total };
         for (std::size_t index { 0 }; index < shown; ++index)
@@ -566,7 +566,7 @@ namespace cyella {
 
     diff_action_parse_result parse_diff_view_action(const std::string_view text)
     {
-        const json root { json::parse(text.begin(), text.end(), nullptr, false) };
+        const json root = json::parse(text.begin(), text.end(), nullptr, false);
         if (root.is_discarded())
             return reject("not valid JSON");
         if (root.is_object() == false)

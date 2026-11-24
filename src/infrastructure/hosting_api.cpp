@@ -132,7 +132,7 @@ namespace cyella {
 
         std::string error_message_of(const std::string_view body)
         {
-            const json root { json::parse(body.begin(), body.end(), nullptr, false) };
+            const json root = json::parse(body.begin(), body.end(), nullptr, false);
             if (root.is_discarded() || root.is_object() == false)
                 return {};
             std::string message {};
@@ -348,7 +348,7 @@ namespace cyella {
 
     hosting_http_request make_create_pull_request_request(const hosting_repository& repository, const create_pull_request_params& params)
     {
-        json body { json::object() };
+        json body = json::object();
         hosting_http_request request {};
         if (repository.provider == hosting_provider::gitlab)
         {
@@ -376,7 +376,7 @@ namespace cyella {
 
     hosting_http_request make_create_repository_request(const hosting_repository& repository, const create_repository_params& params, const std::optional<std::uint64_t> namespace_id)
     {
-        json body { json::object() };
+        json body = json::object();
         hosting_http_request request {};
         if (repository.provider == hosting_provider::gitlab)
         {
@@ -496,7 +496,7 @@ namespace cyella {
             return failure<std::string>(provider, response);
         hosting_result<std::string> result {};
         result.rate_limit = read_rate_limit(response);
-        const json root { json::parse(response.body.begin(), response.body.end(), nullptr, false) };
+        const json root = json::parse(response.body.begin(), response.body.end(), nullptr, false);
         const std::string name { string_of(root, provider == hosting_provider::gitlab ? "username" : "login") };
         if (name.empty())
         {
@@ -513,7 +513,7 @@ namespace cyella {
             return failure<pull_request_page>(provider, response);
         hosting_result<pull_request_page> result {};
         result.rate_limit = read_rate_limit(response);
-        const json root { json::parse(response.body.begin(), response.body.end(), nullptr, false) };
+        const json root = json::parse(response.body.begin(), response.body.end(), nullptr, false);
         if (root.is_array() == false)
         {
             result.error = invalid_response_error(response);
@@ -553,7 +553,7 @@ namespace cyella {
             return failure<created_pull_request>(provider, response);
         hosting_result<created_pull_request> result {};
         result.rate_limit = read_rate_limit(response);
-        const json root { json::parse(response.body.begin(), response.body.end(), nullptr, false) };
+        const json root = json::parse(response.body.begin(), response.body.end(), nullptr, false);
         created_pull_request created {};
         if (provider == hosting_provider::gitlab)
         {
@@ -583,7 +583,7 @@ namespace cyella {
             return failure<created_repository>(provider, response);
         hosting_result<created_repository> result {};
         result.rate_limit = read_rate_limit(response);
-        const json root { json::parse(response.body.begin(), response.body.end(), nullptr, false) };
+        const json root = json::parse(response.body.begin(), response.body.end(), nullptr, false);
         created_repository created {};
         if (provider == hosting_provider::gitlab)
         {
@@ -615,7 +615,7 @@ namespace cyella {
             return failure<std::uint64_t>(provider, response);
         hosting_result<std::uint64_t> result {};
         result.rate_limit = read_rate_limit(response);
-        const json root { json::parse(response.body.begin(), response.body.end(), nullptr, false) };
+        const json root = json::parse(response.body.begin(), response.body.end(), nullptr, false);
         const std::uint64_t id { unsigned_of(root, "id") };
         if (id == 0)
         {
@@ -657,7 +657,7 @@ namespace cyella {
                 }
                 return failure<ci_status_info>(provider, response);
             }
-            const json root { json::parse(response.body.begin(), response.body.end(), nullptr, false) };
+            const json root = json::parse(response.body.begin(), response.body.end(), nullptr, false);
             if (root.is_array() == false)
             {
                 result.error = invalid_response_error(response);
@@ -691,7 +691,7 @@ namespace cyella {
         const hosting_http_response& status_response { responses[0] };
         if (success_status(status_response))
         {
-            const json root { json::parse(status_response.body.begin(), status_response.body.end(), nullptr, false) };
+            const json root = json::parse(status_response.body.begin(), status_response.body.end(), nullptr, false);
             if (root.is_object())
             {
                 // 상태가 하나도 없을 때 combined state는 "pending"이다. 개수가 0이면 쓰지 않는다.
@@ -712,7 +712,7 @@ namespace cyella {
             const hosting_http_response& checks_response { responses[1] };
             if (success_status(checks_response))
             {
-                const json root { json::parse(checks_response.body.begin(), checks_response.body.end(), nullptr, false) };
+                const json root = json::parse(checks_response.body.begin(), checks_response.body.end(), nullptr, false);
                 if (const json& runs { child_of(root, "check_runs") }; runs.is_array())
                     for (const json& item : runs)
                     {

@@ -111,7 +111,7 @@ TEST_CASE("settings survive a serialize and parse round trip", "[json_app_settin
 TEST_CASE("default settings round trip and write every known key", "[json_app_settings]")
 {
     const std::u8string bytes { serialize_app_settings_json(app_settings {}, u8"") };
-    const json document { json::parse(text_of(bytes)) };
+    const json document = json::parse(text_of(bytes));
 
     CHECK(document.at("schema_version") == 1);
     CHECK(document.at("recent_repositories").is_array());
@@ -138,7 +138,7 @@ TEST_CASE("serialized settings use CRLF and keep Korean text readable", "[json_a
 
 TEST_CASE("pinned is written only when true", "[json_app_settings]")
 {
-    const json document { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8""))) };
+    const json document = json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"")));
     const json& recent { document.at("recent_repositories") };
     CHECK(recent.at(0).at("pinned") == true);
     CHECK_FALSE(recent.at(1).contains("pinned"));
@@ -161,7 +161,7 @@ TEST_CASE("unknown keys survive a load and save cycle", "[json_app_settings]")
     loaded.settings.appearance.theme = theme_preference::dark;
     loaded.settings.window->width = 640;
 
-    const json saved { json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json))) };
+    const json saved = json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json)));
 
     CHECK(saved.at("future_feature").at("enabled") == true);
     CHECK(saved.at("future_feature").at("list").size() == 3);
@@ -185,16 +185,16 @@ TEST_CASE("unknown keys survive through the store on disk", "[json_app_settings]
     const app_settings_save_result saved { store.save(settings_path, loaded.settings, loaded.shadow_source_json) };
     REQUIRE(saved.succeeded);
 
-    const json document { json::parse(text_of(file_system.files[settings_path])) };
+    const json document = json::parse(text_of(file_system.files[settings_path]));
     CHECK(document.at("keep_me") == "yes");
     CHECK(document.at("git_executable") == "C:\\git\\git.exe");
 }
 
 TEST_CASE("a shadow that is not an object is ignored", "[json_app_settings]")
 {
-    const json document { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2"))) };
+    const json document = json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2")));
     CHECK(document.at("schema_version") == 1);
-    const json from_array { json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2]"))) };
+    const json from_array = json::parse(text_of(serialize_app_settings_json(filled_settings(), u8"[1, 2]")));
     CHECK(from_array.is_object());
 }
 
@@ -348,7 +348,7 @@ TEST_CASE("schema version handling", "[json_app_settings]")
         CHECK(loaded.settings.schema_version == 7);
         CHECK(loaded.settings.git_executable == u8"C:\\git\\git.exe");
 
-        const json saved { json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json))) };
+        const json saved = json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json)));
         // 번호를 낮추지 않고 모르는 키도 남긴다.
         CHECK(saved.at("schema_version") == 7);
         CHECK(saved.at("brand_new").at("a") == 1);
@@ -356,7 +356,7 @@ TEST_CASE("schema version handling", "[json_app_settings]")
 
     SECTION("새로 쓰는 파일은 현재 버전이다")
     {
-        const json saved { json::parse(text_of(serialize_app_settings_json(app_settings {}, u8""))) };
+        const json saved = json::parse(text_of(serialize_app_settings_json(app_settings {}, u8"")));
         CHECK(saved.at("schema_version") == current_app_settings_schema_version);
     }
 }
@@ -409,8 +409,8 @@ TEST_CASE("valid entries are kept next to broken ones", "[json_app_settings]")
 
 TEST_CASE("loading keeps pinned entries even beyond the cap and restores the invariants", "[json_app_settings]")
 {
-    json document { json::object() };
-    json recent { json::array() };
+    json document = json::object();
+    json recent = json::array();
     // 비고정 25개 뒤에 고정 하나가 있는 손으로 고친 파일이다.
     for (int number = 0; number < 25; ++number)
         recent.push_back({ { "path", "C:\\work\\repo" + std::to_string(number) } });
@@ -607,7 +607,7 @@ TEST_CASE("pane widths are written under ui and absent widths are left out", "[j
 
     app_settings settings {};
     settings.ui.pane_widths.sidebar = 300.0f;
-    const json one { json::parse(text_of(serialize_app_settings_json(settings, u8""))) };
+    const json one = json::parse(text_of(serialize_app_settings_json(settings, u8"")));
     CHECK(one.at("ui").at("pane_widths").at("sidebar") == 300.0);
     CHECK_FALSE(one.at("ui").at("pane_widths").contains("detail"));
 
@@ -622,7 +622,7 @@ TEST_CASE("pane widths are written under ui and absent widths are left out", "[j
     // 커밋 메시지 칸 높이 하나만 있어도 ui 객체를 쓴다.
     app_settings meta_only {};
     meta_only.ui.pane_widths.commit_meta = 180.25f;
-    const json meta_json { json::parse(text_of(serialize_app_settings_json(meta_only, u8""))) };
+    const json meta_json = json::parse(text_of(serialize_app_settings_json(meta_only, u8"")));
     CHECK(meta_json.at("ui").at("pane_widths").at("commit_meta") == 180.25);
     CHECK_FALSE(meta_json.at("ui").at("pane_widths").contains("sidebar"));
     const app_settings_load_result meta_loaded { parse_app_settings_json(serialize_app_settings_json(meta_only, u8"")) };
@@ -643,7 +643,7 @@ TEST_CASE("the commit files view is written under ui once the tree is chosen", "
     // 목록으로 되돌리면 같은 키에 "list"가 남는다. 처음부터 목록이면 ui를 쓰지 않는다.
     app_settings back { loaded.settings };
     back.ui.commit_files_tree = false;
-    const json saved { json::parse(text_of(serialize_app_settings_json(back, loaded.shadow_source_json))) };
+    const json saved = json::parse(text_of(serialize_app_settings_json(back, loaded.shadow_source_json)));
     CHECK(saved.at("ui").at("commit_files_view") == "list");
     CHECK_FALSE(parse_app_settings_json(serialize_app_settings_json(back, loaded.shadow_source_json)).settings.ui.commit_files_tree);
 
@@ -721,7 +721,7 @@ TEST_CASE("unknown keys inside ui survive saving the pane widths", "[json_app_se
     CHECK(loaded.settings.ui.pane_widths.sidebar == 250.0f);
     loaded.settings.ui.pane_widths.detail = 333.0f;
 
-    const json saved { json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json))) };
+    const json saved = json::parse(text_of(serialize_app_settings_json(loaded.settings, loaded.shadow_source_json)));
     CHECK(saved.at("ui").at("future_density") == "compact");
     CHECK(saved.at("ui").at("pane_widths").at("graph") == 1);
     CHECK(saved.at("ui").at("pane_widths").at("sidebar") == 250.0);
@@ -749,7 +749,7 @@ TEST_CASE("diff settings are written under diff and survive a round trip", "[jso
     settings.diff.layout = diff_layout_preference::split;
     settings.diff.context_lines = 0;
     const std::u8string bytes { serialize_app_settings_json(settings, u8"") };
-    const json document { json::parse(text_of(bytes)) };
+    const json document = json::parse(text_of(bytes));
     CHECK(document.at("diff").at("layout") == "split");
     CHECK(document.at("diff").at("context_lines") == 0);
 
@@ -791,7 +791,7 @@ TEST_CASE("unknown keys inside diff survive saving", "[json_app_settings][diff]"
     const std::u8string source { u8R"({ "diff": { "layout": "inline", "future_option": true } })" };
     app_settings settings { parse_app_settings_json(source).settings };
     settings.diff.layout = diff_layout_preference::split;
-    const json document { json::parse(text_of(serialize_app_settings_json(settings, source))) };
+    const json document = json::parse(text_of(serialize_app_settings_json(settings, source)));
     CHECK(document.at("diff").at("layout") == "split");
     CHECK(document.at("diff").at("future_option") == true);
 }
@@ -818,7 +818,7 @@ TEST_CASE("font families and working file view round trip while unknown settings
     CHECK(loaded.settings.ui.working_files_tree);
     const std::u8string saved { serialize_app_settings_json(loaded.settings, source) };
     CHECK(parse_app_settings_json(saved).settings == loaded.settings);
-    const json document { json::parse(text_of(saved)) };
+    const json document = json::parse(text_of(saved));
     CHECK(document.at("appearance").at("future") == true);
     CHECK(document.at("ui").at("future") == 7);
     CHECK(document.at("ui").at("working_files_view") == "tree");
@@ -839,7 +839,7 @@ TEST_CASE("repository layout defaults to graph and round trips both choices with
     settings.ui.graph_layout = true;
     const auto saved { serialize_app_settings_json(settings, source) };
     CHECK(parse_app_settings_json(saved).settings.ui.graph_layout);
-    const json document { json::parse(text_of(saved)) };
+    const json document = json::parse(text_of(saved));
     CHECK(document.at("ui").at("repository_layout") == "graph");
     CHECK(document.at("ui").at("future") == 7);
     CHECK(document.at("ui").at("working_files_view") == "tree");
@@ -873,7 +873,7 @@ TEST_CASE("commit suggestion is off and unwritten by default", "[json_app_settin
 {
     // staged 변경 내용을 외부 명령으로 넘기는 기능이라 기본이 꺼짐이고, 쓰지 않는 사용자의 파일에는 키도 없다.
     CHECK(app_settings {}.commit_suggestion.enabled == false);
-    const json document { json::parse(text_of(serialize_app_settings_json(app_settings {}, u8""))) };
+    const json document = json::parse(text_of(serialize_app_settings_json(app_settings {}, u8"")));
     CHECK_FALSE(document.contains("commit_suggestion"));
 }
 
@@ -909,7 +909,7 @@ TEST_CASE("turning commit suggestion off keeps the command and unknown keys", "[
     const std::u8string source { u8R"({ "commit_suggestion": { "enabled": true, "executable": "claude", "arguments": "-p", "future_option": 3 } })" };
     app_settings settings { parse_app_settings_json(source).settings };
     settings.commit_suggestion.enabled = false;
-    const json document { json::parse(text_of(serialize_app_settings_json(settings, source))) };
+    const json document = json::parse(text_of(serialize_app_settings_json(settings, source)));
     CHECK(document.at("commit_suggestion").at("enabled") == false);
     CHECK(document.at("commit_suggestion").at("executable") == "claude");
     CHECK(document.at("commit_suggestion").at("future_option") == 3);

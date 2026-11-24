@@ -594,7 +594,7 @@ TEST_CASE("integration: clicking stage on selected lines reaches the index throu
     REQUIRE(live.session(repository).selected_diff().has_value());
     static_cast<void>(controller.show(*live.session(repository).selected_diff(), u8_of(env.repository)));
     REQUIRE(controller.poll());
-    const json shown { json::parse(controller.latest_message()) };
+    const json shown = json::parse(controller.latest_message());
     REQUIRE(shown.at("type") == "show_diff");
     REQUIRE(shown.at("can_stage") == true);
 

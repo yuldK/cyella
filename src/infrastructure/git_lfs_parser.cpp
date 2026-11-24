@@ -60,7 +60,7 @@ namespace cyella {
 
     std::optional<std::vector<lfs_file>> parse_git_lfs_files_json(const std::string_view bytes)
     {
-        const json root { json::parse(bytes.begin(), bytes.end(), nullptr, false) };
+        const json root = json::parse(bytes.begin(), bytes.end(), nullptr, false);
         if (root.is_object() == false)
             return std::nullopt;
         const auto files { root.find("files") };

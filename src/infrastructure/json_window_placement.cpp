@@ -39,7 +39,7 @@ namespace cyella {
 
     std::optional<saved_window_placement> parse_window_placement_json(const std::u8string_view bytes)
     {
-        const nlohmann::json value { nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false) };
+        const nlohmann::json value = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
         if (value.is_object() == false)
             return std::nullopt;
         const std::optional<int> x { read_int(value, "x") };
