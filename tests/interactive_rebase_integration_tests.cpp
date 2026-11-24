@@ -464,6 +464,8 @@ TEST_CASE("integration: a commit-msg hook still runs on reword", "[rebase][integ
     const std::filesystem::path repo { make_linear_feature(directory.path()) };
     // 메시지 끝에 꼬리말을 더하는 hook이다. reword가 hook을 건너뛰면 꼬리말이 없다.
     test::write_file(repo / ".git" / "hooks" / "commit-msg", "#!/bin/sh\nprintf '\\nHook-Ran: yes\\n' >> \"$1\"\n");
+    // POSIX의 git은 실행 권한이 있는 hook만 부른다 (Git for Windows는 권한을 보지 않는다).
+    std::filesystem::permissions(repo / ".git" / "hooks" / "commit-msg", std::filesystem::perms::owner_exec, std::filesystem::perm_options::add);
     live_workspace live {};
     const std::string id { live.open(repo) };
     const rebase_plan plan { live.plan(id, "main", "feature") };

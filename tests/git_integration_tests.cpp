@@ -734,7 +734,9 @@ TEST_CASE("integration: remote commands run against a local bare repository", "[
         run_ok(one, make_git_delete_remote_branch_args("origin", "feature"));
         run_ok(two, make_git_fetch_args());
         // --prune으로 추적 ref가 사라져 upstream이 gone이 된다.
-        const ref* feature { find_ref(refs_of(two), "refs/heads/feature") };
+        // 목록을 먼저 붙잡는다. 임시 목록 안을 가리키는 포인터는 그 문장이 끝나면 매달린다.
+        const git_ref_list after_prune { refs_of(two) };
+        const ref* feature { find_ref(after_prune, "refs/heads/feature") };
         REQUIRE(feature != nullptr);
         CHECK(feature->upstream_gone);
     }
