@@ -5,11 +5,11 @@
   </picture>
 </h1>
 
-<p align="center">Windows용 Git 클라이언트</p>
+<p align="center">Windows·macOS용 Git 클라이언트</p>
 
-cyella는 Windows용 Git 클라이언트다. 여러 저장소를 탭으로 열고, 커밋 그래프를 보며 브랜치·태그·rebase를
-끌어 놓기와 우클릭 메뉴로 다룬다. C++20과 [luil](https://github.com/yuldK/luil)(Skia·Win32)로 화면을 그리고,
-Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
+cyella는 Windows와 macOS용 Git 클라이언트다. 여러 저장소를 탭으로 열고, 커밋 그래프를 보며 브랜치·태그·rebase를
+끌어 놓기와 우클릭 메뉴로 다룬다. C++20과 [luil](https://github.com/yuldK/luil)(Skia·Win32·AppKit)로 화면을 그리고,
+Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다. macOS 판의 차이는 [macOS](#macos)에 모았다.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/graph-light.png">
@@ -70,7 +70,8 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 
 ## 개인 정보와 자격 증명
 
-- 설정은 `%APPDATA%\cyella\settings.json`에, 창 위치·크기·최대화는 같은 폴더의 `window-placement.json`에 저장한다.
+- 설정은 `%APPDATA%\cyella\settings.json`(macOS는 `~/Library/Application Support/cyella/settings.json`)에, 창 위치·크기·최대화는 같은 폴더의
+  `window-placement.json`에 저장한다.
 - 비밀번호·passphrase·호스팅 토큰은 파일에 쓰지 않는다. 토큰은 `git credential`(Git Credential Manager 등)에서 받아
   실행 중에만 메모리에 둔다.
 - 작성자 사진(Gravatar)은 기본으로 꺼져 있다. 켜면 작성자 메일의 SHA-256 해시가 gravatar.com으로 간다.
@@ -80,6 +81,8 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 
 ## 실행 환경
 
+Windows (macOS는 [macOS](#macos)를 본다):
+
 - Windows 10·11 x64
 - [Git for Windows](https://gitforwindows.org/) 2.43 이상 (시험은 2.52에서 했다. 2.43~2.51의 오류 문구가 같은지는 확인하지 못했다)
 - [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (diff 뷰어. 없으면 텍스트 목록으로 보인다)
@@ -87,7 +90,7 @@ Git 작업은 설치된 git CLI를 외부 프로세스로 실행한다.
 
 ## 빌드
 
-필요한 것:
+Windows에서 필요한 것 (macOS는 [macOS](#macos)를 본다):
 
 - Visual Studio 2022 또는 2026, MSVC 19.40 이상
 - Windows SDK 10.0.22621.0 이상
@@ -135,6 +138,58 @@ CTest는 소스 스타일 검사(`scripts\check_source_style.ps1`)를 함께 돌
 통합 테스트는 임시 저장소와 실제 git을 쓰고, git-lfs·gpg·ssh-keygen이 없으면 해당 테스트를 건너뛴다.
 Node.js가 있으면 diff 뷰어의 JavaScript 테스트도 CTest에 함께 등록된다.
 
+## macOS
+
+macOS arm64(Apple Silicon, macOS 11 이상)에서 앱 번들 `Cyella.app`으로 돈다. 화면·git 작업·인증·감시·diff 뷰어는 Windows 판과 같은 코드이고,
+OS 어댑터만 `src/platform/macos`에 따로 있다 ([ADR-013](docs/decisions/ADR-013-macos.md)).
+
+실행 환경:
+
+- git 2.43 이상. Xcode 명령줄 도구의 `/usr/bin/git`(Apple Git)을 쓰고, Homebrew의 git(`/opt/homebrew/bin/git`)이 있어도 찾는다.
+  환경 설정에서 다른 git을 고를 수 있다.
+- 선택: Git LFS·GnuPG(Homebrew나 GPG Suite), 커밋 메시지 제안에 쓸 AI 명령. ssh·ssh-keygen·ssh-agent는 시스템의 OpenSSH(`/usr/bin`)다.
+
+Windows 판과 다른 점:
+
+| 항목 | macOS |
+| --- | --- |
+| 설정·창 배치 | `~/Library/Application Support/cyella/` |
+| 지워도 되는 보관 자료(작성자 사진, 제안 명령의 작업 폴더) | `~/Library/Caches/cyella/` |
+| diff 뷰어 | 시스템의 WKWebView. 따로 설치할 Runtime이 없다 |
+| 도우미 | `cyella-askpass`·`cyella-rebase-editor`가 번들의 `Contents/MacOS`에 앱과 함께 놓인다. askpass는 Unix 소켓으로 앱에 묻는다 |
+| 파일 감시 | FSEvents |
+| 다른 앱으로 열기 | 기본 항목은 Finder(`open -R`)와 VS Code(`open -b com.microsoft.VSCode`)다 |
+| 휴지통 | Finder의 휴지통(되돌려 놓기로 살린다) |
+| 단축키 | 단축키의 Ctrl 자리는 Command다(luil의 규칙). 화면에는 ⌘ 꼴로 적힌다 |
+| 창 제목 막대 | 시스템의 것을 쓴다. 앱 메뉴(종료 등)는 luil이 세운다 |
+
+빌드에 필요한 것: Xcode(명령줄 도구 포함), CMake 4.2 이상, Ninja, PowerShell 7(`pwsh`, Skia 준비 스크립트와 소스 스타일 검사).
+저장소 루트에서 실행한다.
+
+```sh
+git submodule update --init
+git -C third_party/luil submodule update --init third_party/nlohmann_json
+pwsh -Command "& ./third_party/luil/scripts/fetch_skia.ps1 -Target mac-arm64 -Configuration Debug,Release"
+cmake --preset macos-arm64
+cmake --build --preset macos-arm64-release
+open build/macos-arm64/src/Release/Cyella.app
+```
+
+빌드는 번들에 도우미·diff 뷰어·고지를 넣고 ad-hoc 서명(`codesign --sign -`)까지 한다. 배포용 서명(Developer ID)과 공증은 하지 않는다.
+`cmake --install build/macos-arm64 --config Release`는 `bin/Cyella.app`에 번들을 놓는다. 터미널에서 로그를 보려면 번들 안의 실행 파일을
+바로 띄운다: `build/macos-arm64/src/Release/Cyella.app/Contents/MacOS/Cyella <저장소 경로>`.
+
+테스트:
+
+```sh
+cmake --preset macos-arm64-tests
+cmake --build --preset macos-arm64-tests-debug
+ctest --preset macos-arm64-tests-debug
+```
+
+드라이브·UNC·`.exe`·Git for Windows의 배치처럼 Windows 경로 규칙 자체를 보는 테스트는 Windows에서만 돌고, 같은 계약의 macOS 판은
+`tests/macos_platform_tests.cpp`가 본다. 시험이 Windows 꼴로 적은 경로는 `tests/native_path_support.h`가 macOS 꼴로 옮긴다.
+
 ## 개발 도구
 
 - `scripts\check_source_style.ps1`: 인코딩·줄 끝·식별자·닫는 중괄호 위치를 검사한다. CTest의 `cyella_source_style`이 부른다.
@@ -150,7 +205,8 @@ Node.js가 있으면 diff 뷰어의 JavaScript 테스트도 CTest에 함께 등�
 | `src/application` | 저장소 세션, operation 정의와 실행 흐름, 설정 서비스 |
 | `src/infrastructure` | 프로세스 실행, git 명령 조립과 출력 해석, 호스팅 API, 설정 파일 |
 | `src/presentation` | 화면 상태·snapshot과 luil element tree |
-| `src/platform/win32` | 진입점, 창과 웹뷰 연결, askpass·rebase 편집기 도우미 |
+| `src/platform/win32` | OS 어댑터의 계약(헤더)과 OS를 모르는 조립(driver·relay·askpass·호스팅 다리), Win32 구현·진입점·도우미 |
+| `src/platform/macos` | 같은 계약의 macOS 구현(POSIX·Foundation·AppKit), 진입점, 도우미, 앱 번들 |
 | `assets/diff-viewer` | WebView2 diff 뷰어(HTML·JS·CSS) |
 | `tests` | Catch2 단위·통합 테스트와 고정 git 출력 |
 
